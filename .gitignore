@@ -1,0 +1,89 @@
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Frontend - Node.js
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+frontend/pnpm-error.log*
+frontend/lerna-debug.log*
+frontend/coverage/
+frontend/.nyc_output/
+frontend/.cache/
+
+# Backend - Python
+backend/__pycache__/
+backend/**/*.py[cod]
+backend/**/*$py.class
+backend/**/*.so
+backend/.Python
+backend/*.egg-info/
+backend/dist/
+backend/build/
+backend/eggs/
+backend/parts/
+bin/
+var/
+sdist/
+develop-eggs/
+backend/.installed.cfg
+backend/lib/
+backend/lib64/
+backend/venv/
+backend/env/
+backend/ENV/
+backend/.env
+backend/.venv
+backend/pip-log.txt
+backend/pip-delete-this-directory.txt
+backend/.tox/
+backend/.coverage
+backend/.pytest_cache/
+backend/htmlcov/
+backend/.mypy_cache/
+backend/.dmypy.json
+backend/dmypy.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# Temp files
+*.tmp
+*.temp
+
+# Misc
+*.bak
+*.backup
+
+# Claude
+.claude/

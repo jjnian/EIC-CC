@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>推演 · 本体图谱</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#07090e;color:#c5d8eb;font-family:'Space Grotesk',sans-serif;height:100vh;overflow:hidden;user-select:none}
+.app{display:flex;height:100vh}
+
+/* ── Sidebar ── */
+.sidebar{width:48px;background:#070b12;border-right:1px solid #111c2c;display:flex;flex-direction:column;align-items:stretch;padding:10px 0 6px;gap:2px;flex-shrink:0;transition:width .22s cubic-bezier(.4,0,.2,1);overflow:hidden}
+.sidebar.exp{width:180px}
+.sidebar-logo{display:flex;align-items:center;gap:10px;padding:0 8px;margin-bottom:12px;flex-shrink:0;cursor:pointer}
+.sidebar-logo:hover .logo-mark{box-shadow:0 2px 16px #1a5fcc88,0 0 0 2px #1a5fcc44}
+.logo-mark{width:32px;height:32px;background:linear-gradient(135deg,#1a5fcc,#0e3a8a);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;border-radius:7px;flex-shrink:0;box-shadow:0 2px 12px #1a5fcc44;letter-spacing:-.5px}
+.logo-text{font-size:14px;font-weight:700;color:#4a7aaa;white-space:nowrap;opacity:0;transition:opacity .18s}
+.sidebar.exp .logo-text{opacity:1}
+.sb-item{display:flex;align-items:center;gap:10px;padding:0 6px;height:36px;border-radius:7px;margin:0 4px;cursor:pointer;border:none;background:transparent;color:#253a52;font-size:15px;transition:all .15s;text-align:left;width:calc(100% - 8px);flex-shrink:0}
+.sb-item:hover{background:#0f1c2c;color:#4a7aaa}
+.sb-item.active{background:#0a1e38;color:#2a7acc}
+.sb-item-label{font-size:11.5px;color:inherit;white-space:nowrap;opacity:0;transition:opacity .18s;font-family:'Space Grotesk',sans-serif}
+.sidebar.exp .sb-item-label{opacity:1}
+.sb-icon{width:28px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sb-divider{height:1px;background:#111c2c;margin:6px 8px}
+.sb-spacer{flex:1}
+.sb-toggle{display:flex;align-items:center;gap:10px;padding:0 6px;height:36px;margin:0 4px;border-radius:7px;cursor:pointer;border:none;background:transparent;color:#1a2e44;font-size:13px;transition:all .15s;width:calc(100% - 8px)}
+.sb-toggle:hover{color:#4a7aaa;background:#0f1c2c}
+.sb-toggle-icon{width:28px;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform .22s}
+.sidebar.exp .sb-toggle-icon{transform:rotate(180deg)}
+.sb-toggle-label{font-size:11.5px;white-space:nowrap;opacity:0;transition:opacity .18s;font-family:'Space Grotesk',sans-serif}
+.sidebar.exp .sb-toggle-label{opacity:1}
+
+/* ── Main ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.topbar{height:44px;background:#070b12;border-bottom:1px solid #111c2c;display:flex;align-items:center;justify-content:space-between;padding:0 14px;flex-shrink:0}
+.breadcrumb{display:flex;align-items:center;gap:6px;font-size:12.5px}
+.bc-dim{color:#1e3348}.bc-muted{color:#2d4a66}.bc-sep{color:#141e2c;font-size:14px}.bc-cur{color:#8ab4d0;font-weight:500}
+.bc-star{color:#1e3348;cursor:pointer;margin-left:2px;font-size:13px;transition:color .15s}.bc-star:hover{color:#cc9200}
+.tb-tools{display:flex;align-items:center;gap:6px}
+.tb-badge{font-size:10.5px;font-family:'JetBrains Mono',monospace;color:#253a52;background:#0a0f18;padding:3px 8px;border-radius:4px;border:1px solid #111c2c}
+.tb-badge.ok{color:#00aa66;border-color:#002816}
+.tb-btn{font-size:11.5px;background:#0a0f18;color:#4d6a84;border:1px solid #111c2c;padding:4px 11px;border-radius:5px;cursor:pointer;transition:all .15s;font-family:'Space Grotesk',sans-serif}
+.tb-btn:hover{background:#0f1c2c;color:#c5d8eb}
+.tb-btn.hi{background:#0a1e38;color:#4a8acc;border-color:#1a3a6a}
+.tb-btn.hi:hover{background:#0d2444;color:#7ab8f0}
+
+/* ── Content row ── */
+.content{flex:1;display:flex;overflow:hidden;min-height:0}
+
+/* ── Graph area (wraps canvas + node-info) ── */
+.graph-area{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;position:relative}
+.graph-canvas{flex:1;position:relative;overflow:hidden;cursor:grab;background-color:#07090e;background-image:radial-gradient(circle,#0f1c2c 1px,transparent 1px);background-size:28px 28px;min-height:0}
+.graph-canvas:active{cursor:grabbing}
+.graph-root{position:absolute;top:0;left:0}
+
+/* ── Node ── */
+.node{position:absolute;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;cursor:grab;border-radius:0 7px 7px 0;border-left-width:2.5px;border-left-style:solid;border-top:1px solid transparent;border-right:1px solid transparent;border-bottom:1px solid transparent;height:44px;transition:box-shadow .2s,border-color .2s}
+.node:active{cursor:grabbing;z-index:100}
+.node-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.node-label{font-size:12px;font-weight:500;color:#c5d8eb;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.node-type{font-size:9px;color:#1e3348;font-family:'JetBrains Mono',monospace;flex-shrink:0;pointer-events:none}
+.node-sel{z-index:10}
+@keyframes nodeIn{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+.node-new{animation:nodeIn .45s cubic-bezier(.34,1.56,.64,1)}
+
+/* ── Zoom ── */
+.zoom-wrap{position:absolute;bottom:14px;left:14px;display:flex;flex-direction:column;gap:3px;z-index:5}
+.zoom-wrap button{width:30px;height:26px;background:#07090ecc;backdrop-filter:blur(6px);border:1px solid #111c2c;color:#253a52;font-size:14px;cursor:pointer;border-radius:5px;display:flex;align-items:center;justify-content:center;transition:all .15s;font-family:'Space Grotesk',sans-serif}
+.zoom-wrap button:hover{background:#0f1c2c;color:#c5d8eb}
+
+/* ── Legend ── */
+.legend{position:absolute;top:12px;right:12px;background:#07090ecc;backdrop-filter:blur(10px);border:1px solid #111c2c;border-radius:8px;padding:8px 12px;display:flex;flex-direction:column;gap:5px;z-index:5}
+.legend-row{display:flex;align-items:center;gap:7px;font-size:11px;color:#253a52}
+.legend-sq{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+
+/* ── Node Info Panel ── */
+.node-info{height:0;background:#060c16;border-top:2px solid #111c2c;flex-shrink:0;overflow:hidden;display:flex;flex-direction:column;transition:height .22s cubic-bezier(.4,0,.2,1)}
+.node-info.open{height:200px}
+.node-info.dragging{transition:none}
+.ni-drag-handle{height:12px;cursor:ns-resize;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:transparent;user-select:none}
+.ni-drag-handle::after{content:'';width:36px;height:3px;border-radius:2px;background:#182436;transition:background .15s}
+.ni-drag-handle:hover::after{background:#2a5a8a}
+/* inner layout */
+.ni-inner{flex:1;display:flex;overflow:hidden;min-height:0}
+/* Left list */
+.ni-list{width:220px;flex-shrink:0;border-right:1px solid #111c2c;display:flex;flex-direction:column;overflow:hidden}
+.ni-list-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #111c2c;flex-shrink:0}
+.ni-list-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.ni-list-title{font-size:12px;font-weight:600;color:#c5d8eb;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ni-list-badge{font-size:9px;font-family:'JetBrains Mono',monospace;padding:1px 6px;border-radius:3px;border:1px solid transparent;flex-shrink:0}
+.ni-list-close{background:none;border:none;color:#1e3348;cursor:pointer;font-size:16px;line-height:1;transition:color .15s;flex-shrink:0}
+.ni-list-close:hover{color:#cc3344}
+.ni-list-body{flex:1;overflow-y:auto;padding:4px 0}
+.ni-list-body::-webkit-scrollbar{width:3px}
+.ni-list-body::-webkit-scrollbar-thumb{background:#111c2c}
+.ni-list-item{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;transition:background .12s;border-left:2px solid transparent}
+.ni-list-item:hover{background:#0a1422}
+.ni-list-item.selected{background:#0a1828;border-left-color:#3d9bff}
+.ni-list-item-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.ni-list-item-info{flex:1;display:flex;flex-direction:column;gap:1px;min-width:0}
+.ni-list-item-label{font-size:11.5px;color:#7aa8c8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ni-list-item-sub{font-size:9.5px;color:#1e3348;font-family:'JetBrains Mono',monospace}
+.ni-list-item-arrow{color:#1e3348;font-size:10px;flex-shrink:0}
+/* Right content */
+.ni-right{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.ni-tabs{display:flex;padding:0 14px;border-bottom:1px solid #111c2c;flex-shrink:0;gap:0}
+.ni-tab{font-size:11px;padding:8px 12px;border-bottom:2px solid transparent;cursor:pointer;color:#253a52;transition:all .15s;font-family:'Space Grotesk',sans-serif;background:none;border-top:none;border-left:none;border-right:none;white-space:nowrap}
+.ni-tab:hover{color:#5a7a9a}
+.ni-tab.on{color:#5a9acc;border-bottom-color:#3d9bff}
+.ni-body{flex:1;overflow-y:auto;padding:12px 16px;display:flex;gap:32px}
+.ni-body::-webkit-scrollbar{width:3px}
+.ni-body::-webkit-scrollbar-thumb{background:#111c2c}
+.ni-section{flex:1;display:flex;flex-direction:column;gap:0;min-width:160px}
+.ni-section-title{font-size:10.5px;font-weight:600;color:#4a7aaa;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em}
+.ni-row{display:flex;align-items:baseline;padding:5px 0;border-bottom:1px solid #0d1824;gap:0}
+.ni-row:last-child{border-bottom:none}
+.ni-key{font-size:11px;color:#253a52;width:80px;flex-shrink:0}
+.ni-val{font-size:11.5px;color:#6a9abc;font-family:'JetBrains Mono',monospace;flex:1}
+.ni-val.green{color:#22dd88}
+.ni-val.amber{color:#ffaa22}
+
+/* ── Divider ── */
+.resize-divider{width:5px;background:transparent;cursor:col-resize;flex-shrink:0;position:relative;transition:background .15s}
+.resize-divider::after{content:'';position:absolute;top:0;left:2px;width:1px;height:100%;background:#111c2c;transition:background .15s}
+.resize-divider:hover::after,.resize-divider.dragging::after{background:#1a3a5a}
+.resize-divider:hover,.resize-divider.dragging{background:#0a1622}
+
+/* ── Chat Panel ── */
+.chat-panel{background:#070b12;border-left:1px solid #111c2c;display:flex;flex-direction:column;flex-shrink:0;min-width:240px;max-width:600px}
+.ch-head{height:44px;border-bottom:1px solid #111c2c;display:flex;align-items:center;justify-content:space-between;padding:0 14px;flex-shrink:0}
+.ch-head-l{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500;color:#8ab4d0}
+.ch-pulse{width:7px;height:7px;border-radius:50%;background:#00aa66;box-shadow:0 0 8px #00aa6688;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.ch-stat{font-size:10.5px;color:#1e3348;font-family:'JetBrains Mono',monospace}
+.ch-msgs{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:10px}
+.ch-msgs::-webkit-scrollbar{width:3px}
+.ch-msgs::-webkit-scrollbar-thumb{background:#111c2c;border-radius:2px}
+.msg{display:flex;gap:7px;align-items:flex-start}
+.msg-user{flex-direction:row-reverse}
+.avatar{width:26px;height:26px;border-radius:6px;background:#0a1e38;border:1px solid #1a3a6a;color:#3a7acc;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.msg-body{max-width:82%;display:flex;flex-direction:column;gap:3px}
+.msg-user .msg-body{align-items:flex-end}
+.bubble{font-size:12px;line-height:1.55;color:#8ab4d0;background:#0a0f18;border:1px solid #111c2c;border-radius:6px;padding:8px 10px;white-space:pre-wrap}
+.msg-user .bubble{background:#081528;border-color:#0e2a50;color:#a8c8e0}
+.att-tags{display:flex;flex-wrap:wrap;gap:3px;justify-content:flex-end}
+.att-sm{font-size:10px;background:#0a0f18;border:1px solid #111c2c;border-radius:4px;padding:2px 6px;color:#1e3a52;font-family:'JetBrains Mono',monospace}
+@keyframes dots{0%,80%,100%{opacity:.2}40%{opacity:1}}
+.loading-dots{display:flex;gap:4px;padding:6px 2px}
+.loading-dots span{width:5px;height:5px;border-radius:50%;background:#2a5a9a;animation:dots 1.2s infinite}
+.loading-dots span:nth-child(2){animation-delay:.2s}
+.loading-dots span:nth-child(3){animation-delay:.4s}
+.att-row{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;border-top:1px solid #111c2c}
+.att-chip{display:flex;align-items:center;gap:5px;background:#0a0f18;border:1px solid #111c2c;border-radius:4px;padding:3px 7px;font-size:10.5px;color:#2d4a66;font-family:'JetBrains Mono',monospace;max-width:140px}
+.att-chip span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-chip button{background:none;border:none;color:#1e3348;cursor:pointer;padding:0;font-size:13px;line-height:1;flex-shrink:0}
+.att-chip button:hover{color:#cc3344}
+.quick-row{display:flex;gap:3px;padding:5px 8px;border-top:1px solid #111c2c;flex-wrap:wrap}
+.q-btn{font-size:10px;background:#0a0f18;border:1px solid #111c2c;border-radius:4px;color:#1e3348;padding:3px 7px;cursor:pointer;transition:all .15s;font-family:'Space Grotesk',sans-serif}
+.q-btn:hover{background:color-mix(in oklch,var(--c) 15%,transparent);border-color:color-mix(in oklch,var(--c) 40%,transparent);color:var(--c)}
+.ch-input-area{border-top:1px solid #111c2c;padding:8px 10px;flex-shrink:0;display:flex;flex-direction:column;gap:7px}
+.file-row{display:flex;gap:5px;align-items:center}
+.file-row-label{font-size:10px;color:#1e3348;font-family:'JetBrains Mono',monospace;margin-right:2px}
+.f-btn{width:30px;height:26px;border:1px solid #111c2c;background:#0a0f18;border-radius:5px;color:#1e3348;font-size:10px;font-weight:700;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace}
+.f-btn:hover{background:color-mix(in oklch,var(--c) 12%,transparent);border-color:color-mix(in oklch,var(--c) 40%,transparent);color:var(--c)}
+.input-row{display:flex;gap:6px;align-items:flex-end}
+.ch-input{flex:1;background:#0a0f18;border:1px solid #111c2c;border-radius:6px;color:#a8c8e0;font-size:12px;padding:7px 10px;resize:none;font-family:'Space Grotesk',sans-serif;outline:none;line-height:1.45}
+.ch-input:focus{border-color:#1a3a6a}
+.ch-input::placeholder{color:#1e3348}
+.send-btn{width:34px;height:34px;background:#0a1e38;border:1px solid #1a3a6a;border-radius:6px;color:#3a7acc;font-size:16px;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.send-btn:hover{background:#0d2444;color:#7ab8f0;border-color:#2a5aaa}
+.send-btn:disabled{opacity:.3;cursor:not-allowed}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef,useEffect,useCallback,useMemo}=React;
+
+const NT={
+  entity:  {color:'#3d9bff',bg:'#071d3a',label:'实体'},
+  process: {color:'#ffaa22',bg:'#221500',label:'流程'},
+  event:   {color:'#22dd88',bg:'#002418',label:'事件'},
+  data:    {color:'#bb77ff',bg:'#170a2a',label:'数据源'},
+  external:{color:'#ff6644',bg:'#220800',label:'外部系统'},
+};
+const NW=172,NH=44;
+
+const INIT_NODES=[
+  {id:'n1',label:'供应商',type:'entity',x:130,y:330},
+  {id:'n2',label:'原材料订单',type:'process',x:360,y:190},
+  {id:'n3',label:'工厂',type:'entity',x:360,y:400},
+  {id:'n4',label:'产品',type:'entity',x:610,y:280},
+  {id:'n5',label:'配送中心',type:'process',x:860,y:170},
+  {id:'n6',label:'客户',type:'entity',x:1090,y:260},
+  {id:'n7',label:'订单',type:'process',x:860,y:360},
+  {id:'n8',label:'仓库',type:'entity',x:610,y:470},
+  {id:'n9',label:'ERP系统',type:'external',x:130,y:490},
+  {id:'n10',label:'时序数据',type:'data',x:1090,y:450},
+];
+const INIT_EDGES=[
+  {id:'e1',from:'n1',to:'n2',label:'提供'},{id:'e2',from:'n2',to:'n3',label:'输入'},
+  {id:'e3',from:'n3',to:'n4',label:'生产'},{id:'e4',from:'n4',to:'n5',label:'发货'},
+  {id:'e5',from:'n5',to:'n6',label:'送达'},{id:'e6',from:'n6',to:'n7',label:'下单'},
+  {id:'e7',from:'n7',to:'n5',label:'触发'},{id:'e8',from:'n3',to:'n8',label:'入库'},
+  {id:'e9',from:'n8',to:'n5',label:'调拨'},{id:'e10',from:'n9',to:'n3',label:'驱动'},
+  {id:'e11',from:'n7',to:'n10',label:'记录'},
+];
+
+function getPath(fn,tn){
+  const x1=fn.x+NW/2,y1=fn.y+NH/2,x2=tn.x+NW/2,y2=tn.y+NH/2;
+  const dx=Math.abs(x2-x1),cp=Math.max(dx*.5,50);
+  return{d:`M${x1},${y1} C${x1+cp},${y1} ${x2-cp},${y2} ${x2},${y2}`,mx:(x1+x2)/2,my:(y1+y2)/2};
+}
+
+/* ── Node Info Panel ── */
+function NodeInfo({node,nodes,edges,onClose}){
+  const[tab,setTab]=useState(0);
+  const[height,setHeight]=useState(200);
+  const[dragging,setDragging]=useState(false);
+  const t=node?NT[node.type]||NT.entity:null;
+  const nmap=useMemo(()=>Object.fromEntries(nodes.map(n=>[n.id,n])),[nodes]);
+  const outgoing=edges.filter(e=>e.from===node?.id);
+  const incoming=edges.filter(e=>e.to===node?.id);
+
+  const startResize=useCallback((e)=>{
+    e.preventDefault();
+    const startY=e.clientY,startH=height;
+    setDragging(true);
+    const mv=e=>{
+      const delta=startY-e.clientY;
+      setHeight(Math.max(80,Math.min(520,startH+delta)));
+    };
+    const up=()=>{setDragging(false);document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up)};
+    document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
+  },[height]);
+
+  const connectedNodes=useMemo(()=>{
+    if(!node) return [];
+    const out=outgoing.map(e=>({...nmap[e.to],rel:e.label,dir:'out',eid:e.id})).filter(x=>x.id);
+    const inc=incoming.map(e=>({...nmap[e.from],rel:e.label,dir:'in',eid:e.id})).filter(x=>x.id);
+    return [...out,...inc];
+  },[node,outgoing,incoming,nmap]);
+
+  return(
+    <div className={`node-info${node?' open':''}${dragging?' dragging':''}`}
+      style={node?{height}:{}}>
+      {node&&<>
+        <div className="ni-drag-handle" onMouseDown={startResize}/>
+        <div className="ni-inner">
+          {/* Left: connected node list */}
+          <div className="ni-list">
+            <div className="ni-list-head">
+              <div className="ni-list-dot" style={{background:t.color,boxShadow:`0 0 6px ${t.color}88`}}/>
+              <div className="ni-list-title">{node.label}</div>
+              <div className="ni-list-badge" style={{color:t.color,borderColor:t.color+'44',background:t.bg}}>{t.label}</div>
+              <button className="ni-list-close" onClick={onClose}>×</button>
+            </div>
+            <div className="ni-list-body">
+              {connectedNodes.length===0&&<div style={{padding:'10px 12px',fontSize:11,color:'#1e3348'}}>暂无关联节点</div>}
+              {connectedNodes.map((cn,i)=>{
+                const ct=NT[cn.type]||NT.entity;
+                return(
+                  <div key={i} className="ni-list-item">
+                    <div className="ni-list-item-dot" style={{background:ct.color}}/>
+                    <div className="ni-list-item-info">
+                      <div className="ni-list-item-label">{cn.label}</div>
+                      <div className="ni-list-item-sub">{cn.dir==='out'?`→ ${cn.rel}`:`← ${cn.rel}`} · {ct.label}</div>
+                    </div>
+                    <div className="ni-list-item-arrow">{cn.dir==='out'?'▶':'◀'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {/* Right: tabbed detail */}
+          <div className="ni-right">
+            <div className="ni-tabs">
+              {['概览','关系','属性','Schema'].map((lb,i)=>(
+                <button key={i} className={`ni-tab${tab===i?' on':''}`} onClick={()=>setTab(i)}>{lb}</button>
+              ))}
+            </div>
+            <div className="ni-body">
+              {tab===0&&<>
+                <div className="ni-section">
+                  <div className="ni-section-title">节点详情</div>
+                  <div className="ni-row"><div className="ni-key">ID</div><div className="ni-val">{node.id}</div></div>
+                  <div className="ni-row"><div className="ni-key">名称</div><div className="ni-val">{node.label}</div></div>
+                  <div className="ni-row"><div className="ni-key">类型</div><div className="ni-val">{t.label}</div></div>
+                  <div className="ni-row"><div className="ni-key">状态</div><div className="ni-val green">● 已激活</div></div>
+                  <div className="ni-row"><div className="ni-key">坐标</div><div className="ni-val">({Math.round(node.x)}, {Math.round(node.y)})</div></div>
+                </div>
+                <div className="ni-section">
+                  <div className="ni-section-title">关系统计</div>
+                  <div className="ni-row"><div className="ni-key">出向关系</div><div className="ni-val amber">{outgoing.length} 条</div></div>
+                  <div className="ni-row"><div className="ni-key">入向关系</div><div className="ni-val amber">{incoming.length} 条</div></div>
+                  <div className="ni-row"><div className="ni-key">总连接数</div><div className="ni-val">{outgoing.length+incoming.length}</div></div>
+                  <div className="ni-row"><div className="ni-key">创建时间</div><div className="ni-val">2026-04-18</div></div>
+                  <div className="ni-row"><div className="ni-key">数据来源</div><div className="ni-val">AI 推演助手</div></div>
+                </div>
+              </>}
+              {tab===1&&<div className="ni-section" style={{flex:1}}>
+                <div className="ni-section-title">所有关系 ({outgoing.length+incoming.length})</div>
+                {outgoing.map(e=>{const tn=nmap[e.to];return tn&&(
+                  <div key={e.id} className="ni-row">
+                    <div className="ni-key" style={{color:'#3d9bff'}}>→ 输出</div>
+                    <div className="ni-val"><span style={{color:'#ffaa22'}}>{e.label}</span><span style={{color:'#253a52'}}> → </span>{tn.label}</div>
+                  </div>
+                );})}
+                {incoming.map(e=>{const fn=nmap[e.from];return fn&&(
+                  <div key={e.id} className="ni-row">
+                    <div className="ni-key" style={{color:'#22dd88'}}>← 输入</div>
+                    <div className="ni-val">{fn.label}<span style={{color:'#253a52'}}> → </span><span style={{color:'#ffaa22'}}>{e.label}</span></div>
+                  </div>
+                );})}
+                {!outgoing.length&&!incoming.length&&<div style={{color:'#1e3348',fontSize:11,paddingTop:4}}>暂无关系</div>}
+              </div>}
+              {tab===2&&<div className="ni-section">
+                <div className="ni-section-title">元数据属性</div>
+                {[['版本','v1.0'],['创建者','AI 推演助手'],['更新时间','2026-04-18 16:30'],['数据质量','98.2%'],['置信度','高']].map(([k,v])=>(
+                  <div key={k} className="ni-row"><div className="ni-key">{k}</div><div className="ni-val">{v}</div></div>
+                ))}
+              </div>}
+              {tab===3&&<div className="ni-section">
+                <div className="ni-section-title">Schema 定义</div>
+                {[['label','String (required)'],['type',t.label+' (enum)'],['id','String (PK)'],['x','Float'],['y','Float']].map(([k,v])=>(
+                  <div key={k} className="ni-row"><div className="ni-key">{k}</div><div className="ni-val">{v}</div></div>
+                ))}
+              </div>}
+            </div>
+          </div>
+        </div>
+      </>}
+    </div>
+  );
+}
+
+/* ── Graph Canvas ── */
+function GraphCanvas({nodes,edges,onMove,onSelect,selId}){
+  const cvRef=useRef();
+  const[vp,setVp]=useState({x:30,y:30,s:1});
+  const drag=useRef(null),pan=useRef(null);
+  const nmap=useMemo(()=>Object.fromEntries(nodes.map(n=>[n.id,n])),[nodes]);
+
+  const startDrag=useCallback((e,id)=>{
+    e.stopPropagation();onSelect(id);
+    const n=nmap[id];
+    drag.current={id,sx:e.clientX,sy:e.clientY,ox:n.x,oy:n.y};
+  },[nmap,onSelect]);
+
+  const startPan=useCallback((e)=>{
+    pan.current={sx:e.clientX-vp.x,sy:e.clientY-vp.y};
+  },[vp]);
+
+  useEffect(()=>{
+    const mv=e=>{
+      if(drag.current){
+        const{id,sx,sy,ox,oy}=drag.current;
+        onMove(id,ox+(e.clientX-sx)/vp.s,oy+(e.clientY-sy)/vp.s);
+      } else if(pan.current){
+        setVp(v=>({...v,x:e.clientX-pan.current.sx,y:e.clientY-pan.current.sy}));
+      }
+    };
+    const up=()=>{drag.current=null;pan.current=null;};
+    window.addEventListener('mousemove',mv);window.addEventListener('mouseup',up);
+    return()=>{window.removeEventListener('mousemove',mv);window.removeEventListener('mouseup',up)};
+  },[onMove,vp.s]);
+
+  const onWheel=useCallback((e)=>{
+    e.preventDefault();
+    const r=cvRef.current.getBoundingClientRect();
+    const mx=e.clientX-r.left,my=e.clientY-r.top;
+    const f=e.deltaY<0?1.12:.9;
+    setVp(v=>{const ns=Math.max(.2,Math.min(3,v.s*f));return{x:mx-(mx-v.x)*(ns/v.s),y:my-(my-v.y)*(ns/v.s),s:ns}});
+  },[]);
+
+  const tf=`translate(${vp.x}px,${vp.y}px) scale(${vp.s})`;
+  return(
+    <div ref={cvRef} className="graph-canvas" onMouseDown={startPan} onWheel={onWheel} onClick={()=>onSelect(null)}>
+      {/* SVG edges layer — full canvas size, same transform via <g> */}
+      <svg style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',pointerEvents:'none',overflow:'visible'}}>
+        <defs>
+          <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="2.5" orient="auto"><path d="M0,0 L0,5 L7,2.5 Z" fill="#2a4a6a"/></marker>
+          <marker id="arr-s" markerWidth="7" markerHeight="7" refX="6" refY="2.5" orient="auto"><path d="M0,0 L0,5 L7,2.5 Z" fill="#3d9bff"/></marker>
+        </defs>
+        <g transform={`translate(${vp.x},${vp.y}) scale(${vp.s})`}>
+          {edges.map(e=>{
+            const fn=nmap[e.from],tn=nmap[e.to];
+            if(!fn||!tn)return null;
+            const{d,mx,my}=getPath(fn,tn);
+            const hl=selId===e.from||selId===e.to;
+            return(
+              <g key={e.id}>
+                {hl&&<path d={d} fill="none" stroke="#3d9bff" strokeWidth={8} opacity={0.1}/>}
+                <path d={d} fill="none" stroke={hl?'#3d9bff':'#2a4f72'} strokeWidth={hl?2:1.4} markerEnd={hl?'url(#arr-s)':'url(#arr)'}/>
+                {e.label&&(
+                  <g>
+                    <rect x={mx-20} y={my-17} width={40} height={14} rx={3} fill="#050810" opacity={0.9}/>
+                    <text x={mx} y={my-6} textAnchor="middle" style={{fill:hl?'#7ab8f0':'#4a7aaa',fontSize:9.5,fontFamily:'JetBrains Mono',fontWeight:500}}>{e.label}</text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+      {/* Nodes layer */}
+      <div className="graph-root" style={{transform:tf,transformOrigin:'0 0'}}>
+        {nodes.map(n=>{
+          const t=NT[n.type]||NT.entity,sel=selId===n.id;
+          return(
+            <div key={n.id} className={`node${n.isNew?' node-new':''}${sel?' node-sel':''}`}
+              style={{left:n.x,top:n.y,width:NW,background:t.bg,borderLeftColor:t.color,
+                borderTopColor:sel?t.color+'44':'#111c2c',borderRightColor:sel?t.color+'44':'#111c2c',borderBottomColor:sel?t.color+'44':'#111c2c',
+                boxShadow:sel?`0 0 0 1px ${t.color}33,0 4px 24px ${t.color}1a`:'0 2px 8px #00000066'}}
+                  onMouseDown={e=>startDrag(e,n.id)} onClick={e=>e.stopPropagation()}>
+              <div className="node-dot" style={{background:t.color,boxShadow:sel?`0 0 6px ${t.color}88`:''}}/>
+              <div className="node-label">{n.label}</div>
+              <div className="node-type">{t.label}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="zoom-wrap">
+        <button onClick={()=>setVp(v=>({...v,s:Math.min(3,v.s*1.2)}))}>+</button>
+        <button onClick={()=>setVp(v=>({...v,s:Math.max(.2,v.s*.85)}))}>−</button>
+        <button onClick={()=>setVp({x:30,y:30,s:1})} style={{fontSize:9}}>复位</button>
+      </div>
+      <div className="legend">
+        {Object.entries(NT).map(([k,t])=>(
+          <div key={k} className="legend-row"><div className="legend-sq" style={{background:t.color}}/><span>{t.label}</span></div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Chat Panel ── */
+function ChatPanel({nodes,edges,onUpdate,width}){
+  const[msgs,setMsgs]=useState([{role:'a',text:'你好！我是推演助手。\n\n用自然语言描述实体和关系，我会自动构建本体图谱。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试：「添加一个财务审计实体，与客户相关联」'}]);
+  const[input,setInput]=useState('');
+  const[loading,setLoading]=useState(false);
+  const[atts,setAtts]=useState([]);
+  const fileRef=useRef(),msgsRef=useRef();
+
+  useEffect(()=>{if(msgsRef.current)msgsRef.current.scrollTop=msgsRef.current.scrollHeight},[msgs]);
+
+  const addFile=f=>{
+    const ext=f.name.split('.').pop().toLowerCase();
+    setAtts(a=>[...a,{name:f.name,type:ext}]);
+  };
+
+  const send=async()=>{
+    if(!input.trim()&&!atts.length)return;
+    const txt=input,ua=[...atts];
+    setMsgs(m=>[...m,{role:'u',text:txt,atts:ua}]);
+    setInput('');setAtts([]);setLoading(true);
+    try{
+      const r=await window.claude.complete({messages:[{role:'user',content:
+`你是推演平台本体图谱助手。当前图谱：
+节点(${nodes.length}): ${JSON.stringify(nodes.map(n=>({id:n.id,label:n.label,type:n.type})))}
+关系(${edges.length}): ${JSON.stringify(edges.map(e=>({from:e.from,to:e.to,label:e.label})))}
+
+用户: ${txt||'(无文字)'}${ua.length?`\n附件: ${ua.map(a=>a.name).join(', ')}（根据文件名推断实体和关系）`:''}
+
+返回纯JSON：{"reply":"回复（中文，具体说明添加了什么）","add_nodes":[{"id":"n_xxxx","label":"名称","type":"entity|process|event|data|external","x":500,"y":300}],"add_edges":[{"id":"e_xxxx","from":"id","to":"id","label":"关系"}]}
+
+新节点id:n_+随机4位，不与已有重复；x:100-1300,y:50-650。`}]});
+      let p;
+      try{p=JSON.parse(r.replace(/```json\n?|```\n?/g,'').trim())}
+      catch{const m=r.match(/\{[\s\S]*\}/);p=m?JSON.parse(m[0]):{reply:r,add_nodes:[],add_edges:[]}}
+      setMsgs(m=>[...m,{role:'a',text:p.reply||'图谱已更新。'}]);
+      if(p.add_nodes?.length||p.add_edges?.length) onUpdate(p.add_nodes||[],p.add_edges||[]);
+    }catch{setMsgs(m=>[...m,{role:'a',text:'出现错误，请重试。'}]);}
+    setLoading(false);
+  };
+
+  const FILES=[
+    {label:'Word',color:'#2b5eb8',accept:'.doc,.docx'},
+    {label:'PDF',color:'#cc2222',accept:'.pdf'},
+    {label:'图片',color:'#22aa66',accept:'image/*'},
+    {label:'CSV',color:'#8844cc',accept:'.csv,.xlsx,.json'},
+    {label:'DB',color:'#cc7700',accept:''},
+  ];
+
+  return(
+    <div className="chat-panel" style={{width}}>
+      <div className="ch-head">
+        <div className="ch-head-l"><div className="ch-pulse"/><span>AI 推演助手</span></div>
+        <div className="ch-stat">{nodes.length}节点·{edges.length}关系</div>
+      </div>
+      <div className="ch-msgs" ref={msgsRef}>
+        {msgs.map((m,i)=>(
+          <div key={i} className={`msg msg-${m.role==='u'?'user':'asst'}`}>
+            {m.role==='a'&&<div className="avatar">推</div>}
+            <div className="msg-body">
+              {m.atts?.length>0&&<div className="att-tags">{m.atts.map((a,j)=><span key={j} className="att-sm">{a.name}</span>)}</div>}
+              <div className="bubble">{m.text}</div>
+            </div>
+          </div>
+        ))}
+        {loading&&<div className="msg msg-asst"><div className="avatar">推</div><div className="msg-body"><div className="bubble"><div className="loading-dots"><span/><span/><span/></div></div></div></div>}
+      </div>
+      {atts.length>0&&<div className="att-row">{atts.map((a,i)=>(
+        <div key={i} className="att-chip"><span>{a.name}</span><button onClick={()=>setAtts(x=>x.filter((_,j)=>j!==i))}>×</button></div>
+      ))}</div>}
+      <div className="quick-row">
+        {Object.entries(NT).map(([k,t])=>(
+          <button key={k} className="q-btn" style={{'--c':t.color}} onClick={()=>setInput(p=>(p?p+' ':'')+'添加'+t.label+'节点')}>+{t.label}</button>
+        ))}
+      </div>
+      <div className="ch-input-area">
+        <div className="file-row">
+          <span className="file-row-label">附加：</span>
+          {FILES.map(f=>(
+            <button key={f.label} className="f-btn" style={{'--c':f.color}} title={`上传 ${f.label}`}
+              onClick={()=>{if(f.accept){fileRef.current.accept=f.accept;fileRef.current.click();}else setAtts(a=>[...a,{name:'[数据库连接]',type:'data'}])}}>
+              {f.label[0]}
+            </button>
+          ))}
+          <input ref={fileRef} type="file" style={{display:'none'}} onChange={e=>e.target.files[0]&&addFile(e.target.files[0])}/>
+        </div>
+        <div className="input-row">
+          <textarea className="ch-input" value={input} onChange={e=>setInput(e.target.value)}
+            placeholder="描述实体、关系或数据结构…"
+            onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}}
+            rows={2}/>
+          <button className="send-btn" onClick={send} disabled={loading}>→</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Sidebar ── */
+function Sidebar({expanded,onToggle}){
+  const[a,setA]=useState(0);
+  const items=[['◈','图谱'],['◉','溯源'],['⬡','流程'],['◆','事件'],['▣','数据'],['≡','列表'],['◎','搜索']];
+  return(
+    <div className={`sidebar${expanded?' exp':''}`}>
+      <div className="sidebar-logo" onClick={onToggle} style={{cursor:'pointer'}} title={expanded?'收起侧栏':'展开侧栏'}>
+        <div className="logo-mark" style={{transition:'transform .22s',transform:expanded?'rotate(0deg)':'rotate(0deg)'}}>推</div>
+        <div className="logo-text">推演平台</div>
+      </div>
+      {items.slice(0,5).map(([ic,lb],i)=>(
+        <button key={i} className={`sb-item${a===i?' active':''}`} onClick={()=>setA(i)}>
+          <span className="sb-icon">{ic}</span><span className="sb-item-label">{lb}</span>
+        </button>
+      ))}
+      <div className="sb-divider"/>
+      {items.slice(5).map(([ic,lb],i)=>(
+        <button key={i+5} className={`sb-item${a===i+5?' active':''}`} onClick={()=>setA(i+5)}>
+          <span className="sb-icon">{ic}</span><span className="sb-item-label">{lb}</span>
+        </button>
+      ))}
+      <div className="sb-spacer"/>
+    </div>
+  );
+}
+
+/* ── App ── */
+function App(){
+  const[nodes,setNodes]=useState(INIT_NODES);
+  const[edges,setEdges]=useState(INIT_EDGES);
+  const[sel,setSel]=useState(null);
+  const[sbExp,setSbExp]=useState(false);
+  const[chatW,setChatW]=useState(360);
+  const divDrag=useRef(null);
+
+  const selNode=useMemo(()=>nodes.find(n=>n.id===sel)||null,[nodes,sel]);
+
+  const onMove=useCallback((id,x,y)=>setNodes(ns=>ns.map(n=>n.id===id?{...n,x,y}:n)),[]);
+
+  const onUpdate=useCallback((addNodes,addEdges)=>{
+    setNodes(ns=>[...ns,...addNodes.map(n=>({...n,isNew:true}))]);
+    setEdges(es=>[...es,...addEdges]);
+    setTimeout(()=>setNodes(ns=>ns.map(n=>({...n,isNew:false}))),800);
+  },[]);
+
+  const startDivider=useCallback((e)=>{
+    e.preventDefault();
+    divDrag.current={sx:e.clientX,sw:chatW};
+    const mv=e=>{
+      const delta=divDrag.current.sx-e.clientX;
+      setChatW(Math.max(240,Math.min(600,divDrag.current.sw+delta)));
+    };
+    const up=()=>{divDrag.current=null;document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up)};
+    document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
+  },[chatW]);
+
+  return(
+    <div className="app">
+      <Sidebar expanded={sbExp} onToggle={()=>setSbExp(v=>!v)}/>
+      <div className="main">
+        <div className="topbar">
+          <div className="breadcrumb">
+            <span className="bc-dim">推演</span><span className="bc-sep">/</span>
+            <span className="bc-muted">模型空间</span><span className="bc-sep">/</span>
+            <span className="bc-cur">供应链本体图</span>
+            <span className="bc-star">☆</span>
+          </div>
+          <div className="tb-tools">
+            <span className="tb-badge ok">● {nodes.length} 节点</span>
+            <span className="tb-badge">{edges.length} 关系</span>
+            <button className="tb-btn">导出</button>
+            <button className="tb-btn hi">共享</button>
+          </div>
+        </div>
+        <div className="content">
+          <div className="graph-area">
+            <GraphCanvas nodes={nodes} edges={edges} onMove={onMove} onSelect={setSel} selId={sel}/>
+            <NodeInfo node={selNode} nodes={nodes} edges={edges} onClose={()=>setSel(null)}/>
+          </div>
+          <div className="resize-divider" onMouseDown={startDivider}/>
+          <ChatPanel nodes={nodes} edges={edges} onUpdate={onUpdate} width={chatW}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
