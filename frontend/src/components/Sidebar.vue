@@ -1,37 +1,30 @@
+<script setup lang="ts">
+import { ref } from 'vue';
+
+defineProps<{ expanded: boolean }>();
+const emit = defineEmits<{
+  (e: 'toggle'): void;
+  (e: 'nav', route: string): void;
+}>();
+
+const a = ref(0);
+const items = [
+  ['◈', '物理模型', 'list']
+];
+</script>
+
 <template>
-  <div :class="['sidebar', expanded && 'exp']">
-    <div class="sidebar-logo" @click="$emit('toggle')" title="切换侧栏">
-      <div class="logo-mark">推</div>
+  <div :class="['sidebar', { exp: expanded }]">
+    <div class="sidebar-logo" @click="emit('toggle')" style="cursor:pointer" :title="expanded ? '收起侧栏' : '展开侧栏'">
+      <div class="logo-mark" :style="{ transition: 'transform .22s', transform: expanded ? 'rotate(0deg)' : 'rotate(0deg)' }">推</div>
       <div class="logo-text">推演平台</div>
     </div>
-    <button
-      v-for="(item, i) in items.slice(0, 5)" :key="i"
-      :class="['sb-item', active === i && 'active']"
-      @click="active = i"
-    >
-      <span class="sb-icon">{{ item[0] }}</span>
-      <span class="sb-item-label">{{ item[1] }}</span>
-    </button>
-    <div class="sb-divider" />
-    <button
-      v-for="(item, i) in items.slice(5)" :key="i + 5"
-      :class="['sb-item', active === i + 5 && 'active']"
-      @click="active = i + 5"
-    >
-      <span class="sb-icon">{{ item[0] }}</span>
-      <span class="sb-item-label">{{ item[1] }}</span>
+    <button v-for="(item, i) in items" :key="i" :class="['sb-item', { active: a === i }]" @click="a = i; emit('nav', item[2] as string)">
+      <span class="sb-icon">{{ item[0] }}</span><span class="sb-item-label">{{ item[1] }}</span>
     </button>
     <div class="sb-spacer" />
+    <button :class="['sb-item', { active: a === items.length }]" @click="a = items.length; emit('nav', 'settings')">
+      <span class="sb-icon">⚙</span><span class="sb-item-label">设置</span>
+    </button>
   </div>
 </template>
-
-<script setup>
-import { ref } from 'vue'
-defineProps({ expanded: Boolean })
-defineEmits(['toggle'])
-const active = ref(0)
-const items = [
-  ['◈', '图谱'], ['◉', '溯源'], ['⬡', '流程'], ['◆', '事件'], ['▣', '数据'],
-  ['≡', '列表'], ['◎', '搜索'],
-]
-</script>

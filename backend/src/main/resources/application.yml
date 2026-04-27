@@ -1,0 +1,8 @@
+spring:
+  application:
+    name: tuiyan-backend
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: 8000

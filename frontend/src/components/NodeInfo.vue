@@ -1,104 +1,184 @@
+<script setup lang="ts">
+import { ref, computed } from 'vue';
+import { NT } from '../constants';
+
+const props = defineProps<{
+  node: any | null;
+  nodes: any[];
+  edges: any[];
+  isOpen: boolean;
+}>();
+
+const emit = defineEmits<{
+  (e: 'close'): void;
+}>();
+
+const tab = ref(0);
+const height = ref(250);
+const dragging = ref(false);
+
+const t = computed(() => props.node ? (NT as any)[props.node.type] || NT.entity : null);
+const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])));
+
+const outgoing = computed(() => props.node ? props.edges.filter(e => e.from === props.node.id) : []);
+const incoming = computed(() => props.node ? props.edges.filter(e => e.to === props.node.id) : []);
+
+const startResize = (e: MouseEvent) => {
+  e.preventDefault();
+  const startY = e.clientY;
+  const startH = height.value;
+  dragging.value = true;
+  const mv = (ev: MouseEvent) => {
+    const delta = startY - ev.clientY;
+    height.value = Math.max(80, Math.min(520, startH + delta));
+  };
+  const up = () => {
+    dragging.value = false;
+    document.removeEventListener('mousemove', mv);
+    document.removeEventListener('mouseup', up);
+  };
+  document.addEventListener('mousemove', mv);
+  document.addEventListener('mouseup', up);
+};
+</script>
+
 <template>
-  <div
-    :class="['node-info', node && 'open', resizing && 'resizing']"
-    :style="node ? { height: panelHeight + 'px' } : {}"
-  >
-    <template v-if="node">
+  <div :class="['node-info', { open: isOpen || !!node, dragging }]" :style="isOpen || node ? { height: height + 'px' } : {}">
+    <template v-if="isOpen || node">
       <div class="ni-drag-handle" @mousedown="startResize" />
       <div class="ni-inner">
-        <!-- Left list -->
-        <div class="ni-list">
-          <div class="ni-list-head">
-            <div class="ni-list-dot" :style="{ background: t.color, boxShadow: `0 0 6px ${t.color}88` }" />
-            <div class="ni-list-title">{{ node.label }}</div>
-            <div class="ni-list-badge" :style="{ color: t.color, borderColor: t.color + '44', background: t.bg }">{{ t.label }}</div>
-            <button class="ni-list-close" @click="$emit('close')">×</button>
-          </div>
-          <div class="ni-list-body">
-            <div v-if="!connectedNodes.length" style="padding:10px 12px;font-size:11px;color:#1e3348">暂无关联节点</div>
-            <div
-              v-for="(cn, i) in connectedNodes" :key="i"
-              class="ni-list-item"
-            >
-              <div class="ni-list-item-dot" :style="{ background: ntOf(cn).color }" />
-              <div class="ni-list-item-info">
-                <div class="ni-list-item-label">{{ cn.label }}</div>
-                <div class="ni-list-item-sub">{{ cn.dir === 'out' ? `→ ${cn.rel}` : `← ${cn.rel}` }} · {{ ntOf(cn).label }}</div>
-              </div>
-              <div class="ni-list-item-arrow">{{ cn.dir === 'out' ? '▶' : '◀' }}</div>
+        <!-- Removed ni-list completely as requested -->
+        <div class="ni-right" style="flex: 1; display: flex; flex-direction: column;">
+          <div class="ni-header" style="display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--glass-border); flex-shrink: 0; background: rgba(255,255,255,0.02)">
+            <div class="ni-tabs" style="border: none; padding: 8px 0;">
+              <button v-for="(lb, i) in ['概览', '关系', '属性', 'Schema']" :key="i" :class="['ni-tab', { on: tab === i }]" @click="tab = i">{{ lb }}</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span v-if="node" class="ni-list-title" style="font-size: 13px; color: var(--accent);">当前选中: {{ node.label }}</span>
+              <span v-else class="ni-list-title" style="font-size: 13px; color: var(--accent);">当前视图: 全局模型</span>
+              <button class="ni-list-close" @click="emit('close')" style="background:transparent; border:none; color:var(--text-main); cursor:pointer; font-size:18px;">×</button>
             </div>
           </div>
-        </div>
 
-        <!-- Right content -->
-        <div class="ni-right">
-          <div class="ni-tabs">
-            <button
-              v-for="(lb, i) in tabs" :key="i"
-              :class="['ni-tab', tab === i && 'on']"
-              @click="tab = i"
-            >{{ lb }}</button>
-          </div>
-          <div class="ni-body">
-            <!-- 概览 -->
-            <template v-if="tab === 0">
-              <div class="ni-section">
-                <div class="ni-section-title">节点详情</div>
-                <div class="ni-row"><div class="ni-key">ID</div><div class="ni-val">{{ node.id }}</div></div>
-                <div class="ni-row"><div class="ni-key">名称</div><div class="ni-val">{{ node.label }}</div></div>
-                <div class="ni-row"><div class="ni-key">类型</div><div class="ni-val">{{ t.label }}</div></div>
-                <div class="ni-row"><div class="ni-key">状态</div><div class="ni-val green">● 已激活</div></div>
-                <div class="ni-row"><div class="ni-key">坐标</div><div class="ni-val">({{ Math.round(node.x) }}, {{ Math.round(node.y) }})</div></div>
-              </div>
-              <div class="ni-section">
-                <div class="ni-section-title">关系统计</div>
-                <div class="ni-row"><div class="ni-key">出向关系</div><div class="ni-val amber">{{ outgoing.length }} 条</div></div>
-                <div class="ni-row"><div class="ni-key">入向关系</div><div class="ni-val amber">{{ incoming.length }} 条</div></div>
-                <div class="ni-row"><div class="ni-key">总连接数</div><div class="ni-val">{{ outgoing.length + incoming.length }}</div></div>
-                <div class="ni-row"><div class="ni-key">创建时间</div><div class="ni-val">2026-04-18</div></div>
-                <div class="ni-row"><div class="ni-key">数据来源</div><div class="ni-val">AI 推演助手</div></div>
-              </div>
-            </template>
-            <!-- 关系 -->
-            <template v-else-if="tab === 1">
-              <div class="ni-section" style="flex:1">
-                <div class="ni-section-title">所有关系 ({{ outgoing.length + incoming.length }})</div>
-                <div v-for="e in outgoing" :key="e.id" class="ni-row">
-                  <div class="ni-key" style="color:#3d9bff">→ 输出</div>
-                  <div class="ni-val">
-                    <span style="color:#ffaa22">{{ e.label }}</span>
-                    <span style="color:#253a52"> → </span>
-                    {{ nodeMap[e.to]?.label }}
+          <div class="ni-body" style="padding: 16px; flex: 1; overflow-y: auto;">
+            <!-- Node Context -->
+            <template v-if="node">
+              <template v-if="tab === 0">
+                <div class="ni-section">
+                  <div class="ni-section-title">节点详情</div>
+                  <div class="ni-row"><div class="ni-key">ID</div><div class="ni-val">{{ node.id }}</div></div>
+                  <div class="ni-row"><div class="ni-key">名称</div><div class="ni-val">{{ node.label }}</div></div>
+                  <div class="ni-row"><div class="ni-key">类型</div><div class="ni-val">{{ t.label }}</div></div>
+                  <div class="ni-row"><div class="ni-key">来源</div>
+                    <div class="ni-val">
+                      <span v-if="node.source === 'inferred'" style="color:#bb77ff; background:rgba(187,119,255,0.1); padding:2px 6px; border-radius:4px; font-size:11px;">AI 推理展开</span>
+                      <span v-else-if="node.source === 'derived'" style="color:#22dd88; background:rgba(34,221,136,0.1); padding:2px 6px; border-radius:4px; font-size:11px;">文本提取</span>
+                      <span v-else>系统预置</span>
+                    </div>
+                  </div>
+                  <div class="ni-row"><div class="ni-key">状态</div><div class="ni-val green">● 已激活</div></div>
+                </div>
+              </template>
+              <template v-if="tab === 1">
+                <div class="ni-section" style="flex:1">
+                  <div class="ni-section-title">节点关系 ({{ outgoing.length + incoming.length }})</div>
+                  <div v-for="e in outgoing" :key="e.id">
+                    <div v-if="nmap[e.to]" class="ni-row">
+                      <div class="ni-key" style="color:#3d9bff; display:flex; flex-direction:column; gap:2px;">
+                        <span>→ 输出</span>
+                        <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399">⚡规则驱动</span>
+                      </div>
+                      <div class="ni-val">
+                        <span style="color:#ffaa22">{{ e.label }}</span>
+                        <span v-if="e.source === 'inferred'" style="font-size:10px; color:#bb77ff; margin-left:4px;">(AI推理)</span>
+                        <span style="color:#253a52"> → </span>{{ nmap[e.to].label }}
+                      </div>
+                    </div>
+                  </div>
+                  <div v-for="e in incoming" :key="e.id">
+                    <div v-if="nmap[e.from]" class="ni-row">
+                      <div class="ni-key" style="color:#22dd88; display:flex; flex-direction:column; gap:2px;">
+                        <span>← 输入</span>
+                        <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399">⚡规则驱动</span>
+                      </div>
+                      <div class="ni-val">
+                        {{ nmap[e.from].label }}<span style="color:#253a52"> → </span>
+                        <span style="color:#ffaa22">{{ e.label }}</span>
+                        <span v-if="e.source === 'inferred'" style="font-size:10px; color:#bb77ff; margin-left:4px;">(AI推理)</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="!outgoing.length && !incoming.length" style="color:#1e3348;font-size:11px;padding-top:4px">暂无关系</div>
+                </div>
+              </template>
+              <template v-if="tab === 2">
+                <div class="ni-section">
+                  <div class="ni-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>节点属性</span>
+                  </div>
+                  <div v-if="!node.props || node.props.length === 0" style="color:#1e3348;font-size:11px;padding-top:4px">无额外属性</div>
+                  <div v-for="(p, i) in node.props" :key="i" class="ni-row">
+                    <div class="ni-key">{{ p.key }}</div>
+                    <div class="ni-val" style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                      <span>{{ p.value }}</span>
+                      <span v-if="p.source === 'inferred'" style="color:#bb77ff; font-size:10px;">★ 推理</span>
+                      <span v-else-if="p.source === 'derived'" style="color:#22dd88; font-size:10px;">● 提取</span>
+                    </div>
+                  </div>
+                  <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.05)"></div>
+                  <div v-for="[k, v] in [['版本','v1.0'],['更新时间',new Date().toLocaleString()]]" :key="k" class="ni-row">
+                    <div class="ni-key">{{ k }}</div><div class="ni-val" style="opacity: 0.6">{{ v }}</div>
                   </div>
                 </div>
-                <div v-for="e in incoming" :key="e.id" class="ni-row">
-                  <div class="ni-key" style="color:#22dd88">← 输入</div>
-                  <div class="ni-val">
-                    {{ nodeMap[e.from]?.label }}
-                    <span style="color:#253a52"> → </span>
-                    <span style="color:#ffaa22">{{ e.label }}</span>
+              </template>
+              <template v-if="tab === 3">
+                <div class="ni-section">
+                  <div class="ni-section-title">Schema 定义</div>
+                  <div v-for="[k, v] in [['label','String (required)'],['type',t.label+' (enum)'],['id','String (PK)'],['x','Float'],['y','Float']]" :key="k" class="ni-row">
+                    <div class="ni-key">{{ k }}</div><div class="ni-val">{{ v }}</div>
                   </div>
                 </div>
-                <div v-if="!outgoing.length && !incoming.length" style="color:#1e3348;font-size:11px;padding-top:4px">暂无关系</div>
-              </div>
+              </template>
             </template>
-            <!-- 属性 -->
-            <template v-else-if="tab === 2">
-              <div class="ni-section">
-                <div class="ni-section-title">元数据属性</div>
-                <div v-for="[k, v] in meta" :key="k" class="ni-row">
-                  <div class="ni-key">{{ k }}</div><div class="ni-val">{{ v }}</div>
-                </div>
-              </div>
-            </template>
-            <!-- Schema -->
+
+            <!-- Global Context -->
             <template v-else>
-              <div class="ni-section">
-                <div class="ni-section-title">Schema 定义</div>
-                <div v-for="[k, v] in schema" :key="k" class="ni-row">
-                  <div class="ni-key">{{ k }}</div><div class="ni-val">{{ v }}</div>
+              <template v-if="tab === 0">
+                <div class="ni-section">
+                  <div class="ni-section-title">全局模型概览</div>
+                  <div class="ni-row"><div class="ni-key">总节点数</div><div class="ni-val">{{ nodes.length }} 实体</div></div>
+                  <div class="ni-row"><div class="ni-key">总关系数</div><div class="ni-val">{{ edges.length }} 流向</div></div>
+                  <div class="ni-row"><div class="ni-key">推演引擎</div><div class="ni-val green">● 实时就绪</div></div>
                 </div>
-              </div>
+              </template>
+              <template v-if="tab === 1">
+                <div class="ni-section" style="flex:1">
+                  <div class="ni-section-title">全局拓扑关系表 ({{ edges.length }})</div>
+                  <div v-for="e in edges" :key="e.id">
+                    <div v-if="nmap[e.from] && nmap[e.to]" class="ni-row">
+                      <div class="ni-key" style="color:#ffaa22; width: 100px;">{{ e.label }}</div>
+                      <div class="ni-val">{{ nmap[e.from].label }} <span style="color:#253a52; margin: 0 8px;">→</span> {{ nmap[e.to].label }}</div>
+                    </div>
+                  </div>
+                  <div v-if="!edges.length" style="color:#1e3348;font-size:11px;padding-top:4px">暂无全局关系</div>
+                </div>
+              </template>
+              <template v-if="tab === 2">
+                <div class="ni-section">
+                  <div class="ni-section-title">模型属性表</div>
+                  <div v-for="[k, v] in [['模型范式','Supply Chain Ontology'],['合规等级','Level 3 (内部安全)'],['版本号','v2.1.4']]" :key="k" class="ni-row">
+                    <div class="ni-key">{{ k }}</div><div class="ni-val">{{ v }}</div>
+                  </div>
+                </div>
+              </template>
+              <template v-if="tab === 3">
+                <div class="ni-section">
+                  <div class="ni-section-title">全局本体 Schema</div>
+                  <div class="ni-row"><div class="ni-key">Entity [实体]</div><div class="ni-val">id(PK), label(String), type(Enum)</div></div>
+                  <div class="ni-row"><div class="ni-key">Edge [关系]</div><div class="ni-val">id(PK), from(EntityID), to(EntityID), label(String)</div></div>
+                  <div class="ni-row"><div class="ni-key">Properties [属性列]</div><div class="ni-val">动态键值对 (支持 String, Number, Boolean)</div></div>
+                </div>
+              </template>
             </template>
           </div>
         </div>
@@ -106,66 +186,3 @@
     </template>
   </div>
 </template>
-
-<script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { NT } from '../stores/graph.js'
-import { useGraphStore } from '../stores/graph.js'
-
-const props = defineProps({ node: Object })
-defineEmits(['close'])
-
-const store = useGraphStore()
-const tab = ref(0)
-const panelHeight = ref(200)
-const resizing = ref(false)
-
-const t = computed(() => props.node ? NT[props.node.type] || NT.entity : NT.entity)
-const nodeMap = computed(() => store.nodeMap)
-const outgoing = computed(() => store.edges.filter(e => e.from === props.node?.id))
-const incoming = computed(() => store.edges.filter(e => e.to === props.node?.id))
-
-const connectedNodes = computed(() => {
-  if (!props.node) return []
-  const out = outgoing.value.map(e => ({ ...nodeMap.value[e.to], rel: e.label, dir: 'out' })).filter(x => x.id)
-  const inc = incoming.value.map(e => ({ ...nodeMap.value[e.from], rel: e.label, dir: 'in' })).filter(x => x.id)
-  return [...out, ...inc]
-})
-
-const tabs = ['概览', '关系', '属性', 'Schema']
-const meta = [['版本', 'v1.0'], ['创建者', 'AI 推演助手'], ['更新时间', '2026-04-18 16:30'], ['数据质量', '98.2%'], ['置信度', '高']]
-const schema = computed(() => [
-  ['label', 'String (required)'],
-  ['type', (t.value?.label || '') + ' (enum)'],
-  ['id', 'String (PK)'],
-  ['x', 'Float'],
-  ['y', 'Float'],
-])
-
-function ntOf(n) { return NT[n.type] || NT.entity }
-
-let resizeStart = null
-function startResize(e) {
-  e.preventDefault()
-  resizeStart = { y: e.clientY, h: panelHeight.value }
-  resizing.value = true
-}
-function onResizeMove(e) {
-  if (!resizeStart) return
-  const delta = resizeStart.y - e.clientY
-  panelHeight.value = Math.max(80, Math.min(520, resizeStart.h + delta))
-}
-function onResizeUp() {
-  resizeStart = null
-  resizing.value = false
-}
-
-onMounted(() => {
-  window.addEventListener('mousemove', onResizeMove)
-  window.addEventListener('mouseup', onResizeUp)
-})
-onUnmounted(() => {
-  window.removeEventListener('mousemove', onResizeMove)
-  window.removeEventListener('mouseup', onResizeUp)
-})
-</script>

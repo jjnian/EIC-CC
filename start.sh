@@ -5,9 +5,9 @@ echo "启动推演平台..."
 lsof -ti:8000 | xargs kill -9 2>/dev/null
 lsof -ti:5173 | xargs kill -9 2>/dev/null
 
-# Start backend
+# Start backend (Spring Boot)
 cd "$(dirname "$0")/backend"
-uvicorn main:app --port 8000 --reload &
+mvn spring-boot:run &
 BACKEND_PID=$!
 echo "后端启动 (PID: $BACKEND_PID) → http://localhost:8000"
 
