@@ -3,6 +3,8 @@ package com.tuiyan.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.tuiyan.backend.model.ConfigResponse;
+import com.tuiyan.backend.model.LlmProvider;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -11,7 +13,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class LlmService {
@@ -72,36 +76,83 @@ public class LlmService {
             }
         }
         ObjectNode node = objectMapper.createObjectNode();
+        node.put("provider", LlmProvider.QWEN.getCode());
         node.put("baseUrl", DEFAULT_BASE_URL);
         node.put("modelName", DEFAULT_MODEL_NAME);
         return node;
     }
 
-    public void saveConfig(String baseUrl, String modelName) throws IOException {
+    /**
+     * 获取配置响应，包含所有提供商信息供前端选择
+     */
+    public ConfigResponse getConfigResponse() throws IOException {
+        JsonNode config = getConfig();
+        String providerCode = config.has("provider") ? config.get("provider").asText() : LlmProvider.QWEN.getCode();
+        LlmProvider provider = LlmProvider.fromCode(providerCode);
+
+        String baseUrl = config.has("baseUrl") ? config.get("baseUrl").asText() : provider.getBaseUrl();
+        String modelName = config.has("modelName") ? config.get("modelName").asText() : provider.getDefaultModel();
+
+        List<ConfigResponse.ProviderInfo> providers = new ArrayList<>();
+        for (LlmProvider p : LlmProvider.values()) {
+            providers.add(new ConfigResponse.ProviderInfo(
+                p.getCode(),
+                p.getDisplayName(),
+                p.getBaseUrl(),
+                p.getDefaultModel(),
+                p.getModels(),
+                p.getApiKeyEnvName()
+            ));
+        }
+
+        return new ConfigResponse(providerCode, baseUrl, modelName, providers);
+    }
+
+    public void saveConfig(String provider, String baseUrl, String modelName, String apiKey) throws IOException {
         ObjectNode config = objectMapper.createObjectNode();
+        config.put("provider", provider);
         config.put("baseUrl", baseUrl);
         config.put("modelName", modelName);
+        if (apiKey != null && !apiKey.isBlank()) {
+            config.put("apiKey", apiKey);
+        }
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(new File(CONFIG_FILE), config);
     }
 
     @SuppressWarnings("unchecked")
-    public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message) throws Exception {
-        String apiKey = System.getenv("LLM_API_KEY");
-        if (apiKey == null || apiKey.isBlank()) {
-            apiKey = System.getenv("GEMINI_API_KEY");
-        }
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("Missing LLM_API_KEY or GEMINI_API_KEY in environment variables.");
+    public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message, String modelOverride) throws Exception {
+        JsonNode fileConfig = getConfig();
+        String providerCode = fileConfig.has("provider") ? fileConfig.get("provider").asText() : LlmProvider.QWEN.getCode();
+        LlmProvider provider = LlmProvider.fromCode(providerCode);
+
+        // 根据提供商获取对应的 API Key
+        String apiKey = getApiKey(provider, fileConfig);
+
+        String baseURL = fileConfig.has("baseUrl") ? fileConfig.get("baseUrl").asText() : provider.getBaseUrl();
+        String modelName = fileConfig.has("modelName") ? fileConfig.get("modelName").asText() : provider.getDefaultModel();
+
+        // 允许请求级别的模型覆盖
+        if (modelOverride != null && !modelOverride.isBlank()) {
+            modelName = modelOverride;
         }
 
-        JsonNode fileConfig = getConfig();
-        String baseURL = System.getenv("LLM_BASE_URL");
-        if (baseURL == null || baseURL.isBlank()) {
-            baseURL = fileConfig.has("baseUrl") ? fileConfig.get("baseUrl").asText() : DEFAULT_BASE_URL;
+        // 允许环境变量覆盖
+        if (System.getenv("LLM_BASE_URL") != null && !System.getenv("LLM_BASE_URL").isBlank()) {
+            baseURL = System.getenv("LLM_BASE_URL");
         }
-        String modelName = System.getenv("LLM_MODEL_NAME");
-        if (modelName == null || modelName.isBlank()) {
-            modelName = fileConfig.has("modelName") ? fileConfig.get("modelName").asText() : DEFAULT_MODEL_NAME;
+        if (System.getenv("LLM_MODEL_NAME") != null && !System.getenv("LLM_MODEL_NAME").isBlank()) {
+            modelName = System.getenv("LLM_MODEL_NAME");
+        }
+        // 通用 API Key 环境变量作为后备
+        if (apiKey == null && System.getenv("LLM_API_KEY") != null && !System.getenv("LLM_API_KEY").isBlank()) {
+            apiKey = System.getenv("LLM_API_KEY");
+        }
+        if (apiKey == null && System.getenv("GEMINI_API_KEY") != null && !System.getenv("GEMINI_API_KEY").isBlank()) {
+            apiKey = System.getenv("GEMINI_API_KEY");
+        }
+
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("Missing API key for provider '" + provider.getDisplayName() + "'. Please set environment variable: " + provider.getApiKeyEnvName());
         }
 
         String prompt = "Here is the user's latest message:\n" + message +
@@ -151,5 +202,46 @@ public class LlmService {
         content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
 
         return objectMapper.readTree(content);
+    }
+
+    /**
+     * 根据提供商获取对应的 API Key
+     * 优先级：配置文件中保存的 Key > 环境变量
+     */
+    private String getApiKey(LlmProvider provider, JsonNode fileConfig) {
+        // 优先尝试从配置文件中读取保存的 API Key
+        if (fileConfig.has("apiKey")) {
+            String savedApiKey = fileConfig.get("apiKey").asText();
+            if (savedApiKey != null && !savedApiKey.isBlank()) {
+                return savedApiKey;
+            }
+        }
+
+        // 尝试提供商专属的环境变量
+        String envName = provider.getApiKeyEnvName();
+        String apiKey = System.getenv(envName);
+        if (apiKey != null && !apiKey.isBlank()) {
+            return apiKey;
+        }
+
+        // 对于某些提供商，尝试多个可能的环境变量名称
+        if (provider == LlmProvider.QWEN) {
+            apiKey = System.getenv("QWEN_API_KEY");
+            if (apiKey != null && !apiKey.isBlank()) {
+                return apiKey;
+            }
+        } else if (provider == LlmProvider.KIMI) {
+            apiKey = System.getenv("KIMI_API_KEY");
+            if (apiKey != null && !apiKey.isBlank()) {
+                return apiKey;
+            }
+        } else if (provider == LlmProvider.DEEPSEEK) {
+            apiKey = System.getenv("DEEPSEEK_KEY");
+            if (apiKey != null && !apiKey.isBlank()) {
+                return apiKey;
+            }
+        }
+
+        return null;
     }
 }

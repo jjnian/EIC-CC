@@ -20,4 +20,7 @@ public class ChatRequest {
     public void setEdges(List<Map<String, Object>> edges) { this.edges = edges; }
     public List<String> getAttachments() { return attachments; }
     public void setAttachments(List<String> attachments) { this.attachments = attachments; }
+    public String getModelOverride() { return modelOverride; }
+    public void setModelOverride(String modelOverride) { this.modelOverride = modelOverride; }
+    private String modelOverride;
 }

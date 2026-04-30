@@ -1,4 +1,5 @@
 {
+  "provider": "qwen",
   "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
   "modelName": "qwen-max"
 }

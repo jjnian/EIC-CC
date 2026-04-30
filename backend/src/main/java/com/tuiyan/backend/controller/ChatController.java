@@ -22,7 +22,7 @@ public class ChatController {
     @PostMapping
     public ResponseEntity<?> chat(@RequestBody ChatRequest request) {
         try {
-            JsonNode result = llmService.chat(request.getNodes(), request.getEdges(), request.getMessage());
+            JsonNode result = llmService.chat(request.getNodes(), request.getEdges(), request.getMessage(), request.getModelOverride());
             return ResponseEntity.ok(result);
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));

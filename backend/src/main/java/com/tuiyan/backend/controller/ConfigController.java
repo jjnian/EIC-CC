@@ -1,6 +1,5 @@
 package com.tuiyan.backend.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.tuiyan.backend.model.ConfigRequest;
 import com.tuiyan.backend.model.ConfigResponse;
 import com.tuiyan.backend.service.LlmService;
@@ -23,11 +22,8 @@ public class ConfigController {
     @GetMapping
     public ResponseEntity<?> getConfig() {
         try {
-            JsonNode config = llmService.getConfig();
-            return ResponseEntity.ok(new ConfigResponse(
-                    config.has("baseUrl") ? config.get("baseUrl").asText() : null,
-                    config.has("modelName") ? config.get("modelName").asText() : null
-            ));
+            ConfigResponse config = llmService.getConfigResponse();
+            return ResponseEntity.ok(config);
         } catch (IOException e) {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }
@@ -36,7 +32,7 @@ public class ConfigController {
     @PostMapping
     public ResponseEntity<?> saveConfig(@RequestBody ConfigRequest request) {
         try {
-            llmService.saveConfig(request.getBaseUrl(), request.getModelName());
+            llmService.saveConfig(request.getProvider(), request.getBaseUrl(), request.getModelName(), request.getApiKey());
             return ResponseEntity.ok(Map.of("success", true));
         } catch (IOException e) {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
