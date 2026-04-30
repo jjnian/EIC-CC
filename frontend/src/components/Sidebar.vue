@@ -9,7 +9,7 @@ const emit = defineEmits<{
 
 const a = ref(0);
 const items = [
-  ['◈', '物理模型', 'list']
+  ['◈', '本体模型', 'list']
 ];
 </script>
 

@@ -38,7 +38,7 @@ const createNewModel = () => {
   const newModel = {
     id: Date.now().toString(),
     title: `新建推演模型 ${models.value.length + 1}`,
-    desc: '新创建的空白物理模型画布',
+    desc: '新创建的空白本体模型画布',
     updated: '刚刚',
     graphData: { nodes: [], edges: [] }
   };
@@ -73,79 +73,87 @@ const clearCanvas = () => {
 const autoLayout = () => {
   if (nodes.value.length === 0) return;
 
-  // Use a topological sort / longest-path level assignment for left-to-right hierarchy layout
+  // --- Step 1: BFS from roots to compute shortest-path levels ---
+  const hasIncoming = new Set(edges.value.map(e => e.to));
+  const roots = nodes.value.filter(n => !hasIncoming.has(n.id));
+
   const levels: Record<string, number> = {};
-  nodes.value.forEach(n => { levels[n.id] = 0; });
+  nodes.value.forEach(n => { levels[n.id] = Infinity; });
+  roots.forEach(r => { levels[r.id] = 0; });
 
-  // Bellman-Ford-like relaxation to compute max depth from roots
-  let changed = true;
-  let iterations = 0;
-  const maxIterations = nodes.value.length + 1; // Prevent infinite loops in cyclic graphs
-
-  while (changed && iterations < maxIterations) {
-    changed = false;
-    iterations++;
-    edges.value.forEach(e => {
-      const fromLevel = levels[e.from] ?? 0;
-      const toLevel = levels[e.to] ?? 0;
-      if (fromLevel + 1 > toLevel) {
-        levels[e.to] = fromLevel + 1;
-        changed = true;
+  const queue = roots.map(r => r.id);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const currentLvl = levels[current];
+    edges.value.filter(e => e.from === current).forEach(e => {
+      if (levels[e.to] === Infinity) {
+        levels[e.to] = currentLvl + 1;
+        queue.push(e.to);
       }
     });
   }
+  nodes.value.forEach(n => {
+    if (levels[n.id] === Infinity) levels[n.id] = 0;
+  });
 
-  // Group nodes by level
+  // --- Step 2: Group by level, sort by parent barycenter ---
   const groups: Record<number, any[]> = {};
   let maxLevel = 0;
+  const isolated: any[] = [];
+
   nodes.value.forEach(n => {
+    const hasEdge = edges.value.some(e => e.from === n.id || e.to === n.id);
+    if (!hasEdge) { isolated.push(n); return; }
     const lvl = levels[n.id];
     if (lvl > maxLevel) maxLevel = lvl;
     if (!groups[lvl]) groups[lvl] = [];
     groups[lvl].push(n);
   });
 
-  // Calculate coordinates: left-to-right cascades
-  const xSpacing = 320; // Fixed sensible spacing to avoid overly long lines
-  const ySpacing = 160;
+  for (let lvl = 1; lvl <= maxLevel; lvl++) {
+    const group = groups[lvl];
+    if (!group || group.length <= 1) continue;
+    group.sort((a, b) => {
+      const avgParentY = (id: string) => {
+        const parents = edges.value.filter(e => e.to === id).map(e => e.from);
+        if (!parents.length) return Infinity;
+        return parents.reduce((s: number, p: string) => {
+          const pg = groups[levels[p]];
+          return s + (pg ? pg.findIndex(n => n.id === p) : 0);
+        }, 0) / parents.length;
+      };
+      return avgParentY(a.id) - avgParentY(b.id);
+    });
+  }
 
-  // Calculate total bounding box width and height to center it
-  const totalGraphWidth = maxLevel * xSpacing;
-  const maxLvlCount = Math.max(...Object.values(groups).map(g => g.length));
+  // --- Step 3: Position — compact left→right, top-down within level ---
+  const nodeW = 172, nodeH = 44;
+  const xGap = 30;
+  const yGap = 40;
+  const xSpacing = nodeW + xGap; // 202px per level
+  const ySpacing = nodeH + yGap; // 84px per node in same level
+  const startX = 60;
+  const startY = 60;
 
   for (let lvl = 0; lvl <= maxLevel; lvl++) {
     const group = groups[lvl];
     if (!group) continue;
-
-    // Sort nodes to minimize edge crossings by putting children closer to their parents' average Y
-    if (lvl > 0) {
-      group.sort((a, b) => {
-        const getAvgY = (nodeId: string) => {
-           const incoming = edges.value.filter(e => e.to === nodeId);
-           if (incoming.length === 0) return 0;
-           let sum = 0; let c = 0;
-           incoming.forEach(edge => {
-             const parent = nodes.value.find(n => n.id === edge.from);
-             if (parent && parent.y !== undefined) { sum += parent.y; c++; }
-           });
-           return c > 0 ? sum / c : 0;
-        };
-        return getAvgY(a.id) - getAvgY(b.id);
-      });
-    }
-
-    // Keep it vertically balanced around Y=1000
-    const startY = 1000 - ((group.length - 1) * ySpacing) / 2;
-
     group.forEach((n, idx) => {
-      n.x = 400 + lvl * xSpacing;
+      n.x = startX + lvl * xSpacing;
       n.y = startY + idx * ySpacing;
     });
   }
 
+  if (isolated.length > 0) {
+    isolated.forEach((n, idx) => {
+      n.x = startX + (maxLevel + 1) * xSpacing;
+      n.y = startY + idx * ySpacing;
+    });
+  }
+
+  // --- Step 4: Fit view ---
   if (graphRef.value) {
     setTimeout(() => {
-      // @ts-ignore
       graphRef.value.fitView();
     }, 50);
   }
@@ -179,7 +187,7 @@ const startDivider = (e: MouseEvent) => {
           <span class="bc-muted">模型空间</span><span class="bc-sep">/</span>
 
           <template v-if="view === 'list'">
-            <span class="bc-cur">物理模型</span>
+            <span class="bc-cur">本体模型</span>
           </template>
 
           <template v-else-if="view === 'settings'">
@@ -187,7 +195,7 @@ const startDivider = (e: MouseEvent) => {
           </template>
 
           <template v-else-if="view === 'graph'">
-            <span class="bc-muted" @click="view = 'list'" style="cursor:pointer; transition: opacity 0.2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.8" title="返回物理模型列表">物理模型</span>
+            <span class="bc-muted" @click="view = 'list'" style="cursor:pointer; transition: opacity 0.2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.8" title="返回本体模型列表">本体模型</span>
             <span class="bc-sep">/</span>
             <span class="bc-cur" style="color: #42b883">{{ currentModelTitle }}</span>
             <span class="bc-star">☆</span>
@@ -208,7 +216,7 @@ const startDivider = (e: MouseEvent) => {
       <!-- List View -->
       <div class="model-list-view" v-if="view === 'list'">
         <div class="ml-header">
-          <h2>物理模型管理</h2>
+          <h2>本体模型管理</h2>
           <p>选择一个已有模型进行编辑拓展，或创建新的推演画布。</p>
         </div>
         <div class="ml-grid">

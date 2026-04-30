@@ -50,7 +50,7 @@ const fitView = () => {
 
   const sX = (cw - 80) / Math.max(b.w, 1);
   const sY = (ch - 80) / Math.max(b.h, 1);
-  const targetZoom = Math.max(0.1, Math.min(1.2, sX, sY));
+  const targetZoom = Math.max(0.1, Math.min(2.0, sX, sY));
 
   zoom.value = targetZoom;
   isAutoFit.value = true;
