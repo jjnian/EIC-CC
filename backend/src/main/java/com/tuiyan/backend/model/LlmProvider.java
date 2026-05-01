@@ -55,6 +55,22 @@ public enum LlmProvider {
         "OPENAI_API_KEY",
         List.of("gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo")
     ),
+    ERNIE(
+        "ernie",
+        "文心一言 (百度)",
+        "https://qianfan.baidubce.com/v2",
+        "ernie-4.0-turbo-8k",
+        "QIANFAN_ACCESS_KEY",
+        List.of("ernie-4.0-turbo-8k", "ernie-speed-128k", "ernie-lite-8k", "ernie-tiny-8k")
+    ),
+    DOUBAO(
+        "doubao",
+        "豆包 (字节跳动)",
+        "https://ark.cn-beijing.volces.com/api/v3",
+        "doubao-pro-32k",
+        "ARK_API_KEY",
+        List.of("doubao-pro-32k", "doubao-pro-128k", "doubao-lite-32k", "doubao-lite-128k")
+    ),
     CUSTOM(
         "custom",
         "自定义配置",

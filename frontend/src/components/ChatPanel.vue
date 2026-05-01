@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted } from 'vue';
-import { NT } from '../constants';
 
 const props = defineProps<{
   nodes: any[];
@@ -10,9 +9,98 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update', addNodes: any[], addEdges: any[]): void;
+  (e: 'clear-graph'): void;
 }>();
 
-const msgs = ref([
+// ========== 会话管理 ==========
+
+interface Conversation {
+  id: string;
+  createdAt: number;
+  title: string;
+  msgs: any[];
+}
+
+const STORAGE_KEY = 'eic-conversations';
+const conversationId = ref('');
+const conversationTitle = ref('新对话');
+const showConvPicker = ref(false);
+
+const loadConversations = (): Record<string, Conversation> => {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+  } catch { return {}; }
+};
+
+const saveConversations = (convs: Record<string, Conversation>) => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(convs));
+};
+
+const autoTitle = (msgs: any[]): string => {
+  const firstUser = msgs.find(m => m.role === 'u');
+  if (!firstUser) return '新对话';
+  const t = firstUser.text.trim();
+  return t.length > 20 ? t.slice(0, 20) + '…' : t;
+};
+
+const persistCurrent = () => {
+  const convs = loadConversations();
+  if (convs[conversationId.value]) {
+    convs[conversationId.value].msgs = JSON.parse(JSON.stringify(msgs.value));
+    convs[conversationId.value].title = autoTitle(msgs.value);
+  }
+  saveConversations(convs);
+};
+
+const initConversation = (id?: string) => {
+  if (id && id !== 'new') {
+    const convs = loadConversations();
+    const conv = convs[id];
+    if (conv) {
+      conversationId.value = conv.id;
+      conversationTitle.value = conv.title;
+      msgs.value = JSON.parse(JSON.stringify(conv.msgs));
+      return;
+    }
+  }
+  // 新建对话
+  conversationId.value = Date.now().toString();
+  conversationTitle.value = '新对话';
+  msgs.value = [
+    { role: 'a', text: '你好！我是推演助手。\n\n用自然语言描述实体和关系，我会自动构建本体图谱。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试：「添加一个财务审计实体，与客户相关联」' }
+  ];
+  emit('clear-graph');
+};
+
+const newConversation = () => {
+  showConvPicker.value = false;
+  initConversation('new');
+};
+
+const switchConversation = (id: string) => {
+  showConvPicker.value = false;
+  initConversation(id);
+};
+
+const deleteConversation = (id: string, e: Event) => {
+  e.stopPropagation();
+  if (!confirm('确定删除这条对话记录？')) return;
+  const convs = loadConversations();
+  delete convs[id];
+  saveConversations(convs);
+  if (id === conversationId.value) {
+    initConversation('new');
+  }
+};
+
+const sortedConversations = (): Conversation[] => {
+  const convs = loadConversations();
+  return Object.values(convs).sort((a, b) => b.createdAt - a.createdAt);
+};
+
+// ========== 消息 & 模型 ==========
+
+const msgs = ref<any[]>([
   { role: 'a', text: '你好！我是推演助手。\n\n用自然语言描述实体和关系，我会自动构建本体图谱。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试：「添加一个财务审计实体，与客户相关联」' }
 ]);
 const input = ref('');
@@ -40,7 +128,6 @@ const loadModels = async () => {
       const data = await res.json();
       const models: ModelOption[] = [];
 
-      // 预设模型
       if (data.provider && data.modelName) {
         const provider = (data.providers || []).find((p: any) => p.code === data.provider);
         const modelName = data.modelName;
@@ -53,7 +140,6 @@ const loadModels = async () => {
         }
       }
 
-      // 自定义模型
       if (data.customModels) {
         data.customModels
           .filter((m: any) => m.enabled)
@@ -72,17 +158,29 @@ const loadModels = async () => {
   }
 };
 
-onMounted(loadModels);
-
 const selectModel = (model: ModelOption) => {
   currentModel.value = model;
   showModelPicker.value = false;
 };
 
+onMounted(() => {
+  loadModels();
+  // 恢复上一次打开的会话
+  const convs = loadConversations();
+  const ids = Object.keys(convs);
+  if (ids.length > 0) {
+    // 选最近的一条
+    const latest = ids.reduce((a, b) => convs[a].createdAt > convs[b].createdAt ? a : b);
+    initConversation(latest);
+  }
+});
+
+// 每次消息变化自动保存
 watch(msgs, () => {
   nextTick(() => {
     if (msgsRef.value) msgsRef.value.scrollTop = msgsRef.value.scrollHeight;
   });
+  persistCurrent();
 }, { deep: true });
 
 const addFile = (f: File) => {
@@ -94,17 +192,28 @@ const send = async () => {
   if (!input.value.trim() && !atts.value.length) return;
   const txt = input.value;
   const ua = [...atts.value];
-  msgs.value.push({ role: 'u', text: txt, atts: ua } as any);
+  msgs.value.push({ role: 'u', text: txt, atts: ua });
   input.value = '';
   atts.value = [];
   loading.value = true;
+
+  // 首次发消息自动更新标题
+  if (conversationTitle.value === '新对话') {
+    conversationTitle.value = autoTitle(msgs.value);
+  }
 
   // 创建 AI 消息占位（流式显示用）
   const aiMsg = { role: 'a' as const, text: '' };
   msgs.value.push(aiMsg);
 
   try {
-    const body: any = { message: txt, history: [] };
+    // 构建对话历史（排除刚创建的空白 AI 消息）
+    const history = msgs.value
+      .filter(m => m !== aiMsg && (m.role === 'u' || m.role === 'a') && m.text)
+      .slice(-40)
+      .map(m => ({ role: m.role === 'u' ? 'user' : 'assistant', content: m.text }));
+
+    const body: any = { message: txt, history };
     if (currentModel.value?.configId) {
       body.configId = currentModel.value.configId;
     } else if (currentModel.value?.type === 'preset') {
@@ -152,7 +261,6 @@ const send = async () => {
           } else if (currentEvent === 'complete') {
             try {
               const data = JSON.parse(currentData);
-              // 确保文本完整
               if (!aiMsg.text && data.reply) {
                 aiMsg.text = data.reply;
               }
@@ -222,7 +330,34 @@ const send = async () => {
       </div>
     </div>
     <div class="ch-input-area">
-      <div class="model-bar" v-if="!input && !atts.length">
+      <div class="toolbar" v-if="!input && !atts.length">
+        <!-- 会话切换 -->
+        <button class="conv-selector" @click="showConvPicker = !showConvPicker" :title="conversationTitle">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span class="conv-title">{{ conversationTitle }}</span>
+          <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <button class="new-conv-btn" @click="newConversation" title="新建对话">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <!-- 会话下拉 -->
+        <div class="conv-dropdown" v-if="showConvPicker">
+          <div class="conv-dropdown-item" @click="newConversation">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <span>新建对话</span>
+          </div>
+          <div class="conv-divider" v-if="sortedConversations().length > 0"></div>
+          <div class="conv-dropdown-item history"
+               v-for="c in sortedConversations()"
+               :key="c.id"
+               :class="{ active: c.id === conversationId }"
+               @click="switchConversation(c.id)">
+            <span class="conv-name">{{ c.title }}</span>
+            <span class="conv-time">{{ new Date(c.createdAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</span>
+            <button class="conv-del" @click="deleteConversation(c.id, $event)" title="删除">×</button>
+          </div>
+        </div>
+        <!-- 模型选择 -->
         <button class="model-selector" @click="showModelPicker = !showModelPicker" :title="'当前模型: ' + (currentModel?.name || '未选择')">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
           <span>{{ currentModel?.name || '选择模型' }}</span>
@@ -342,6 +477,46 @@ const send = async () => {
 }
 .att-chip button { background: none; border: none; color: #42b883; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
 .ch-input-area { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.06); }
+.toolbar { position: relative; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.conv-selector {
+  display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
+  background: rgba(10, 16, 27, 0.8); border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7); padding: 6px 12px; border-radius: 8px;
+  font-size: 12px; cursor: pointer; transition: all 0.2s;
+  font-family: 'JetBrains Mono', monospace;
+}
+.conv-selector:hover { border-color: #42b883; color: white; }
+.conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new-conv-btn {
+  background: rgba(10, 16, 27, 0.8); border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.5); padding: 6px 8px; border-radius: 8px;
+  cursor: pointer; transition: all 0.2s; display: flex; align-items: center;
+}
+.new-conv-btn:hover { border-color: #42b883; color: #42b883; }
+.conv-dropdown {
+  position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 6px;
+  background: rgba(14, 25, 41, 0.98); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; padding: 4px; z-index: 100;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4); max-height: 300px; overflow-y: auto;
+}
+.conv-dropdown-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-radius: 6px; font-size: 13px;
+  color: rgba(255,255,255,0.7); cursor: pointer; transition: all 0.15s;
+  font-family: 'JetBrains Mono', monospace;
+}
+.conv-dropdown-item:hover { background: rgba(66, 184, 131, 0.15); color: white; }
+.conv-dropdown-item.active { background: rgba(66, 184, 131, 0.2); color: #42b883; }
+.conv-dropdown-item.history { justify-content: space-between; }
+.conv-divider { height: 1px; background: rgba(255,255,255,0.06); margin: 4px 8px; }
+.conv-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-time { font-size: 10px; color: rgba(255,255,255,0.3); white-space: nowrap; flex-shrink: 0; }
+.conv-del {
+  background: none; border: none; color: rgba(255,255,255,0.3);
+  font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;
+  transition: color 0.15s;
+}
+.conv-del:hover { color: #ff6644; }
 .model-bar { position: relative; margin-bottom: 12px; }
 .model-selector {
   display: flex; align-items: center; gap: 6px;

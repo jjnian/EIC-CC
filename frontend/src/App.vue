@@ -254,7 +254,7 @@ const startDivider = (e: MouseEvent) => {
           <NodeInfo :node="selNode" :nodes="nodes" :edges="edges" :isOpen="showSchema" @close="() => { sel = null; showSchema = false; }" />
         </div>
         <div :class="['resize-divider', { dragging: divDrag }]" @mousedown="startDivider" />
-        <ChatPanel :nodes="nodes" :edges="edges" :width="chatW" @update="onUpdate" />
+        <ChatPanel :nodes="nodes" :edges="edges" :width="chatW" @update="onUpdate" @clear-graph="clearCanvas" />
       </div>
     </div>
   </div>

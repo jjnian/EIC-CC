@@ -289,7 +289,7 @@ public class LlmService {
     /**
      * 构建 LLM 请求体 JSON
      */
-    private String buildRequestBody(String modelName, String message, boolean stream) throws Exception {
+    private String buildRequestBody(String modelName, String message, List<Map<String, Object>> history, boolean stream) throws Exception {
         String prompt = "Here is the user's latest message:\n" + message +
                 "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
 
@@ -297,17 +297,32 @@ public class LlmService {
         requestNode.put("model", modelName);
         requestNode.put("stream", stream);
 
+        ArrayNode messages = objectMapper.createArrayNode();
+
+        // System instruction
         ObjectNode systemMsg = objectMapper.createObjectNode();
         systemMsg.put("role", "system");
         systemMsg.put("content", SYSTEM_INSTRUCTION);
+        messages.add(systemMsg);
 
+        // Conversation history
+        if (history != null && !history.isEmpty()) {
+            for (Map<String, Object> msg : history) {
+                ObjectNode h = objectMapper.createObjectNode();
+                String role = String.valueOf(msg.get("role"));
+                h.put("role", "user".equals(role) ? "user" : "assistant");
+                h.put("content", String.valueOf(msg.get("content")));
+                messages.add(h);
+            }
+        }
+
+        // Current user message
         ObjectNode userMsg = objectMapper.createObjectNode();
         userMsg.put("role", "user");
         userMsg.put("content", prompt);
+        messages.add(userMsg);
 
-        requestNode.set("messages", objectMapper.createArrayNode()
-                .add(systemMsg)
-                .add(userMsg));
+        requestNode.set("messages", messages);
 
         ObjectNode responseFormat = objectMapper.createObjectNode();
         responseFormat.put("type", "json_object");
@@ -319,11 +334,11 @@ public class LlmService {
     /**
      * 同步聊天（非流式）
      */
-    public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message, String modelOverride, String configId) throws Exception {
+    public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message, String modelOverride, String configId, List<Map<String, Object>> history) throws Exception {
         String[] cfg = resolveConfig(modelOverride, configId);
         String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
 
-        String requestBody = buildRequestBody(modelName, message, false);
+        String requestBody = buildRequestBody(modelName, message, history, false);
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseURL.replaceFirst("/+$", "") + "/chat/completions"))
@@ -353,7 +368,7 @@ public class LlmService {
             String[] cfg = resolveConfig(request.getModelOverride(), request.getConfigId());
             String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
 
-            String requestBody = buildRequestBody(modelName, request.getMessage(), true);
+            String requestBody = buildRequestBody(modelName, request.getMessage(), request.getHistory(), true);
 
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(URI.create(baseURL.replaceFirst("/+$", "") + "/chat/completions"))
