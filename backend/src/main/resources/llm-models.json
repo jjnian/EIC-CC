@@ -1,0 +1,12 @@
+[
+  {
+    "id": "default-qwen",
+    "name": "通义千问 (默认)",
+    "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "modelName": "qwen-max",
+    "apiKey": "",
+    "enabled": true,
+    "createdAt": 1714521600000,
+    "updatedAt": 1714521600000
+  }
+]

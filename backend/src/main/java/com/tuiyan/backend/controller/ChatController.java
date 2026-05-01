@@ -5,6 +5,7 @@ import com.tuiyan.backend.model.ChatRequest;
 import com.tuiyan.backend.service.LlmService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -20,9 +21,24 @@ public class ChatController {
     }
 
     @PostMapping
-    public ResponseEntity<?> chat(@RequestBody ChatRequest request) {
+    public Object chat(@RequestBody ChatRequest request,
+                       @RequestHeader(value = "Accept", defaultValue = "application/json") String accept) {
+        if (accept.contains("text/event-stream")) {
+            SseEmitter emitter = new SseEmitter(120_000L);
+            emitter.onTimeout(() -> emitter.complete());
+            try {
+                llmService.chatStreaming(request, emitter);
+            } catch (Exception e) {
+                try {
+                    emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
+                } catch (java.io.IOException ioEx) { /* ignore */ }
+                emitter.completeWithError(e);
+            }
+            return emitter;
+        }
+        // fallback: synchronous response
         try {
-            JsonNode result = llmService.chat(request.getNodes(), request.getEdges(), request.getMessage(), request.getModelOverride());
+            JsonNode result = llmService.chat(request.getNodes(), request.getEdges(), request.getMessage(), request.getModelOverride(), request.getConfigId());
             return ResponseEntity.ok(result);
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));

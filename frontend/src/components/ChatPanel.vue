@@ -21,20 +21,51 @@ const atts = ref<{name: string, type: string}[]>([]);
 const fileRef = ref<HTMLInputElement | null>(null);
 const msgsRef = ref<HTMLElement | null>(null);
 
-// 模型选择相关
-const currentModel = ref('');
-const availableModels = ref<string[]>([]);
+// 模型选择
+interface ModelOption {
+  id: string;
+  name: string;
+  type: 'preset' | 'custom';
+  configId?: string;
+}
+
+const currentModel = ref<ModelOption | null>(null);
+const availableModels = ref<ModelOption[]>([]);
 const showModelPicker = ref(false);
 
-// 加载当前模型和可用模型列表
 const loadModels = async () => {
   try {
     const res = await fetch('/api/config');
     if (res.ok) {
       const data = await res.json();
-      currentModel.value = data.modelName || '';
-      const provider = (data.providers || []).find((p: any) => p.code === data.provider);
-      availableModels.value = provider?.models || [];
+      const models: ModelOption[] = [];
+
+      // 预设模型
+      if (data.provider && data.modelName) {
+        const provider = (data.providers || []).find((p: any) => p.code === data.provider);
+        const modelName = data.modelName;
+        if (provider && provider.models) {
+          provider.models.forEach((m: string) => {
+            models.push({ id: m, name: m, type: 'preset' });
+          });
+        } else {
+          models.push({ id: modelName, name: modelName, type: 'preset' });
+        }
+      }
+
+      // 自定义模型
+      if (data.customModels) {
+        data.customModels
+          .filter((m: any) => m.enabled)
+          .forEach((m: any) => {
+            models.push({ id: m.id, name: m.name, type: 'custom', configId: m.id });
+          });
+      }
+
+      availableModels.value = models;
+      if (models.length > 0) {
+        currentModel.value = models[0];
+      }
     }
   } catch (e) {
     console.error("Failed to load models", e);
@@ -43,7 +74,7 @@ const loadModels = async () => {
 
 onMounted(loadModels);
 
-const selectModel = (model: string) => {
+const selectModel = (model: ModelOption) => {
   currentModel.value = model;
   showModelPicker.value = false;
 };
@@ -68,42 +99,100 @@ const send = async () => {
   atts.value = [];
   loading.value = true;
 
+  // 创建 AI 消息占位（流式显示用）
+  const aiMsg = { role: 'a' as const, text: '' };
+  msgs.value.push(aiMsg);
+
   try {
     const body: any = { message: txt, history: [] };
-    if (currentModel.value) {
-      body.modelOverride = currentModel.value;
+    if (currentModel.value?.configId) {
+      body.configId = currentModel.value.configId;
+    } else if (currentModel.value?.type === 'preset') {
+      body.modelOverride = currentModel.value.id;
     }
+
     const res = await fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      },
       body: JSON.stringify(body)
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      const nodeOffset = Math.random() * 50 - 25;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: '请求失败' }));
+      aiMsg.text = `请求失败: ${err.error}`;
+      loading.value = false;
+      return;
+    }
 
-      const cx = 400 + nodeOffset;
-      const cy = 300 + nodeOffset;
-      const r = 150;
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEvent = '';
+    let currentData = '';
 
-      const pNodes = (data.add_nodes || []).map((n: any, idx: number, arr: any[]) => {
-        const angle = (idx / arr.length) * Math.PI * 2;
-        return {
-          ...n,
-          x: cx + Math.cos(angle) * r,
-          y: cy + Math.sin(angle) * r
-        };
-      });
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-      msgs.value.push({ role: 'a', text: data.reply || '图谱已更新。' });
-      emit('update', pNodes, data.add_edges || []);
-    } else {
-      const err = await res.json();
-      msgs.value.push({ role: 'a', text: `请求失败: ${err.error}` });
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7);
+        } else if (line.startsWith('data: ')) {
+          currentData = line.slice(6);
+
+          if (currentEvent === 'text') {
+            aiMsg.text += currentData;
+          } else if (currentEvent === 'complete') {
+            try {
+              const data = JSON.parse(currentData);
+              // 确保文本完整
+              if (!aiMsg.text && data.reply) {
+                aiMsg.text = data.reply;
+              }
+
+              const nodeOffset = Math.random() * 50 - 25;
+              const cx = 400 + nodeOffset;
+              const cy = 300 + nodeOffset;
+              const r = 150;
+
+              const pNodes = (data.add_nodes || []).map((n: any, idx: number, arr: any[]) => {
+                const angle = (idx / arr.length) * Math.PI * 2;
+                return { ...n, x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
+              });
+
+              emit('update', pNodes, data.add_edges || []);
+            } catch (parseErr) {
+              console.error('Failed to parse complete event:', parseErr);
+            }
+          } else if (currentEvent === 'error') {
+            if (!aiMsg.text) {
+              aiMsg.text = `错误: ${currentData}`;
+            } else {
+              aiMsg.text += `\n\n[错误] ${currentData}`;
+            }
+          }
+
+          currentEvent = '';
+          currentData = '';
+        }
+      }
+    }
+
+    if (!aiMsg.text) {
+      aiMsg.text = '未收到有效回复';
     }
   } catch (error: any) {
-    msgs.value.push({ role: 'a', text: `网络或解析错误: ${error.message}` });
+    const lastAi = [...msgs.value].reverse().find(m => m.role === 'a');
+    if (lastAi && !(lastAi as any).text) {
+      (lastAi as any).text = `网络或解析错误: ${error.message}`;
+    }
   } finally {
     loading.value = false;
   }
@@ -123,15 +212,7 @@ const send = async () => {
           <div v-if="(m as any).atts?.length > 0" class="att-tags">
             <span v-for="(a, j) in (m as any).atts" :key="j" class="att-sm">{{ a.name }}</span>
           </div>
-          <div class="bubble">{{ m.text }}</div>
-        </div>
-      </div>
-      <div v-if="loading" class="msg msg-asst">
-        <div class="avatar">推</div>
-        <div class="msg-body">
-          <div class="bubble">
-            <div class="loading-dots"><span /><span /><span /></div>
-          </div>
+          <div class="bubble" :class="{ streaming: m.role === 'a' && !m.text }">{{ m.text }}<span v-if="loading && m.role === 'a'" class="cursor" /></div>
         </div>
       </div>
     </div>
@@ -141,26 +222,32 @@ const send = async () => {
       </div>
     </div>
     <div class="ch-input-area">
-      <!-- 模型选择器 -->
       <div class="model-bar" v-if="!input && !atts.length">
-        <button class="model-selector" @click="showModelPicker = !showModelPicker" :title="'当前模型: ' + currentModel">
+        <button class="model-selector" @click="showModelPicker = !showModelPicker" :title="'当前模型: ' + (currentModel?.name || '未选择')">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-          <span>{{ currentModel || '选择模型' }}</span>
+          <span>{{ currentModel?.name || '选择模型' }}</span>
           <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
-        <!-- 模型下拉列表 -->
         <div class="model-dropdown" v-if="showModelPicker">
+          <div class="model-group-label">预设模型</div>
           <div class="model-dropdown-item"
-               v-for="m in availableModels"
-               :key="m"
-               :class="{ active: m === currentModel }"
+               v-for="m in availableModels.filter(x => x.type === 'preset')"
+               :key="m.id"
+               :class="{ active: m.id === currentModel?.id }"
                @click="selectModel(m)">
-            {{ m }}
-            <span class="model-check" v-if="m === currentModel">✓</span>
+            {{ m.name }}
+            <span class="model-check" v-if="m.id === currentModel?.id">✓</span>
           </div>
-          <div class="model-dropdown-item custom" @click="showModelPicker = false">
-            关闭
+          <div class="model-group-label" v-if="availableModels.some(x => x.type === 'custom')">自定义模型</div>
+          <div class="model-dropdown-item"
+               v-for="m in availableModels.filter(x => x.type === 'custom')"
+               :key="m.id"
+               :class="{ active: m.id === currentModel?.id }"
+               @click="selectModel(m)">
+            {{ m.name }}
+            <span class="model-check" v-if="m.id === currentModel?.id">✓</span>
           </div>
+          <div class="model-dropdown-item custom" @click="showModelPicker = false">关闭</div>
         </div>
       </div>
       <div class="input-box">
@@ -192,7 +279,6 @@ const send = async () => {
   background: rgba(8, 14, 24, 0.6);
   border-left: 1px solid rgba(255, 255, 255, 0.06);
 }
-
 .ch-head {
   display: flex;
   align-items: center;
@@ -200,370 +286,120 @@ const send = async () => {
   padding: 16px 20px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
-
-.ch-head-l {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
+.ch-head-l { display: flex; align-items: center; gap: 10px; }
 .ch-pulse {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #42b883;
-  box-shadow: 0 0 8px #42b883;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #42b883; box-shadow: 0 0 8px #42b883;
   animation: pulse 2s infinite;
 }
-
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(1.2); }
 }
-
-.ch-head-l span {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.ch-stat {
-  font-size: 12px;
-  color: var(--text-dim);
-  font-family: 'JetBrains Mono', monospace;
-}
-
+.ch-head-l span { font-size: 15px; font-weight: 600; color: var(--text-main); }
+.ch-stat { font-size: 12px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
 .ch-msgs {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  flex: 1; overflow-y: auto; padding: 20px;
+  display: flex; flex-direction: column; gap: 16px;
 }
-
-.msg {
-  display: flex;
-  gap: 10px;
-  max-width: 90%;
-}
-
-.msg-user {
-  align-self: flex-end;
-  flex-direction: row-reverse;
-}
-
-.msg-asst {
-  align-self: flex-start;
-}
-
+.msg { display: flex; gap: 10px; max-width: 90%; }
+.msg-user { align-self: flex-end; flex-direction: row-reverse; }
+.msg-asst { align-self: flex-start; }
 .avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 32px; height: 32px; border-radius: 8px;
   background: linear-gradient(135deg, #42b883, #3d9bff);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 700;
-  color: white;
-  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; color: white; flex-shrink: 0;
 }
-
-.msg-body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
+.msg-body { display: flex; flex-direction: column; gap: 6px; }
 .bubble {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 12px 16px;
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--text-main);
-  white-space: pre-wrap;
-  word-break: break-word;
+  border-radius: 12px; padding: 12px 16px;
+  font-size: 14px; line-height: 1.6; color: var(--text-main);
+  white-space: pre-wrap; word-break: break-word;
 }
-
-.msg-user .bubble {
-  background: rgba(66, 184, 131, 0.15);
-  border-color: rgba(66, 184, 131, 0.25);
-}
-
-.att-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.att-sm {
-  font-size: 11px;
-  background: rgba(255, 255, 255, 0.08);
-  padding: 2px 8px;
-  border-radius: 4px;
-  color: var(--text-dim);
-}
-
-.loading-dots {
-  display: flex;
-  gap: 4px;
-  padding: 8px 0;
-}
-
-.loading-dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-dim);
-  animation: dotBounce 1.4s infinite ease-in-out both;
-}
-
-.loading-dots span:nth-child(1) { animation-delay: -0.32s; }
-.loading-dots span:nth-child(2) { animation-delay: -0.16s; }
-
-@keyframes dotBounce {
-  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-  40% { transform: scale(1); opacity: 1; }
-}
-
-.att-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 20px;
-}
-
-.att-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(66, 184, 131, 0.12);
-  border: 1px solid rgba(66, 184, 131, 0.25);
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: #42b883;
-}
-
-.att-chip button {
-  background: none;
-  border: none;
-  color: #42b883;
-  cursor: pointer;
-  font-size: 14px;
-  padding: 0;
-  line-height: 1;
-}
-
-.ch-input-area {
-  padding: 16px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-/* 模型选择器样式 */
-.model-bar {
-  position: relative;
-  margin-bottom: 12px;
-}
-
-.model-selector {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(10, 16, 27, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.7);
-  padding: 6px 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.model-selector:hover {
-  border-color: #42b883;
-  color: white;
-}
-
-.model-dropdown {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  margin-bottom: 6px;
-  background: rgba(14, 25, 41, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  padding: 6px;
-  min-width: 200px;
-  max-height: 300px;
-  overflow-y: auto;
-  z-index: 100;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-}
-
-.model-dropdown-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.model-dropdown-item:hover {
-  background: rgba(66, 184, 131, 0.15);
-  color: white;
-}
-
-.model-dropdown-item.active {
-  background: rgba(66, 184, 131, 0.2);
-  color: #42b883;
-}
-
-.model-check {
-  font-size: 12px;
-  color: #42b883;
-}
-
-.model-dropdown-item.custom {
-  color: var(--text-dim);
-  justify-content: center;
-  margin-top: 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding-top: 8px;
-}
-
-.model-dropdown-item.custom:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-main);
-}
-
-.input-box {
-  background: rgba(10, 16, 27, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 10px 14px;
-  transition: border-color 0.2s;
-}
-
-.input-box:focus-within {
-  border-color: rgba(66, 184, 131, 0.4);
-}
-
-.ch-input {
-  width: 100%;
-  background: transparent;
-  border: none;
-  color: white;
-  font-size: 14px;
-  resize: none;
-  outline: none;
-  font-family: inherit;
-}
-
-.ch-input::placeholder {
-  color: rgba(255, 255, 255, 0.3);
-}
-
-.input-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 8px;
-}
-
-.file-tools {
-  display: flex;
-  gap: 6px;
-}
-
-.file-icon-btn {
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.4);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.file-icon-btn:hover {
-  color: #42b883;
-  background: rgba(66, 184, 131, 0.1);
-}
-
-.send-btn {
+.cursor {
+  display: inline-block;
+  width: 2px; height: 1em;
   background: #42b883;
-  border: none;
-  color: #002418;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 0.8s step-end infinite;
 }
-
-.send-btn:hover:not(:disabled) {
-  background: #50caa3;
-  transform: translateY(-1px);
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
-
-.send-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.msg-user .bubble { background: rgba(66, 184, 131, 0.15); border-color: rgba(66, 184, 131, 0.25); }
+.att-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.att-sm { font-size: 11px; background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 4px; color: var(--text-dim); }
+.att-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 20px; }
+.att-chip {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(66, 184, 131, 0.12); border: 1px solid rgba(66, 184, 131, 0.25);
+  padding: 4px 10px; border-radius: 6px; font-size: 12px; color: #42b883;
 }
-
-.cmd-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 10px;
-  align-items: center;
+.att-chip button { background: none; border: none; color: #42b883; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
+.ch-input-area { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.06); }
+.model-bar { position: relative; margin-bottom: 12px; }
+.model-selector {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(10, 16, 27, 0.8); border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7); padding: 6px 12px; border-radius: 8px;
+  font-size: 12px; cursor: pointer; transition: all 0.2s;
+  font-family: 'JetBrains Mono', monospace;
 }
-
-.cmd-label {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-right: 4px;
+.model-selector:hover { border-color: #42b883; color: white; }
+.model-dropdown {
+  position: absolute; bottom: 100%; left: 0; margin-bottom: 6px;
+  background: rgba(14, 25, 41, 0.98); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; padding: 4px; min-width: 240px;
+  max-height: 360px; overflow-y: auto; z-index: 100;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
 }
-
-.cmd-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--text-dim);
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
+.model-group-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+  color: rgba(255,255,255,0.3); padding: 6px 12px 4px;
+  font-family: 'Inter', sans-serif;
 }
-
-.cmd-btn:hover {
-  border-color: rgba(255, 255, 255, 0.2);
-  color: var(--text-main);
+.model-dropdown-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 12px; border-radius: 6px; font-size: 13px;
+  color: rgba(255,255,255,0.7); cursor: pointer; transition: all 0.15s;
+  font-family: 'JetBrains Mono', monospace;
 }
-
-.cmd-btn i {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
+.model-dropdown-item:hover { background: rgba(66, 184, 131, 0.15); color: white; }
+.model-dropdown-item.active { background: rgba(66, 184, 131, 0.2); color: #42b883; }
+.model-check { font-size: 12px; color: #42b883; }
+.model-dropdown-item.custom {
+  color: var(--text-dim); justify-content: center; margin-top: 4px;
+  border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px;
 }
+.model-dropdown-item.custom:hover { background: rgba(255,255,255,0.06); color: var(--text-main); }
+.input-box {
+  background: rgba(10, 16, 27, 0.6); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px; padding: 10px 14px; transition: border-color 0.2s;
+}
+.input-box:focus-within { border-color: rgba(66, 184, 131, 0.4); }
+.ch-input {
+  width: 100%; background: transparent; border: none; color: white;
+  font-size: 14px; resize: none; outline: none; font-family: inherit;
+}
+.ch-input::placeholder { color: rgba(255,255,255,0.3); }
+.input-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.file-tools { display: flex; gap: 6px; }
+.file-icon-btn {
+  background: none; border: none; color: rgba(255,255,255,0.4);
+  cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s;
+  display: flex; align-items: center; justify-content: center;
+}
+.file-icon-btn:hover { color: #42b883; background: rgba(66,184,131,0.1); }
+.send-btn {
+  background: #42b883; border: none; color: #002418;
+  width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+}
+.send-btn:hover:not(:disabled) { background: #50caa3; transform: translateY(-1px); }
+.send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
