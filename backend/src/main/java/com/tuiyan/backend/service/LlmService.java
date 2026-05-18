@@ -130,29 +130,43 @@ public class LlmService {
         return configs;
     }
 
-    public ModelConfig createModelConfig(String name, String baseUrl, String modelName, String apiKey) throws IOException {
+    public ModelConfig createModelConfig(com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) throws IOException {
         List<ModelConfig> configs = getAllModelConfigs();
-        ModelConfig newConfig = new ModelConfig(name, baseUrl, modelName, apiKey);
-        configs.add(newConfig);
+        ModelConfig nc = new ModelConfig(
+                req.getName(), req.getBaseUrl(), req.getModelName(),
+                req.getApiKey() != null ? req.getApiKey() : "");
+        nc.setProvider(req.getProvider());
+        nc.setDescription(req.getDescription());
+        nc.setContextWindow(req.getContextWindow());
+        nc.setMaxOutputTokens(req.getMaxOutputTokens());
+        nc.setCapabilities(req.getCapabilities());
+        nc.setProtocol(req.getProtocol());
+        configs.add(nc);
         saveModelConfigs(configs);
-        return newConfig;
+        return nc;
     }
 
-    public ModelConfig updateModelConfig(String id, String name, String baseUrl, String modelName, String apiKey) throws IOException {
+    public ModelConfig updateModelConfig(String id, com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) throws IOException {
         List<ModelConfig> configs = getAllModelConfigs();
         for (int i = 0; i < configs.size(); i++) {
             if (configs.get(i).getId().equals(id)) {
-                ModelConfig config = configs.get(i);
-                config.setName(name);
-                config.setBaseUrl(baseUrl);
-                config.setModelName(modelName);
-                if (apiKey != null && !apiKey.isBlank()) {
-                    config.setApiKey(apiKey);
+                ModelConfig c = configs.get(i);
+                c.setName(req.getName());
+                c.setBaseUrl(req.getBaseUrl());
+                c.setModelName(req.getModelName());
+                if (req.getApiKey() != null && !req.getApiKey().isBlank()) {
+                    c.setApiKey(req.getApiKey());
                 }
-                config.setUpdatedAt(System.currentTimeMillis());
-                configs.set(i, config);
+                if (req.getProvider() != null) c.setProvider(req.getProvider());
+                if (req.getDescription() != null) c.setDescription(req.getDescription());
+                if (req.getContextWindow() != null) c.setContextWindow(req.getContextWindow());
+                if (req.getMaxOutputTokens() != null) c.setMaxOutputTokens(req.getMaxOutputTokens());
+                if (req.getCapabilities() != null) c.setCapabilities(req.getCapabilities());
+                if (req.getProtocol() != null) c.setProtocol(req.getProtocol());
+                c.setUpdatedAt(System.currentTimeMillis());
+                configs.set(i, c);
                 saveModelConfigs(configs);
-                return config;
+                return c;
             }
         }
         throw new IllegalArgumentException("Model config not found: " + id);
@@ -241,13 +255,20 @@ public class LlmService {
 
         List<ConfigResponse.ModelConfigInfo> customModels = new ArrayList<>();
         for (ModelConfig mc : getAllModelConfigs()) {
-            customModels.add(new ConfigResponse.ModelConfigInfo(
+            ConfigResponse.ModelConfigInfo info = new ConfigResponse.ModelConfigInfo(
                 mc.getId(),
                 mc.getName(),
                 mc.getBaseUrl(),
                 mc.getModelName(),
                 mc.isEnabled()
-            ));
+            );
+            info.setProvider(mc.getProvider());
+            info.setDescription(mc.getDescription());
+            info.setContextWindow(mc.getContextWindow());
+            info.setMaxOutputTokens(mc.getMaxOutputTokens());
+            info.setCapabilities(mc.getCapabilities());
+            info.setProtocol(mc.getProtocol());
+            customModels.add(info);
         }
 
         return new ConfigResponse(providerCode, baseUrl, modelName, providers, customModels);
@@ -273,6 +294,7 @@ public class LlmService {
         String baseURL;
         String modelName;
         String apiKey;
+        String protocol = null;
 
         if (configId != null && !configId.isBlank()) {
             List<ModelConfig> configs = getAllModelConfigs();
@@ -292,6 +314,7 @@ public class LlmService {
             baseURL = selected.getBaseUrl();
             modelName = selected.getModelName();
             apiKey = selected.getApiKey();
+            protocol = selected.getProtocol();
         } else {
             JsonNode fileConfig = getConfig();
             String providerCode = fileConfig.has("provider") ? fileConfig.get("provider").asText() : LlmProvider.QWEN.getCode();
@@ -320,7 +343,17 @@ public class LlmService {
             throw new IllegalStateException("Missing API key. Please set environment variable: LLM_API_KEY");
         }
 
-        return new String[]{baseURL, modelName, apiKey};
+        return new String[]{baseURL, modelName, apiKey, protocol};
+    }
+
+    /**
+     * 决定是否走 Anthropic 协议：显式 protocol 字段最高优先，其次按 baseURL/modelName 探测。
+     */
+    private boolean isAnthropic(String baseURL, String modelName, String protocol) {
+        if (protocol != null && !protocol.isBlank()) {
+            return "anthropic".equalsIgnoreCase(protocol);
+        }
+        return LlmProvider.isAnthropicEndpoint(baseURL, modelName);
     }
 
     /**
@@ -410,7 +443,7 @@ public class LlmService {
                          List<Map<String, Object>> attachments) throws Exception {
         String[] cfg = resolveConfig(modelOverride, configId);
         String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
-        boolean anthropic = LlmProvider.isAnthropicEndpoint(baseURL, modelName);
+        boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
 
         String prompt = "Here is the user's latest message:\n" + message +
                 "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
@@ -439,7 +472,7 @@ public class LlmService {
         try {
             String[] cfg = resolveConfig(request.getModelOverride(), request.getConfigId());
             String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
-            boolean anthropic = LlmProvider.isAnthropicEndpoint(baseURL, modelName);
+            boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
 
             String prompt = "Here is the user's latest message:\n" + request.getMessage() +
                     "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
@@ -579,7 +612,7 @@ public class LlmService {
     public JsonNode predictChain(com.tuiyan.backend.model.PredictRequest req) throws Exception {
         String[] cfg = resolveConfig(req.getModelOverride(), req.getConfigId());
         String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
-        boolean anthropic = LlmProvider.isAnthropicEndpoint(baseURL, modelName);
+        boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
 
         int steps = req.getSteps() == null ? 4 : Math.max(1, Math.min(10, req.getSteps()));
 

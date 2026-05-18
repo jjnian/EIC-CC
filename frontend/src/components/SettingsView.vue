@@ -7,7 +7,32 @@ interface ModelConfig {
   baseUrl: string;
   modelName: string;
   enabled: boolean;
+  provider?: string;
+  description?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  capabilities?: string[];
+  protocol?: string;
 }
+
+const CAPABILITY_OPTIONS = [
+  { code: 'streaming', label: '流式' },
+  { code: 'vision', label: '图像' },
+  { code: 'json', label: 'JSON 模式' },
+  { code: 'tool-use', label: '工具调用' },
+  { code: 'reasoning', label: '推理链' }
+];
+
+const CAPABILITY_LABELS: Record<string, string> = Object.fromEntries(
+  CAPABILITY_OPTIONS.map(o => [o.code, o.label])
+);
+
+const fmtTokens = (n?: number) => {
+  if (!n) return '';
+  if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + 'K';
+  return String(n);
+};
 
 interface ProviderInfo {
   code: string;
@@ -23,7 +48,16 @@ const providers = ref<ProviderInfo[]>([]);
 const loading = ref(true);
 const showAddModal = ref(false);
 const editingModel = ref<ModelConfig | null>(null);
-const formData = ref({ name: '', baseUrl: '', modelName: '', apiKey: '', providerCode: '' });
+const formData = ref({
+  name: '', baseUrl: '', modelName: '', apiKey: '', providerCode: '',
+  description: '', contextWindow: null as number | null, maxOutputTokens: null as number | null,
+  capabilities: [] as string[], protocol: ''
+});
+const emptyForm = () => ({
+  name: '', baseUrl: '', modelName: '', apiKey: '', providerCode: '',
+  description: '', contextWindow: null as number | null, maxOutputTokens: null as number | null,
+  capabilities: [] as string[], protocol: ''
+});
 const formErrors = ref<Record<string, string>>({});
 const saved = ref(false);
 
@@ -66,6 +100,7 @@ const applyPreset = (code: string) => {
   if (!formData.value.name.trim()) {
     formData.value.name = p.displayName;
   }
+  formData.value.protocol = code === 'anthropic' ? 'anthropic' : 'openai';
 };
 
 onMounted(() => {
@@ -75,9 +110,15 @@ onMounted(() => {
 
 const openAdd = () => {
   editingModel.value = null;
-  formData.value = { name: '', baseUrl: '', modelName: '', apiKey: '', providerCode: '' };
+  formData.value = emptyForm();
   formErrors.value = {};
   showAddModal.value = true;
+};
+
+const toggleCapability = (code: string) => {
+  const idx = formData.value.capabilities.indexOf(code);
+  if (idx >= 0) formData.value.capabilities.splice(idx, 1);
+  else formData.value.capabilities.push(code);
 };
 
 const detectProviderCode = (baseUrl: string): string => {
@@ -93,7 +134,12 @@ const openEdit = (model: ModelConfig) => {
     baseUrl: model.baseUrl,
     modelName: model.modelName,
     apiKey: '',
-    providerCode: detectProviderCode(model.baseUrl)
+    providerCode: model.provider || detectProviderCode(model.baseUrl),
+    description: model.description || '',
+    contextWindow: model.contextWindow ?? null,
+    maxOutputTokens: model.maxOutputTokens ?? null,
+    capabilities: [...(model.capabilities || [])],
+    protocol: model.protocol || ''
   };
   formErrors.value = {};
   showAddModal.value = true;
@@ -112,10 +158,22 @@ const saveModel = async () => {
   try {
     const url = editingModel.value ? `/api/models/${editingModel.value.id}` : '/api/models';
     const method = editingModel.value ? 'PUT' : 'POST';
+    const payload = {
+      name: formData.value.name,
+      baseUrl: formData.value.baseUrl,
+      modelName: formData.value.modelName,
+      apiKey: formData.value.apiKey,
+      provider: formData.value.providerCode || null,
+      description: formData.value.description || null,
+      contextWindow: formData.value.contextWindow,
+      maxOutputTokens: formData.value.maxOutputTokens,
+      capabilities: formData.value.capabilities,
+      protocol: formData.value.protocol || null
+    };
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData.value)
+      body: JSON.stringify(payload)
     });
     if (res.ok) {
       showAddModal.value = false;
@@ -169,8 +227,24 @@ const toggleModel = async (model: ModelConfig) => {
       <div v-for="m in models" :key="m.id" class="model-card" :class="{ disabled: !m.enabled }">
         <div class="model-card-header">
           <div class="model-card-info">
-            <h4>{{ m.name }}</h4>
+            <div class="mc-title-row">
+              <h4>{{ m.name }}</h4>
+              <span v-if="m.provider" class="mc-prov-chip" :class="'prov-' + m.provider">{{ m.provider }}</span>
+              <span v-if="m.protocol === 'anthropic'" class="mc-proto-chip">Messages API</span>
+            </div>
             <span class="model-meta">{{ m.baseUrl }} · {{ m.modelName }}</span>
+            <p v-if="m.description" class="mc-desc">{{ m.description }}</p>
+            <div v-if="m.contextWindow || m.capabilities?.length" class="mc-stats">
+              <span v-if="m.contextWindow" class="mc-stat">
+                <span class="mc-stat-key">上下文</span>
+                <span class="mc-stat-val">{{ fmtTokens(m.contextWindow) }}</span>
+              </span>
+              <span v-if="m.maxOutputTokens" class="mc-stat">
+                <span class="mc-stat-key">输出上限</span>
+                <span class="mc-stat-val">{{ fmtTokens(m.maxOutputTokens) }}</span>
+              </span>
+              <span v-for="c in (m.capabilities || [])" :key="c" class="mc-cap">{{ CAPABILITY_LABELS[c] || c }}</span>
+            </div>
           </div>
           <div class="model-actions">
             <span class="status-badge" :class="m.enabled ? 'enabled' : 'disabled'">
@@ -235,6 +309,44 @@ const toggleModel = async (model: ModelConfig) => {
             <label>API Key</label>
             <input type="password" v-model="formData.apiKey" :placeholder="editingModel ? '留空则不修改' : '输入 API Key'" />
             <span class="sv-help">创建时必填，编辑时留空表示不修改</span>
+          </div>
+
+          <div class="form-divider">大模型基本信息 <span class="sv-help-inline">(可选，仅用于展示与协议选择)</span></div>
+
+          <div class="form-group">
+            <label>简介</label>
+            <textarea class="form-textarea" v-model="formData.description" rows="2" placeholder="例：擅长长上下文与复杂推理；中文友好" />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>上下文窗口 (token)</label>
+              <input type="number" v-model.number="formData.contextWindow" placeholder="例如 200000" />
+            </div>
+            <div class="form-group">
+              <label>最大输出 (token)</label>
+              <input type="number" v-model.number="formData.maxOutputTokens" placeholder="例如 8192" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>能力标签</label>
+            <div class="cap-chips">
+              <button v-for="c in CAPABILITY_OPTIONS" :key="c.code" type="button"
+                      class="cap-chip" :class="{ active: formData.capabilities.includes(c.code) }"
+                      @click="toggleCapability(c.code)">
+                {{ c.label }}
+              </button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>协议族 <span class="sv-help-inline">(空 = 按 URL/模型名自动识别)</span></label>
+            <select class="preset-select" v-model="formData.protocol">
+              <option value="">— 自动识别 —</option>
+              <option value="openai">OpenAI 兼容 (/chat/completions)</option>
+              <option value="anthropic">Anthropic Messages API</option>
+            </select>
           </div>
         </div>
         <div class="modal-footer">
@@ -337,6 +449,100 @@ const toggleModel = async (model: ModelConfig) => {
   font-size: 12px;
   color: var(--text-dim);
   font-family: 'JetBrains Mono', monospace;
+}
+.mc-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.mc-prov-chip {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+}
+.mc-prov-chip.prov-anthropic { background: rgba(217, 119, 87, 0.18); color: #f1a684; }
+.mc-prov-chip.prov-openai { background: rgba(16, 163, 127, 0.18); color: #4ec9b0; }
+.mc-prov-chip.prov-deepseek { background: rgba(99, 102, 241, 0.18); color: #a5a8f0; }
+.mc-prov-chip.prov-qwen { background: rgba(61, 155, 255, 0.18); color: #7abaff; }
+.mc-prov-chip.prov-kimi { background: rgba(168, 85, 247, 0.18); color: #c4a5fc; }
+.mc-prov-chip.prov-glm { background: rgba(34, 197, 94, 0.18); color: #80e0a0; }
+.mc-proto-chip {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+.mc-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 6px 0 0 0;
+  line-height: 1.55;
+}
+.mc-stats {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 10px;
+}
+.mc-stat {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.mc-stat-key { color: rgba(255, 255, 255, 0.4); }
+.mc-stat-val { color: var(--text-main); font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+.mc-cap {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(66, 184, 131, 0.1);
+  color: #6dd4a7;
+  border: 1px solid rgba(66, 184, 131, 0.2);
+}
+.form-divider {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-textarea {
+  background: rgba(10, 16, 27, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  resize: vertical;
+  font-family: inherit;
+}
+.form-textarea:focus { border-color: #42b883; }
+.cap-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cap-chip {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  padding: 5px 12px;
+  border-radius: 100px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.cap-chip:hover { border-color: rgba(66, 184, 131, 0.4); color: var(--text-main); }
+.cap-chip.active {
+  background: rgba(66, 184, 131, 0.15);
+  border-color: rgba(66, 184, 131, 0.4);
+  color: #42b883;
 }
 
 .model-actions {
