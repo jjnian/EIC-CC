@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 
 interface ModelConfig {
   id: string;
@@ -9,11 +9,21 @@ interface ModelConfig {
   enabled: boolean;
 }
 
+interface ProviderInfo {
+  code: string;
+  displayName: string;
+  baseUrl: string;
+  defaultModel: string;
+  models: string[];
+  apiKeyEnvName: string;
+}
+
 const models = ref<ModelConfig[]>([]);
+const providers = ref<ProviderInfo[]>([]);
 const loading = ref(true);
 const showAddModal = ref(false);
 const editingModel = ref<ModelConfig | null>(null);
-const formData = ref({ name: '', baseUrl: '', modelName: '', apiKey: '' });
+const formData = ref({ name: '', baseUrl: '', modelName: '', apiKey: '', providerCode: '' });
 const formErrors = ref<Record<string, string>>({});
 const saved = ref(false);
 
@@ -30,18 +40,61 @@ const loadModels = async () => {
   }
 };
 
-onMounted(loadModels);
+const loadProviders = async () => {
+  try {
+    const res = await fetch('/api/config');
+    if (res.ok) {
+      const cfg = await res.json();
+      providers.value = (cfg.providers || []).filter((p: ProviderInfo) => p.code !== 'custom');
+    }
+  } catch (e) {
+    console.error("Failed to load providers", e);
+  }
+};
+
+const selectedProvider = computed(() =>
+  providers.value.find(p => p.code === formData.value.providerCode) || null
+);
+
+const applyPreset = (code: string) => {
+  formData.value.providerCode = code;
+  if (!code) return;
+  const p = providers.value.find(x => x.code === code);
+  if (!p) return;
+  formData.value.baseUrl = p.baseUrl;
+  formData.value.modelName = p.defaultModel;
+  if (!formData.value.name.trim()) {
+    formData.value.name = p.displayName;
+  }
+};
+
+onMounted(() => {
+  loadModels();
+  loadProviders();
+});
 
 const openAdd = () => {
   editingModel.value = null;
-  formData.value = { name: '', baseUrl: '', modelName: '', apiKey: '' };
+  formData.value = { name: '', baseUrl: '', modelName: '', apiKey: '', providerCode: '' };
   formErrors.value = {};
   showAddModal.value = true;
 };
 
+const detectProviderCode = (baseUrl: string): string => {
+  if (!baseUrl) return '';
+  const m = providers.value.find(p => p.baseUrl && baseUrl.includes(new URL(p.baseUrl).hostname));
+  return m ? m.code : '';
+};
+
 const openEdit = (model: ModelConfig) => {
   editingModel.value = model;
-  formData.value = { name: model.name, baseUrl: model.baseUrl, modelName: model.modelName, apiKey: '' };
+  formData.value = {
+    name: model.name,
+    baseUrl: model.baseUrl,
+    modelName: model.modelName,
+    apiKey: '',
+    providerCode: detectProviderCode(model.baseUrl)
+  };
   formErrors.value = {};
   showAddModal.value = true;
 };
@@ -149,9 +202,20 @@ const toggleModel = async (model: ModelConfig) => {
           <button class="modal-close" @click="showAddModal = false">×</button>
         </div>
         <div class="modal-body">
+          <div class="form-group">
+            <label>提供商预设 <span class="sv-help-inline">(可选，自动带出 Base URL 与默认模型)</span></label>
+            <select class="preset-select" :value="formData.providerCode" @change="applyPreset(($event.target as HTMLSelectElement).value)">
+              <option value="">— 自定义 / 不使用预设 —</option>
+              <option v-for="p in providers" :key="p.code" :value="p.code">{{ p.displayName }}</option>
+            </select>
+            <span v-if="selectedProvider" class="sv-help">
+              环境变量：<code>{{ selectedProvider.apiKeyEnvName }}</code>
+              <span v-if="selectedProvider.code === 'anthropic'" class="anthropic-badge">使用原生 Messages API</span>
+            </span>
+          </div>
           <div class="form-group" :class="{ error: formErrors.name }">
-            <label>模型名称</label>
-            <input v-model="formData.name" placeholder="例如：我的自定义模型" />
+            <label>名称（显示用）</label>
+            <input v-model="formData.name" placeholder="例如：我的 Claude Opus" />
             <span class="form-error" v-if="formErrors.name">{{ formErrors.name }}</span>
           </div>
           <div class="form-group" :class="{ error: formErrors.baseUrl }">
@@ -161,7 +225,10 @@ const toggleModel = async (model: ModelConfig) => {
           </div>
           <div class="form-group" :class="{ error: formErrors.modelName }">
             <label>模型名称 (Model Name)</label>
-            <input v-model="formData.modelName" placeholder="例如：gpt-4o" />
+            <input v-model="formData.modelName" :list="selectedProvider ? 'preset-models' : undefined" placeholder="例如：gpt-4.1 / claude-opus-4-7 / deepseek-chat" />
+            <datalist v-if="selectedProvider" id="preset-models">
+              <option v-for="m in selectedProvider.models" :key="m" :value="m" />
+            </datalist>
             <span class="form-error" v-if="formErrors.modelName">{{ formErrors.modelName }}</span>
           </div>
           <div class="form-group">
@@ -434,6 +501,48 @@ const toggleModel = async (model: ModelConfig) => {
 .sv-help {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.4);
+}
+.sv-help code {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #42b883;
+}
+.sv-help-inline {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  font-weight: normal;
+  margin-left: 4px;
+}
+.preset-select {
+  background: rgba(10, 16, 27, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  cursor: pointer;
+  font-family: inherit;
+}
+.preset-select:focus {
+  border-color: #42b883;
+}
+.preset-select option {
+  background: #141e30;
+  color: white;
+}
+.anthropic-badge {
+  display: inline-block;
+  margin-left: 8px;
+  background: rgba(217, 119, 87, 0.15);
+  color: #f1a684;
+  padding: 1px 8px;
+  border-radius: 100px;
+  font-size: 10px;
+  font-weight: 500;
+  border: 1px solid rgba(217, 119, 87, 0.3);
 }
 
 .modal-footer {

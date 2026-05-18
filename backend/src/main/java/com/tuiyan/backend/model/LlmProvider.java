@@ -4,9 +4,38 @@ import java.util.List;
 
 /**
  * 预定义的大模型提供商配置
- * 所有提供商均采用 OpenAI 兼容的 API 格式
+ * 大部分提供商采用 OpenAI 兼容的 API 格式；
+ * Anthropic (Claude) 使用原生 Messages API，由 LlmService 内做协议适配。
  */
 public enum LlmProvider {
+    OPENAI(
+        "openai",
+        "OpenAI",
+        "https://api.openai.com/v1",
+        "gpt-4.1",
+        "OPENAI_API_KEY",
+        List.of("gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
+                "gpt-4o", "gpt-4o-mini",
+                "o3", "o3-mini", "o4-mini", "o1", "o1-mini")
+    ),
+    ANTHROPIC(
+        "anthropic",
+        "Anthropic Claude",
+        "https://api.anthropic.com/v1",
+        "claude-opus-4-7",
+        "ANTHROPIC_API_KEY",
+        List.of("claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5",
+                "claude-opus-4-5", "claude-sonnet-4-5",
+                "claude-3-7-sonnet-latest", "claude-3-5-haiku-latest")
+    ),
+    DEEPSEEK(
+        "deepseek",
+        "DeepSeek",
+        "https://api.deepseek.com/v1",
+        "deepseek-chat",
+        "DEEPSEEK_API_KEY",
+        List.of("deepseek-chat", "deepseek-reasoner", "deepseek-coder")
+    ),
     QWEN(
         "qwen",
         "阿里云通义千问",
@@ -15,21 +44,13 @@ public enum LlmProvider {
         "DASHSCOPE_API_KEY",
         List.of("qwen-max", "qwen-plus", "qwen-turbo", "qwen-long", "qwen-coder-plus", "qwen-vl-max", "qwen-vl-plus")
     ),
-    DEEPSEEK(
-        "deepseek",
-        "DeepSeek",
-        "https://api.deepseek.com/v1",
-        "deepseek-chat",
-        "DEEPSEEK_API_KEY",
-        List.of("deepseek-chat", "deepseek-reasoner")
-    ),
     KIMI(
         "kimi",
         "Kimi (月之暗面)",
         "https://api.moonshot.cn/v1",
         "moonshot-v1-8k",
         "MOONSHOT_API_KEY",
-        List.of("moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k")
+        List.of("moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k", "kimi-k2-latest")
     ),
     GLM(
         "glm",
@@ -46,14 +67,6 @@ public enum LlmProvider {
         "abab6.5s-chat",
         "MINIMAX_API_KEY",
         List.of("abab6.5s-chat", "abab6.5g-chat", "abab6.5t-chat", "abab7-chat", "MiniMax-Text-01")
-    ),
-    OPENAI(
-        "openai",
-        "OpenAI",
-        "https://api.openai.com/v1",
-        "gpt-4o",
-        "OPENAI_API_KEY",
-        List.of("gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo")
     ),
     ERNIE(
         "ernie",
@@ -108,7 +121,7 @@ public enum LlmProvider {
      */
     public static LlmProvider fromCode(String code) {
         if (code == null || code.isBlank()) {
-            return QWEN; // 默认使用通义千问
+            return QWEN;
         }
         for (LlmProvider provider : values()) {
             if (provider.code.equalsIgnoreCase(code)) {
@@ -116,5 +129,14 @@ public enum LlmProvider {
             }
         }
         return CUSTOM;
+    }
+
+    /**
+     * 通过 baseURL / modelName 判断是否走 Anthropic Messages API
+     */
+    public static boolean isAnthropicEndpoint(String baseURL, String modelName) {
+        if (baseURL != null && baseURL.toLowerCase().contains("anthropic.com")) return true;
+        if (modelName != null && modelName.toLowerCase().startsWith("claude-")) return true;
+        return false;
     }
 }

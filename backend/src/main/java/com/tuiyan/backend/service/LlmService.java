@@ -33,6 +33,9 @@ public class LlmService {
     private static final String MODELS_CONFIG_FILE = "src/main/resources/llm-models.json";
     private static final String LEGACY_CONFIG_FILE = "src/main/resources/llm-config.json";
 
+    private static final String ANTHROPIC_VERSION = "2023-06-01";
+    private static final int ANTHROPIC_MAX_TOKENS = 8192;
+
     private static final String SCHEMA_STRING = """
         {
           "reply": "A short, helpful assistant reply acknowledging the user's request and explaining the graph updates.",
@@ -407,26 +410,25 @@ public class LlmService {
                          List<Map<String, Object>> attachments) throws Exception {
         String[] cfg = resolveConfig(modelOverride, configId);
         String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
+        boolean anthropic = LlmProvider.isAnthropicEndpoint(baseURL, modelName);
 
-        String requestBody = buildRequestBody(modelName, message, history, attachments, false);
+        String prompt = "Here is the user's latest message:\n" + message +
+                "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(baseURL.replaceFirst("/+$", "") + "/chat/completions"))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .build();
+        String requestBody = anthropic
+                ? buildAnthropicBody(modelName, SYSTEM_INSTRUCTION, prompt, history, attachments, false, ANTHROPIC_MAX_TOKENS)
+                : buildRequestBody(modelName, message, history, attachments, false);
 
+        HttpRequest request = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
         if (response.statusCode() != 200) {
             throw new RuntimeException("LLM Error: " + response.statusCode() + " - " + response.body());
         }
 
         JsonNode responseJson = objectMapper.readTree(response.body());
-        String content = responseJson.path("choices").path(0).path("message").path("content").asText("{}");
+        String content = extractContent(responseJson, anthropic);
         content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
-
+        if (content.isEmpty()) content = "{}";
         return objectMapper.readTree(content);
     }
 
@@ -437,15 +439,16 @@ public class LlmService {
         try {
             String[] cfg = resolveConfig(request.getModelOverride(), request.getConfigId());
             String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
+            boolean anthropic = LlmProvider.isAnthropicEndpoint(baseURL, modelName);
 
-            String requestBody = buildRequestBody(modelName, request.getMessage(), request.getHistory(), request.getAttachments(), true);
+            String prompt = "Here is the user's latest message:\n" + request.getMessage() +
+                    "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
 
-            HttpRequest httpRequest = HttpRequest.newBuilder()
-                    .uri(URI.create(baseURL.replaceFirst("/+$", "") + "/chat/completions"))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                    .build();
+            String requestBody = anthropic
+                    ? buildAnthropicBody(modelName, SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, ANTHROPIC_MAX_TOKENS)
+                    : buildRequestBody(modelName, request.getMessage(), request.getHistory(), request.getAttachments(), true);
+
+            HttpRequest httpRequest = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
 
             httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
                     .thenAccept(resp -> {
@@ -465,28 +468,13 @@ public class LlmService {
 
                         try (BufferedReader reader = new BufferedReader(
                                 new InputStreamReader(resp.body(), StandardCharsets.UTF_8))) {
-                            StringBuilder fullContent = new StringBuilder();
-                            String line;
-                            while ((line = reader.readLine()) != null) {
-                                if (!line.startsWith("data: ")) continue;
-                                String data = line.substring(6);
-                                if ("[DONE]".equals(data)) break;
+                            StringBuilder fullContent = anthropic
+                                    ? streamAnthropic(reader, emitter)
+                                    : streamOpenAI(reader, emitter);
 
-                                try {
-                                    JsonNode chunk = objectMapper.readTree(data);
-                                    String delta = chunk.path("choices").path(0).path("delta").path("content").asText("");
-                                    if (delta.isEmpty()) continue;
-
-                                    fullContent.append(delta);
-                                    emitter.send(SseEmitter.event().name("text").data(delta));
-                                } catch (IOException e) {
-                                    // 解析单个 chunk 失败，跳过
-                                }
-                            }
-
-                            // 流完成后解析完整 JSON
                             String content = fullContent.toString()
                                     .replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
+                            if (content.isEmpty()) content = "{}";
                             JsonNode result = objectMapper.readTree(content);
 
                             ObjectNode finalEvent = objectMapper.createObjectNode();
@@ -518,6 +506,70 @@ public class LlmService {
         }
     }
 
+    private StringBuilder streamOpenAI(BufferedReader reader, SseEmitter emitter) throws IOException {
+        StringBuilder fullContent = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            if (!line.startsWith("data: ")) continue;
+            String data = line.substring(6);
+            if ("[DONE]".equals(data)) break;
+            try {
+                JsonNode chunk = objectMapper.readTree(data);
+                String delta = chunk.path("choices").path(0).path("delta").path("content").asText("");
+                if (delta.isEmpty()) continue;
+                fullContent.append(delta);
+                emitter.send(SseEmitter.event().name("text").data(delta));
+            } catch (IOException ignored) {}
+        }
+        return fullContent;
+    }
+
+    /**
+     * Anthropic SSE 解析：
+     *   event: content_block_delta
+     *   data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"..."}}
+     * 终止：event: message_stop
+     */
+    private StringBuilder streamAnthropic(BufferedReader reader, SseEmitter emitter) throws IOException {
+        StringBuilder fullContent = new StringBuilder();
+        String line;
+        String currentEvent = "";
+        while ((line = reader.readLine()) != null) {
+            if (line.isEmpty()) continue;
+            if (line.startsWith("event: ")) {
+                currentEvent = line.substring(7).trim();
+                continue;
+            }
+            if (!line.startsWith("data: ")) continue;
+            String data = line.substring(6);
+            if ("[DONE]".equals(data)) break;
+
+            try {
+                JsonNode chunk = objectMapper.readTree(data);
+                String type = chunk.path("type").asText("");
+                if ("content_block_delta".equals(type) || "content_block_delta".equals(currentEvent)) {
+                    JsonNode delta = chunk.path("delta");
+                    String dtype = delta.path("type").asText("");
+                    if ("text_delta".equals(dtype) || "input_json_delta".equals(dtype)) {
+                        String text = delta.path("text").asText("");
+                        if (text.isEmpty()) text = delta.path("partial_json").asText("");
+                        if (!text.isEmpty()) {
+                            fullContent.append(text);
+                            emitter.send(SseEmitter.event().name("text").data(text));
+                        }
+                    }
+                } else if ("message_stop".equals(type) || "message_stop".equals(currentEvent)) {
+                    break;
+                } else if ("error".equals(type)) {
+                    String msg = chunk.path("error").path("message").asText("Anthropic error");
+                    emitter.send(SseEmitter.event().name("error").data(msg));
+                    break;
+                }
+            } catch (IOException ignored) {}
+        }
+        return fullContent;
+    }
+
     // ========== 场景推演 ==========
 
     /**
@@ -527,6 +579,7 @@ public class LlmService {
     public JsonNode predictChain(com.tuiyan.backend.model.PredictRequest req) throws Exception {
         String[] cfg = resolveConfig(req.getModelOverride(), req.getConfigId());
         String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
+        boolean anthropic = LlmProvider.isAnthropicEndpoint(baseURL, modelName);
 
         int steps = req.getSteps() == null ? 4 : Math.max(1, Math.min(10, req.getSteps()));
 
@@ -541,41 +594,162 @@ public class LlmService {
         }
         userPrompt.append("请向前推演 ").append(steps).append(" 步，严格按 schema 输出 JSON。");
 
-        ObjectNode requestNode = objectMapper.createObjectNode();
-        requestNode.put("model", modelName);
-        requestNode.put("stream", false);
+        String requestBody;
+        if (anthropic) {
+            requestBody = buildAnthropicBody(modelName, PREDICT_SYSTEM, userPrompt.toString(),
+                    null, null, false, ANTHROPIC_MAX_TOKENS);
+        } else {
+            ObjectNode requestNode = objectMapper.createObjectNode();
+            requestNode.put("model", modelName);
+            requestNode.put("stream", false);
+            ArrayNode messages = objectMapper.createArrayNode();
+            ObjectNode sys = objectMapper.createObjectNode();
+            sys.put("role", "system");
+            sys.put("content", PREDICT_SYSTEM);
+            messages.add(sys);
+            ObjectNode user = objectMapper.createObjectNode();
+            user.put("role", "user");
+            user.put("content", userPrompt.toString());
+            messages.add(user);
+            requestNode.set("messages", messages);
+            ObjectNode rf = objectMapper.createObjectNode();
+            rf.put("type", "json_object");
+            requestNode.set("response_format", rf);
+            requestBody = objectMapper.writeValueAsString(requestNode);
+        }
 
-        ArrayNode messages = objectMapper.createArrayNode();
-        ObjectNode sys = objectMapper.createObjectNode();
-        sys.put("role", "system");
-        sys.put("content", PREDICT_SYSTEM);
-        messages.add(sys);
-        ObjectNode user = objectMapper.createObjectNode();
-        user.put("role", "user");
-        user.put("content", userPrompt.toString());
-        messages.add(user);
-        requestNode.set("messages", messages);
-
-        ObjectNode rf = objectMapper.createObjectNode();
-        rf.put("type", "json_object");
-        requestNode.set("response_format", rf);
-
-        HttpRequest httpReq = HttpRequest.newBuilder()
-                .uri(URI.create(baseURL.replaceFirst("/+$", "") + "/chat/completions"))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(requestNode)))
-                .build();
-
+        HttpRequest httpReq = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
         HttpResponse<String> resp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() != 200) {
             throw new RuntimeException("LLM Error: " + resp.statusCode() + " - " + resp.body());
         }
 
         JsonNode root = objectMapper.readTree(resp.body());
-        String content = root.path("choices").path(0).path("message").path("content").asText("{}");
+        String content = extractContent(root, anthropic);
         content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
+        if (content.isEmpty()) content = "{}";
         return objectMapper.readTree(content);
+    }
+
+    // ========== 协议适配辅助 ==========
+
+    /**
+     * 构造 HTTP 请求：Anthropic 用 /messages + x-api-key + anthropic-version；
+     * OpenAI 兼容用 /chat/completions + Authorization: Bearer。
+     */
+    private HttpRequest buildHttpRequest(String baseURL, String apiKey, boolean anthropic, String requestBody) {
+        String url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
+        HttpRequest.Builder b = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody));
+        if (anthropic) {
+            b.header("x-api-key", apiKey);
+            b.header("anthropic-version", ANTHROPIC_VERSION);
+        } else {
+            b.header("Authorization", "Bearer " + apiKey);
+        }
+        return b.build();
+    }
+
+    /**
+     * 从非流式响应中提取文本内容（兼容两种协议）。
+     */
+    private String extractContent(JsonNode responseJson, boolean anthropic) {
+        if (anthropic) {
+            StringBuilder sb = new StringBuilder();
+            JsonNode arr = responseJson.path("content");
+            if (arr.isArray()) {
+                for (JsonNode block : arr) {
+                    if ("text".equals(block.path("type").asText())) {
+                        sb.append(block.path("text").asText());
+                    }
+                }
+            }
+            return sb.toString();
+        }
+        return responseJson.path("choices").path(0).path("message").path("content").asText("");
+    }
+
+    /**
+     * 构造 Anthropic Messages API 请求体：system 顶层、max_tokens 必填、
+     * messages 数组（role: user / assistant）、可选 image content blocks。
+     */
+    private String buildAnthropicBody(String modelName, String systemPrompt, String userMessage,
+                                      List<Map<String, Object>> history,
+                                      List<Map<String, Object>> attachments,
+                                      boolean stream, int maxTokens) throws Exception {
+        ObjectNode root = objectMapper.createObjectNode();
+        root.put("model", modelName);
+        root.put("max_tokens", maxTokens);
+        root.put("stream", stream);
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            root.put("system", systemPrompt);
+        }
+
+        ArrayNode messages = objectMapper.createArrayNode();
+        if (history != null) {
+            for (Map<String, Object> h : history) {
+                String role = String.valueOf(h.get("role"));
+                if (!"user".equals(role) && !"assistant".equals(role)) continue;
+                ObjectNode m = objectMapper.createObjectNode();
+                m.put("role", role);
+                m.put("content", String.valueOf(h.get("content")));
+                messages.add(m);
+            }
+        }
+
+        ObjectNode userMsg = objectMapper.createObjectNode();
+        userMsg.put("role", "user");
+
+        List<Map<String, Object>> imageAtts = new ArrayList<>();
+        if (attachments != null) {
+            for (Map<String, Object> a : attachments) {
+                Object kind = a.get("type");
+                Object url = a.get("dataUrl");
+                if ("image".equals(String.valueOf(kind)) && url != null && !String.valueOf(url).isBlank()) {
+                    imageAtts.add(a);
+                }
+            }
+        }
+
+        if (imageAtts.isEmpty()) {
+            userMsg.put("content", userMessage);
+        } else {
+            ArrayNode content = objectMapper.createArrayNode();
+            for (Map<String, Object> img : imageAtts) {
+                String dataUrl = String.valueOf(img.get("dataUrl"));
+                String mediaType = "image/jpeg";
+                String base64 = dataUrl;
+                int comma = dataUrl.indexOf(',');
+                if (comma > 0) {
+                    String header = dataUrl.substring(0, comma);
+                    base64 = dataUrl.substring(comma + 1);
+                    int colon = header.indexOf(':');
+                    int semi = header.indexOf(';');
+                    if (colon >= 0 && semi > colon) {
+                        mediaType = header.substring(colon + 1, semi);
+                    }
+                }
+                ObjectNode imgPart = objectMapper.createObjectNode();
+                imgPart.put("type", "image");
+                ObjectNode source = objectMapper.createObjectNode();
+                source.put("type", "base64");
+                source.put("media_type", mediaType);
+                source.put("data", base64);
+                imgPart.set("source", source);
+                content.add(imgPart);
+            }
+            ObjectNode textPart = objectMapper.createObjectNode();
+            textPart.put("type", "text");
+            textPart.put("text", userMessage);
+            content.add(textPart);
+            userMsg.set("content", content);
+        }
+        messages.add(userMsg);
+        root.set("messages", messages);
+
+        return objectMapper.writeValueAsString(root);
     }
 
     private String summarizeGraph(List<Map<String, Object>> nodes, List<Map<String, Object>> edges) {
@@ -643,6 +817,12 @@ public class LlmService {
             if (apiKey != null && !apiKey.isBlank()) return apiKey;
         } else if (provider == LlmProvider.DEEPSEEK) {
             apiKey = System.getenv("DEEPSEEK_KEY");
+            if (apiKey != null && !apiKey.isBlank()) return apiKey;
+        } else if (provider == LlmProvider.ANTHROPIC) {
+            apiKey = System.getenv("CLAUDE_API_KEY");
+            if (apiKey != null && !apiKey.isBlank()) return apiKey;
+        } else if (provider == LlmProvider.OPENAI) {
+            apiKey = System.getenv("OPENAI_KEY");
             if (apiKey != null && !apiKey.isBlank()) return apiKey;
         }
 
