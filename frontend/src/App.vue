@@ -7,6 +7,9 @@ import NodeInfo from './components/NodeInfo.vue';
 import ChatPanel from './components/ChatPanel.vue';
 import SettingsView from './components/SettingsView.vue';
 import WelcomeChat from './components/WelcomeChat.vue';
+import PredictDialog from './components/PredictDialog.vue';
+import BranchPicker from './components/BranchPicker.vue';
+import ScenarioTimeline from './components/ScenarioTimeline.vue';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
@@ -19,6 +22,17 @@ const view = ref<'welcome' | 'list' | 'graph' | 'settings'>('welcome');
 const currentModelTitle = ref('供应链本体图');
 const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
 
+// ===== Scenario / Branch State =====
+const currentModelId = ref<string>('');
+const branches = ref<any[]>([]);
+const activeBranchId = ref<string>('trunk');
+const predictDialogOpen = ref(false);
+const predictSeeds = ref<string[]>([]);
+const liveSteps = ref<any[]>([]);
+const liveLoading = ref(false);
+const liveActive = ref(false);  // true while a prediction is streaming
+const trunkSnapshot = ref<{ nodes: any[]; edges: any[] } | null>(null);
+
 const models = ref<any[]>([
   { id: '1', title: '供应链本体模型', desc: '包含供应链核心实体与关系的推演模型', updated: '10分钟前', graphData: { nodes: JSON.parse(JSON.stringify(INIT_NODES)), edges: JSON.parse(JSON.stringify(INIT_EDGES)) } },
   { id: '2', title: '财务追踪模型', desc: '用于企业财务审批及资金流向追踪', updated: '2小时前', graphData: { nodes: [], edges: [] } },
@@ -28,12 +42,177 @@ const models = ref<any[]>([
 const nodes = ref<any[]>(models.value[0].graphData.nodes);
 const edges = ref<any[]>(models.value[0].graphData.edges);
 
-const openModel = (m: any) => {
+const openModel = async (m: any) => {
   currentModelTitle.value = m.title;
+  currentModelId.value = m.id;
   nodes.value = m.graphData.nodes;
   edges.value = m.graphData.edges;
-  sel.value = null; // reset selection
+  sel.value = null;
+  activeBranchId.value = 'trunk';
+  liveActive.value = false;
+  liveSteps.value = [];
   view.value = 'graph';
+  await loadBranches(m.id);
+};
+
+const loadBranches = async (modelId: string) => {
+  try {
+    const res = await fetch('/api/scenarios?modelId=' + encodeURIComponent(modelId));
+    if (res.ok) {
+      branches.value = await res.json();
+    } else {
+      branches.value = [];
+    }
+  } catch {
+    branches.value = [];
+  }
+};
+
+const findModel = (id: string) => models.value.find(m => m.id === id);
+
+const switchBranch = (id: string) => {
+  liveActive.value = false;
+  liveSteps.value = [];
+  sel.value = null;
+  if (id === 'trunk') {
+    const m = findModel(currentModelId.value);
+    if (m) {
+      nodes.value = m.graphData.nodes;
+      edges.value = m.graphData.edges;
+    }
+    activeBranchId.value = 'trunk';
+  } else {
+    const b = branches.value.find(x => x.id === id);
+    if (b) {
+      nodes.value = JSON.parse(JSON.stringify(b.nodes || []));
+      edges.value = JSON.parse(JSON.stringify(b.edges || []));
+      activeBranchId.value = id;
+    }
+  }
+  setTimeout(() => graphRef.value?.fitView(), 50);
+};
+
+const deleteBranch = async (id: string) => {
+  try {
+    await fetch('/api/scenarios/' + encodeURIComponent(id), { method: 'DELETE' });
+  } catch {}
+  branches.value = branches.value.filter(b => b.id !== id);
+  if (activeBranchId.value === id) {
+    switchBranch('trunk');
+  }
+};
+
+const openPredictDialog = (seedId: string) => {
+  if (activeBranchId.value !== 'trunk') {
+    // 在推演分支上不允许再分叉，先回到主分支
+    if (!confirm('当前位于推演分支。是否切回主分支再发起新推演？')) return;
+    switchBranch('trunk');
+  }
+  predictSeeds.value = [seedId];
+  predictDialogOpen.value = true;
+};
+
+const startPrediction = async (payload: { seeds: string[]; steps: number; prompt: string; name: string }) => {
+  predictDialogOpen.value = false;
+  const m = findModel(currentModelId.value);
+  if (!m) return;
+
+  // Snapshot trunk for restore on cancel/error
+  trunkSnapshot.value = {
+    nodes: JSON.parse(JSON.stringify(m.graphData.nodes)),
+    edges: JSON.parse(JSON.stringify(m.graphData.edges))
+  };
+
+  // Fork displayed graph from trunk snapshot (will receive predicted nodes streaming)
+  nodes.value = JSON.parse(JSON.stringify(trunkSnapshot.value.nodes));
+  edges.value = JSON.parse(JSON.stringify(trunkSnapshot.value.edges));
+  activeBranchId.value = 'live';
+  liveActive.value = true;
+  liveSteps.value = [];
+  liveLoading.value = true;
+
+  const body = {
+    modelId: currentModelId.value,
+    parentBranchId: null,
+    name: payload.name,
+    seeds: payload.seeds,
+    steps: payload.steps,
+    prompt: payload.prompt,
+    nodes: trunkSnapshot.value.nodes,
+    edges: trunkSnapshot.value.edges
+  };
+
+  try {
+    const res = await fetch('/api/scenarios', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: '请求失败' }));
+      alert('推演失败: ' + (err.error || res.statusText));
+      liveLoading.value = false;
+      liveActive.value = false;
+      switchBranch('trunk');
+      return;
+    }
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let curEvent = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          curEvent = line.slice(7).trim();
+        } else if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (curEvent === 'step') {
+            try {
+              const ev = JSON.parse(data);
+              const node = { ...ev.node, isNew: true };
+              nodes.value.push(node);
+              const newEdges = (ev.edges || []).map((e: any) => ({ ...e, isNew: true }));
+              edges.value.push(...newEdges);
+              liveSteps.value.push(ev.chain);
+              setTimeout(() => {
+                nodes.value.forEach(n => n.isNew = false);
+                edges.value.forEach(e => e.isNew = false);
+              }, 700);
+            } catch {}
+          } else if (curEvent === 'complete') {
+            try {
+              const scenario = JSON.parse(data);
+              branches.value.unshift(scenario);
+              activeBranchId.value = scenario.id;
+              liveLoading.value = false;
+              setTimeout(() => graphRef.value?.fitView(), 100);
+            } catch {}
+          } else if (curEvent === 'error') {
+            alert('推演错误: ' + data);
+            liveLoading.value = false;
+            liveActive.value = false;
+            switchBranch('trunk');
+          }
+        }
+      }
+    }
+    liveLoading.value = false;
+  } catch (e: any) {
+    alert('网络错误: ' + e.message);
+    liveLoading.value = false;
+    liveActive.value = false;
+    switchBranch('trunk');
+  }
+};
+
+const closeTimeline = () => {
+  liveActive.value = false;
+  liveSteps.value = [];
 };
 
 const createNewModel = () => {
@@ -228,6 +407,12 @@ const startDivider = (e: MouseEvent) => {
           </template>
         </div>
         <div class="tb-tools" v-if="view === 'graph'">
+          <BranchPicker
+            :branches="branches"
+            :activeBranchId="activeBranchId"
+            @switch="switchBranch"
+            @delete="deleteBranch"
+          />
           <span class="tb-badge ok">● {{ nodes.length }} 节点</span>
           <span class="tb-badge">{{ edges.length }} 关系</span>
           <button class="tb-btn" @click="showSchema = !showSchema">Schema</button>
@@ -280,12 +465,45 @@ const startDivider = (e: MouseEvent) => {
             @select="id => sel = id"
             @auto-layout="autoLayout"
             @clear="clearCanvas"
+            @predict-from="openPredictDialog"
           />
+          <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
+            <span class="bb-icon">⚡</span>
+            <span>当前查看推演分支（只读）</span>
+            <button class="bb-back" @click="switchBranch('trunk')">返回主分支</button>
+          </div>
           <NodeInfo :node="selNode" :nodes="nodes" :edges="edges" :isOpen="showSchema" @close="() => { sel = null; showSchema = false; }" />
         </div>
         <div :class="['resize-divider', { dragging: divDrag }]" @mousedown="startDivider" />
-        <ChatPanel :nodes="nodes" :edges="edges" :width="chatW" :seed="pendingChatSeed" @update="onUpdate" @clear-graph="clearCanvas" @seed-consumed="pendingChatSeed = null" />
+        <ScenarioTimeline
+          v-if="liveActive"
+          :steps="liveSteps"
+          :loading="liveLoading"
+          :nodes="nodes"
+          :style="{ width: chatW + 'px', flexShrink: 0 }"
+          @close="closeTimeline"
+          @focus-node="id => sel = id"
+        />
+        <ChatPanel
+          v-else
+          :nodes="nodes"
+          :edges="edges"
+          :width="chatW"
+          :seed="pendingChatSeed"
+          @update="onUpdate"
+          @clear-graph="clearCanvas"
+          @seed-consumed="pendingChatSeed = null"
+        />
       </div>
+
+      <!-- Predict Dialog (modal) -->
+      <PredictDialog
+        :open="predictDialogOpen"
+        :nodes="nodes"
+        :initialSeedIds="predictSeeds"
+        @close="predictDialogOpen = false"
+        @submit="startPrediction"
+      />
     </div>
   </div>
 </template>
@@ -375,4 +593,35 @@ const startDivider = (e: MouseEvent) => {
 .ml-time {
   margin-left: auto;
 }
+.branch-banner {
+  position: absolute;
+  top: 78px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fbbf24;
+  padding: 6px 14px;
+  border-radius: 100px;
+  font-size: 12px;
+  z-index: 20;
+  box-shadow: 0 4px 16px rgba(251, 191, 36, 0.15);
+  backdrop-filter: blur(10px);
+}
+.bb-icon { font-size: 13px; }
+.bb-back {
+  background: rgba(251, 191, 36, 0.2);
+  border: none;
+  color: #fbbf24;
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+}
+.bb-back:hover { background: rgba(251, 191, 36, 0.32); }
 </style>

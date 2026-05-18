@@ -13,7 +13,23 @@ const emit = defineEmits<{
   (e: 'select', id: string | null): void;
   (e: 'auto-layout'): void;
   (e: 'clear'): void;
+  (e: 'predict-from', id: string): void;
 }>();
+
+const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
+const onNodeContext = (e: MouseEvent, id: string) => {
+  e.preventDefault();
+  e.stopPropagation();
+  emit('select', id);
+  ctxMenu.value = { x: e.clientX, y: e.clientY, id };
+};
+const closeCtx = () => { ctxMenu.value = null; };
+const triggerPredict = () => {
+  if (ctxMenu.value) {
+    emit('predict-from', ctxMenu.value.id);
+    ctxMenu.value = null;
+  }
+};
 
 const cvRef = ref<HTMLElement | null>(null);
 const zoom = ref(1);
@@ -166,7 +182,7 @@ defineExpose({ fitView });
 
 <template>
   <div class="graph-wrapper" style="position: relative; flex: 1; overflow: hidden; display: flex; background: transparent;">
-    <div ref="cvRef" class="graph-canvas" style="flex: 1; overflow: auto; min-width: 0; position: relative;" @mousedown="startPan" @wheel="onWheel" @click="emit('select', null)">
+    <div ref="cvRef" class="graph-canvas" style="flex: 1; overflow: auto; min-width: 0; position: relative;" @mousedown="startPan" @wheel="onWheel" @click="() => { closeCtx(); emit('select', null); }" @contextmenu.prevent>
       <div :style="{ width: Math.max(3000, bounds.w * zoom) + 'px', height: Math.max(3000, bounds.h * zoom) + 'px', position: 'relative' }">
         <div class="scale-container" :style="{ transform: `scale(${zoom})`, transformOrigin: '0 0', width: '3000px', height: '3000px', position: 'absolute', top: 0, left: 0 }">
           <svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible">
@@ -180,17 +196,24 @@ defineExpose({ fitView });
               <marker id="arr-s" markerWidth="8" markerHeight="8" refX="28" refY="4" orient="auto">
                 <path d="M0,0 L0,8 L8,4 Z" fill="#42b883"/>
               </marker>
+              <marker id="arr-p" markerWidth="8" markerHeight="8" refX="28" refY="4" orient="auto">
+                <path d="M0,0 L0,8 L8,4 Z" fill="#fbbf24"/>
+              </marker>
             </defs>
             <g>
               <template v-for="e in edges" :key="e.id">
                 <g v-if="nmap[e.from] && nmap[e.to]">
-                  <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? '#ff3399' : '#42b883'" :stroke-width="8" opacity="0.1"/>
-                  <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.3)')" :stroke-width="selId === e.from || selId === e.to ? 2 : 1.4" :marker-end="e.rule_driven ? 'url(#arr-r)' : (selId === e.from || selId === e.to ? 'url(#arr-s)' : 'url(#arr)')"/>
-                  <path :class="selId === e.from || selId === e.to ? 'line-flow-fast' : 'line-flow'" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (selId === e.from || selId === e.to ? '#a7f3d0' : 'rgba(66, 184, 131, 0.6)')" :stroke-width="selId === e.from || selId === e.to ? 2.5 : 1.5"/>
+                  <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : '#42b883')" :stroke-width="8" opacity="0.1"/>
+                  <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
+                        :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.3)'))"
+                        :stroke-width="selId === e.from || selId === e.to ? 2 : 1.4"
+                        :stroke-dasharray="e.source === 'predicted' ? '6 4' : null"
+                        :marker-end="e.source === 'predicted' ? 'url(#arr-p)' : (e.rule_driven ? 'url(#arr-r)' : (selId === e.from || selId === e.to ? 'url(#arr-s)' : 'url(#arr)'))"/>
+                  <path v-if="e.source !== 'predicted'" :class="selId === e.from || selId === e.to ? 'line-flow-fast' : 'line-flow'" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (selId === e.from || selId === e.to ? '#a7f3d0' : 'rgba(66, 184, 131, 0.6)')" :stroke-width="selId === e.from || selId === e.to ? 2.5 : 1.5"/>
                   <g v-if="e.label">
                     <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 20" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="40" height="14" rx="3" fill="#0f172a" opacity="0.8"/>
-                    <text :x="getPath(nmap[e.from], nmap[e.to]).mx" :y="getPath(nmap[e.from], nmap[e.to]).my - 6" text-anchor="middle" :style="{fill: e.rule_driven ? '#ff3399' : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.7)'), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
-                      <tspan v-if="e.rule_driven">⚡</tspan>{{ e.label }}
+                    <text :x="getPath(nmap[e.from], nmap[e.to]).mx" :y="getPath(nmap[e.from], nmap[e.to]).my - 6" text-anchor="middle" :style="{fill: e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.7)')), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
+                      <tspan v-if="e.source === 'predicted'">◇</tspan><tspan v-else-if="e.rule_driven">⚡</tspan>{{ e.label }}
                     </text>
                   </g>
                 </g>
@@ -200,7 +223,7 @@ defineExpose({ fitView });
 
           <div class="graph-root" style="transform:none;">
             <div v-for="n in nodes" :key="n.id"
-                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id }]"
+                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-predicted': n.source === 'predicted' }]"
                 :style="{
                   left: n.x + 'px', top: n.y + 'px', width: NW + 'px',
                   background: getT(n).bg, borderLeftColor: getT(n).color,
@@ -209,14 +232,26 @@ defineExpose({ fitView });
                   borderBottomColor: selId === n.id ? getT(n).color + '44' : '#111c2c',
                   boxShadow: selId === n.id ? `0 0 0 1px ${getT(n).color}33,0 4px 24px ${getT(n).color}1a` : '0 2px 8px rgba(0,0,0,0.4)'
                 }"
-                @mousedown="e => startDrag(e, n.id)" @click.stop>
+                @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @click.stop>
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
               <div class="node-label">{{ n.label }}</div>
               <div class="node-type">{{ getT(n).label }}</div>
+              <div v-if="n.source === 'predicted'" class="node-pred-badge" :title="'置信度: ' + Math.round((n.confidence || 0) * 100) + '%'">
+                预测{{ n.predictedStep ? ' ' + n.predictedStep : '' }}
+              </div>
             </div>
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Right-click context menu -->
+    <div v-if="ctxMenu" class="node-ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @click.stop>
+      <button class="ctx-item" @click="triggerPredict">
+        <span class="ctx-icon">⚡</span>
+        <span>从此推演</span>
+        <span class="ctx-hint">Forward</span>
+      </button>
     </div>
 
     <div class="hud-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">

@@ -72,6 +72,40 @@ public class LlmService {
         SCHEMA:
         %s""".formatted(SCHEMA_STRING);
 
+    private static final String PREDICT_SCHEMA = """
+        {
+          "chain": [
+            {
+              "step": 1,
+              "id": "p_1",
+              "label": "短文本（实体/事件名称）",
+              "type": "Must be one of: 'event', 'process', 'outcome', 'entity'",
+              "triggered_by": ["id of upstream existing node OR earlier predicted id"],
+              "rule_id": "id of rule node that fires (or null)",
+              "explanation": "≤40 中文字符，解释为什么这一步会发生",
+              "confidence": 0.0
+            }
+          ]
+        }
+        """;
+
+    private static final String PREDICT_SYSTEM = """
+        你是一个基于本体图谱的前向推演 (Forward Simulation) 引擎。
+        给定现有图谱（节点、边、规则）和一个或多个起点节点 (seeds)，请沿因果链向前预测后续可能发生的 N 步事件。
+
+        严格要求：
+        1. 所有预测节点的 id 形如 'p_1' / 'p_2'，不要复用现有节点 id。
+        2. 每个节点都要给出 triggered_by（上游已有节点 id 或更早的预测节点 id 数组，至少一个）。
+        3. 若有规则节点 (type: 'rule') 适用，请在 rule_id 字段引用，否则置 null。
+        4. 优先沿 rule_driven 边推演；当现有图谱缺乏路径时，再编造合理新边。
+        5. explanation 用简体中文，≤40 字。
+        6. confidence ∈ [0, 1]，越高越笃定。
+        7. 只输出严格符合 schema 的 JSON，禁止 markdown 包裹。
+        8. 步骤数严格等于用户指定的 N；不足时尽量补足，超出请截断。
+
+        SCHEMA:
+        %s""".formatted(PREDICT_SCHEMA);
+
     // ========== 模型配置 CRUD ==========
 
     public List<ModelConfig> getAllModelConfigs() throws IOException {
@@ -482,6 +516,109 @@ public class LlmService {
             } catch (IOException ioEx) { /* ignore */ }
             emitter.completeWithError(e);
         }
+    }
+
+    // ========== 场景推演 ==========
+
+    /**
+     * 对图谱进行前向推演，返回原始 chain JSON（不含落盘）。
+     * 调用方负责构建 Scenario、保存、SSE 分步推送。
+     */
+    public JsonNode predictChain(com.tuiyan.backend.model.PredictRequest req) throws Exception {
+        String[] cfg = resolveConfig(req.getModelOverride(), req.getConfigId());
+        String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
+
+        int steps = req.getSteps() == null ? 4 : Math.max(1, Math.min(10, req.getSteps()));
+
+        String graphSummary = summarizeGraph(req.getNodes(), req.getEdges());
+        String seedSummary = summarizeSeeds(req.getSeeds(), req.getNodes());
+
+        StringBuilder userPrompt = new StringBuilder();
+        userPrompt.append("当前本体图谱：\n").append(graphSummary).append("\n\n");
+        userPrompt.append("起点节点 (seeds)：\n").append(seedSummary).append("\n\n");
+        if (req.getPrompt() != null && !req.getPrompt().isBlank()) {
+            userPrompt.append("额外场景说明：").append(req.getPrompt()).append("\n\n");
+        }
+        userPrompt.append("请向前推演 ").append(steps).append(" 步，严格按 schema 输出 JSON。");
+
+        ObjectNode requestNode = objectMapper.createObjectNode();
+        requestNode.put("model", modelName);
+        requestNode.put("stream", false);
+
+        ArrayNode messages = objectMapper.createArrayNode();
+        ObjectNode sys = objectMapper.createObjectNode();
+        sys.put("role", "system");
+        sys.put("content", PREDICT_SYSTEM);
+        messages.add(sys);
+        ObjectNode user = objectMapper.createObjectNode();
+        user.put("role", "user");
+        user.put("content", userPrompt.toString());
+        messages.add(user);
+        requestNode.set("messages", messages);
+
+        ObjectNode rf = objectMapper.createObjectNode();
+        rf.put("type", "json_object");
+        requestNode.set("response_format", rf);
+
+        HttpRequest httpReq = HttpRequest.newBuilder()
+                .uri(URI.create(baseURL.replaceFirst("/+$", "") + "/chat/completions"))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + apiKey)
+                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(requestNode)))
+                .build();
+
+        HttpResponse<String> resp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() != 200) {
+            throw new RuntimeException("LLM Error: " + resp.statusCode() + " - " + resp.body());
+        }
+
+        JsonNode root = objectMapper.readTree(resp.body());
+        String content = root.path("choices").path(0).path("message").path("content").asText("{}");
+        content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
+        return objectMapper.readTree(content);
+    }
+
+    private String summarizeGraph(List<Map<String, Object>> nodes, List<Map<String, Object>> edges) {
+        StringBuilder sb = new StringBuilder();
+        if (nodes != null) {
+            sb.append("节点 (id | label | type):\n");
+            for (Map<String, Object> n : nodes) {
+                sb.append("  ").append(n.get("id"))
+                  .append(" | ").append(n.get("label"))
+                  .append(" | ").append(n.get("type"))
+                  .append("\n");
+            }
+        }
+        if (edges != null && !edges.isEmpty()) {
+            sb.append("边 (from -> to : label, rule_driven):\n");
+            for (Map<String, Object> e : edges) {
+                Object rd = e.get("rule_driven");
+                sb.append("  ").append(e.get("from"))
+                  .append(" -> ").append(e.get("to"))
+                  .append(" : ").append(e.getOrDefault("label", ""))
+                  .append(Boolean.TRUE.equals(rd) ? " [rule]" : "")
+                  .append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private String summarizeSeeds(List<String> seeds, List<Map<String, Object>> nodes) {
+        if (seeds == null || seeds.isEmpty()) return "(未指定，请基于全图任选一个合理起点)";
+        StringBuilder sb = new StringBuilder();
+        for (String s : seeds) {
+            sb.append("  - ").append(s);
+            if (nodes != null) {
+                for (Map<String, Object> n : nodes) {
+                    if (s.equals(n.get("id"))) {
+                        sb.append(" (").append(n.get("label")).append(")");
+                        break;
+                    }
+                }
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
     }
 
     private String getApiKey(LlmProvider provider, JsonNode fileConfig) {
