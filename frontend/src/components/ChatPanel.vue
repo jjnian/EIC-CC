@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue';
+import { ref, watch, nextTick, onMounted, computed } from 'vue';
 
 const props = defineProps<{
   nodes: any[];
   edges: any[];
   width: number;
+  seed?: { text: string; files: File[] } | null;
 }>();
 
 const emit = defineEmits<{
   (e: 'update', addNodes: any[], addEdges: any[]): void;
   (e: 'clear-graph'): void;
+  (e: 'seed-consumed'): void;
 }>();
 
 // ========== 会话管理 ==========
@@ -105,9 +107,138 @@ const msgs = ref<any[]>([
 ]);
 const input = ref('');
 const loading = ref(false);
-const atts = ref<{name: string, type: string}[]>([]);
+const atts = ref<{name: string, type: string, kind: 'text' | 'image' | 'binary', content?: string, size: number, loading?: boolean}[]>([]);
 const fileRef = ref<HTMLInputElement | null>(null);
 const msgsRef = ref<HTMLElement | null>(null);
+const inputRef = ref<HTMLTextAreaElement | null>(null);
+
+// ========== @ 提及节点 / 关系 ==========
+interface MentionItem {
+  kind: 'node' | 'edge';
+  id: string;
+  label: string;
+  sub: string;
+}
+const mentionOpen = ref(false);
+const mentionQuery = ref('');
+const mentionIndex = ref(0);
+const mentionStart = ref(-1);
+
+const mentionItems = computed<MentionItem[]>(() => {
+  const q = mentionQuery.value.toLowerCase().trim();
+  const nodeItems: MentionItem[] = (props.nodes || []).map(n => ({
+    kind: 'node' as const,
+    id: n.id,
+    label: n.label || n.id,
+    sub: n.type || '实体'
+  }));
+  const edgeItems: MentionItem[] = (props.edges || []).map(e => {
+    const fromN = (props.nodes || []).find(n => n.id === e.from);
+    const toN = (props.nodes || []).find(n => n.id === e.to);
+    return {
+      kind: 'edge' as const,
+      id: e.id,
+      label: e.label || '关系',
+      sub: `${fromN?.label || e.from} → ${toN?.label || e.to}`
+    };
+  });
+  const all = [...nodeItems, ...edgeItems];
+  if (!q) return all.slice(0, 12);
+  return all.filter(it =>
+    it.label.toLowerCase().includes(q) || it.sub.toLowerCase().includes(q)
+  ).slice(0, 12);
+});
+
+const checkMention = () => {
+  const ta = inputRef.value;
+  if (!ta) { mentionOpen.value = false; return; }
+  const cursor = ta.selectionStart || 0;
+  const before = input.value.slice(0, cursor);
+  const atIdx = before.lastIndexOf('@');
+  if (atIdx === -1) { mentionOpen.value = false; return; }
+  const prevChar = atIdx > 0 ? before[atIdx - 1] : ' ';
+  if (atIdx !== 0 && !/\s/.test(prevChar)) { mentionOpen.value = false; return; }
+  const query = before.slice(atIdx + 1);
+  if (/\s/.test(query)) { mentionOpen.value = false; return; }
+  mentionStart.value = atIdx;
+  mentionQuery.value = query;
+  mentionOpen.value = true;
+  mentionIndex.value = 0;
+};
+
+const selectMention = (it: MentionItem) => {
+  const ta = inputRef.value;
+  const queryLen = mentionQuery.value.length;
+  const start = mentionStart.value;
+  if (start < 0) return;
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(start + 1 + queryLen);
+  const token = it.kind === 'node' ? `@${it.label}` : `@「${it.label}」`;
+  input.value = before + token + ' ' + after;
+  mentionOpen.value = false;
+  nextTick(() => {
+    if (ta) {
+      ta.focus();
+      const pos = (before + token + ' ').length;
+      ta.setSelectionRange(pos, pos);
+    }
+  });
+};
+
+const onInputKeydown = (e: KeyboardEvent) => {
+  if (mentionOpen.value && mentionItems.value.length > 0) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      mentionIndex.value = (mentionIndex.value + 1) % mentionItems.value.length;
+      return;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      mentionIndex.value = (mentionIndex.value - 1 + mentionItems.value.length) % mentionItems.value.length;
+      return;
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      const it = mentionItems.value[mentionIndex.value];
+      if (it) selectMention(it);
+      return;
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      mentionOpen.value = false;
+      return;
+    }
+  }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    send();
+  }
+};
+
+const onInputEvent = () => {
+  nextTick(() => checkMention());
+};
+
+const onInputClick = () => {
+  nextTick(() => checkMention());
+};
+
+const MAX_TEXT_BYTES = 200_000;  // 200KB per text file
+const MAX_IMAGE_BYTES = 8_000_000; // 8MB per image
+
+const TEXT_EXTS = ['txt','md','markdown','json','csv','tsv','log','xml','yaml','yml','html','htm','js','ts','tsx','jsx','py','java','c','cpp','h','hpp','go','rs','rb','sh','sql','toml','ini','env','vue','css','scss','less'];
+const IMAGE_EXTS = ['png','jpg','jpeg','gif','webp','bmp'];
+
+const readAsText = (f: File): Promise<string> => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result || ''));
+  r.onerror = () => reject(r.error);
+  r.readAsText(f);
+});
+
+const readAsDataURL = (f: File): Promise<string> => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result || ''));
+  r.onerror = () => reject(r.error);
+  r.readAsDataURL(f);
+});
 
 // 模型选择
 interface ModelOption {
@@ -165,6 +296,12 @@ const selectModel = (model: ModelOption) => {
 
 onMounted(() => {
   loadModels();
+  // 如果父组件传入种子消息，则开始一个全新对话并发送
+  if (props.seed && (props.seed.text || props.seed.files.length)) {
+    initConversation('new');
+    consumeSeed(props.seed);
+    return;
+  }
   // 恢复上一次打开的会话
   const convs = loadConversations();
   const ids = Object.keys(convs);
@@ -172,6 +309,20 @@ onMounted(() => {
     // 选最近的一条
     const latest = ids.reduce((a, b) => convs[a].createdAt > convs[b].createdAt ? a : b);
     initConversation(latest);
+  }
+});
+
+const consumeSeed = (seed: { text: string; files: File[] }) => {
+  seed.files.forEach(f => addFile(f));
+  input.value = seed.text;
+  emit('seed-consumed');
+  nextTick(() => { send(); });
+};
+
+watch(() => props.seed, (newSeed) => {
+  if (newSeed && (newSeed.text || newSeed.files.length)) {
+    initConversation('new');
+    consumeSeed(newSeed);
   }
 });
 
@@ -183,19 +334,74 @@ watch(msgs, () => {
   persistCurrent();
 }, { deep: true });
 
-const addFile = (f: File) => {
+const addFile = async (f: File) => {
   const ext = f.name.split('.').pop()?.toLowerCase() || '';
-  atts.value.push({ name: f.name, type: ext });
+  const isImage = IMAGE_EXTS.includes(ext) || f.type.startsWith('image/');
+  const isText = !isImage && (TEXT_EXTS.includes(ext) || f.type.startsWith('text/') || f.type === 'application/json');
+
+  const att: any = {
+    name: f.name,
+    type: ext,
+    kind: isImage ? 'image' : (isText ? 'text' : 'binary'),
+    size: f.size,
+    loading: true
+  };
+  atts.value.push(att);
+
+  try {
+    if (isImage) {
+      if (f.size > MAX_IMAGE_BYTES) {
+        att.error = `图片超过 ${Math.round(MAX_IMAGE_BYTES/1024/1024)}MB 限制`;
+      } else {
+        att.content = await readAsDataURL(f);
+      }
+    } else if (isText) {
+      if (f.size > MAX_TEXT_BYTES) {
+        const slice = f.slice(0, MAX_TEXT_BYTES);
+        att.content = await readAsText(new File([slice], f.name));
+        att.truncated = true;
+      } else {
+        att.content = await readAsText(f);
+      }
+    } else {
+      att.error = `不支持的文件类型 (.${ext})，请上传文本或图片`;
+    }
+  } catch (e: any) {
+    att.error = '读取失败: ' + (e?.message || e);
+  } finally {
+    att.loading = false;
+  }
 };
 
 const send = async () => {
   if (!input.value.trim() && !atts.value.length) return;
+  mentionOpen.value = false;
+
+  // 等待所有附件读取完成
+  if (atts.value.some(a => a.loading)) {
+    loading.value = true;
+    while (atts.value.some(a => a.loading)) {
+      await new Promise(r => setTimeout(r, 80));
+    }
+    loading.value = false;
+  }
+
+  const validAtts = atts.value.filter(a => !a.error);
+  const failed = atts.value.filter(a => a.error);
+
   const txt = input.value;
-  const ua = [...atts.value];
-  msgs.value.push({ role: 'u', text: txt, atts: ua });
+  // 用户消息显示用：只保留元信息
+  const uaDisplay = atts.value.map(a => ({ name: a.name, type: a.type, kind: a.kind, error: a.error }));
+  msgs.value.push({ role: 'u', text: txt, atts: uaDisplay });
   input.value = '';
+  // 保留附件用于本次请求构建
+  const requestAtts = [...validAtts];
   atts.value = [];
   loading.value = true;
+
+  if (failed.length) {
+    msgs.value.push({ role: 'a', text: '⚠ 部分文件未能加入：\n' + failed.map(a => `· ${a.name}: ${a.error}`).join('\n') });
+  }
 
   // 首次发消息自动更新标题
   if (conversationTitle.value === '新对话') {
@@ -213,7 +419,22 @@ const send = async () => {
       .slice(-40)
       .map(m => ({ role: m.role === 'u' ? 'user' : 'assistant', content: m.text }));
 
-    const body: any = { message: txt, history };
+    // 构建发送给后端的消息：将文本类附件内容拼接入正文，图片作为独立 attachment
+    let composedMessage = txt;
+    const textAtts = requestAtts.filter(a => a.kind === 'text' && a.content);
+    if (textAtts.length) {
+      const docs = textAtts.map(a =>
+        `=== 文件: ${a.name}${a.truncated ? ' (已截断)' : ''} ===\n${a.content}`
+      ).join('\n\n');
+      composedMessage = (txt ? txt + '\n\n' : '') + '附加文档内容：\n' + docs;
+    }
+
+    const imageAtts = requestAtts
+      .filter(a => a.kind === 'image' && a.content)
+      .map(a => ({ name: a.name, type: 'image', dataUrl: a.content }));
+
+    const body: any = { message: composedMessage, history };
+    if (imageAtts.length) body.attachments = imageAtts;
     if (currentModel.value?.configId) {
       body.configId = currentModel.value.configId;
     } else if (currentModel.value?.type === 'preset') {
@@ -318,15 +539,21 @@ const send = async () => {
         <div v-if="m.role === 'a'" class="avatar">推</div>
         <div class="msg-body">
           <div v-if="(m as any).atts?.length > 0" class="att-tags">
-            <span v-for="(a, j) in (m as any).atts" :key="j" class="att-sm">{{ a.name }}</span>
+            <span v-for="(a, j) in (m as any).atts" :key="j" class="att-sm" :class="{ 'att-sm-err': a.error }" :title="a.error || a.name">
+              {{ a.kind === 'image' ? '🖼' : a.kind === 'text' ? '📄' : '📎' }} {{ a.name }}
+            </span>
           </div>
           <div class="bubble" :class="{ streaming: m.role === 'a' && !m.text }">{{ m.text }}<span v-if="loading && m.role === 'a'" class="cursor" /></div>
         </div>
       </div>
     </div>
     <div v-if="atts.length > 0" class="att-row">
-      <div v-for="(a, i) in atts" :key="i" class="att-chip">
-        <span>{{ a.name }}</span><button @click="atts = atts.filter((_, j) => j !== i)">×</button>
+      <div v-for="(a, i) in atts" :key="i" class="att-chip" :class="{ 'att-err': a.error, 'att-img': a.kind === 'image' }" :title="a.error || (a.truncated ? '文件较大，已截断' : '')">
+        <span class="att-kind">{{ a.kind === 'image' ? '🖼' : a.kind === 'text' ? '📄' : '📎' }}</span>
+        <span class="att-name">{{ a.name }}</span>
+        <span v-if="a.loading" class="att-spin" />
+        <span v-else-if="a.error" class="att-bad">!</span>
+        <button @click="atts = atts.filter((_, j) => j !== i)">×</button>
       </div>
     </div>
     <div class="ch-input-area">
@@ -386,13 +613,32 @@ const send = async () => {
         </div>
       </div>
       <div class="input-box">
-        <textarea class="ch-input" v-model="input" placeholder="描述本体关系，或使用下方按钮附加文件…" @keydown.enter.prevent="send" rows="2" />
+        <!-- @ mention dropdown -->
+        <div class="mention-dropdown" v-if="mentionOpen && mentionItems.length > 0">
+          <div class="mention-header">
+            <span>引用 {{ mentionQuery ? `"${mentionQuery}"` : '本体节点 / 关系' }}</span>
+            <span class="mention-hint">↑↓ 选择 · Enter 确认 · Esc 取消</span>
+          </div>
+          <div
+            v-for="(it, i) in mentionItems"
+            :key="it.kind + ':' + it.id"
+            class="mention-item"
+            :class="{ active: i === mentionIndex, 'mention-edge': it.kind === 'edge' }"
+            @mousedown.prevent="selectMention(it)"
+            @mouseenter="mentionIndex = i"
+          >
+            <span class="mention-kind">{{ it.kind === 'node' ? '◆' : '→' }}</span>
+            <span class="mention-label">{{ it.label }}</span>
+            <span class="mention-sub">{{ it.sub }}</span>
+          </div>
+        </div>
+        <textarea ref="inputRef" class="ch-input" v-model="input" placeholder="描述本体关系，输入 @ 可引用节点/关系，或附加文件…" @keydown="onInputKeydown" @input="onInputEvent" @click="onInputClick" rows="2" />
         <div class="input-footer">
           <div class="file-tools">
-            <button class="file-icon-btn attach-btn" title="上传文件" @click="() => { if (fileRef) fileRef.click(); }">
-              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <button class="file-icon-btn attach-btn" title="上传文件 (图片/MD/TXT/JSON等)" @click="() => { if (fileRef) fileRef.click(); }">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
-            <input ref="fileRef" type="file" style="display:none" @change="(e: any) => e.target.files[0] && addFile(e.target.files[0])" />
+            <input ref="fileRef" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.csv,.tsv,.log,.xml,.yaml,.yml,.html,.htm,.js,.ts,.py,.java,.sql,.toml,.ini,.env,.vue,.css,text/*" style="display:none" @change="(e: any) => { Array.from(e.target.files || []).forEach((f: any) => addFile(f)); e.target.value = ''; }" />
           </div>
           <button class="send-btn" @click="send" :disabled="loading">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -469,13 +715,28 @@ const send = async () => {
 .msg-user .bubble { background: rgba(66, 184, 131, 0.15); border-color: rgba(66, 184, 131, 0.25); }
 .att-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .att-sm { font-size: 11px; background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 4px; color: var(--text-dim); }
+.att-sm-err { background: rgba(255,99,99,0.12); color: #ff8a8a; }
 .att-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 20px; }
 .att-chip {
   display: flex; align-items: center; gap: 6px;
   background: rgba(66, 184, 131, 0.12); border: 1px solid rgba(66, 184, 131, 0.25);
   padding: 4px 10px; border-radius: 6px; font-size: 12px; color: #42b883;
 }
-.att-chip button { background: none; border: none; color: #42b883; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
+.att-chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
+.att-chip.att-img { background: rgba(99, 155, 255, 0.12); border-color: rgba(99, 155, 255, 0.25); color: #639bff; }
+.att-chip.att-err { background: rgba(255, 99, 99, 0.12); border-color: rgba(255, 99, 99, 0.3); color: #ff8a8a; }
+.att-kind { font-size: 12px; }
+.att-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-spin {
+  width: 10px; height: 10px; border: 2px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: att-spin 0.8s linear infinite; opacity: 0.6;
+}
+@keyframes att-spin { to { transform: rotate(360deg); } }
+.att-bad {
+  width: 14px; height: 14px; border-radius: 50%; background: rgba(255,99,99,0.3);
+  color: #fff; font-size: 10px; font-weight: 700; display: inline-flex;
+  align-items: center; justify-content: center;
+}
 .ch-input-area { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.06); }
 .toolbar { position: relative; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
 .conv-selector {
@@ -555,6 +816,79 @@ const send = async () => {
 .input-box {
   background: rgba(10, 16, 27, 0.6); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px; padding: 10px 14px; transition: border-color 0.2s;
+  position: relative;
+}
+.mention-dropdown {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: rgba(14, 25, 41, 0.98);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(66, 184, 131, 0.3);
+  border-radius: 10px;
+  padding: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 200;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+}
+.mention-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 4px;
+}
+.mention-hint {
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.3);
+}
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  font-size: 13px;
+}
+.mention-item.active,
+.mention-item:hover {
+  background: rgba(66, 184, 131, 0.15);
+}
+.mention-item.mention-edge .mention-kind { color: #639bff; }
+.mention-kind {
+  font-size: 12px;
+  color: #42b883;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.mention-label {
+  color: var(--text-main);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+}
+.mention-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+  text-align: right;
 }
 .input-box:focus-within { border-color: rgba(66, 184, 131, 0.4); }
 .ch-input {

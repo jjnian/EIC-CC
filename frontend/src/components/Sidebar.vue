@@ -9,6 +9,7 @@ const emit = defineEmits<{
 
 const a = ref(0);
 const items = [
+  ['✦', '新对话', 'welcome'],
   ['◈', '本体模型', 'list']
 ];
 </script>

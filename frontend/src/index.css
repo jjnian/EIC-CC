@@ -89,6 +89,71 @@ body {
 @keyframes nodeIn { from{opacity:0; transform:scale(.6)} to{opacity:1; transform:scale(1)} }
 .node-new { animation:nodeIn .45s cubic-bezier(.34,1.56,.64,1); }
 
+/* ── Predicted node (推演) ── */
+.node-predicted {
+  border-style: dashed !important;
+  border-top-style: dashed !important;
+  border-right-style: dashed !important;
+  border-bottom-style: dashed !important;
+  opacity: 0.92;
+  background: rgba(15, 23, 42, 0.55) !important;
+}
+.node-predicted::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 0 14px 14px 0;
+  background: linear-gradient(135deg, rgba(251,191,36,0.18), rgba(251,191,36,0));
+  pointer-events: none;
+  z-index: -1;
+}
+.node-pred-badge {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  font-size: 9px;
+  background: #fbbf24;
+  color: #1a1a1a;
+  padding: 2px 6px;
+  border-radius: 100px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(251, 191, 36, 0.4);
+}
+
+/* ── Context menu (right-click) ── */
+.node-ctx-menu {
+  position: fixed;
+  background: rgba(14, 25, 41, 0.98);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 4px;
+  z-index: 1000;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  min-width: 180px;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-main);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+.ctx-item:hover { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.ctx-icon { font-size: 14px; }
+.ctx-hint { margin-left: auto; font-size: 10px; color: rgba(255,255,255,0.3); font-family: 'JetBrains Mono', monospace; }
+
 /* ── Zoom & Legend ── */
 .zoom-wrap { position:absolute; bottom:24px; left:24px; display:flex; flex-direction:column; gap:8px; z-index:5; }
 .zoom-wrap button { width:36px; height:32px; background:rgba(255,255,255,0.1); backdrop-filter:blur(10px); border:1px solid var(--glass-border); color:var(--text-main); font-size:16px; cursor:pointer; border-radius:8px; display:flex; align-items:center; justify-content:center; transition:all .15s; }

@@ -38,7 +38,7 @@ public class ChatController {
         }
         // fallback: synchronous response
         try {
-            JsonNode result = llmService.chat(request.getNodes(), request.getEdges(), request.getMessage(), request.getModelOverride(), request.getConfigId(), request.getHistory());
+            JsonNode result = llmService.chat(request.getNodes(), request.getEdges(), request.getMessage(), request.getModelOverride(), request.getConfigId(), request.getHistory(), request.getAttachments());
             return ResponseEntity.ok(result);
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
