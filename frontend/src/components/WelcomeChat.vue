@@ -52,7 +52,7 @@ const onDrop = (e: DragEvent) => {
         <div class="welcome-logo-mark">推</div>
       </div>
       <h1 class="welcome-title">今天要构建什么本体？</h1>
-      <p class="welcome-sub">用自然语言描述实体与关系，或上传文档自动提取本体图谱</p>
+      <p class="welcome-sub">用自然语言描述实体与关系，或上传图片 / Markdown / TXT / JSON / 代码文件，自动提取本体图谱</p>
 
       <div class="welcome-input-card">
         <div v-if="atts.length" class="welcome-atts">
@@ -76,7 +76,7 @@ const onDrop = (e: DragEvent) => {
             </svg>
             <span>添加文件</span>
           </button>
-          <input ref="fileRef" type="file" multiple style="display:none" @change="(e: any) => addFiles(e.target.files)" />
+          <input ref="fileRef" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.csv,.tsv,.log,.xml,.yaml,.yml,.html,.htm,.js,.ts,.py,.java,.sql,.toml,.ini,.env,.vue,.css,text/*" style="display:none" @change="(e: any) => { addFiles(e.target.files); e.target.value = ''; }" />
           <div class="welcome-spacer" />
           <span class="welcome-hint">Enter 发送 · Shift+Enter 换行</span>
           <button class="welcome-send" :disabled="!input.trim() && !atts.length" @click="handleSubmit" title="构建本体图">

@@ -289,7 +289,8 @@ public class LlmService {
     /**
      * 构建 LLM 请求体 JSON
      */
-    private String buildRequestBody(String modelName, String message, List<Map<String, Object>> history, boolean stream) throws Exception {
+    private String buildRequestBody(String modelName, String message, List<Map<String, Object>> history,
+                                    List<Map<String, Object>> attachments, boolean stream) throws Exception {
         String prompt = "Here is the user's latest message:\n" + message +
                 "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
 
@@ -316,10 +317,39 @@ public class LlmService {
             }
         }
 
-        // Current user message
+        // Current user message — 如果有图片附件，使用多模态 content 数组
         ObjectNode userMsg = objectMapper.createObjectNode();
         userMsg.put("role", "user");
-        userMsg.put("content", prompt);
+
+        List<Map<String, Object>> imageAtts = new ArrayList<>();
+        if (attachments != null) {
+            for (Map<String, Object> a : attachments) {
+                Object kind = a.get("type");
+                Object url = a.get("dataUrl");
+                if ("image".equals(String.valueOf(kind)) && url != null && !String.valueOf(url).isBlank()) {
+                    imageAtts.add(a);
+                }
+            }
+        }
+
+        if (imageAtts.isEmpty()) {
+            userMsg.put("content", prompt);
+        } else {
+            ArrayNode contentArr = objectMapper.createArrayNode();
+            ObjectNode textPart = objectMapper.createObjectNode();
+            textPart.put("type", "text");
+            textPart.put("text", prompt);
+            contentArr.add(textPart);
+            for (Map<String, Object> img : imageAtts) {
+                ObjectNode imgPart = objectMapper.createObjectNode();
+                imgPart.put("type", "image_url");
+                ObjectNode imgUrl = objectMapper.createObjectNode();
+                imgUrl.put("url", String.valueOf(img.get("dataUrl")));
+                imgPart.set("image_url", imgUrl);
+                contentArr.add(imgPart);
+            }
+            userMsg.set("content", contentArr);
+        }
         messages.add(userMsg);
 
         requestNode.set("messages", messages);
@@ -335,10 +365,16 @@ public class LlmService {
      * 同步聊天（非流式）
      */
     public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message, String modelOverride, String configId, List<Map<String, Object>> history) throws Exception {
+        return chat(nodes, edges, message, modelOverride, configId, history, null);
+    }
+
+    public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message,
+                         String modelOverride, String configId, List<Map<String, Object>> history,
+                         List<Map<String, Object>> attachments) throws Exception {
         String[] cfg = resolveConfig(modelOverride, configId);
         String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
 
-        String requestBody = buildRequestBody(modelName, message, history, false);
+        String requestBody = buildRequestBody(modelName, message, history, attachments, false);
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(baseURL.replaceFirst("/+$", "") + "/chat/completions"))
@@ -368,7 +404,7 @@ public class LlmService {
             String[] cfg = resolveConfig(request.getModelOverride(), request.getConfigId());
             String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
 
-            String requestBody = buildRequestBody(modelName, request.getMessage(), request.getHistory(), true);
+            String requestBody = buildRequestBody(modelName, request.getMessage(), request.getHistory(), request.getAttachments(), true);
 
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(URI.create(baseURL.replaceFirst("/+$", "") + "/chat/completions"))
