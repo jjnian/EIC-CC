@@ -73,6 +73,12 @@ public class ConfigResponse {
         private String baseUrl;
         private String modelName;
         private boolean enabled;
+        private String provider;
+        private String description;
+        private Integer contextWindow;
+        private Integer maxOutputTokens;
+        private java.util.List<String> capabilities;
+        private String protocol;
 
         public ModelConfigInfo() {}
         public ModelConfigInfo(String id, String name, String baseUrl, String modelName, boolean enabled) {
@@ -93,5 +99,17 @@ public class ConfigResponse {
         public void setModelName(String modelName) { this.modelName = modelName; }
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getProvider() { return provider; }
+        public void setProvider(String provider) { this.provider = provider; }
+        public String getDescription() { return description; }
+        public void setDescription(String description) { this.description = description; }
+        public Integer getContextWindow() { return contextWindow; }
+        public void setContextWindow(Integer contextWindow) { this.contextWindow = contextWindow; }
+        public Integer getMaxOutputTokens() { return maxOutputTokens; }
+        public void setMaxOutputTokens(Integer maxOutputTokens) { this.maxOutputTokens = maxOutputTokens; }
+        public java.util.List<String> getCapabilities() { return capabilities; }
+        public void setCapabilities(java.util.List<String> capabilities) { this.capabilities = capabilities; }
+        public String getProtocol() { return protocol; }
+        public void setProtocol(String protocol) { this.protocol = protocol; }
     }
 }
