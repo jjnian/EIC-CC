@@ -90,15 +90,15 @@
   "protocol" : "openai"
 }, {
   "id" : "preset-deepseek-chat",
-  "name" : "DeepSeek Chat",
+  "name" : "DeepSeek Chat (默认)",
   "baseUrl" : "https://api.deepseek.com/v1",
   "modelName" : "deepseek-chat",
   "apiKey" : "",
-  "enabled" : false,
+  "enabled" : true,
   "createdAt" : 1737200000000,
   "updatedAt" : 1737200000000,
   "provider" : "deepseek",
-  "description" : "DeepSeek V 系列对话模型，中文友好、价格极低，适合大批量推演",
+  "description" : "★ 系统默认。DeepSeek V 系列对话模型，中文友好、价格极低，适合大批量推演",
   "contextWindow" : 65536,
   "maxOutputTokens" : 8192,
   "capabilities" : [ "streaming", "json", "tool-use" ],

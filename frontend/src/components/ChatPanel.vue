@@ -281,7 +281,19 @@ const loadModels = async () => {
 
       availableModels.value = models;
       if (models.length > 0) {
-        currentModel.value = models[0];
+        // 优先使用偏好里的默认模型
+        let defaultId: string | null = null;
+        try {
+          const pr = await fetch('/api/prefs');
+          if (pr.ok) {
+            const prefs = await pr.json();
+            if (prefs.defaultModelConfigId) defaultId = prefs.defaultModelConfigId;
+          }
+        } catch {}
+        const preferred = defaultId
+          ? models.find(m => m.configId === defaultId || m.id === defaultId)
+          : null;
+        currentModel.value = preferred || models[0];
       }
     }
   } catch (e) {

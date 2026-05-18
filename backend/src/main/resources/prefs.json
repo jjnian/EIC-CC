@@ -1,0 +1,9 @@
+{
+  "predictDefaultSteps": 4,
+  "predictMinConfidence": 0.3,
+  "predictStepDelayMs": 220,
+  "showEdgeLabels": true,
+  "autoFit": true,
+  "graphFontSize": 13,
+  "defaultModelConfigId": "preset-deepseek-chat"
+}
