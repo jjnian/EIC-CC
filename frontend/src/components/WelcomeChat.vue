@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
+
+const props = defineProps<{ resetTick?: number }>();
 
 const emit = defineEmits<{
   (e: 'submit', payload: { text: string; files: File[] }): void;
@@ -9,6 +11,11 @@ const input = ref('');
 const atts = ref<File[]>([]);
 const fileRef = ref<HTMLInputElement | null>(null);
 const dragOver = ref(false);
+
+watch(() => props.resetTick, () => {
+  input.value = '';
+  atts.value = [];
+});
 
 const examples = [
   '描述一个供应链本体：包含供应商、原料、工厂、产品和客户实体',
