@@ -5,11 +5,13 @@ const props = defineProps<{
   nodes: any[];
   edges: any[];
   width: number;
+  seed?: { text: string; files: File[] } | null;
 }>();
 
 const emit = defineEmits<{
   (e: 'update', addNodes: any[], addEdges: any[]): void;
   (e: 'clear-graph'): void;
+  (e: 'seed-consumed'): void;
 }>();
 
 // ========== 会话管理 ==========
@@ -165,6 +167,12 @@ const selectModel = (model: ModelOption) => {
 
 onMounted(() => {
   loadModels();
+  // 如果父组件传入种子消息，则开始一个全新对话并发送
+  if (props.seed && (props.seed.text || props.seed.files.length)) {
+    initConversation('new');
+    consumeSeed(props.seed);
+    return;
+  }
   // 恢复上一次打开的会话
   const convs = loadConversations();
   const ids = Object.keys(convs);
@@ -172,6 +180,20 @@ onMounted(() => {
     // 选最近的一条
     const latest = ids.reduce((a, b) => convs[a].createdAt > convs[b].createdAt ? a : b);
     initConversation(latest);
+  }
+});
+
+const consumeSeed = (seed: { text: string; files: File[] }) => {
+  seed.files.forEach(f => addFile(f));
+  input.value = seed.text;
+  emit('seed-consumed');
+  nextTick(() => { send(); });
+};
+
+watch(() => props.seed, (newSeed) => {
+  if (newSeed && (newSeed.text || newSeed.files.length)) {
+    initConversation('new');
+    consumeSeed(newSeed);
   }
 });
 

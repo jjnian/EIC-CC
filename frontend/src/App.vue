@@ -6,6 +6,7 @@ import GraphCanvas from './components/GraphCanvas.vue';
 import NodeInfo from './components/NodeInfo.vue';
 import ChatPanel from './components/ChatPanel.vue';
 import SettingsView from './components/SettingsView.vue';
+import WelcomeChat from './components/WelcomeChat.vue';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
@@ -14,8 +15,9 @@ const chatW = ref(360);
 const divDrag = ref<any>(null);
 const graphRef = ref<any>(null);
 
-const view = ref<'list' | 'graph' | 'settings'>('list');
+const view = ref<'welcome' | 'list' | 'graph' | 'settings'>('welcome');
 const currentModelTitle = ref('供应链本体图');
+const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
 
 const models = ref<any[]>([
   { id: '1', title: '供应链本体模型', desc: '包含供应链核心实体与关系的推演模型', updated: '10分钟前', graphData: { nodes: JSON.parse(JSON.stringify(INIT_NODES)), edges: JSON.parse(JSON.stringify(INIT_EDGES)) } },
@@ -44,6 +46,26 @@ const createNewModel = () => {
   };
   models.value.unshift(newModel);
   openModel(newModel);
+};
+
+const onWelcomeSubmit = (payload: { text: string; files: File[] }) => {
+  const title = payload.text.slice(0, 18).trim() || '新建本体图';
+  const newModel = {
+    id: Date.now().toString(),
+    title: title.length > 16 ? title.slice(0, 16) + '…' : title,
+    desc: payload.text || '通过对话生成的本体模型',
+    updated: '刚刚',
+    graphData: { nodes: [], edges: [] }
+  };
+  models.value.unshift(newModel);
+  pendingChatSeed.value = payload;
+  openModel(newModel);
+};
+
+const goWelcome = () => {
+  view.value = 'welcome';
+  sel.value = null;
+  showSchema.value = false;
 };
 
 const selNode = computed(() => nodes.value.find(n => n.id === sel.value) || null);
@@ -179,14 +201,18 @@ const startDivider = (e: MouseEvent) => {
 
 <template>
   <div class="app">
-    <Sidebar :expanded="sbExp" @toggle="sbExp = !sbExp" @nav="r => { if(r==='list') view='list'; else if(r==='settings') view='settings'; }" />
+    <Sidebar :expanded="sbExp" @toggle="sbExp = !sbExp" @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; }" />
     <div class="main">
       <div class="topbar">
         <div class="breadcrumb">
           <span class="bc-dim">推演</span><span class="bc-sep">/</span>
           <span class="bc-muted">模型空间</span><span class="bc-sep">/</span>
 
-          <template v-if="view === 'list'">
+          <template v-if="view === 'welcome'">
+            <span class="bc-cur">新对话</span>
+          </template>
+
+          <template v-else-if="view === 'list'">
             <span class="bc-cur">本体模型</span>
           </template>
 
@@ -209,9 +235,13 @@ const startDivider = (e: MouseEvent) => {
           <button class="tb-btn hi">共享</button>
         </div>
         <div class="tb-tools" v-if="view === 'list'">
+          <button class="tb-btn" @click="goWelcome">＋新对话</button>
           <button class="tb-btn hi" @click="createNewModel">＋新建模型</button>
         </div>
       </div>
+
+      <!-- Welcome / Chat-first View -->
+      <WelcomeChat v-if="view === 'welcome'" @submit="onWelcomeSubmit" />
 
       <!-- List View -->
       <div class="model-list-view" v-if="view === 'list'">
@@ -254,7 +284,7 @@ const startDivider = (e: MouseEvent) => {
           <NodeInfo :node="selNode" :nodes="nodes" :edges="edges" :isOpen="showSchema" @close="() => { sel = null; showSchema = false; }" />
         </div>
         <div :class="['resize-divider', { dragging: divDrag }]" @mousedown="startDivider" />
-        <ChatPanel :nodes="nodes" :edges="edges" :width="chatW" @update="onUpdate" @clear-graph="clearCanvas" />
+        <ChatPanel :nodes="nodes" :edges="edges" :width="chatW" :seed="pendingChatSeed" @update="onUpdate" @clear-graph="clearCanvas" @seed-consumed="pendingChatSeed = null" />
       </div>
     </div>
   </div>
