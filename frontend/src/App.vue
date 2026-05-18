@@ -241,10 +241,17 @@ const onWelcomeSubmit = (payload: { text: string; files: File[] }) => {
   openModel(newModel);
 };
 
+const welcomeResetTick = ref(0);
 const goWelcome = () => {
   view.value = 'welcome';
   sel.value = null;
   showSchema.value = false;
+  welcomeResetTick.value++;
+};
+
+const openModelById = (id: string) => {
+  const m = findModel(id);
+  if (m) openModel(m);
 };
 
 const selNode = computed(() => nodes.value.find(n => n.id === sel.value) || null);
@@ -380,7 +387,15 @@ const startDivider = (e: MouseEvent) => {
 
 <template>
   <div class="app">
-    <Sidebar :expanded="sbExp" @toggle="sbExp = !sbExp" @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; }" />
+    <Sidebar
+      :expanded="sbExp"
+      :models="models"
+      :currentModelId="currentModelId"
+      :view="view"
+      @toggle="sbExp = !sbExp"
+      @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; }"
+      @open-model="openModelById"
+    />
     <div class="main">
       <div class="topbar">
         <div class="breadcrumb">
@@ -388,7 +403,7 @@ const startDivider = (e: MouseEvent) => {
           <span class="bc-muted">模型空间</span><span class="bc-sep">/</span>
 
           <template v-if="view === 'welcome'">
-            <span class="bc-cur">新对话</span>
+            <span class="bc-cur bc-clickable" @click="goWelcome" title="开启新对话">新对话</span>
           </template>
 
           <template v-else-if="view === 'list'">
@@ -426,7 +441,7 @@ const startDivider = (e: MouseEvent) => {
       </div>
 
       <!-- Welcome / Chat-first View -->
-      <WelcomeChat v-if="view === 'welcome'" @submit="onWelcomeSubmit" />
+      <WelcomeChat v-if="view === 'welcome'" :resetTick="welcomeResetTick" @submit="onWelcomeSubmit" />
 
       <!-- List View -->
       <div class="model-list-view" v-if="view === 'list'">

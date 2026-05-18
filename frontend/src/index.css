@@ -60,6 +60,8 @@ body {
 .bc-muted { color:var(--text-dim); opacity: 0.8; }
 .bc-sep { color:var(--glass-border); font-size:14px; margin:0 4px; }
 .bc-cur { color:var(--text-main); font-weight:500; }
+.bc-clickable { cursor:pointer; transition: color 0.15s; }
+.bc-clickable:hover { color: var(--accent); }
 .bc-star { color:var(--text-dim); cursor:pointer; margin-left:4px; font-size:14px; transition:color .15s; }
 .bc-star:hover { color:#fbbf24; }
 .tb-tools { display:flex; align-items:center; gap:12px; }
