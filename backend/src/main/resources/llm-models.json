@@ -8,5 +8,65 @@
     "enabled": true,
     "createdAt": 1714521600000,
     "updatedAt": 1714521600000
+  },
+  {
+    "id": "preset-anthropic-opus",
+    "name": "Claude Opus 4.7",
+    "baseUrl": "https://api.anthropic.com/v1",
+    "modelName": "claude-opus-4-7",
+    "apiKey": "",
+    "enabled": false,
+    "createdAt": 1737200000000,
+    "updatedAt": 1737200000000
+  },
+  {
+    "id": "preset-anthropic-sonnet",
+    "name": "Claude Sonnet 4.6",
+    "baseUrl": "https://api.anthropic.com/v1",
+    "modelName": "claude-sonnet-4-6",
+    "apiKey": "",
+    "enabled": false,
+    "createdAt": 1737200000000,
+    "updatedAt": 1737200000000
+  },
+  {
+    "id": "preset-openai-gpt41",
+    "name": "OpenAI GPT-4.1",
+    "baseUrl": "https://api.openai.com/v1",
+    "modelName": "gpt-4.1",
+    "apiKey": "",
+    "enabled": false,
+    "createdAt": 1737200000000,
+    "updatedAt": 1737200000000
+  },
+  {
+    "id": "preset-openai-o3",
+    "name": "OpenAI o3",
+    "baseUrl": "https://api.openai.com/v1",
+    "modelName": "o3",
+    "apiKey": "",
+    "enabled": false,
+    "createdAt": 1737200000000,
+    "updatedAt": 1737200000000
+  },
+  {
+    "id": "preset-deepseek-chat",
+    "name": "DeepSeek Chat",
+    "baseUrl": "https://api.deepseek.com/v1",
+    "modelName": "deepseek-chat",
+    "apiKey": "",
+    "enabled": false,
+    "createdAt": 1737200000000,
+    "updatedAt": 1737200000000
+  },
+  {
+    "id": "preset-deepseek-reasoner",
+    "name": "DeepSeek Reasoner",
+    "baseUrl": "https://api.deepseek.com/v1",
+    "modelName": "deepseek-reasoner",
+    "apiKey": "",
+    "enabled": false,
+    "createdAt": 1737200000000,
+    "updatedAt": 1737200000000
   }
 ]
