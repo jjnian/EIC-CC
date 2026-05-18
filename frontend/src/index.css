@@ -64,7 +64,9 @@ body {
 .bc-clickable:hover { color: var(--accent); }
 .bc-star { color:var(--text-dim); cursor:pointer; margin-left:4px; font-size:14px; transition:color .15s; }
 .bc-star:hover { color:#fbbf24; }
-.tb-tools { display:flex; align-items:center; gap:12px; }
+.tb-tools { display:flex; align-items:center; gap:12px; margin-left:auto; }
+.tb-title { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:600; color: #42b883; }
+.tb-title-text { letter-spacing: 0.3px; }
 .tb-badge { font-size:12px; font-family:'SF Pro Display', monospace; color:var(--text-main); background:rgba(255,255,255,0.1); padding:6px 12px; border-radius:100px; border:1px solid var(--glass-border); }
 .tb-badge.ok { color:var(--accent); background:rgba(66, 184, 131, 0.1); border-color:rgba(66, 184, 131, 0.3); }
 .tb-btn { font-size:13px; background:rgba(255,255,255,0.1); color:var(--text-main); border:1px solid var(--glass-border); padding:8px 16px; border-radius:12px; cursor:pointer; transition:all .15s; font-family:inherit; }

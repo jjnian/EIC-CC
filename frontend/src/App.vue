@@ -398,28 +398,9 @@ const startDivider = (e: MouseEvent) => {
     />
     <div class="main">
       <div class="topbar">
-        <div class="breadcrumb">
-          <span class="bc-dim bc-clickable" @click="goWelcome" title="返回首页 / 开启新对话">推演</span><span class="bc-sep">/</span>
-          <span class="bc-muted bc-clickable" @click="view = 'list'" title="进入本体模型管理">模型空间</span><span class="bc-sep">/</span>
-
-          <template v-if="view === 'welcome'">
-            <span class="bc-cur bc-clickable" @click="goWelcome" title="开启新对话">新对话</span>
-          </template>
-
-          <template v-else-if="view === 'list'">
-            <span class="bc-cur">本体模型</span>
-          </template>
-
-          <template v-else-if="view === 'settings'">
-            <span class="bc-cur">平台设置</span>
-          </template>
-
-          <template v-else-if="view === 'graph'">
-            <span class="bc-muted bc-clickable" @click="view = 'list'" title="返回本体模型列表">本体模型</span>
-            <span class="bc-sep">/</span>
-            <span class="bc-cur" style="color: #42b883">{{ currentModelTitle }}</span>
-            <span class="bc-star">☆</span>
-          </template>
+        <div class="tb-title" v-if="view === 'graph'">
+          <span class="tb-title-text">{{ currentModelTitle }}</span>
+          <span class="bc-star">☆</span>
         </div>
         <div class="tb-tools" v-if="view === 'graph'">
           <BranchPicker
