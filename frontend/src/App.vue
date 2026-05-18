@@ -399,8 +399,8 @@ const startDivider = (e: MouseEvent) => {
     <div class="main">
       <div class="topbar">
         <div class="breadcrumb">
-          <span class="bc-dim">推演</span><span class="bc-sep">/</span>
-          <span class="bc-muted">模型空间</span><span class="bc-sep">/</span>
+          <span class="bc-dim bc-clickable" @click="goWelcome" title="返回首页 / 开启新对话">推演</span><span class="bc-sep">/</span>
+          <span class="bc-muted bc-clickable" @click="view = 'list'" title="进入本体模型管理">模型空间</span><span class="bc-sep">/</span>
 
           <template v-if="view === 'welcome'">
             <span class="bc-cur bc-clickable" @click="goWelcome" title="开启新对话">新对话</span>
@@ -415,7 +415,7 @@ const startDivider = (e: MouseEvent) => {
           </template>
 
           <template v-else-if="view === 'graph'">
-            <span class="bc-muted" @click="view = 'list'" style="cursor:pointer; transition: opacity 0.2s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.8" title="返回本体模型列表">本体模型</span>
+            <span class="bc-muted bc-clickable" @click="view = 'list'" title="返回本体模型列表">本体模型</span>
             <span class="bc-sep">/</span>
             <span class="bc-cur" style="color: #42b883">{{ currentModelTitle }}</span>
             <span class="bc-star">☆</span>
