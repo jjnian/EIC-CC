@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue';
+import { ref, watch, nextTick, onMounted, computed } from 'vue';
 
 const props = defineProps<{
   nodes: any[];
@@ -110,6 +110,115 @@ const loading = ref(false);
 const atts = ref<{name: string, type: string, kind: 'text' | 'image' | 'binary', content?: string, size: number, loading?: boolean}[]>([]);
 const fileRef = ref<HTMLInputElement | null>(null);
 const msgsRef = ref<HTMLElement | null>(null);
+const inputRef = ref<HTMLTextAreaElement | null>(null);
+
+// ========== @ 提及节点 / 关系 ==========
+interface MentionItem {
+  kind: 'node' | 'edge';
+  id: string;
+  label: string;
+  sub: string;
+}
+const mentionOpen = ref(false);
+const mentionQuery = ref('');
+const mentionIndex = ref(0);
+const mentionStart = ref(-1);
+
+const mentionItems = computed<MentionItem[]>(() => {
+  const q = mentionQuery.value.toLowerCase().trim();
+  const nodeItems: MentionItem[] = (props.nodes || []).map(n => ({
+    kind: 'node' as const,
+    id: n.id,
+    label: n.label || n.id,
+    sub: n.type || '实体'
+  }));
+  const edgeItems: MentionItem[] = (props.edges || []).map(e => {
+    const fromN = (props.nodes || []).find(n => n.id === e.from);
+    const toN = (props.nodes || []).find(n => n.id === e.to);
+    return {
+      kind: 'edge' as const,
+      id: e.id,
+      label: e.label || '关系',
+      sub: `${fromN?.label || e.from} → ${toN?.label || e.to}`
+    };
+  });
+  const all = [...nodeItems, ...edgeItems];
+  if (!q) return all.slice(0, 12);
+  return all.filter(it =>
+    it.label.toLowerCase().includes(q) || it.sub.toLowerCase().includes(q)
+  ).slice(0, 12);
+});
+
+const checkMention = () => {
+  const ta = inputRef.value;
+  if (!ta) { mentionOpen.value = false; return; }
+  const cursor = ta.selectionStart || 0;
+  const before = input.value.slice(0, cursor);
+  const atIdx = before.lastIndexOf('@');
+  if (atIdx === -1) { mentionOpen.value = false; return; }
+  const prevChar = atIdx > 0 ? before[atIdx - 1] : ' ';
+  if (atIdx !== 0 && !/\s/.test(prevChar)) { mentionOpen.value = false; return; }
+  const query = before.slice(atIdx + 1);
+  if (/\s/.test(query)) { mentionOpen.value = false; return; }
+  mentionStart.value = atIdx;
+  mentionQuery.value = query;
+  mentionOpen.value = true;
+  mentionIndex.value = 0;
+};
+
+const selectMention = (it: MentionItem) => {
+  const ta = inputRef.value;
+  const queryLen = mentionQuery.value.length;
+  const start = mentionStart.value;
+  if (start < 0) return;
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(start + 1 + queryLen);
+  const token = it.kind === 'node' ? `@${it.label}` : `@「${it.label}」`;
+  input.value = before + token + ' ' + after;
+  mentionOpen.value = false;
+  nextTick(() => {
+    if (ta) {
+      ta.focus();
+      const pos = (before + token + ' ').length;
+      ta.setSelectionRange(pos, pos);
+    }
+  });
+};
+
+const onInputKeydown = (e: KeyboardEvent) => {
+  if (mentionOpen.value && mentionItems.value.length > 0) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      mentionIndex.value = (mentionIndex.value + 1) % mentionItems.value.length;
+      return;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      mentionIndex.value = (mentionIndex.value - 1 + mentionItems.value.length) % mentionItems.value.length;
+      return;
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      const it = mentionItems.value[mentionIndex.value];
+      if (it) selectMention(it);
+      return;
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      mentionOpen.value = false;
+      return;
+    }
+  }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    send();
+  }
+};
+
+const onInputEvent = () => {
+  nextTick(() => checkMention());
+};
+
+const onInputClick = () => {
+  nextTick(() => checkMention());
+};
 
 const MAX_TEXT_BYTES = 200_000;  // 200KB per text file
 const MAX_IMAGE_BYTES = 8_000_000; // 8MB per image
@@ -266,6 +375,7 @@ const addFile = async (f: File) => {
 
 const send = async () => {
   if (!input.value.trim() && !atts.value.length) return;
+  mentionOpen.value = false;
 
   // 等待所有附件读取完成
   if (atts.value.some(a => a.loading)) {
@@ -503,7 +613,26 @@ const send = async () => {
         </div>
       </div>
       <div class="input-box">
-        <textarea class="ch-input" v-model="input" placeholder="描述本体关系，或使用下方按钮附加文件…" @keydown.enter.prevent="send" rows="2" />
+        <!-- @ mention dropdown -->
+        <div class="mention-dropdown" v-if="mentionOpen && mentionItems.length > 0">
+          <div class="mention-header">
+            <span>引用 {{ mentionQuery ? `"${mentionQuery}"` : '本体节点 / 关系' }}</span>
+            <span class="mention-hint">↑↓ 选择 · Enter 确认 · Esc 取消</span>
+          </div>
+          <div
+            v-for="(it, i) in mentionItems"
+            :key="it.kind + ':' + it.id"
+            class="mention-item"
+            :class="{ active: i === mentionIndex, 'mention-edge': it.kind === 'edge' }"
+            @mousedown.prevent="selectMention(it)"
+            @mouseenter="mentionIndex = i"
+          >
+            <span class="mention-kind">{{ it.kind === 'node' ? '◆' : '→' }}</span>
+            <span class="mention-label">{{ it.label }}</span>
+            <span class="mention-sub">{{ it.sub }}</span>
+          </div>
+        </div>
+        <textarea ref="inputRef" class="ch-input" v-model="input" placeholder="描述本体关系，输入 @ 可引用节点/关系，或附加文件…" @keydown="onInputKeydown" @input="onInputEvent" @click="onInputClick" rows="2" />
         <div class="input-footer">
           <div class="file-tools">
             <button class="file-icon-btn attach-btn" title="上传文件 (图片/MD/TXT/JSON等)" @click="() => { if (fileRef) fileRef.click(); }">
@@ -687,6 +816,79 @@ const send = async () => {
 .input-box {
   background: rgba(10, 16, 27, 0.6); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px; padding: 10px 14px; transition: border-color 0.2s;
+  position: relative;
+}
+.mention-dropdown {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: rgba(14, 25, 41, 0.98);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(66, 184, 131, 0.3);
+  border-radius: 10px;
+  padding: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 200;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+}
+.mention-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 4px;
+}
+.mention-hint {
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.3);
+}
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  font-size: 13px;
+}
+.mention-item.active,
+.mention-item:hover {
+  background: rgba(66, 184, 131, 0.15);
+}
+.mention-item.mention-edge .mention-kind { color: #639bff; }
+.mention-kind {
+  font-size: 12px;
+  color: #42b883;
+  width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.mention-label {
+  color: var(--text-main);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+}
+.mention-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+  text-align: right;
 }
 .input-box:focus-within { border-color: rgba(66, 184, 131, 0.4); }
 .ch-input {
