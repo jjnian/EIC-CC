@@ -9,12 +9,16 @@ public class Scenario {
     private String parentBranchId;
     private String name;
     private long createdAt;
+    private String intent;                                 // forward | backward
     private List<String> seeds;
     private int steps;
     private String prompt;
+    // v0.5 遗留字段：旧分支落盘时保存了完整快照；新分支只填 dag，nodes/edges 留 null
     private List<Map<String, Object>> nodes;
     private List<Map<String, Object>> edges;
     private List<Map<String, Object>> chain;
+    // v0.6 新增：仅保存预测增量
+    private PredictionDag dag;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -38,4 +42,8 @@ public class Scenario {
     public void setEdges(List<Map<String, Object>> edges) { this.edges = edges; }
     public List<Map<String, Object>> getChain() { return chain; }
     public void setChain(List<Map<String, Object>> chain) { this.chain = chain; }
+    public String getIntent() { return intent; }
+    public void setIntent(String intent) { this.intent = intent; }
+    public PredictionDag getDag() { return dag; }
+    public void setDag(PredictionDag dag) { this.dag = dag; }
 }

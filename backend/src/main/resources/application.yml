@@ -3,6 +3,10 @@ spring:
     name: tuiyan-backend
   jackson:
     default-property-inclusion: non_null
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 80MB
 
 server:
   port: 8000

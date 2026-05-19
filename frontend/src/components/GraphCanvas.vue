@@ -177,7 +177,23 @@ const onWheel = (e: WheelEvent) => {
 
 const getT = (n: any) => (NT as any)[n.type] || NT.entity;
 
-defineExpose({ fitView });
+const focusNode = (id: string) => {
+  const n = nmap.value[id];
+  if (!n || !cvRef.value) return;
+  isAutoFit.value = false;
+  const cw = cvRef.value.clientWidth;
+  const ch = cvRef.value.clientHeight;
+  const z = zoom.value;
+  const cx = (n.x + NW / 2) * z;
+  const cy = (n.y + 22) * z;
+  cvRef.value.scrollTo({
+    left: Math.max(0, cx - cw / 2),
+    top: Math.max(0, cy - ch / 2),
+    behavior: 'smooth'
+  });
+};
+
+defineExpose({ fitView, focusNode });
 </script>
 
 <template>
