@@ -56,6 +56,15 @@ public class ScenarioController {
         return ResponseEntity.ok(Map.of("deleted", n > 0, "count", n));
     }
 
+    @PostMapping("/migrate")
+    public ResponseEntity<?> migrate() {
+        try {
+            return ResponseEntity.ok(scenarioService.migrateAll());
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @PostMapping
     public SseEmitter predict(@RequestBody PredictRequest req) {
         SseEmitter emitter = new SseEmitter(180_000L);

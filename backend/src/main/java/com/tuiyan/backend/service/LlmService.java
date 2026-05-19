@@ -21,6 +21,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -660,8 +663,23 @@ public class LlmService {
         String rulesSummary = summarizeRules(req.getNodes());
         String constraintsSummary = summarizeConstraints(req.getConstraints(), req.getNodes());
 
+        // v0.9：context 截断 —— 大图谱时只保留 seeds/规则/约束目标 + k-hop 邻域
+        TruncatedGraph truncated = truncateGraphForContext(
+                req.getNodes(), req.getEdges(), req.getSeeds(), req.getConstraints());
+        boolean wasTruncated = truncated.droppedNodes > 0 || truncated.droppedEdges > 0;
+        if (wasTruncated) {
+            graphSummary = summarizeGraph(truncated.nodes, truncated.edges);
+        }
+
         StringBuilder userPrompt = new StringBuilder();
-        userPrompt.append("当前本体图谱：\n").append(graphSummary).append("\n\n");
+        userPrompt.append("当前本体图谱：\n").append(graphSummary).append("\n");
+        if (wasTruncated) {
+            userPrompt.append("(为控制 LLM context 已截断 ")
+                      .append(truncated.droppedNodes).append(" 个节点 / ")
+                      .append(truncated.droppedEdges).append(" 条边，仅保留 seeds、规则、约束目标及其 ")
+                      .append(CONTEXT_HOPS).append("-hop 邻域。)\n");
+        }
+        userPrompt.append("\n");
         if (!rulesSummary.isBlank()) {
             userPrompt.append("可用规则 (优先沿规则推演)：\n").append(rulesSummary).append("\n");
         }
@@ -855,6 +873,101 @@ public class LlmService {
             }
         }
         return sb.toString();
+    }
+
+    // ========== v0.9：context 截断 ==========
+
+    private static final int CONTEXT_NODE_BUDGET = 120;
+    private static final int CONTEXT_EDGE_BUDGET = 240;
+    private static final int CONTEXT_HOPS = 3;
+
+    static final class TruncatedGraph {
+        final List<Map<String, Object>> nodes;
+        final List<Map<String, Object>> edges;
+        final int droppedNodes;
+        final int droppedEdges;
+        TruncatedGraph(List<Map<String, Object>> n, List<Map<String, Object>> e, int dn, int de) {
+            this.nodes = n; this.edges = e; this.droppedNodes = dn; this.droppedEdges = de;
+        }
+    }
+
+    /**
+     * 超过预算时，按优先级保留：seeds → 规则节点 → 约束目标 → 它们的 k-hop 邻域。
+     * 其余节点和孤立边被丢弃，并在 prompt 中告知 LLM。
+     */
+    TruncatedGraph truncateGraphForContext(List<Map<String, Object>> nodes,
+                                           List<Map<String, Object>> edges,
+                                           List<String> seeds,
+                                           List<com.tuiyan.backend.model.Constraint> constraints) {
+        int totalNodes = nodes == null ? 0 : nodes.size();
+        int totalEdges = edges == null ? 0 : edges.size();
+        if (totalNodes <= CONTEXT_NODE_BUDGET && totalEdges <= CONTEXT_EDGE_BUDGET) {
+            return new TruncatedGraph(
+                    nodes == null ? new ArrayList<>() : nodes,
+                    edges == null ? new ArrayList<>() : edges,
+                    0, 0);
+        }
+
+        Set<String> keep = new java.util.LinkedHashSet<>();
+        if (seeds != null) keep.addAll(seeds);
+        if (nodes != null) {
+            for (Map<String, Object> n : nodes) {
+                if ("rule".equalsIgnoreCase(String.valueOf(n.get("type")))) {
+                    keep.add(String.valueOf(n.get("id")));
+                }
+            }
+        }
+        if (constraints != null) {
+            for (com.tuiyan.backend.model.Constraint c : constraints) {
+                if (c != null && c.getNodeId() != null) keep.add(c.getNodeId());
+            }
+        }
+
+        Map<String, List<String>> neighbors = new HashMap<>();
+        if (edges != null) {
+            for (Map<String, Object> e : edges) {
+                String f = String.valueOf(e.get("from"));
+                String t = String.valueOf(e.get("to"));
+                neighbors.computeIfAbsent(f, k -> new ArrayList<>()).add(t);
+                neighbors.computeIfAbsent(t, k -> new ArrayList<>()).add(f);
+            }
+        }
+
+        // BFS 扩展若干 hop，受预算约束
+        Set<String> frontier = new HashSet<>(keep);
+        for (int hop = 0; hop < CONTEXT_HOPS && keep.size() < CONTEXT_NODE_BUDGET; hop++) {
+            Set<String> next = new java.util.LinkedHashSet<>();
+            for (String id : frontier) {
+                List<String> nbs = neighbors.get(id);
+                if (nbs != null) for (String nb : nbs) if (!keep.contains(nb)) next.add(nb);
+            }
+            for (String nb : next) {
+                if (keep.size() >= CONTEXT_NODE_BUDGET) break;
+                keep.add(nb);
+            }
+            if (next.isEmpty()) break;
+            frontier = next;
+        }
+
+        List<Map<String, Object>> outNodes = new ArrayList<>();
+        if (nodes != null) {
+            for (Map<String, Object> n : nodes) {
+                if (keep.contains(String.valueOf(n.get("id")))) outNodes.add(n);
+            }
+        }
+        List<Map<String, Object>> outEdges = new ArrayList<>();
+        if (edges != null) {
+            for (Map<String, Object> e : edges) {
+                if (keep.contains(String.valueOf(e.get("from")))
+                        && keep.contains(String.valueOf(e.get("to")))) {
+                    outEdges.add(e);
+                    if (outEdges.size() >= CONTEXT_EDGE_BUDGET) break;
+                }
+            }
+        }
+        return new TruncatedGraph(outNodes, outEdges,
+                totalNodes - outNodes.size(),
+                totalEdges - outEdges.size());
     }
 
     /**

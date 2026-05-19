@@ -9,7 +9,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'switch', id: string): void;
   (e: 'delete', id: string): void;
+  (e: 'migrate'): void;
 }>();
+
+// 检测是否还有 v0.5/0.6 老格式分支（没有 dag 字段）
+const hasLegacy = computed(() => props.branches.some(b => !b.dag));
 
 const open = ref(false);
 
@@ -135,6 +139,12 @@ const onDelete = (id: string, e: Event) => {
       </template>
 
       <div v-else class="bp-empty">暂无推演分支<br/>右键节点 → 「从此推演」生成</div>
+
+      <div v-if="hasLegacy" class="bp-footer">
+        <button class="bp-migrate" @click="emit('migrate'); open = false" title="把 v0.5/0.6 老分支升级为 v0.9 delta 格式">
+          ⚙ 升级旧分支到 v0.9
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -245,4 +255,22 @@ const onDelete = (id: string, e: Event) => {
   color: rgba(255,255,255,0.4);
   line-height: 1.6;
 }
+.bp-footer {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.bp-migrate {
+  width: 100%;
+  background: rgba(99, 179, 237, 0.08);
+  border: 1px solid rgba(99, 179, 237, 0.2);
+  color: #63b3ed;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  transition: background 0.12s;
+}
+.bp-migrate:hover { background: rgba(99, 179, 237, 0.15); border-color: rgba(99, 179, 237, 0.35); }
 </style>

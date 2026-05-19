@@ -8,6 +8,7 @@ import SettingsView from './components/SettingsView.vue';
 import WelcomeChat from './components/WelcomeChat.vue';
 import PredictDialog from './components/PredictDialog.vue';
 import BranchPicker from './components/BranchPicker.vue';
+import BranchCompareDialog from './components/BranchCompareDialog.vue';
 import ScenarioTimeline from './components/ScenarioTimeline.vue';
 
 const sel = ref<string | null>(null);
@@ -31,6 +32,7 @@ const liveSteps = ref<any[]>([]);
 const liveLoading = ref(false);
 const liveActive = ref(false);  // true while a prediction is streaming
 const liveIntent = ref<'forward' | 'backward'>('forward');
+const compareDialogOpen = ref(false);
 const trunkSnapshot = ref<{ nodes: any[]; edges: any[] } | null>(null);
 
 const models = ref<any[]>([]);
@@ -142,6 +144,23 @@ const switchBranch = (id: string) => {
     }
   }
   setTimeout(() => graphRef.value?.fitView(), 50);
+};
+
+const migrateBranches = async () => {
+  if (!confirm('将扫描所有旧格式分支并升级为 v0.9 delta 形态。每个文件升级前会写 .bak 备份。继续？')) return;
+  try {
+    const res = await fetch('/api/scenarios/migrate', { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: '迁移失败' }));
+      alert('迁移失败: ' + (err.error || res.statusText));
+      return;
+    }
+    const out = await res.json();
+    alert(`迁移完成：升级 ${out.migrated} 个 / 跳过 ${out.skipped} 个 / 失败 ${out.errors} 个 / 共 ${out.total} 个分支`);
+    if (currentModelId.value) await loadBranches(currentModelId.value);
+  } catch (e: any) {
+    alert('网络错误: ' + e.message);
+  }
 };
 
 const deleteBranch = async (id: string) => {
@@ -536,7 +555,14 @@ const startDivider = (e: MouseEvent) => {
             :activeBranchId="activeBranchId"
             @switch="switchBranch"
             @delete="deleteBranch"
+            @migrate="migrateBranches"
           />
+          <button
+            v-if="branches.length >= 2"
+            class="tb-btn"
+            @click="compareDialogOpen = true"
+            title="对比两个推演分支"
+          >⚖ 对比</button>
           <span class="tb-badge ok">● {{ nodes.length }} 节点</span>
           <span class="tb-badge">{{ edges.length }} 关系</span>
           <button class="tb-btn" @click="showSchema = !showSchema">Schema</button>
@@ -628,6 +654,13 @@ const startDivider = (e: MouseEvent) => {
         :initialSeedIds="predictSeeds"
         @close="predictDialogOpen = false"
         @submit="startPrediction"
+      />
+
+      <!-- Branch Compare Dialog (modal) -->
+      <BranchCompareDialog
+        :open="compareDialogOpen"
+        :branches="branches"
+        @close="compareDialogOpen = false"
       />
     </div>
   </div>
