@@ -657,14 +657,22 @@ public class LlmService {
 
         String graphSummary = summarizeGraph(req.getNodes(), req.getEdges());
         String seedSummary = summarizeSeeds(req.getSeeds(), req.getNodes());
+        String rulesSummary = summarizeRules(req.getNodes());
+        String constraintsSummary = summarizeConstraints(req.getConstraints(), req.getNodes());
 
         StringBuilder userPrompt = new StringBuilder();
         userPrompt.append("当前本体图谱：\n").append(graphSummary).append("\n\n");
-        userPrompt.append(seedRole).append("：\n").append(seedSummary).append("\n\n");
-        if (req.getPrompt() != null && !req.getPrompt().isBlank()) {
-            userPrompt.append("额外场景说明：").append(req.getPrompt()).append("\n\n");
+        if (!rulesSummary.isBlank()) {
+            userPrompt.append("可用规则 (优先沿规则推演)：\n").append(rulesSummary).append("\n");
         }
-        userPrompt.append(taskWord).append(steps).append(taskUnit).append("，严格按 schema 输出 JSON。");
+        userPrompt.append(seedRole).append("：\n").append(seedSummary).append("\n");
+        if (!constraintsSummary.isBlank()) {
+            userPrompt.append("\nWhat-if 约束（必须严格遵守）：\n").append(constraintsSummary).append("\n");
+        }
+        if (req.getPrompt() != null && !req.getPrompt().isBlank()) {
+            userPrompt.append("\n额外场景说明：").append(req.getPrompt()).append("\n");
+        }
+        userPrompt.append("\n").append(taskWord).append(steps).append(taskUnit).append("，严格按 schema 输出 JSON。");
 
         String requestBody;
         if (anthropic) {
@@ -844,6 +852,62 @@ public class LlmService {
                   .append(" : ").append(e.getOrDefault("label", ""))
                   .append(Boolean.TRUE.equals(rd) ? " [rule]" : "")
                   .append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 规则节点 (type=rule) 提取为单独章节，附 baseRate / weight（若存在于 properties）。
+     * 让 LLM 优先沿规则推演，并在 rule_id 字段中显式引用。
+     */
+    private String summarizeRules(List<Map<String, Object>> nodes) {
+        if (nodes == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (Map<String, Object> n : nodes) {
+            if (!"rule".equalsIgnoreCase(String.valueOf(n.get("type")))) continue;
+            sb.append("  - ").append(n.get("id"))
+              .append(" | ").append(n.get("label"));
+            Object props = n.get("properties");
+            if (props instanceof Map<?, ?> p) {
+                Object br = p.get("baseRate");
+                Object w = p.get("weight");
+                if (br != null) sb.append(" | baseRate=").append(br);
+                if (w != null) sb.append(" | weight=").append(w);
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * What-if 约束 → 提示词文本。force 提示 LLM 视为既成事实；block 禁止依赖。
+     */
+    private String summarizeConstraints(List<com.tuiyan.backend.model.Constraint> cs,
+                                        List<Map<String, Object>> nodes) {
+        if (cs == null || cs.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (com.tuiyan.backend.model.Constraint c : cs) {
+            if (c == null || c.getNodeId() == null) continue;
+            String label = c.getNodeId();
+            if (nodes != null) {
+                for (Map<String, Object> n : nodes) {
+                    if (c.getNodeId().equals(n.get("id"))) {
+                        Object lb = n.get("label");
+                        if (lb != null) label = c.getNodeId() + "(" + lb + ")";
+                        break;
+                    }
+                }
+            }
+            if ("block".equalsIgnoreCase(c.getMode())) {
+                sb.append("  - 禁止: ").append(label)
+                  .append(" 不发生；预测中不得以其为 triggered_by / leads_to，也不得预测出等价节点。\n");
+            } else {
+                sb.append("  - 强制: ").append(label)
+                  .append(" 必然发生，可作为 step=1 的合法上游/下游连接点。\n");
+            }
+            if (c.getNote() != null && !c.getNote().isBlank()) {
+                sb.append("    说明: ").append(c.getNote()).append("\n");
             }
         }
         return sb.toString();

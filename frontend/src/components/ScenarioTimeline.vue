@@ -45,9 +45,18 @@ const nodeLabel = (id: string, nodes: any[]) => {
         <div class="st-step-card">
           <div class="st-step-head">
             <span class="st-step-label">{{ s.label }}</span>
-            <span v-if="s.confidence != null" class="st-conf" :title="'置信度 ' + Math.round(s.confidence * 100) + '%'">
-              {{ Math.round(s.confidence * 100) }}%
-            </span>
+            <div class="st-prob-group">
+              <span
+                v-if="s.effectiveProbability != null"
+                class="st-prob"
+                :title="'有效概率（noisy-OR 聚合）'"
+              >P={{ Math.round(s.effectiveProbability * 100) }}%</span>
+              <span
+                v-if="s.confidence != null"
+                class="st-conf"
+                :title="'LLM 置信度（节点内在）'"
+              >c={{ Math.round(s.confidence * 100) }}%</span>
+            </div>
           </div>
           <div class="st-step-exp">{{ s.explanation }}</div>
           <div v-if="s.triggeredBy?.length" class="st-step-meta">
@@ -152,11 +161,19 @@ const nodeLabel = (id: string, nodes: any[]) => {
   margin-bottom: 4px;
 }
 .st-step-label { font-size: 13px; font-weight: 600; color: var(--text-main); }
+.st-prob-group { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
 .st-conf {
-  font-size: 10px; color: #fbbf24;
-  background: rgba(251, 191, 36, 0.12);
+  font-size: 10px; color: rgba(251, 191, 36, 0.7);
+  background: rgba(251, 191, 36, 0.08);
   padding: 1px 6px; border-radius: 100px;
   font-family: 'JetBrains Mono', monospace;
+}
+.st-prob {
+  font-size: 10px; color: #42b883;
+  background: rgba(66, 184, 131, 0.14);
+  padding: 1px 6px; border-radius: 100px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
 }
 .st-step-exp { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
 .st-step-meta {

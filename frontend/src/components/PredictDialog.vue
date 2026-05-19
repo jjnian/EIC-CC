@@ -7,9 +7,14 @@ const props = defineProps<{
   initialSeedIds: string[];
 }>();
 
+type Constraint = { nodeId: string; mode: 'force' | 'block' };
+
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'submit', payload: { seeds: string[]; steps: number; prompt: string; name: string; intent: 'forward' | 'backward' }): void;
+  (e: 'submit', payload: {
+    seeds: string[]; steps: number; prompt: string; name: string;
+    intent: 'forward' | 'backward'; constraints: Constraint[];
+  }): void;
 }>();
 
 const intent = ref<'forward' | 'backward'>('forward');
@@ -18,6 +23,9 @@ const prompt = ref('');
 const name = ref('');
 const seedIds = ref<string[]>([]);
 const search = ref('');
+const constraints = ref<Constraint[]>([]);
+const cSearch = ref('');
+const showConstraints = ref(false);
 
 const nodeMap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])));
 
@@ -37,7 +45,32 @@ const sync = () => {
     name.value = '';
     search.value = '';
     intent.value = 'forward';
+    constraints.value = [];
+    cSearch.value = '';
+    showConstraints.value = false;
   }
+};
+
+const constraintNodeIds = computed(() => new Set(constraints.value.map(c => c.nodeId)));
+const constraintCandidates = computed(() => {
+  const q = cSearch.value.trim().toLowerCase();
+  if (!q) return [];
+  return props.nodes
+    .filter(n => !constraintNodeIds.value.has(n.id))
+    .filter(n => (n.label || '').toLowerCase().includes(q) || (n.type || '').toLowerCase().includes(q) || (n.id || '').toLowerCase().includes(q))
+    .slice(0, 20);
+});
+const addConstraint = (id: string, mode: 'force' | 'block' = 'block') => {
+  if (constraintNodeIds.value.has(id)) return;
+  constraints.value.push({ nodeId: id, mode });
+  cSearch.value = '';
+};
+const removeConstraint = (id: string) => {
+  constraints.value = constraints.value.filter(c => c.nodeId !== id);
+};
+const toggleConstraint = (id: string) => {
+  const c = constraints.value.find(x => x.nodeId === id);
+  if (c) c.mode = c.mode === 'force' ? 'block' : 'force';
 };
 
 const addSeed = (id: string) => {
@@ -55,7 +88,8 @@ const submit = () => {
     steps: steps.value,
     prompt: prompt.value.trim(),
     name: name.value.trim(),
-    intent: intent.value
+    intent: intent.value,
+    constraints: constraints.value.slice()
   });
 };
 
@@ -146,6 +180,41 @@ watch(() => props.open, sync, { immediate: true });
         <div class="pd-section">
           <label class="pd-label">场景描述（可选）</label>
           <textarea class="pd-prompt" v-model="prompt" :placeholder="promptHint" rows="2" />
+        </div>
+
+        <div class="pd-section">
+          <button class="pd-collapse" type="button" @click="showConstraints = !showConstraints">
+            <span class="pd-collapse-arrow" :class="{ 'pd-collapse-open': showConstraints }">▶</span>
+            <span class="pd-collapse-label">What-if 约束</span>
+            <span v-if="constraints.length" class="pd-collapse-badge">{{ constraints.length }}</span>
+            <span class="pd-collapse-hint">假设某节点必然 / 不会发生</span>
+          </button>
+          <div v-if="showConstraints" class="pd-constraint-body">
+            <div v-if="constraints.length" class="pd-constraint-list">
+              <div v-for="c in constraints" :key="c.nodeId" class="pd-constraint-row">
+                <button
+                  class="pd-cmode"
+                  :class="{ 'pd-cmode-force': c.mode === 'force', 'pd-cmode-block': c.mode === 'block' }"
+                  @click="toggleConstraint(c.nodeId)"
+                  type="button"
+                  :title="c.mode === 'force' ? '必然发生（点击切换为禁止）' : '不会发生（点击切换为必然）'"
+                >{{ c.mode === 'force' ? '必然' : '禁止' }}</button>
+                <span class="pd-constraint-label">{{ nodeMap[c.nodeId]?.label || c.nodeId }}</span>
+                <button class="pd-constraint-x" @click="removeConstraint(c.nodeId)" type="button">×</button>
+              </div>
+            </div>
+            <input class="pd-search" v-model="cSearch" placeholder="搜索节点添加约束…" />
+            <div v-if="cSearch.trim()" class="pd-candidates">
+              <div v-for="n in constraintCandidates" :key="n.id" class="pd-cand">
+                <span class="pd-cand-label">{{ n.label }}</span>
+                <div class="pd-cand-actions">
+                  <button class="pd-cand-add pd-cand-block" @click="addConstraint(n.id, 'block')" type="button">禁止</button>
+                  <button class="pd-cand-add pd-cand-force" @click="addConstraint(n.id, 'force')" type="button">必然</button>
+                </div>
+              </div>
+              <div v-if="!constraintCandidates.length" class="pd-empty pd-empty-inline">无匹配</div>
+            </div>
+          </div>
         </div>
 
         <div class="pd-section">
@@ -317,4 +386,82 @@ watch(() => props.open, sync, { immediate: true });
 .pd-tab-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .pd-tab-title { font-size: 13px; font-weight: 600; }
 .pd-tab-sub { font-size: 10px; opacity: 0.7; }
+
+.pd-collapse {
+  width: 100%;
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(10, 16, 27, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.pd-collapse:hover { background: rgba(10, 16, 27, 0.85); border-color: rgba(255,255,255,0.15); color: var(--text-main); }
+.pd-collapse-arrow {
+  font-size: 9px;
+  transition: transform 0.15s;
+  font-family: 'JetBrains Mono', monospace;
+  display: inline-block;
+}
+.pd-collapse-open { transform: rotate(90deg); }
+.pd-collapse-label { font-weight: 600; color: var(--text-main); }
+.pd-collapse-badge {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  padding: 1px 7px;
+  border-radius: 100px;
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.pd-collapse-hint { margin-left: auto; font-size: 10px; opacity: 0.6; }
+
+.pd-constraint-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.pd-constraint-list { display: flex; flex-direction: column; gap: 4px; }
+.pd-constraint-row {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(10, 16, 27, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+.pd-cmode {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid;
+  cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
+  width: 44px;
+  text-align: center;
+}
+.pd-cmode-block { background: rgba(255, 80, 80, 0.12); color: #ff8a8a; border-color: rgba(255, 80, 80, 0.35); }
+.pd-cmode-force { background: rgba(99, 179, 237, 0.12); color: #63b3ed; border-color: rgba(99, 179, 237, 0.35); }
+.pd-constraint-label { flex: 1; font-size: 12px; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-constraint-x {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  padding: 2px 6px; font-size: 16px; line-height: 1; border-radius: 4px;
+}
+.pd-constraint-x:hover { color: #ff8a8a; background: rgba(255,80,80,0.1); }
+
+.pd-cand-actions { display: flex; gap: 4px; }
+.pd-cand-add {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pd-cand-block { background: rgba(255, 80, 80, 0.1); color: #ff8a8a; border-color: rgba(255, 80, 80, 0.3); }
+.pd-cand-block:hover { background: rgba(255, 80, 80, 0.2); }
+.pd-cand-force { background: rgba(99, 179, 237, 0.1); color: #63b3ed; border-color: rgba(99, 179, 237, 0.3); }
+.pd-cand-force:hover { background: rgba(99, 179, 237, 0.2); }
+.pd-cand { justify-content: space-between; }
 </style>

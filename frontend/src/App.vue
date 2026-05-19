@@ -146,7 +146,7 @@ const openPredictDialog = (seedId: string) => {
   predictDialogOpen.value = true;
 };
 
-const startPrediction = async (payload: { seeds: string[]; steps: number; prompt: string; name: string; intent?: 'forward' | 'backward' }) => {
+const startPrediction = async (payload: { seeds: string[]; steps: number; prompt: string; name: string; intent?: 'forward' | 'backward'; constraints?: { nodeId: string; mode: 'force' | 'block' }[] }) => {
   predictDialogOpen.value = false;
   const m = findModel(currentModelId.value);
   if (!m) return;
@@ -174,6 +174,7 @@ const startPrediction = async (payload: { seeds: string[]; steps: number; prompt
     seeds: payload.seeds,
     steps: payload.steps,
     prompt: payload.prompt,
+    constraints: payload.constraints || [],
     nodes: trunkSnapshot.value.nodes,
     edges: trunkSnapshot.value.edges
   };
@@ -227,6 +228,11 @@ const startPrediction = async (payload: { seeds: string[]; steps: number; prompt
               activeBranchId.value = scenario.id;
               liveLoading.value = false;
               setTimeout(() => graphRef.value?.fitView(), 100);
+            } catch {}
+          } else if (curEvent === 'notice') {
+            try {
+              const note = JSON.parse(data);
+              if (note?.message) console.info('[predict-notice]', note.message);
             } catch {}
           } else if (curEvent === 'error') {
             alert('推演错误: ' + data);

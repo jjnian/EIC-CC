@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.tuiyan.backend.model.Constraint;
 import com.tuiyan.backend.model.PredictRequest;
 import com.tuiyan.backend.model.PredictionDag;
 import com.tuiyan.backend.model.Scenario;
@@ -86,10 +87,24 @@ public class ScenarioController {
             double xStep = 220, yStep = 100;
             int direction = backward ? -1 : 1;
 
+            // v0.7：约束 → blockedIds 集合；预测中链路命中 block 节点的整条节点被剪枝（级联）
+            // force 仅通过 prompt 暗示给 LLM，无需后端附加处理（trunk 节点本就视作 P=1.0）
+            Set<String> blockedIds = new HashSet<>();
+            if (req.getConstraints() != null) {
+                for (Constraint c : req.getConstraints()) {
+                    if (c == null || c.getNodeId() == null) continue;
+                    if ("block".equalsIgnoreCase(c.getMode())) blockedIds.add(c.getNodeId());
+                }
+            }
+
+            // v0.7：用于概率聚合（noisy-OR），predicted -> 计算得到的有效概率
+            Map<String, Double> effProb = new HashMap<>();
+
             List<Map<String, Object>> predictedNodes = new ArrayList<>();
             List<Map<String, Object>> predictedEdges = new ArrayList<>();
             List<Map<String, Object>> chainList = new ArrayList<>();
             Map<Integer, Integer> perStepCount = new HashMap<>();
+            int prunedCount = 0;
 
             int stepIndex = 0;
             for (JsonNode item : chain) {
@@ -109,10 +124,49 @@ public class ScenarioController {
                 ArrayNode links = (linkNode != null && linkNode.isArray())
                         ? (ArrayNode) linkNode : objectMapper.createArrayNode();
 
+                // 约束剪枝：丢弃所有指向 blocked id 的连接；若 forward 链路全空则整节点剪枝并级联
+                List<String> rawLinkIds = new ArrayList<>();
+                for (JsonNode t : links) rawLinkIds.add(t.asText());
+                List<String> linkIds = new ArrayList<>();
+                for (String lid : rawLinkIds) {
+                    if (!blockedIds.contains(lid)) linkIds.add(lid);
+                }
+                boolean pruneThis;
+                if (backward) {
+                    // backward: predicted 是因，leads_to 是结果；若结果全被 block，该假设失去意义
+                    pruneThis = !rawLinkIds.isEmpty() && linkIds.isEmpty();
+                } else {
+                    // forward: predicted 是果，triggered_by 是因；若所有上游被 block，该预测无依据
+                    pruneThis = !rawLinkIds.isEmpty() && linkIds.isEmpty();
+                }
+                if (pruneThis) {
+                    blockedIds.add(id); // 级联：后续引用本节点的预测也会被剪枝
+                    prunedCount++;
+                    continue;
+                }
+
                 int slot = perStepCount.getOrDefault(step, 0);
                 perStepCount.put(step, slot + 1);
                 double nx = baseX + direction * step * xStep;
                 double ny = baseY + (slot - 0.5) * yStep;
+
+                // 概率聚合：
+                //  forward — P_eff(N) = confidence × NoisyOR({P_eff(parent_i)})
+                //            其中 trunk 节点视为 P=1.0，被 force 的节点同样 P=1.0
+                //  backward — P_eff 保留为节点自身 confidence（候选原因的内在置信）
+                double pEff;
+                if (backward || linkIds.isEmpty()) {
+                    pEff = clamp01(confidence);
+                } else {
+                    double notOr = 1.0;
+                    for (String pid : linkIds) {
+                        double pp = effProb.containsKey(pid) ? effProb.get(pid) : 1.0; // trunk 默认 1.0
+                        notOr *= (1.0 - clamp01(pp));
+                    }
+                    double orVal = 1.0 - notOr;
+                    pEff = clamp01(confidence) * orVal;
+                }
+                effProb.put(id, pEff);
 
                 Map<String, Object> node = new LinkedHashMap<>();
                 node.put("id", id);
@@ -122,13 +176,11 @@ public class ScenarioController {
                 node.put("predictedStep", step);
                 node.put("predictedIntent", intent);
                 node.put("confidence", confidence);
+                node.put("effectiveProbability", round3(pEff));
                 node.put("explanation", explanation);
                 node.put("x", nx);
                 node.put("y", ny);
                 predictedNodes.add(node);
-
-                List<String> linkIds = new ArrayList<>();
-                for (JsonNode t : links) linkIds.add(t.asText());
 
                 // 边方向：forward = link -> predicted（上游驱动下游）；backward = predicted -> link（原因指向结果）
                 for (String otherId : linkIds) {
@@ -155,6 +207,7 @@ public class ScenarioController {
                 chainItem.put("ruleId", ruleId);
                 chainItem.put("explanation", explanation);
                 chainItem.put("confidence", confidence);
+                chainItem.put("effectiveProbability", round3(pEff));
                 chainList.add(chainItem);
 
                 // 流式分步推送，给前端动画喘息
@@ -196,7 +249,20 @@ public class ScenarioController {
             dag.setNodes(predictedNodes);
             dag.setEdges(predictedEdges);
             dag.setChain(chainList);
+            dag.setConstraints(req.getConstraints());
             s.setDag(dag);
+
+            // 若被约束剪枝过，也额外提示前端
+            if (prunedCount > 0) {
+                try {
+                    ObjectNode note = objectMapper.createObjectNode();
+                    note.put("type", "pruned");
+                    note.put("count", prunedCount);
+                    note.put("message", "已根据 what-if 约束剪枝 " + prunedCount + " 个预测节点");
+                    emitter.send(SseEmitter.event().name("notice")
+                            .data(objectMapper.writeValueAsString(note)));
+                } catch (IOException ignored) {}
+            }
 
             // chain 字段保留给老 UI 直接读
             s.setChain(chainList);
@@ -213,6 +279,17 @@ public class ScenarioController {
             } catch (IOException ignored) {}
             emitter.completeWithError(e);
         }
+    }
+
+    private static double clamp01(double v) {
+        if (Double.isNaN(v)) return 0.0;
+        if (v < 0.0) return 0.0;
+        if (v > 1.0) return 1.0;
+        return v;
+    }
+
+    private static double round3(double v) {
+        return Math.round(v * 1000.0) / 1000.0;
     }
 
     private double[] computeOrigin(PredictRequest req) {

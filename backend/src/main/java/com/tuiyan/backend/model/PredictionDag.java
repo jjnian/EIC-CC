@@ -12,6 +12,7 @@ public class PredictionDag {
     private List<Map<String, Object>> nodes;        // 预测节点
     private List<Map<String, Object>> edges;        // 预测边
     private List<Map<String, Object>> chain;        // 预测顺序快照（UI 时间线）
+    private List<Constraint> constraints;           // v0.7：本次推演施加的 what-if 约束
 
     public String getIntent() { return intent; }
     public void setIntent(String intent) { this.intent = intent; }
@@ -21,4 +22,6 @@ public class PredictionDag {
     public void setEdges(List<Map<String, Object>> edges) { this.edges = edges; }
     public List<Map<String, Object>> getChain() { return chain; }
     public void setChain(List<Map<String, Object>> chain) { this.chain = chain; }
+    public List<Constraint> getConstraints() { return constraints; }
+    public void setConstraints(List<Constraint> constraints) { this.constraints = constraints; }
 }

@@ -15,6 +15,7 @@ public class PredictRequest {
     private List<Map<String, Object>> edges;
     private String modelOverride;
     private String configId;
+    private List<Constraint> constraints;
 
     public String getModelId() { return modelId; }
     public void setModelId(String modelId) { this.modelId = modelId; }
@@ -38,4 +39,6 @@ public class PredictRequest {
     public void setConfigId(String configId) { this.configId = configId; }
     public String getIntent() { return intent; }
     public void setIntent(String intent) { this.intent = intent; }
+    public List<Constraint> getConstraints() { return constraints; }
+    public void setConstraints(List<Constraint> constraints) { this.constraints = constraints; }
 }
