@@ -1,0 +1,12 @@
+{
+  "id" : "3",
+  "title" : "组织架构解析",
+  "desc" : "部门架构与人员编制分析本体",
+  "updated" : "刚刚",
+  "createdAt" : 1779150198695,
+  "updatedAt" : 1779150198762,
+  "graphData" : {
+    "nodes" : [ ],
+    "edges" : [ ]
+  }
+}

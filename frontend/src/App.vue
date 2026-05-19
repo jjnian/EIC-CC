@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import { INIT_NODES, INIT_EDGES } from './constants';
+import { ref, computed, onMounted } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import GraphCanvas from './components/GraphCanvas.vue';
 import NodeInfo from './components/NodeInfo.vue';
@@ -33,14 +32,39 @@ const liveLoading = ref(false);
 const liveActive = ref(false);  // true while a prediction is streaming
 const trunkSnapshot = ref<{ nodes: any[]; edges: any[] } | null>(null);
 
-const models = ref<any[]>([
-  { id: '1', title: '供应链本体模型', desc: '包含供应链核心实体与关系的推演模型', updated: '10分钟前', graphData: { nodes: JSON.parse(JSON.stringify(INIT_NODES)), edges: JSON.parse(JSON.stringify(INIT_EDGES)) } },
-  { id: '2', title: '财务追踪模型', desc: '用于企业财务审批及资金流向追踪', updated: '2小时前', graphData: { nodes: [], edges: [] } },
-  { id: '3', title: '组织架构解析', desc: '部门架构与人员编制分析本体', updated: '昨天', graphData: { nodes: [], edges: [] } }
-]);
+const models = ref<any[]>([]);
+const nodes = ref<any[]>([]);
+const edges = ref<any[]>([]);
 
-const nodes = ref<any[]>(models.value[0].graphData.nodes);
-const edges = ref<any[]>(models.value[0].graphData.edges);
+const loadOntologyModels = async () => {
+  try {
+    const res = await fetch('/api/ontology-models');
+    if (res.ok) models.value = await res.json();
+  } catch (e) { console.error('load ontology models failed', e); }
+};
+
+// 防抖保存：图谱编辑后 1.2 秒无操作 → PUT 到后端
+let saveTimer: number | null = null;
+const persistCurrentModel = (immediate = false) => {
+  if (!currentModelId.value || activeBranchId.value !== 'trunk') return;
+  if (saveTimer) clearTimeout(saveTimer);
+  const run = async () => {
+    const m = findModel(currentModelId.value);
+    if (!m) return;
+    m.graphData = { nodes: nodes.value, edges: edges.value };
+    try {
+      await fetch('/api/ontology-models/' + encodeURIComponent(m.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(m)
+      });
+    } catch (e) { console.error('save failed', e); }
+  };
+  if (immediate) run();
+  else saveTimer = window.setTimeout(run, 1200);
+};
+
+onMounted(() => loadOntologyModels());
 
 const openModel = async (m: any) => {
   currentModelTitle.value = m.title;
@@ -215,30 +239,49 @@ const closeTimeline = () => {
   liveSteps.value = [];
 };
 
-const createNewModel = () => {
-  const newModel = {
-    id: Date.now().toString(),
-    title: `新建推演模型 ${models.value.length + 1}`,
-    desc: '新创建的空白本体模型画布',
-    updated: '刚刚',
-    graphData: { nodes: [], edges: [] }
-  };
-  models.value.unshift(newModel);
-  openModel(newModel);
+const createOnBackend = async (draft: any) => {
+  try {
+    const res = await fetch('/api/ontology-models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft)
+    });
+    if (res.ok) return await res.json();
+  } catch (e) { console.error('create model failed', e); }
+  return draft;  // 退化：仅本地
 };
 
-const onWelcomeSubmit = (payload: { text: string; files: File[] }) => {
-  const title = payload.text.slice(0, 18).trim() || '新建本体图';
-  const newModel = {
-    id: Date.now().toString(),
-    title: title.length > 16 ? title.slice(0, 16) + '…' : title,
-    desc: payload.text || '通过对话生成的本体模型',
-    updated: '刚刚',
+const createNewModel = async () => {
+  const draft = {
+    title: `新建推演模型 ${models.value.length + 1}`,
+    desc: '新创建的空白本体模型画布',
     graphData: { nodes: [], edges: [] }
   };
-  models.value.unshift(newModel);
+  const saved = await createOnBackend(draft);
+  models.value.unshift(saved);
+  openModel(saved);
+};
+
+const onWelcomeSubmit = async (payload: { text: string; files: File[] }) => {
+  const title = payload.text.slice(0, 18).trim() || '新建本体图';
+  const draft = {
+    title: title.length > 16 ? title.slice(0, 16) + '…' : title,
+    desc: payload.text || '通过对话生成的本体模型',
+    graphData: { nodes: [], edges: [] }
+  };
+  const saved = await createOnBackend(draft);
+  models.value.unshift(saved);
   pendingChatSeed.value = payload;
-  openModel(newModel);
+  openModel(saved);
+};
+
+const deleteOntologyModel = async (id: string) => {
+  if (!confirm('确定删除该本体模型？关联的推演分支不会自动清除。')) return;
+  try {
+    await fetch('/api/ontology-models/' + encodeURIComponent(id), { method: 'DELETE' });
+  } catch (e) { console.error(e); }
+  models.value = models.value.filter(m => m.id !== id);
+  if (currentModelId.value === id) goWelcome();
 };
 
 const welcomeResetTick = ref(0);
@@ -261,6 +304,7 @@ const onMove = (id: string, x: number, y: number) => {
   if (n) {
     n.x = x;
     n.y = y;
+    persistCurrentModel();
   }
 };
 
@@ -270,12 +314,14 @@ const onUpdate = (addNodes: any[], addEdges: any[]) => {
   setTimeout(() => {
     nodes.value.forEach(n => n.isNew = false);
   }, 800);
+  persistCurrentModel();
 };
 
 const clearCanvas = () => {
   nodes.value = [];
   edges.value = [];
   sel.value = null;
+  persistCurrentModel(true);
 };
 
 const autoLayout = () => {
@@ -365,6 +411,39 @@ const autoLayout = () => {
       graphRef.value.fitView();
     }, 50);
   }
+  persistCurrentModel();
+};
+
+// ===== Export / Share (topbar buttons) =====
+const exportGraph = () => {
+  const m = findModel(currentModelId.value);
+  const payload = {
+    id: m?.id, title: m?.title || currentModelTitle.value,
+    exportedAt: new Date().toISOString(),
+    nodes: nodes.value, edges: edges.value
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${(m?.title || 'graph').replace(/[^\w一-龥-]+/g, '_')}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+const shareGraph = async () => {
+  const m = findModel(currentModelId.value);
+  const summary = `${m?.title || '本体模型'}\n节点 ${nodes.value.length} · 关系 ${edges.value.length}\n${nodes.value.slice(0, 10).map(n => `· ${n.label}（${n.type}）`).join('\n')}`;
+  try {
+    await navigator.clipboard.writeText(summary);
+    alert('图谱摘要已复制到剪贴板');
+  } catch {
+    alert('剪贴板不可用：\n\n' + summary);
+  }
+};
+
+const focusNodeInGraph = (id: string) => {
+  sel.value = id;
+  graphRef.value?.focusNode?.(id);
 };
 
 const startDivider = (e: MouseEvent) => {
@@ -412,8 +491,8 @@ const startDivider = (e: MouseEvent) => {
           <span class="tb-badge ok">● {{ nodes.length }} 节点</span>
           <span class="tb-badge">{{ edges.length }} 关系</span>
           <button class="tb-btn" @click="showSchema = !showSchema">Schema</button>
-          <button class="tb-btn">导出</button>
-          <button class="tb-btn hi">共享</button>
+          <button class="tb-btn" @click="exportGraph" title="下载当前图谱为 JSON">导出</button>
+          <button class="tb-btn hi" @click="shareGraph" title="复制图谱摘要到剪贴板">共享</button>
         </div>
         <div class="tb-tools" v-if="view === 'list'">
           <button class="tb-btn" @click="goWelcome">＋新对话</button>
@@ -434,13 +513,13 @@ const startDivider = (e: MouseEvent) => {
           <div class="ml-card" v-for="m in models" :key="m.id" @click="openModel(m)">
             <div class="ml-card-head">
               <h3>{{ m.title }}</h3>
-              <span class="status-dot"></span>
+              <button class="ml-del" @click.stop="deleteOntologyModel(m.id)" title="删除该本体模型">×</button>
             </div>
             <p class="ml-card-desc">{{ m.desc }}</p>
             <div class="ml-card-foot">
-              <span class="ml-stat">节点：{{ m.nodes }}</span>
-              <span class="ml-stat">关系：{{ m.edges }}</span>
-              <span class="ml-time">{{ m.updated }}修改</span>
+              <span class="ml-stat">节点：{{ m.graphData?.nodes?.length || 0 }}</span>
+              <span class="ml-stat">关系：{{ m.graphData?.edges?.length || 0 }}</span>
+              <span class="ml-time">{{ m.updated || '' }}</span>
             </div>
           </div>
         </div>
@@ -478,7 +557,7 @@ const startDivider = (e: MouseEvent) => {
           :nodes="nodes"
           :style="{ width: chatW + 'px', flexShrink: 0 }"
           @close="closeTimeline"
-          @focus-node="id => sel = id"
+          @focus-node="focusNodeInGraph"
         />
         <ChatPanel
           v-else
@@ -565,6 +644,19 @@ const startDivider = (e: MouseEvent) => {
   border-radius: 50%;
   box-shadow: 0 0 8px var(--accent);
 }
+.ml-del {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.4);
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.ml-del:hover { background: rgba(255, 102, 68, 0.2); border-color: rgba(255, 102, 68, 0.4); color: #ff8a6f; }
 .ml-card-desc {
   font-size: 13px;
   color: var(--text-dim);
