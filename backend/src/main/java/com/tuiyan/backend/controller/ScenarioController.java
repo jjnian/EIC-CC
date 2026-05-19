@@ -68,7 +68,13 @@ public class ScenarioController {
     @PostMapping
     public SseEmitter predict(@RequestBody PredictRequest req) {
         SseEmitter emitter = new SseEmitter(180_000L);
-        emitter.onTimeout(emitter::complete);
+        emitter.onTimeout(() -> {
+            try {
+                emitter.send(SseEmitter.event().name("error")
+                        .data("LLM 响应超时（>180s），请检查 LLM 配置或网络后重试"));
+            } catch (IOException ignored) { /* already closed */ }
+            emitter.complete();
+        });
 
         Thread t = new Thread(() -> runPrediction(req, emitter));
         t.setDaemon(true);

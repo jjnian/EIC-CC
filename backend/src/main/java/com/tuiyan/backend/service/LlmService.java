@@ -32,7 +32,9 @@ import java.util.UUID;
 public class LlmService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final HttpClient httpClient = HttpClient.newBuilder().build();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(java.time.Duration.ofSeconds(20))
+            .build();
     private static final String MODELS_CONFIG_FILE = "src/main/resources/llm-models.json";
     private static final String LEGACY_CONFIG_FILE = "src/main/resources/llm-config.json";
 
@@ -982,6 +984,7 @@ public class LlmService {
         String url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
         HttpRequest.Builder b = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .timeout(java.time.Duration.ofSeconds(90))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody));
         if (anthropic) {
