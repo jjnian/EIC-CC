@@ -24,8 +24,14 @@ public class ChatController {
     public Object chat(@RequestBody ChatRequest request,
                        @RequestHeader(value = "Accept", defaultValue = "application/json") String accept) {
         if (accept.contains("text/event-stream")) {
-            SseEmitter emitter = new SseEmitter(120_000L);
-            emitter.onTimeout(() -> emitter.complete());
+            SseEmitter emitter = new SseEmitter(180_000L);
+            emitter.onTimeout(() -> {
+                try {
+                    emitter.send(SseEmitter.event().name("error")
+                            .data("LLM 响应超时（>180s），请检查 LLM 配置或网络后重试"));
+                } catch (java.io.IOException ignored) { /* connection already closed */ }
+                emitter.complete();
+            });
             try {
                 llmService.chatStreaming(request, emitter);
             } catch (Exception e) {
