@@ -78,6 +78,28 @@ public class LlmService {
         SCHEMA:
         %s""".formatted(SCHEMA_STRING);
 
+    private static final String EXTRACT_SYSTEM = """
+        You are an AI Ontology Developer extracting a knowledge graph from documents.
+        The user has uploaded one or more sources: PDF text excerpts and/or images of
+        diagrams, flowcharts, tables, or screenshots.
+
+        Your job: identify every distinct entity, event, process, data, external system,
+        and explicit RULE / regulation / SOP step, plus the directed relationships among them.
+        Treat the document as authoritative — do not invent content that isn't grounded in it.
+
+        Strict rules:
+        1. If a passage describes a conditional / business rule / regulation / SOP step,
+           emit a node with type='rule' and add edges from that rule to the events/processes it governs.
+        2. Mark nodes/edges 'derived' when they are explicitly stated in the source;
+           mark 'inferred' only when filling in obvious gaps with world knowledge.
+        3. Use stable ids like 'n_1', 'n_2', 'e_1' — the server rewrites them to avoid collisions.
+        4. Be exhaustive but de-duplicated: if two phrasings clearly refer to the same concept,
+           emit ONE node.
+        5. Return ONLY a JSON object exactly matching SCHEMA. No markdown wrapping.
+
+        SCHEMA:
+        %s""".formatted(SCHEMA_STRING);
+
     private static final String PREDICT_SCHEMA = """
         {
           "chain": [
@@ -722,6 +744,90 @@ public class LlmService {
             throw new RuntimeException("LLM Error: " + resp.statusCode() + " - " + resp.body());
         }
 
+        JsonNode root = objectMapper.readTree(resp.body());
+        String content = extractContent(root, anthropic);
+        content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
+        if (content.isEmpty()) content = "{}";
+        return objectMapper.readTree(content);
+    }
+
+    /**
+     * v1.0 文档导入：把 PDF 抽出的文本 + 图片附件喂给 LLM，按 SCHEMA 抽取节点 / 关系 / 规则。
+     * 返回原始 {add_nodes, add_edges} JSON（不含落盘、不含 id 重写——交给调用方）。
+     */
+    public JsonNode extractOntologyFromSources(String combinedText,
+                                               List<Map<String, Object>> imageAttachments,
+                                               String modelOverride,
+                                               String configId) throws Exception {
+        String[] cfg = resolveConfig(modelOverride, configId);
+        String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
+        boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
+
+        StringBuilder userPrompt = new StringBuilder();
+        if (combinedText != null && !combinedText.isBlank()) {
+            userPrompt.append("以下是从上传文档中提取的文本内容：\n\n----- BEGIN TEXT -----\n")
+                      .append(combinedText)
+                      .append("\n----- END TEXT -----\n\n");
+        }
+        boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
+        if (hasImages) {
+            userPrompt.append("用户还附上了 ").append(imageAttachments.size())
+                      .append(" 张图片（流程图 / 截图 / 表格 / 示意图），请同时分析图中文字、")
+                      .append("箭头指向、表格关系，把图中可见的实体和因果链也抽取出来。\n\n");
+        }
+        if (userPrompt.length() == 0) {
+            throw new IllegalArgumentException("No usable text or images for extraction");
+        }
+        userPrompt.append("请抽取所有可识别的本体节点（含规则）与关系，按 SCHEMA 输出 JSON。");
+
+        String requestBody;
+        if (anthropic) {
+            requestBody = buildAnthropicBody(modelName, EXTRACT_SYSTEM, userPrompt.toString(),
+                    null, imageAttachments, false, ANTHROPIC_MAX_TOKENS);
+        } else {
+            ObjectNode requestNode = objectMapper.createObjectNode();
+            requestNode.put("model", modelName);
+            requestNode.put("stream", false);
+            ArrayNode messages = objectMapper.createArrayNode();
+            ObjectNode sys = objectMapper.createObjectNode();
+            sys.put("role", "system");
+            sys.put("content", EXTRACT_SYSTEM);
+            messages.add(sys);
+            ObjectNode user = objectMapper.createObjectNode();
+            user.put("role", "user");
+            if (hasImages) {
+                ArrayNode contentArr = objectMapper.createArrayNode();
+                for (Map<String, Object> att : imageAttachments) {
+                    Object url = att.get("dataUrl");
+                    if (url == null) continue;
+                    ObjectNode imgPart = objectMapper.createObjectNode();
+                    imgPart.put("type", "image_url");
+                    ObjectNode urlObj = objectMapper.createObjectNode();
+                    urlObj.put("url", String.valueOf(url));
+                    imgPart.set("image_url", urlObj);
+                    contentArr.add(imgPart);
+                }
+                ObjectNode textPart = objectMapper.createObjectNode();
+                textPart.put("type", "text");
+                textPart.put("text", userPrompt.toString());
+                contentArr.add(textPart);
+                user.set("content", contentArr);
+            } else {
+                user.put("content", userPrompt.toString());
+            }
+            messages.add(user);
+            requestNode.set("messages", messages);
+            ObjectNode rf = objectMapper.createObjectNode();
+            rf.put("type", "json_object");
+            requestNode.set("response_format", rf);
+            requestBody = objectMapper.writeValueAsString(requestNode);
+        }
+
+        HttpRequest httpReq = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
+        HttpResponse<String> resp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() != 200) {
+            throw new RuntimeException("LLM Error: " + resp.statusCode() + " - " + resp.body());
+        }
         JsonNode root = objectMapper.readTree(resp.body());
         String content = extractContent(root, anthropic);
         content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();

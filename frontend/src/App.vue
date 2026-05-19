@@ -9,6 +9,7 @@ import WelcomeChat from './components/WelcomeChat.vue';
 import PredictDialog from './components/PredictDialog.vue';
 import BranchPicker from './components/BranchPicker.vue';
 import BranchCompareDialog from './components/BranchCompareDialog.vue';
+import ImportDialog from './components/ImportDialog.vue';
 import ScenarioTimeline from './components/ScenarioTimeline.vue';
 
 const sel = ref<string | null>(null);
@@ -33,6 +34,7 @@ const liveLoading = ref(false);
 const liveActive = ref(false);  // true while a prediction is streaming
 const liveIntent = ref<'forward' | 'backward'>('forward');
 const compareDialogOpen = ref(false);
+const importDialogOpen = ref(false);
 const trunkSnapshot = ref<{ nodes: any[]; edges: any[] } | null>(null);
 
 const models = ref<any[]>([]);
@@ -144,6 +146,47 @@ const switchBranch = (id: string) => {
     }
   }
   setTimeout(() => graphRef.value?.fitView(), 50);
+};
+
+// v1.0 导入提交：根据 mode 把抽取到的 nodes/edges 合并入当前 trunk，或另存为新模型
+const onImportCommit = async (payload: {
+  mode: 'merge' | 'new';
+  name: string;
+  nodes: any[];
+  edges: any[];
+}) => {
+  importDialogOpen.value = false;
+  if (!payload.nodes.length) return;
+
+  // 给新节点默认坐标：从图谱右下角依次铺开，避免压在现有节点上
+  const baseX = (nodes.value.length ? Math.max(...nodes.value.map(n => +n.x || 0)) : 0) + 260;
+  const baseY = (nodes.value.length ? Math.min(...nodes.value.map(n => +n.y || 0)) : 0) + 60;
+  const cols = Math.max(1, Math.ceil(Math.sqrt(payload.nodes.length)));
+  const stamped = payload.nodes.map((n, i) => ({
+    ...n,
+    x: n.x != null ? n.x : (baseX + (i % cols) * 200),
+    y: n.y != null ? n.y : (baseY + Math.floor(i / cols) * 120),
+    source: n.source || 'derived',
+  }));
+
+  if (payload.mode === 'merge') {
+    if (activeBranchId.value !== 'trunk') switchBranch('trunk');
+    nodes.value = [...nodes.value, ...stamped];
+    edges.value = [...edges.value, ...payload.edges];
+    persistCurrentModel(true);
+    setTimeout(() => graphRef.value?.fitView(), 100);
+  } else {
+    // 另存为新模型
+    const draft = {
+      id: 'om_' + Date.now(),
+      name: payload.name || '导入本体',
+      description: '从文档抽取',
+      graphData: { nodes: stamped, edges: payload.edges },
+    };
+    const saved = await createOnBackend(draft);
+    models.value.unshift(saved);
+    await openModel(saved);
+  }
 };
 
 const migrateBranches = async () => {
@@ -563,6 +606,11 @@ const startDivider = (e: MouseEvent) => {
             @click="compareDialogOpen = true"
             title="对比两个推演分支"
           >⚖ 对比</button>
+          <button
+            class="tb-btn"
+            @click="importDialogOpen = true"
+            title="从 PDF / 图片抽取本体导入"
+          >📥 导入</button>
           <span class="tb-badge ok">● {{ nodes.length }} 节点</span>
           <span class="tb-badge">{{ edges.length }} 关系</span>
           <button class="tb-btn" @click="showSchema = !showSchema">Schema</button>
@@ -661,6 +709,14 @@ const startDivider = (e: MouseEvent) => {
         :open="compareDialogOpen"
         :branches="branches"
         @close="compareDialogOpen = false"
+      />
+
+      <!-- Import Dialog (modal) -->
+      <ImportDialog
+        :open="importDialogOpen"
+        :hasCurrentModel="!!currentModelId"
+        @close="importDialogOpen = false"
+        @commit="onImportCommit"
       />
     </div>
   </div>
