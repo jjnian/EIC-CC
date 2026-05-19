@@ -715,6 +715,7 @@ const startDivider = (e: MouseEvent) => {
       <ImportDialog
         :open="importDialogOpen"
         :hasCurrentModel="!!currentModelId"
+        :currentNodes="nodes"
         @close="importDialogOpen = false"
         @commit="onImportCommit"
       />

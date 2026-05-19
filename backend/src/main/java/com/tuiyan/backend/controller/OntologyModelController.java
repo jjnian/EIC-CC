@@ -9,11 +9,15 @@ import com.tuiyan.backend.service.LlmService;
 import com.tuiyan.backend.service.OntologyModelService;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -33,6 +37,10 @@ public class OntologyModelController {
     private static final int PDF_TEXT_CHAR_BUDGET = 60_000;          // 单文档文本上限，超过截断
     private static final long IMAGE_BYTE_LIMIT     = 8L * 1024 * 1024; // 单张图最大 8 MB
     private static final int  TOTAL_FILE_LIMIT     = 8;               // 一次最多 8 个文件
+    // v1.0 Phase 2：图表型 PDF 渲染回退
+    private static final int  MIN_TEXT_PER_PAGE    = 200;             // 字符数低于此视为图表型 PDF
+    private static final int  RENDER_MAX_PAGES     = 8;               // 单 PDF 最多渲染前 8 页
+    private static final int  RENDER_DPI           = 110;             // 渲染分辨率（折中清晰度与体积）
 
     public OntologyModelController(OntologyModelService svc, LlmService llmService) {
         this.svc = svc;
@@ -113,10 +121,24 @@ public class OntologyModelController {
 
                 if (isPdf(name, contentType)) {
                     String text;
+                    int pageCount;
                     try (PDDocument doc = Loader.loadPDF(f.getBytes())) {
-                        meta.put("pages", doc.getNumberOfPages());
+                        pageCount = doc.getNumberOfPages();
+                        meta.put("pages", pageCount);
                         PDFTextStripper stripper = new PDFTextStripper();
                         text = stripper.getText(doc);
+
+                        // v1.0 Phase 2：文本极少 → 判定为扫描件 / 图表型，把前 N 页渲染成 PNG 走视觉链路
+                        int rawLen = text == null ? 0 : text.trim().length();
+                        boolean textBare = pageCount > 0 && rawLen < pageCount * MIN_TEXT_PER_PAGE;
+                        if (textBare) {
+                            int rendered = renderPdfPages(doc, imageAttachments, RENDER_MAX_PAGES);
+                            meta.put("renderedPages", rendered);
+                            // 文本贫瘠时仍留 4K 字符作上下文锚点
+                            if (text != null && text.length() > 4_000) {
+                                text = text.substring(0, 4_000);
+                            }
+                        }
                     }
                     int rawChars = text == null ? 0 : text.length();
                     if (text != null && text.length() > PDF_TEXT_CHAR_BUDGET) {
@@ -125,8 +147,10 @@ public class OntologyModelController {
                     }
                     meta.put("type", "pdf");
                     meta.put("chars", rawChars);
-                    combinedText.append("# 文件 ").append(name).append("\n\n")
-                                .append(text == null ? "" : text).append("\n\n");
+                    if (text != null && !text.isBlank()) {
+                        combinedText.append("# 文件 ").append(name).append("\n\n")
+                                    .append(text).append("\n\n");
+                    }
                 } else if (isImage(contentType)) {
                     if (size > IMAGE_BYTE_LIMIT) {
                         return ResponseEntity.badRequest().body(Map.of(
@@ -180,6 +204,30 @@ public class OntologyModelController {
 
     private static boolean isImage(String ct) {
         return ct != null && ct.toLowerCase().startsWith("image/");
+    }
+
+    /**
+     * v1.0 Phase 2：把 PDF 前 maxPages 页渲染成 PNG，按 base64 数据 URL 加入 attachments。
+     * 单张 > IMAGE_BYTE_LIMIT 的会跳过。返回实际成功渲染的页数。
+     */
+    private int renderPdfPages(PDDocument doc, List<Map<String, Object>> attachments, int maxPages) throws IOException {
+        PDFRenderer renderer = new PDFRenderer(doc);
+        int total = Math.min(doc.getNumberOfPages(), maxPages);
+        int rendered = 0;
+        for (int p = 0; p < total; p++) {
+            BufferedImage img = renderer.renderImageWithDPI(p, RENDER_DPI);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(img, "png", baos);
+            byte[] bytes = baos.toByteArray();
+            if (bytes.length > IMAGE_BYTE_LIMIT) continue;
+            String b64 = Base64.getEncoder().encodeToString(bytes);
+            Map<String, Object> att = new LinkedHashMap<>();
+            att.put("type", "image");
+            att.put("dataUrl", "data:image/png;base64," + b64);
+            attachments.add(att);
+            rendered++;
+        }
+        return rendered;
     }
 
     /**

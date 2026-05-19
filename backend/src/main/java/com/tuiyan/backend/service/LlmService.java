@@ -751,9 +751,13 @@ public class LlmService {
         return objectMapper.readTree(content);
     }
 
+    private static final int EXTRACT_CHUNK_CHARS = 30_000;  // 单段文本上限；超过后透明分页多次调 LLM
+
     /**
      * v1.0 文档导入：把 PDF 抽出的文本 + 图片附件喂给 LLM，按 SCHEMA 抽取节点 / 关系 / 规则。
-     * 返回原始 {add_nodes, add_edges} JSON（不含落盘、不含 id 重写——交给调用方）。
+     * 文本超 EXTRACT_CHUNK_CHARS 自动分段，每段独立调 LLM，按 label 跨段去重后合并。
+     * 图片只在第一段调用时一起发送（多模态成本高，单次足够）。
+     * 返回 {add_nodes, add_edges, reply}，不含 id salt——由调用方再加一层防撞。
      */
     public JsonNode extractOntologyFromSources(String combinedText,
                                                List<Map<String, Object>> imageAttachments,
@@ -763,20 +767,45 @@ public class LlmService {
         String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
         boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
 
+        List<String> chunks = chunkText(combinedText, EXTRACT_CHUNK_CHARS);
+        boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
+        if (chunks.isEmpty() && !hasImages) {
+            throw new IllegalArgumentException("No usable text or images for extraction");
+        }
+        if (chunks.isEmpty()) chunks = new ArrayList<>(java.util.List.of(""));
+
+        JsonNode merged = null;
+        for (int i = 0; i < chunks.size(); i++) {
+            List<Map<String, Object>> imgs = (i == 0) ? imageAttachments : null;
+            String preface = chunks.size() > 1
+                    ? "（这是分 " + chunks.size() + " 段输入的第 " + (i + 1)
+                      + " 段；语义相同的概念请保持 label 一致，便于跨段合并。）\n\n"
+                    : "";
+            JsonNode part = callExtractOnce(preface + chunks.get(i), imgs,
+                    modelName, baseURL, apiKey, anthropic);
+            if (chunks.size() > 1) part = prefixChunkIds(part, "c" + i + "_");
+            merged = (merged == null) ? part : mergeExtractionByLabel(merged, part);
+        }
+        return merged == null ? objectMapper.createObjectNode() : merged;
+    }
+
+    /**
+     * 单次 LLM 抽取调用。
+     */
+    private JsonNode callExtractOnce(String userText,
+                                     List<Map<String, Object>> imageAttachments,
+                                     String modelName, String baseURL, String apiKey, boolean anthropic) throws Exception {
+        boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
         StringBuilder userPrompt = new StringBuilder();
-        if (combinedText != null && !combinedText.isBlank()) {
+        if (userText != null && !userText.isBlank()) {
             userPrompt.append("以下是从上传文档中提取的文本内容：\n\n----- BEGIN TEXT -----\n")
-                      .append(combinedText)
+                      .append(userText)
                       .append("\n----- END TEXT -----\n\n");
         }
-        boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
         if (hasImages) {
             userPrompt.append("用户还附上了 ").append(imageAttachments.size())
                       .append(" 张图片（流程图 / 截图 / 表格 / 示意图），请同时分析图中文字、")
                       .append("箭头指向、表格关系，把图中可见的实体和因果链也抽取出来。\n\n");
-        }
-        if (userPrompt.length() == 0) {
-            throw new IllegalArgumentException("No usable text or images for extraction");
         }
         userPrompt.append("请抽取所有可识别的本体节点（含规则）与关系，按 SCHEMA 输出 JSON。");
 
@@ -833,6 +862,114 @@ public class LlmService {
         content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
         if (content.isEmpty()) content = "{}";
         return objectMapper.readTree(content);
+    }
+
+    /**
+     * 在分句 / 段落边界把长文本切成 <= maxChars 的多段。
+     */
+    private List<String> chunkText(String text, int maxChars) {
+        List<String> out = new ArrayList<>();
+        if (text == null || text.isBlank()) return out;
+        if (text.length() <= maxChars) { out.add(text); return out; }
+        int n = text.length();
+        int idx = 0;
+        while (idx < n) {
+            int end = Math.min(n, idx + maxChars);
+            if (end < n) {
+                int bp = text.lastIndexOf('\n', end);
+                if (bp <= idx + maxChars / 2) bp = text.lastIndexOf('。', end);
+                if (bp <= idx + maxChars / 2) bp = text.lastIndexOf('.', end);
+                if (bp > idx + maxChars / 2) end = bp + 1;
+            }
+            out.add(text.substring(idx, end));
+            idx = end;
+        }
+        return out;
+    }
+
+    /**
+     * 把单 chunk 输出中的所有节点 id 与边端点统一加 chunk 前缀，避免不同段返回的 n_1 撞车。
+     */
+    private JsonNode prefixChunkIds(JsonNode part, String prefix) {
+        ObjectNode out = objectMapper.createObjectNode();
+        if (part.has("reply")) out.set("reply", part.get("reply"));
+
+        Map<String, String> idMap = new HashMap<>();
+        ArrayNode srcNodes = part.has("add_nodes") && part.get("add_nodes").isArray()
+                ? (ArrayNode) part.get("add_nodes") : objectMapper.createArrayNode();
+        ArrayNode outNodes = objectMapper.createArrayNode();
+        for (JsonNode n : srcNodes) {
+            ObjectNode copy = n.deepCopy();
+            String oldId = copy.path("id").asText("");
+            if (oldId.isEmpty()) continue;
+            String newId = prefix + oldId;
+            idMap.put(oldId, newId);
+            copy.put("id", newId);
+            outNodes.add(copy);
+        }
+        ArrayNode srcEdges = part.has("add_edges") && part.get("add_edges").isArray()
+                ? (ArrayNode) part.get("add_edges") : objectMapper.createArrayNode();
+        ArrayNode outEdges = objectMapper.createArrayNode();
+        for (JsonNode e : srcEdges) {
+            ObjectNode copy = e.deepCopy();
+            String f = copy.path("from").asText("");
+            String t = copy.path("to").asText("");
+            if (idMap.containsKey(f)) copy.put("from", idMap.get(f));
+            if (idMap.containsKey(t)) copy.put("to", idMap.get(t));
+            String eid = copy.path("id").asText("");
+            if (!eid.isEmpty()) copy.put("id", prefix + eid);
+            outEdges.add(copy);
+        }
+        out.set("add_nodes", outNodes);
+        out.set("add_edges", outEdges);
+        return out;
+    }
+
+    /**
+     * 按 label 标准化跨段合并：相同标签视为同一节点，第二段的引用被重写到第一段对应 id。
+     */
+    private JsonNode mergeExtractionByLabel(JsonNode a, JsonNode b) {
+        ObjectNode out = objectMapper.createObjectNode();
+        if (a.has("reply")) out.set("reply", a.get("reply"));
+
+        ArrayNode outNodes = objectMapper.createArrayNode();
+        ArrayNode outEdges = objectMapper.createArrayNode();
+        Map<String, String> labelToId = new HashMap<>();
+        Map<String, String> idRemap = new HashMap<>();
+
+        for (JsonNode n : a.path("add_nodes")) {
+            outNodes.add(n);
+            String norm = normalizeLabel(n.path("label").asText(""));
+            if (!norm.isEmpty()) labelToId.put(norm, n.path("id").asText());
+        }
+        for (JsonNode e : a.path("add_edges")) outEdges.add(e);
+
+        for (JsonNode n : b.path("add_nodes")) {
+            String norm = normalizeLabel(n.path("label").asText(""));
+            String id = n.path("id").asText();
+            if (!norm.isEmpty() && labelToId.containsKey(norm)) {
+                idRemap.put(id, labelToId.get(norm));
+            } else {
+                outNodes.add(n);
+                if (!norm.isEmpty() && !id.isEmpty()) labelToId.put(norm, id);
+            }
+        }
+        for (JsonNode e : b.path("add_edges")) {
+            ObjectNode copy = e.deepCopy();
+            String f = copy.path("from").asText("");
+            String t = copy.path("to").asText("");
+            copy.put("from", idRemap.getOrDefault(f, f));
+            copy.put("to", idRemap.getOrDefault(t, t));
+            outEdges.add(copy);
+        }
+        out.set("add_nodes", outNodes);
+        out.set("add_edges", outEdges);
+        return out;
+    }
+
+    private static String normalizeLabel(String s) {
+        if (s == null) return "";
+        return s.trim().toLowerCase().replaceAll("\\s+", " ");
     }
 
     // ========== 协议适配辅助 ==========

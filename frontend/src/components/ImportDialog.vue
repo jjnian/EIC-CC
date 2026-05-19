@@ -29,6 +29,7 @@ interface SourceMeta {
 const props = defineProps<{
   open: boolean;
   hasCurrentModel: boolean;
+  currentNodes?: any[];   // v1.0 Phase 2：用于 label 去重对照
 }>();
 
 const emit = defineEmits<{
@@ -51,6 +52,11 @@ const sources = ref<SourceMeta[]>([]);
 const replyText = ref('');
 const selectedNodeIds = ref<Set<string>>(new Set());
 const selectedEdgeIds = ref<Set<string>>(new Set());
+// v1.0 Phase 2：抽取 id → 已有图谱中同名节点 id 的映射
+const dupRemap = ref<Record<string, string>>({});
+const dupList = ref<{ extractedId: string; extractedLabel: string; existingLabel: string }[]>([]);
+
+const normLabel = (s: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 const reset = () => {
   files.value = [];
@@ -63,6 +69,8 @@ const reset = () => {
   replyText.value = '';
   selectedNodeIds.value = new Set();
   selectedEdgeIds.value = new Set();
+  dupRemap.value = {};
+  dupList.value = [];
 };
 
 watch(() => props.open, (v) => {
@@ -114,6 +122,31 @@ const extract = async () => {
     extracted.value = { nodes: data.nodes || [], edges: data.edges || [] };
     sources.value = data.sources || [];
     replyText.value = data.reply || '';
+
+    // v1.0 Phase 2：label 去重 —— 与当前图谱节点匹配
+    dupRemap.value = {};
+    dupList.value = [];
+    if (mode.value === 'merge' && props.currentNodes && props.currentNodes.length) {
+      const trunkLabelMap = new Map<string, { id: string; label: string }>();
+      for (const n of props.currentNodes) {
+        const k = normLabel(n.label || '');
+        if (k) trunkLabelMap.set(k, { id: n.id, label: n.label });
+      }
+      const remainingNodes = [];
+      for (const n of extracted.value.nodes) {
+        const k = normLabel(n.label || '');
+        const hit = k ? trunkLabelMap.get(k) : null;
+        if (hit) {
+          dupRemap.value[n.id] = hit.id;
+          dupList.value.push({ extractedId: n.id, extractedLabel: n.label, existingLabel: hit.label });
+        } else {
+          remainingNodes.push(n);
+        }
+      }
+      extracted.value.nodes = remainingNodes;
+      // 边里指向 dup 的端点已通过 dupRemap 重定向；保持完整列表
+    }
+
     // 默认全选
     selectedNodeIds.value = new Set(extracted.value.nodes.map(n => n.id));
     selectedEdgeIds.value = new Set(extracted.value.edges.map(e => e.id));
@@ -147,12 +180,20 @@ const toggleAllEdges = () => {
 
 const validEdges = computed(() => {
   if (!extracted.value) return [];
-  // 仅保留 from/to 都被选中的边（或两端是新选中节点）
-  return extracted.value.edges.filter(e =>
-    selectedEdgeIds.value.has(e.id) &&
-    selectedNodeIds.value.has(e.from) &&
-    selectedNodeIds.value.has(e.to));
+  // 仅保留勾选的边，端点要么是已选中的新节点、要么命中 dup 映射（即被合并到现有节点）
+  return extracted.value.edges
+    .filter(e => selectedEdgeIds.value.has(e.id))
+    .map(e => {
+      const from = dupRemap.value[e.from] || e.from;
+      const to = dupRemap.value[e.to] || e.to;
+      return { ...e, from, to };
+    })
+    .filter(e =>
+      (selectedNodeIds.value.has(e.from) || isExistingId(e.from)) &&
+      (selectedNodeIds.value.has(e.to) || isExistingId(e.to)));
 });
+
+const isExistingId = (id: string) => !!props.currentNodes?.some(n => n.id === id);
 const selectedNodes = computed(() => {
   if (!extracted.value) return [];
   return extracted.value.nodes.filter(n => selectedNodeIds.value.has(n.id));
@@ -260,6 +301,18 @@ const onBackdrop = (e: MouseEvent) => {
         <div v-if="extracted" class="imp-section imp-result">
           <div v-if="replyText" class="imp-reply">{{ replyText }}</div>
 
+          <div v-if="dupList.length" class="imp-dup-banner">
+            <div class="imp-dup-head">
+              <span class="imp-dup-icon">↩</span>
+              <span>检测到 {{ dupList.length }} 个节点已存在于当前图谱，关系会自动重定向到现有节点</span>
+            </div>
+            <div class="imp-dup-list">
+              <span v-for="(d, i) in dupList" :key="i" class="imp-dup-chip">
+                {{ d.extractedLabel }} → <strong>{{ d.existingLabel }}</strong>
+              </span>
+            </div>
+          </div>
+
           <div v-if="sources.length" class="imp-sources">
             <div v-for="(s, i) in sources" :key="i" class="imp-source-item">
               <span class="imp-source-icon">{{ s.type === 'image' ? '🖼' : (s.type === 'pdf' ? '📄' : '⛔') }}</span>
@@ -269,6 +322,7 @@ const onBackdrop = (e: MouseEvent) => {
               </span>
               <span v-else-if="s.type === 'image'" class="imp-source-meta">{{ fmtSize(s.size) }}</span>
               <span v-else class="imp-source-meta imp-source-skip">{{ s.reason }}</span>
+              <span v-if="s.renderedPages" class="imp-source-rendered">📸 渲染 {{ s.renderedPages }} 页</span>
             </div>
           </div>
 
@@ -438,6 +492,28 @@ const onBackdrop = (e: MouseEvent) => {
 .imp-source-icon { font-size: 12px; }
 .imp-source-name { color: var(--text-main); }
 .imp-source-skip { color: #ff8a8a; }
+.imp-source-rendered { color: #63b3ed; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+
+.imp-dup-banner {
+  background: rgba(99, 179, 237, 0.06);
+  border: 1px solid rgba(99, 179, 237, 0.18);
+  border-left: 2px solid #63b3ed;
+  border-radius: 6px;
+  padding: 8px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.imp-dup-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #63b3ed; }
+.imp-dup-icon { font-size: 14px; font-family: 'JetBrains Mono', monospace; }
+.imp-dup-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.imp-dup-chip {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+.imp-dup-chip strong { color: var(--text-main); font-weight: 600; }
 
 .imp-cols { display: flex; gap: 12px; }
 .imp-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
