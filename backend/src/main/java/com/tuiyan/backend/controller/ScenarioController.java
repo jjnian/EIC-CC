@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.tuiyan.backend.model.Constraint;
 import com.tuiyan.backend.model.PredictRequest;
+import com.tuiyan.backend.model.PredictionDag;
 import com.tuiyan.backend.model.Scenario;
 import com.tuiyan.backend.service.LlmService;
 import com.tuiyan.backend.service.ScenarioService;
@@ -50,8 +52,17 @@ public class ScenarioController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable String id) {
-        boolean ok = scenarioService.delete(id);
-        return ResponseEntity.ok(Map.of("deleted", ok));
+        int n = scenarioService.delete(id);
+        return ResponseEntity.ok(Map.of("deleted", n > 0, "count", n));
+    }
+
+    @PostMapping("/migrate")
+    public ResponseEntity<?> migrate() {
+        try {
+            return ResponseEntity.ok(scenarioService.migrateAll());
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PostMapping
@@ -67,6 +78,15 @@ public class ScenarioController {
 
     private void runPrediction(PredictRequest req, SseEmitter emitter) {
         try {
+            String intent = "backward".equalsIgnoreCase(req.getIntent()) ? "backward" : "forward";
+            boolean backward = "backward".equals(intent);
+
+            // v0.8：从预测分支再次分叉时，新预测节点 id 需加 salt，避免与父分支的 p_N 撞车
+            boolean isFork = req.getParentBranchId() != null && !req.getParentBranchId().isBlank();
+            long now = System.currentTimeMillis();
+            String scenarioId = "sc_" + now;
+            String idSalt = isFork ? Long.toString(now, 36) : "";
+
             JsonNode result = llmService.predictChain(req);
             JsonNode chain = result.path("chain");
             if (!chain.isArray() || chain.isEmpty()) {
@@ -75,21 +95,37 @@ public class ScenarioController {
                 return;
             }
 
-            // 计算预测节点坐标：以 seeds 重心为基准向右扩散
+            // 坐标：forward 向右扩散；backward 向左扩散
             double[] origin = computeOrigin(req);
             double baseX = origin[0];
             double baseY = origin[1];
             double xStep = 220, yStep = 100;
+            int direction = backward ? -1 : 1;
+
+            // v0.7：约束 → blockedIds 集合；预测中链路命中 block 节点的整条节点被剪枝（级联）
+            // force 仅通过 prompt 暗示给 LLM，无需后端附加处理（trunk 节点本就视作 P=1.0）
+            Set<String> blockedIds = new HashSet<>();
+            if (req.getConstraints() != null) {
+                for (Constraint c : req.getConstraints()) {
+                    if (c == null || c.getNodeId() == null) continue;
+                    if ("block".equalsIgnoreCase(c.getMode())) blockedIds.add(c.getNodeId());
+                }
+            }
+
+            // v0.7：用于概率聚合（noisy-OR），predicted -> 计算得到的有效概率
+            Map<String, Double> effProb = new HashMap<>();
 
             List<Map<String, Object>> predictedNodes = new ArrayList<>();
             List<Map<String, Object>> predictedEdges = new ArrayList<>();
             List<Map<String, Object>> chainList = new ArrayList<>();
             Map<Integer, Integer> perStepCount = new HashMap<>();
+            int prunedCount = 0;
 
             int stepIndex = 0;
             for (JsonNode item : chain) {
                 stepIndex++;
-                String id = item.path("id").asText("p_" + stepIndex);
+                String rawId = item.path("id").asText("p_" + stepIndex);
+                String id = applyIdSalt(rawId, idSalt);
                 String label = item.path("label").asText("预测" + stepIndex);
                 String type = item.path("type").asText("event");
                 String ruleId = item.path("rule_id").isNull() ? null : item.path("rule_id").asText(null);
@@ -97,13 +133,57 @@ public class ScenarioController {
                 double confidence = item.path("confidence").asDouble(0.6);
                 int step = item.path("step").asInt(stepIndex);
 
-                ArrayNode triggers = (ArrayNode) (item.has("triggered_by") && item.get("triggered_by").isArray()
-                        ? item.get("triggered_by") : objectMapper.createArrayNode());
+                // forward 读 triggered_by；backward 读 leads_to；二者均回退兼容
+                JsonNode linkNode = backward
+                        ? (item.has("leads_to") ? item.get("leads_to") : item.path("triggered_by"))
+                        : (item.has("triggered_by") ? item.get("triggered_by") : item.path("leads_to"));
+                ArrayNode links = (linkNode != null && linkNode.isArray())
+                        ? (ArrayNode) linkNode : objectMapper.createArrayNode();
+
+                // 约束剪枝：丢弃所有指向 blocked id 的连接；若 forward 链路全空则整节点剪枝并级联
+                // 同时对引用本次新预测节点的 p_N 形式作 salt 重写（祖先预测节点的 id 已是 pXXX_N，不会命中）
+                List<String> rawLinkIds = new ArrayList<>();
+                for (JsonNode t : links) rawLinkIds.add(applyIdSalt(t.asText(), idSalt));
+                List<String> linkIds = new ArrayList<>();
+                for (String lid : rawLinkIds) {
+                    if (!blockedIds.contains(lid)) linkIds.add(lid);
+                }
+                boolean pruneThis;
+                if (backward) {
+                    // backward: predicted 是因，leads_to 是结果；若结果全被 block，该假设失去意义
+                    pruneThis = !rawLinkIds.isEmpty() && linkIds.isEmpty();
+                } else {
+                    // forward: predicted 是果，triggered_by 是因；若所有上游被 block，该预测无依据
+                    pruneThis = !rawLinkIds.isEmpty() && linkIds.isEmpty();
+                }
+                if (pruneThis) {
+                    blockedIds.add(id); // 级联：后续引用本节点的预测也会被剪枝
+                    prunedCount++;
+                    continue;
+                }
 
                 int slot = perStepCount.getOrDefault(step, 0);
                 perStepCount.put(step, slot + 1);
-                double nx = baseX + step * xStep;
+                double nx = baseX + direction * step * xStep;
                 double ny = baseY + (slot - 0.5) * yStep;
+
+                // 概率聚合：
+                //  forward — P_eff(N) = confidence × NoisyOR({P_eff(parent_i)})
+                //            其中 trunk 节点视为 P=1.0，被 force 的节点同样 P=1.0
+                //  backward — P_eff 保留为节点自身 confidence（候选原因的内在置信）
+                double pEff;
+                if (backward || linkIds.isEmpty()) {
+                    pEff = clamp01(confidence);
+                } else {
+                    double notOr = 1.0;
+                    for (String pid : linkIds) {
+                        double pp = effProb.containsKey(pid) ? effProb.get(pid) : 1.0; // trunk 默认 1.0
+                        notOr *= (1.0 - clamp01(pp));
+                    }
+                    double orVal = 1.0 - notOr;
+                    pEff = clamp01(confidence) * orVal;
+                }
+                effProb.put(id, pEff);
 
                 Map<String, Object> node = new LinkedHashMap<>();
                 node.put("id", id);
@@ -111,21 +191,23 @@ public class ScenarioController {
                 node.put("type", type);
                 node.put("source", "predicted");
                 node.put("predictedStep", step);
+                node.put("predictedIntent", intent);
                 node.put("confidence", confidence);
+                node.put("effectiveProbability", round3(pEff));
                 node.put("explanation", explanation);
                 node.put("x", nx);
                 node.put("y", ny);
                 predictedNodes.add(node);
 
-                List<String> triggerIds = new ArrayList<>();
-                for (JsonNode t : triggers) triggerIds.add(t.asText());
-
-                for (String fromId : triggerIds) {
+                // 边方向：forward = link -> predicted（上游驱动下游）；backward = predicted -> link（原因指向结果）
+                for (String otherId : linkIds) {
+                    String from = backward ? id : otherId;
+                    String to = backward ? otherId : id;
                     Map<String, Object> edge = new LinkedHashMap<>();
-                    edge.put("id", "pe_" + id + "_" + fromId);
-                    edge.put("from", fromId);
-                    edge.put("to", id);
-                    edge.put("label", "推演");
+                    edge.put("id", "pe_" + from + "_" + to);
+                    edge.put("from", from);
+                    edge.put("to", to);
+                    edge.put("label", backward ? "可能导致" : "推演");
                     edge.put("source", "predicted");
                     edge.put("rule_driven", ruleId != null);
                     if (ruleId != null) edge.put("ruleId", ruleId);
@@ -137,18 +219,21 @@ public class ScenarioController {
                 chainItem.put("nodeId", id);
                 chainItem.put("label", label);
                 chainItem.put("type", type);
-                chainItem.put("triggeredBy", triggerIds);
+                // 时间线 UI 用 triggeredBy 字段名展示，无论方向；语义由 intent 解释
+                chainItem.put("triggeredBy", linkIds);
                 chainItem.put("ruleId", ruleId);
                 chainItem.put("explanation", explanation);
                 chainItem.put("confidence", confidence);
+                chainItem.put("effectiveProbability", round3(pEff));
                 chainList.add(chainItem);
 
                 // 流式分步推送，给前端动画喘息
                 ObjectNode stepEvent = objectMapper.createObjectNode();
                 stepEvent.put("step", step);
+                stepEvent.put("intent", intent);
                 stepEvent.set("node", objectMapper.valueToTree(node));
                 stepEvent.set("edges", objectMapper.valueToTree(
-                        predictedEdges.subList(predictedEdges.size() - triggerIds.size(), predictedEdges.size())));
+                        predictedEdges.subList(predictedEdges.size() - linkIds.size(), predictedEdges.size())));
                 stepEvent.set("chain", objectMapper.valueToTree(chainItem));
                 emitter.send(SseEmitter.event().name("step")
                         .data(objectMapper.writeValueAsString(stepEvent)));
@@ -156,12 +241,13 @@ public class ScenarioController {
                 try { Thread.sleep(220); } catch (InterruptedException ignored) {}
             }
 
-            // 构建快照
+            // 构建 Scenario：仅保存 dag 增量，不再落 full snapshot
             Scenario s = new Scenario();
-            s.setId("sc_" + System.currentTimeMillis());
+            s.setId(scenarioId);
             s.setModelId(req.getModelId());
             s.setParentBranchId(req.getParentBranchId());
-            s.setCreatedAt(System.currentTimeMillis());
+            s.setCreatedAt(now);
+            s.setIntent(intent);
             s.setSeeds(req.getSeeds());
             s.setSteps(req.getSteps() == null ? chain.size() : req.getSteps());
             s.setPrompt(req.getPrompt());
@@ -169,22 +255,35 @@ public class ScenarioController {
             String name = req.getName();
             if (name == null || name.isBlank()) {
                 String seedLabel = lookupSeedLabel(req);
-                name = (seedLabel != null ? seedLabel : "推演") + " · "
+                String prefix = backward ? "溯因·" : "";
+                name = prefix + (seedLabel != null ? seedLabel : "推演") + " · "
                         + new java.text.SimpleDateFormat("MM-dd HH:mm").format(new Date());
             }
             s.setName(name);
 
-            List<Map<String, Object>> allNodes = new ArrayList<>();
-            if (req.getNodes() != null) allNodes.addAll(req.getNodes());
-            allNodes.addAll(predictedNodes);
-            s.setNodes(allNodes);
+            PredictionDag dag = new PredictionDag();
+            dag.setIntent(intent);
+            dag.setNodes(predictedNodes);
+            dag.setEdges(predictedEdges);
+            dag.setChain(chainList);
+            dag.setConstraints(req.getConstraints());
+            s.setDag(dag);
 
-            List<Map<String, Object>> allEdges = new ArrayList<>();
-            if (req.getEdges() != null) allEdges.addAll(req.getEdges());
-            allEdges.addAll(predictedEdges);
-            s.setEdges(allEdges);
+            // 若被约束剪枝过，也额外提示前端
+            if (prunedCount > 0) {
+                try {
+                    ObjectNode note = objectMapper.createObjectNode();
+                    note.put("type", "pruned");
+                    note.put("count", prunedCount);
+                    note.put("message", "已根据 what-if 约束剪枝 " + prunedCount + " 个预测节点");
+                    emitter.send(SseEmitter.event().name("notice")
+                            .data(objectMapper.writeValueAsString(note)));
+                } catch (IOException ignored) {}
+            }
 
+            // chain 字段保留给老 UI 直接读
             s.setChain(chainList);
+            // nodes/edges 不再写完整快照（节省 ~80% 存储）；前端加载时与 trunk 合并
 
             scenarioService.save(s);
 
@@ -197,6 +296,28 @@ public class ScenarioController {
             } catch (IOException ignored) {}
             emitter.completeWithError(e);
         }
+    }
+
+    /**
+     * v0.8 fork id 重写：LLM 总是以 p_N 形式返回新预测节点 id，多级分叉时需要加 salt 隔离。
+     * 仅当 raw 严格匹配 ^p_\d+$ 时改写为 p<salt>_N；其他形态（祖先预测节点的 pXXX_N、trunk 节点）原样保留。
+     */
+    private static String applyIdSalt(String raw, String idSalt) {
+        if (idSalt == null || idSalt.isEmpty()) return raw;
+        if (raw == null) return raw;
+        if (!raw.matches("p_\\d+")) return raw;
+        return "p" + idSalt + "_" + raw.substring(2);
+    }
+
+    private static double clamp01(double v) {
+        if (Double.isNaN(v)) return 0.0;
+        if (v < 0.0) return 0.0;
+        if (v > 1.0) return 1.0;
+        return v;
+    }
+
+    private static double round3(double v) {
+        return Math.round(v * 1000.0) / 1000.0;
     }
 
     private double[] computeOrigin(PredictRequest req) {

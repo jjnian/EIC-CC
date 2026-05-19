@@ -21,6 +21,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -75,6 +78,28 @@ public class LlmService {
         SCHEMA:
         %s""".formatted(SCHEMA_STRING);
 
+    private static final String EXTRACT_SYSTEM = """
+        You are an AI Ontology Developer extracting a knowledge graph from documents.
+        The user has uploaded one or more sources: PDF text excerpts and/or images of
+        diagrams, flowcharts, tables, or screenshots.
+
+        Your job: identify every distinct entity, event, process, data, external system,
+        and explicit RULE / regulation / SOP step, plus the directed relationships among them.
+        Treat the document as authoritative — do not invent content that isn't grounded in it.
+
+        Strict rules:
+        1. If a passage describes a conditional / business rule / regulation / SOP step,
+           emit a node with type='rule' and add edges from that rule to the events/processes it governs.
+        2. Mark nodes/edges 'derived' when they are explicitly stated in the source;
+           mark 'inferred' only when filling in obvious gaps with world knowledge.
+        3. Use stable ids like 'n_1', 'n_2', 'e_1' — the server rewrites them to avoid collisions.
+        4. Be exhaustive but de-duplicated: if two phrasings clearly refer to the same concept,
+           emit ONE node.
+        5. Return ONLY a JSON object exactly matching SCHEMA. No markdown wrapping.
+
+        SCHEMA:
+        %s""".formatted(SCHEMA_STRING);
+
     private static final String PREDICT_SCHEMA = """
         {
           "chain": [
@@ -108,6 +133,40 @@ public class LlmService {
 
         SCHEMA:
         %s""".formatted(PREDICT_SCHEMA);
+
+    private static final String PREDICT_BACKWARD_SCHEMA = """
+        {
+          "chain": [
+            {
+              "step": 1,
+              "id": "p_1",
+              "label": "短文本（候选原因/前置事件名称）",
+              "type": "Must be one of: 'event', 'process', 'outcome', 'entity'",
+              "leads_to": ["id of downstream existing node OR earlier predicted id（即此原因导致的下游节点）"],
+              "rule_id": "id of rule node that fires (or null)",
+              "explanation": "≤40 中文字符，解释为什么这是合理的上游原因",
+              "confidence": 0.0
+            }
+          ]
+        }
+        """;
+
+    private static final String PREDICT_BACKWARD_SYSTEM = """
+        你是一个基于本体图谱的溯因推演 (Backward Simulation / Abduction) 引擎。
+        给定现有图谱和一个或多个目标节点 (seeds，即结果)，请逆向推断可能导致该结果的 N 层上游原因。
+
+        严格要求：
+        1. 所有预测节点的 id 形如 'p_1' / 'p_2'，不要复用现有节点 id。
+        2. 每个节点都要给出 leads_to（此原因直接导致的下游节点 id 数组，至少一个；通常是目标 seeds 之一，或更晚预测的中间原因）。
+        3. step=1 的预测节点应直接 leads_to 到某个 seed；step=k (k>1) 可 leads_to 到更早 step 的预测节点（更靠近 seed 的中间原因）。
+        4. 若有规则节点 (type: 'rule') 解释该因果，请在 rule_id 字段引用，否则置 null。
+        5. 多个独立原因并行存在很正常，可属于同一 step。
+        6. explanation 用简体中文，≤40 字。
+        7. confidence ∈ [0, 1]，越高越笃定。
+        8. 只输出严格符合 schema 的 JSON，禁止 markdown 包裹。
+
+        SCHEMA:
+        %s""".formatted(PREDICT_BACKWARD_SCHEMA);
 
     // ========== 模型配置 CRUD ==========
 
@@ -615,21 +674,49 @@ public class LlmService {
         boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
 
         int steps = req.getSteps() == null ? 4 : Math.max(1, Math.min(10, req.getSteps()));
+        boolean backward = "backward".equalsIgnoreCase(req.getIntent());
+        String systemPrompt = backward ? PREDICT_BACKWARD_SYSTEM : PREDICT_SYSTEM;
+        String seedRole = backward ? "目标节点 (seeds，需要溯因的结果)" : "起点节点 (seeds)";
+        String taskWord = backward ? "请向上回溯 " : "请向前推演 ";
+        String taskUnit = backward ? " 层上游原因" : " 步";
 
         String graphSummary = summarizeGraph(req.getNodes(), req.getEdges());
         String seedSummary = summarizeSeeds(req.getSeeds(), req.getNodes());
+        String rulesSummary = summarizeRules(req.getNodes());
+        String constraintsSummary = summarizeConstraints(req.getConstraints(), req.getNodes());
+
+        // v0.9：context 截断 —— 大图谱时只保留 seeds/规则/约束目标 + k-hop 邻域
+        TruncatedGraph truncated = truncateGraphForContext(
+                req.getNodes(), req.getEdges(), req.getSeeds(), req.getConstraints());
+        boolean wasTruncated = truncated.droppedNodes > 0 || truncated.droppedEdges > 0;
+        if (wasTruncated) {
+            graphSummary = summarizeGraph(truncated.nodes, truncated.edges);
+        }
 
         StringBuilder userPrompt = new StringBuilder();
-        userPrompt.append("当前本体图谱：\n").append(graphSummary).append("\n\n");
-        userPrompt.append("起点节点 (seeds)：\n").append(seedSummary).append("\n\n");
-        if (req.getPrompt() != null && !req.getPrompt().isBlank()) {
-            userPrompt.append("额外场景说明：").append(req.getPrompt()).append("\n\n");
+        userPrompt.append("当前本体图谱：\n").append(graphSummary).append("\n");
+        if (wasTruncated) {
+            userPrompt.append("(为控制 LLM context 已截断 ")
+                      .append(truncated.droppedNodes).append(" 个节点 / ")
+                      .append(truncated.droppedEdges).append(" 条边，仅保留 seeds、规则、约束目标及其 ")
+                      .append(CONTEXT_HOPS).append("-hop 邻域。)\n");
         }
-        userPrompt.append("请向前推演 ").append(steps).append(" 步，严格按 schema 输出 JSON。");
+        userPrompt.append("\n");
+        if (!rulesSummary.isBlank()) {
+            userPrompt.append("可用规则 (优先沿规则推演)：\n").append(rulesSummary).append("\n");
+        }
+        userPrompt.append(seedRole).append("：\n").append(seedSummary).append("\n");
+        if (!constraintsSummary.isBlank()) {
+            userPrompt.append("\nWhat-if 约束（必须严格遵守）：\n").append(constraintsSummary).append("\n");
+        }
+        if (req.getPrompt() != null && !req.getPrompt().isBlank()) {
+            userPrompt.append("\n额外场景说明：").append(req.getPrompt()).append("\n");
+        }
+        userPrompt.append("\n").append(taskWord).append(steps).append(taskUnit).append("，严格按 schema 输出 JSON。");
 
         String requestBody;
         if (anthropic) {
-            requestBody = buildAnthropicBody(modelName, PREDICT_SYSTEM, userPrompt.toString(),
+            requestBody = buildAnthropicBody(modelName, systemPrompt, userPrompt.toString(),
                     null, null, false, ANTHROPIC_MAX_TOKENS);
         } else {
             ObjectNode requestNode = objectMapper.createObjectNode();
@@ -638,7 +725,7 @@ public class LlmService {
             ArrayNode messages = objectMapper.createArrayNode();
             ObjectNode sys = objectMapper.createObjectNode();
             sys.put("role", "system");
-            sys.put("content", PREDICT_SYSTEM);
+            sys.put("content", systemPrompt);
             messages.add(sys);
             ObjectNode user = objectMapper.createObjectNode();
             user.put("role", "user");
@@ -662,6 +749,227 @@ public class LlmService {
         content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
         if (content.isEmpty()) content = "{}";
         return objectMapper.readTree(content);
+    }
+
+    private static final int EXTRACT_CHUNK_CHARS = 30_000;  // 单段文本上限；超过后透明分页多次调 LLM
+
+    /**
+     * v1.0 文档导入：把 PDF 抽出的文本 + 图片附件喂给 LLM，按 SCHEMA 抽取节点 / 关系 / 规则。
+     * 文本超 EXTRACT_CHUNK_CHARS 自动分段，每段独立调 LLM，按 label 跨段去重后合并。
+     * 图片只在第一段调用时一起发送（多模态成本高，单次足够）。
+     * 返回 {add_nodes, add_edges, reply}，不含 id salt——由调用方再加一层防撞。
+     */
+    public JsonNode extractOntologyFromSources(String combinedText,
+                                               List<Map<String, Object>> imageAttachments,
+                                               String modelOverride,
+                                               String configId) throws Exception {
+        String[] cfg = resolveConfig(modelOverride, configId);
+        String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
+        boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
+
+        List<String> chunks = chunkText(combinedText, EXTRACT_CHUNK_CHARS);
+        boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
+        if (chunks.isEmpty() && !hasImages) {
+            throw new IllegalArgumentException("No usable text or images for extraction");
+        }
+        if (chunks.isEmpty()) chunks = new ArrayList<>(java.util.List.of(""));
+
+        JsonNode merged = null;
+        for (int i = 0; i < chunks.size(); i++) {
+            List<Map<String, Object>> imgs = (i == 0) ? imageAttachments : null;
+            String preface = chunks.size() > 1
+                    ? "（这是分 " + chunks.size() + " 段输入的第 " + (i + 1)
+                      + " 段；语义相同的概念请保持 label 一致，便于跨段合并。）\n\n"
+                    : "";
+            JsonNode part = callExtractOnce(preface + chunks.get(i), imgs,
+                    modelName, baseURL, apiKey, anthropic);
+            if (chunks.size() > 1) part = prefixChunkIds(part, "c" + i + "_");
+            merged = (merged == null) ? part : mergeExtractionByLabel(merged, part);
+        }
+        return merged == null ? objectMapper.createObjectNode() : merged;
+    }
+
+    /**
+     * 单次 LLM 抽取调用。
+     */
+    private JsonNode callExtractOnce(String userText,
+                                     List<Map<String, Object>> imageAttachments,
+                                     String modelName, String baseURL, String apiKey, boolean anthropic) throws Exception {
+        boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
+        StringBuilder userPrompt = new StringBuilder();
+        if (userText != null && !userText.isBlank()) {
+            userPrompt.append("以下是从上传文档中提取的文本内容：\n\n----- BEGIN TEXT -----\n")
+                      .append(userText)
+                      .append("\n----- END TEXT -----\n\n");
+        }
+        if (hasImages) {
+            userPrompt.append("用户还附上了 ").append(imageAttachments.size())
+                      .append(" 张图片（流程图 / 截图 / 表格 / 示意图），请同时分析图中文字、")
+                      .append("箭头指向、表格关系，把图中可见的实体和因果链也抽取出来。\n\n");
+        }
+        userPrompt.append("请抽取所有可识别的本体节点（含规则）与关系，按 SCHEMA 输出 JSON。");
+
+        String requestBody;
+        if (anthropic) {
+            requestBody = buildAnthropicBody(modelName, EXTRACT_SYSTEM, userPrompt.toString(),
+                    null, imageAttachments, false, ANTHROPIC_MAX_TOKENS);
+        } else {
+            ObjectNode requestNode = objectMapper.createObjectNode();
+            requestNode.put("model", modelName);
+            requestNode.put("stream", false);
+            ArrayNode messages = objectMapper.createArrayNode();
+            ObjectNode sys = objectMapper.createObjectNode();
+            sys.put("role", "system");
+            sys.put("content", EXTRACT_SYSTEM);
+            messages.add(sys);
+            ObjectNode user = objectMapper.createObjectNode();
+            user.put("role", "user");
+            if (hasImages) {
+                ArrayNode contentArr = objectMapper.createArrayNode();
+                for (Map<String, Object> att : imageAttachments) {
+                    Object url = att.get("dataUrl");
+                    if (url == null) continue;
+                    ObjectNode imgPart = objectMapper.createObjectNode();
+                    imgPart.put("type", "image_url");
+                    ObjectNode urlObj = objectMapper.createObjectNode();
+                    urlObj.put("url", String.valueOf(url));
+                    imgPart.set("image_url", urlObj);
+                    contentArr.add(imgPart);
+                }
+                ObjectNode textPart = objectMapper.createObjectNode();
+                textPart.put("type", "text");
+                textPart.put("text", userPrompt.toString());
+                contentArr.add(textPart);
+                user.set("content", contentArr);
+            } else {
+                user.put("content", userPrompt.toString());
+            }
+            messages.add(user);
+            requestNode.set("messages", messages);
+            ObjectNode rf = objectMapper.createObjectNode();
+            rf.put("type", "json_object");
+            requestNode.set("response_format", rf);
+            requestBody = objectMapper.writeValueAsString(requestNode);
+        }
+
+        HttpRequest httpReq = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
+        HttpResponse<String> resp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() != 200) {
+            throw new RuntimeException("LLM Error: " + resp.statusCode() + " - " + resp.body());
+        }
+        JsonNode root = objectMapper.readTree(resp.body());
+        String content = extractContent(root, anthropic);
+        content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
+        if (content.isEmpty()) content = "{}";
+        return objectMapper.readTree(content);
+    }
+
+    /**
+     * 在分句 / 段落边界把长文本切成 <= maxChars 的多段。
+     */
+    private List<String> chunkText(String text, int maxChars) {
+        List<String> out = new ArrayList<>();
+        if (text == null || text.isBlank()) return out;
+        if (text.length() <= maxChars) { out.add(text); return out; }
+        int n = text.length();
+        int idx = 0;
+        while (idx < n) {
+            int end = Math.min(n, idx + maxChars);
+            if (end < n) {
+                int bp = text.lastIndexOf('\n', end);
+                if (bp <= idx + maxChars / 2) bp = text.lastIndexOf('。', end);
+                if (bp <= idx + maxChars / 2) bp = text.lastIndexOf('.', end);
+                if (bp > idx + maxChars / 2) end = bp + 1;
+            }
+            out.add(text.substring(idx, end));
+            idx = end;
+        }
+        return out;
+    }
+
+    /**
+     * 把单 chunk 输出中的所有节点 id 与边端点统一加 chunk 前缀，避免不同段返回的 n_1 撞车。
+     */
+    private JsonNode prefixChunkIds(JsonNode part, String prefix) {
+        ObjectNode out = objectMapper.createObjectNode();
+        if (part.has("reply")) out.set("reply", part.get("reply"));
+
+        Map<String, String> idMap = new HashMap<>();
+        ArrayNode srcNodes = part.has("add_nodes") && part.get("add_nodes").isArray()
+                ? (ArrayNode) part.get("add_nodes") : objectMapper.createArrayNode();
+        ArrayNode outNodes = objectMapper.createArrayNode();
+        for (JsonNode n : srcNodes) {
+            ObjectNode copy = n.deepCopy();
+            String oldId = copy.path("id").asText("");
+            if (oldId.isEmpty()) continue;
+            String newId = prefix + oldId;
+            idMap.put(oldId, newId);
+            copy.put("id", newId);
+            outNodes.add(copy);
+        }
+        ArrayNode srcEdges = part.has("add_edges") && part.get("add_edges").isArray()
+                ? (ArrayNode) part.get("add_edges") : objectMapper.createArrayNode();
+        ArrayNode outEdges = objectMapper.createArrayNode();
+        for (JsonNode e : srcEdges) {
+            ObjectNode copy = e.deepCopy();
+            String f = copy.path("from").asText("");
+            String t = copy.path("to").asText("");
+            if (idMap.containsKey(f)) copy.put("from", idMap.get(f));
+            if (idMap.containsKey(t)) copy.put("to", idMap.get(t));
+            String eid = copy.path("id").asText("");
+            if (!eid.isEmpty()) copy.put("id", prefix + eid);
+            outEdges.add(copy);
+        }
+        out.set("add_nodes", outNodes);
+        out.set("add_edges", outEdges);
+        return out;
+    }
+
+    /**
+     * 按 label 标准化跨段合并：相同标签视为同一节点，第二段的引用被重写到第一段对应 id。
+     */
+    private JsonNode mergeExtractionByLabel(JsonNode a, JsonNode b) {
+        ObjectNode out = objectMapper.createObjectNode();
+        if (a.has("reply")) out.set("reply", a.get("reply"));
+
+        ArrayNode outNodes = objectMapper.createArrayNode();
+        ArrayNode outEdges = objectMapper.createArrayNode();
+        Map<String, String> labelToId = new HashMap<>();
+        Map<String, String> idRemap = new HashMap<>();
+
+        for (JsonNode n : a.path("add_nodes")) {
+            outNodes.add(n);
+            String norm = normalizeLabel(n.path("label").asText(""));
+            if (!norm.isEmpty()) labelToId.put(norm, n.path("id").asText());
+        }
+        for (JsonNode e : a.path("add_edges")) outEdges.add(e);
+
+        for (JsonNode n : b.path("add_nodes")) {
+            String norm = normalizeLabel(n.path("label").asText(""));
+            String id = n.path("id").asText();
+            if (!norm.isEmpty() && labelToId.containsKey(norm)) {
+                idRemap.put(id, labelToId.get(norm));
+            } else {
+                outNodes.add(n);
+                if (!norm.isEmpty() && !id.isEmpty()) labelToId.put(norm, id);
+            }
+        }
+        for (JsonNode e : b.path("add_edges")) {
+            ObjectNode copy = e.deepCopy();
+            String f = copy.path("from").asText("");
+            String t = copy.path("to").asText("");
+            copy.put("from", idRemap.getOrDefault(f, f));
+            copy.put("to", idRemap.getOrDefault(t, t));
+            outEdges.add(copy);
+        }
+        out.set("add_nodes", outNodes);
+        out.set("add_edges", outEdges);
+        return out;
+    }
+
+    private static String normalizeLabel(String s) {
+        if (s == null) return "";
+        return s.trim().toLowerCase().replaceAll("\\s+", " ");
     }
 
     // ========== 协议适配辅助 ==========
@@ -805,6 +1113,157 @@ public class LlmService {
                   .append(" : ").append(e.getOrDefault("label", ""))
                   .append(Boolean.TRUE.equals(rd) ? " [rule]" : "")
                   .append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    // ========== v0.9：context 截断 ==========
+
+    private static final int CONTEXT_NODE_BUDGET = 120;
+    private static final int CONTEXT_EDGE_BUDGET = 240;
+    private static final int CONTEXT_HOPS = 3;
+
+    static final class TruncatedGraph {
+        final List<Map<String, Object>> nodes;
+        final List<Map<String, Object>> edges;
+        final int droppedNodes;
+        final int droppedEdges;
+        TruncatedGraph(List<Map<String, Object>> n, List<Map<String, Object>> e, int dn, int de) {
+            this.nodes = n; this.edges = e; this.droppedNodes = dn; this.droppedEdges = de;
+        }
+    }
+
+    /**
+     * 超过预算时，按优先级保留：seeds → 规则节点 → 约束目标 → 它们的 k-hop 邻域。
+     * 其余节点和孤立边被丢弃，并在 prompt 中告知 LLM。
+     */
+    TruncatedGraph truncateGraphForContext(List<Map<String, Object>> nodes,
+                                           List<Map<String, Object>> edges,
+                                           List<String> seeds,
+                                           List<com.tuiyan.backend.model.Constraint> constraints) {
+        int totalNodes = nodes == null ? 0 : nodes.size();
+        int totalEdges = edges == null ? 0 : edges.size();
+        if (totalNodes <= CONTEXT_NODE_BUDGET && totalEdges <= CONTEXT_EDGE_BUDGET) {
+            return new TruncatedGraph(
+                    nodes == null ? new ArrayList<>() : nodes,
+                    edges == null ? new ArrayList<>() : edges,
+                    0, 0);
+        }
+
+        Set<String> keep = new java.util.LinkedHashSet<>();
+        if (seeds != null) keep.addAll(seeds);
+        if (nodes != null) {
+            for (Map<String, Object> n : nodes) {
+                if ("rule".equalsIgnoreCase(String.valueOf(n.get("type")))) {
+                    keep.add(String.valueOf(n.get("id")));
+                }
+            }
+        }
+        if (constraints != null) {
+            for (com.tuiyan.backend.model.Constraint c : constraints) {
+                if (c != null && c.getNodeId() != null) keep.add(c.getNodeId());
+            }
+        }
+
+        Map<String, List<String>> neighbors = new HashMap<>();
+        if (edges != null) {
+            for (Map<String, Object> e : edges) {
+                String f = String.valueOf(e.get("from"));
+                String t = String.valueOf(e.get("to"));
+                neighbors.computeIfAbsent(f, k -> new ArrayList<>()).add(t);
+                neighbors.computeIfAbsent(t, k -> new ArrayList<>()).add(f);
+            }
+        }
+
+        // BFS 扩展若干 hop，受预算约束
+        Set<String> frontier = new HashSet<>(keep);
+        for (int hop = 0; hop < CONTEXT_HOPS && keep.size() < CONTEXT_NODE_BUDGET; hop++) {
+            Set<String> next = new java.util.LinkedHashSet<>();
+            for (String id : frontier) {
+                List<String> nbs = neighbors.get(id);
+                if (nbs != null) for (String nb : nbs) if (!keep.contains(nb)) next.add(nb);
+            }
+            for (String nb : next) {
+                if (keep.size() >= CONTEXT_NODE_BUDGET) break;
+                keep.add(nb);
+            }
+            if (next.isEmpty()) break;
+            frontier = next;
+        }
+
+        List<Map<String, Object>> outNodes = new ArrayList<>();
+        if (nodes != null) {
+            for (Map<String, Object> n : nodes) {
+                if (keep.contains(String.valueOf(n.get("id")))) outNodes.add(n);
+            }
+        }
+        List<Map<String, Object>> outEdges = new ArrayList<>();
+        if (edges != null) {
+            for (Map<String, Object> e : edges) {
+                if (keep.contains(String.valueOf(e.get("from")))
+                        && keep.contains(String.valueOf(e.get("to")))) {
+                    outEdges.add(e);
+                    if (outEdges.size() >= CONTEXT_EDGE_BUDGET) break;
+                }
+            }
+        }
+        return new TruncatedGraph(outNodes, outEdges,
+                totalNodes - outNodes.size(),
+                totalEdges - outEdges.size());
+    }
+
+    /**
+     * 规则节点 (type=rule) 提取为单独章节，附 baseRate / weight（若存在于 properties）。
+     * 让 LLM 优先沿规则推演，并在 rule_id 字段中显式引用。
+     */
+    private String summarizeRules(List<Map<String, Object>> nodes) {
+        if (nodes == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (Map<String, Object> n : nodes) {
+            if (!"rule".equalsIgnoreCase(String.valueOf(n.get("type")))) continue;
+            sb.append("  - ").append(n.get("id"))
+              .append(" | ").append(n.get("label"));
+            Object props = n.get("properties");
+            if (props instanceof Map<?, ?> p) {
+                Object br = p.get("baseRate");
+                Object w = p.get("weight");
+                if (br != null) sb.append(" | baseRate=").append(br);
+                if (w != null) sb.append(" | weight=").append(w);
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * What-if 约束 → 提示词文本。force 提示 LLM 视为既成事实；block 禁止依赖。
+     */
+    private String summarizeConstraints(List<com.tuiyan.backend.model.Constraint> cs,
+                                        List<Map<String, Object>> nodes) {
+        if (cs == null || cs.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (com.tuiyan.backend.model.Constraint c : cs) {
+            if (c == null || c.getNodeId() == null) continue;
+            String label = c.getNodeId();
+            if (nodes != null) {
+                for (Map<String, Object> n : nodes) {
+                    if (c.getNodeId().equals(n.get("id"))) {
+                        Object lb = n.get("label");
+                        if (lb != null) label = c.getNodeId() + "(" + lb + ")";
+                        break;
+                    }
+                }
+            }
+            if ("block".equalsIgnoreCase(c.getMode())) {
+                sb.append("  - 禁止: ").append(label)
+                  .append(" 不发生；预测中不得以其为 triggered_by / leads_to，也不得预测出等价节点。\n");
+            } else {
+                sb.append("  - 强制: ").append(label)
+                  .append(" 必然发生，可作为 step=1 的合法上游/下游连接点。\n");
+            }
+            if (c.getNote() != null && !c.getNote().isBlank()) {
+                sb.append("    说明: ").append(c.getNote()).append("\n");
             }
         }
         return sb.toString();

@@ -60,6 +60,14 @@ const emptyForm = () => ({
 });
 const formErrors = ref<Record<string, string>>({});
 const saved = ref(false);
+const saveError = ref('');
+const saving = ref(false);
+const toast = ref<{ msg: string; kind: 'success' | 'error' } | null>(null);
+
+const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
+  toast.value = { msg, kind };
+  setTimeout(() => { toast.value = null; }, 2500);
+};
 
 const loadModels = async () => {
   try {
@@ -183,6 +191,8 @@ const openAdd = () => {
   editingModel.value = null;
   formData.value = emptyForm();
   formErrors.value = {};
+  saveError.value = '';
+  saving.value = false;
   showAddModal.value = true;
 };
 
@@ -213,6 +223,8 @@ const openEdit = (model: ModelConfig) => {
     protocol: model.protocol || ''
   };
   formErrors.value = {};
+  saveError.value = '';
+  saving.value = false;
   showAddModal.value = true;
 };
 
@@ -225,7 +237,13 @@ const validateForm = (): boolean => {
 };
 
 const saveModel = async () => {
-  if (!validateForm()) return;
+  saveError.value = '';
+  if (!validateForm()) {
+    saveError.value = '请检查必填项';
+    return;
+  }
+  if (saving.value) return;
+  saving.value = true;
   try {
     const url = editingModel.value ? `/api/models/${editingModel.value.id}` : '/api/models';
     const method = editingModel.value ? 'PUT' : 'POST';
@@ -247,16 +265,24 @@ const saveModel = async () => {
       body: JSON.stringify(payload)
     });
     if (res.ok) {
+      const wasEdit = !!editingModel.value;
       showAddModal.value = false;
-      saved.value = true;
-      setTimeout(() => saved.value = false, 2000);
       await loadModels();
+      showToast(wasEdit ? '修改已保存' : '模型已添加', 'success');
     } else {
-      const err = await res.json();
-      console.error('Save failed:', err);
+      let msg = `保存失败 (HTTP ${res.status})`;
+      try {
+        const err = await res.json();
+        if (err && err.error) msg = err.error;
+      } catch {}
+      saveError.value = msg;
+      showToast(msg, 'error');
     }
-  } catch (e) {
-    console.error("Failed to save model", e);
+  } catch (e: any) {
+    saveError.value = '网络错误：' + (e?.message || e);
+    showToast(saveError.value, 'error');
+  } finally {
+    saving.value = false;
   }
 };
 
@@ -605,13 +631,23 @@ const toggleModel = async (model: ModelConfig) => {
             </select>
           </div>
         </div>
+        <div v-if="saveError" class="modal-error-banner">
+          <span>⚠</span> {{ saveError }}
+        </div>
         <div class="modal-footer">
-          <button class="modal-btn cancel" @click="showAddModal = false">取消</button>
-          <button class="modal-btn save" @click="saveModel">
-            {{ saved ? '已保存！' : (editingModel ? '保存修改' : '添加模型') }}
+          <button class="modal-btn cancel" @click="showAddModal = false" :disabled="saving">取消</button>
+          <button class="modal-btn save" @click="saveModel" :disabled="saving">
+            <span v-if="saving" class="spinner-sm" />
+            {{ saving ? '保存中…' : (editingModel ? '保存修改' : '添加模型') }}
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- Top-level toast -->
+    <div v-if="toast" class="sv-toast" :class="'sv-toast-' + toast.kind">
+      <span class="sv-toast-icon">{{ toast.kind === 'success' ? '✓' : '✗' }}</span>
+      <span>{{ toast.msg }}</span>
     </div>
   </div>
 </template>
@@ -1166,6 +1202,63 @@ const toggleModel = async (model: ModelConfig) => {
   font-size: 10px;
   font-weight: 500;
   border: 1px solid rgba(217, 119, 87, 0.3);
+}
+
+.modal-error-banner {
+  margin: 0 24px 0;
+  padding: 10px 14px;
+  background: rgba(255, 102, 68, 0.12);
+  border: 1px solid rgba(255, 102, 68, 0.35);
+  color: #ff8a6f;
+  border-radius: 8px;
+  font-size: 13px;
+  display: flex; align-items: center; gap: 8px;
+}
+.modal-btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none !important; }
+.spinner-sm {
+  display: inline-block;
+  width: 12px; height: 12px;
+  margin-right: 6px;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+  vertical-align: -2px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.sv-toast {
+  position: fixed;
+  top: 24px; left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px;
+  border-radius: 100px;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 3000;
+  backdrop-filter: blur(16px);
+  animation: toastIn .25s cubic-bezier(.34,1.56,.64,1);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.35);
+}
+@keyframes toastIn { from { opacity:0; transform:translate(-50%,-12px); } to { opacity:1; transform:translate(-50%,0); } }
+.sv-toast-success {
+  background: rgba(66, 184, 131, 0.18);
+  border: 1px solid rgba(66, 184, 131, 0.45);
+  color: #6dd4a7;
+}
+.sv-toast-error {
+  background: rgba(255, 102, 68, 0.18);
+  border: 1px solid rgba(255, 102, 68, 0.45);
+  color: #ff8a6f;
+}
+.sv-toast-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: currentColor;
+  color: #0a121b;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .modal-footer {

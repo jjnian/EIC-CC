@@ -90,18 +90,18 @@
   "protocol" : "openai"
 }, {
   "id" : "preset-deepseek-chat",
-  "name" : "DeepSeek Chat (默认)",
+  "name" : "DeepSeek 新名字",
   "baseUrl" : "https://api.deepseek.com/v1",
   "modelName" : "deepseek-chat",
-  "apiKey" : "",
+  "apiKey" : "sk-new",
   "enabled" : true,
   "createdAt" : 1737200000000,
-  "updatedAt" : 1737200000000,
+  "updatedAt" : 1779116944613,
   "provider" : "deepseek",
-  "description" : "★ 系统默认。DeepSeek V 系列对话模型，中文友好、价格极低，适合大批量推演",
+  "description" : "更新描述",
   "contextWindow" : 65536,
   "maxOutputTokens" : 8192,
-  "capabilities" : [ "streaming", "json", "tool-use" ],
+  "capabilities" : [ "streaming", "json" ],
   "protocol" : "openai"
 }, {
   "id" : "preset-deepseek-reasoner",
@@ -117,5 +117,20 @@
   "contextWindow" : 65536,
   "maxOutputTokens" : 8192,
   "capabilities" : [ "streaming", "reasoning" ],
+  "protocol" : "openai"
+}, {
+  "id" : "fe5c76bd-a53e-4631-86a1-4b25a6a27d94",
+  "name" : "测试模型",
+  "baseUrl" : "https://api.test.com/v1",
+  "modelName" : "test-model",
+  "apiKey" : "sk-fake",
+  "enabled" : true,
+  "createdAt" : 1779116944575,
+  "updatedAt" : 1779116944575,
+  "provider" : "test",
+  "description" : "测试",
+  "contextWindow" : 8192,
+  "maxOutputTokens" : 2048,
+  "capabilities" : [ "streaming" ],
   "protocol" : "openai"
 } ]
