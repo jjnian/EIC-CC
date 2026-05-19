@@ -95,6 +95,20 @@ const loadBranches = async (modelId: string) => {
 
 const findModel = (id: string) => models.value.find(m => m.id === id);
 
+// v0.8：沿 parentBranchId 链回溯，root-first 合并所有祖先 dag 增量
+const collectAncestorChain = (leafId: string): any[] => {
+  const chain: any[] = [];
+  let cur = branches.value.find(x => x.id === leafId);
+  const guard = new Set<string>(); // 防御循环引用
+  while (cur && !guard.has(cur.id)) {
+    guard.add(cur.id);
+    chain.unshift(cur);
+    if (!cur.parentBranchId) break;
+    cur = branches.value.find(x => x.id === cur.parentBranchId);
+  }
+  return chain;
+};
+
 const switchBranch = (id: string) => {
   liveActive.value = false;
   liveSteps.value = [];
@@ -107,19 +121,23 @@ const switchBranch = (id: string) => {
     }
     activeBranchId.value = 'trunk';
   } else {
-    const b = branches.value.find(x => x.id === id);
-    if (b) {
-      // v0.6 delta 回放：分支若只存 dag 增量，则在 trunk 上合并；老分支沿用全快照
-      if (b.dag && Array.isArray(b.dag.nodes)) {
-        const trunkM = findModel(currentModelId.value);
-        const trunkNodes = trunkM ? JSON.parse(JSON.stringify(trunkM.graphData.nodes)) : [];
-        const trunkEdges = trunkM ? JSON.parse(JSON.stringify(trunkM.graphData.edges)) : [];
-        nodes.value = [...trunkNodes, ...JSON.parse(JSON.stringify(b.dag.nodes || []))];
-        edges.value = [...trunkEdges, ...JSON.parse(JSON.stringify(b.dag.edges || []))];
-      } else {
-        nodes.value = JSON.parse(JSON.stringify(b.nodes || []));
-        edges.value = JSON.parse(JSON.stringify(b.edges || []));
+    const chain = collectAncestorChain(id);
+    if (chain.length) {
+      const trunkM = findModel(currentModelId.value);
+      let mergedNodes: any[] = trunkM ? JSON.parse(JSON.stringify(trunkM.graphData.nodes || [])) : [];
+      let mergedEdges: any[] = trunkM ? JSON.parse(JSON.stringify(trunkM.graphData.edges || [])) : [];
+      for (const b of chain) {
+        if (b.dag && Array.isArray(b.dag.nodes)) {
+          mergedNodes = [...mergedNodes, ...JSON.parse(JSON.stringify(b.dag.nodes || []))];
+          mergedEdges = [...mergedEdges, ...JSON.parse(JSON.stringify(b.dag.edges || []))];
+        } else {
+          // 老分支全快照：用其覆盖（仅可能出现在 v0.5 历史数据，链应止步于此）
+          mergedNodes = JSON.parse(JSON.stringify(b.nodes || []));
+          mergedEdges = JSON.parse(JSON.stringify(b.edges || []));
+        }
       }
+      nodes.value = mergedNodes;
+      edges.value = mergedEdges;
       activeBranchId.value = id;
     }
   }
@@ -127,20 +145,32 @@ const switchBranch = (id: string) => {
 };
 
 const deleteBranch = async (id: string) => {
+  // v0.8：收集所有以 id 为祖先的子分支，前端同步过滤；后端会级联删除
+  const toRemove = new Set<string>([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const b of branches.value) {
+      if (toRemove.has(b.parentBranchId) && !toRemove.has(b.id)) {
+        toRemove.add(b.id);
+        grew = true;
+      }
+    }
+  }
   try {
     await fetch('/api/scenarios/' + encodeURIComponent(id), { method: 'DELETE' });
   } catch {}
-  branches.value = branches.value.filter(b => b.id !== id);
-  if (activeBranchId.value === id) {
+  branches.value = branches.value.filter(b => !toRemove.has(b.id));
+  if (toRemove.has(activeBranchId.value)) {
     switchBranch('trunk');
   }
 };
 
 const openPredictDialog = (seedId: string) => {
-  if (activeBranchId.value !== 'trunk') {
-    // 在推演分支上不允许再分叉，先回到主分支
-    if (!confirm('当前位于推演分支。是否切回主分支再发起新推演？')) return;
-    switchBranch('trunk');
+  // v0.8：允许从推演分支再次分叉；当前正在流式推演时拦截
+  if (liveActive.value) {
+    alert('当前推演进行中，请等待完成后再发起新推演');
+    return;
   }
   predictSeeds.value = [seedId];
   predictDialogOpen.value = true;
@@ -151,13 +181,14 @@ const startPrediction = async (payload: { seeds: string[]; steps: number; prompt
   const m = findModel(currentModelId.value);
   if (!m) return;
 
-  // Snapshot trunk for restore on cancel/error
+  // v0.8：fork 起点可以是 trunk 也可以是当前预测分支；快照取当前可见图谱（已合并祖先 delta）
+  const forkParentId = activeBranchId.value === 'trunk' ? null : activeBranchId.value;
   trunkSnapshot.value = {
-    nodes: JSON.parse(JSON.stringify(m.graphData.nodes)),
-    edges: JSON.parse(JSON.stringify(m.graphData.edges))
+    nodes: JSON.parse(JSON.stringify(nodes.value)),
+    edges: JSON.parse(JSON.stringify(edges.value))
   };
 
-  // Fork displayed graph from trunk snapshot (will receive predicted nodes streaming)
+  // Fork displayed graph from snapshot (will receive predicted nodes streaming)
   nodes.value = JSON.parse(JSON.stringify(trunkSnapshot.value.nodes));
   edges.value = JSON.parse(JSON.stringify(trunkSnapshot.value.edges));
   activeBranchId.value = 'live';
@@ -168,7 +199,7 @@ const startPrediction = async (payload: { seeds: string[]; steps: number; prompt
 
   const body = {
     modelId: currentModelId.value,
-    parentBranchId: null,
+    parentBranchId: forkParentId,
     name: payload.name,
     intent: payload.intent || 'forward',
     seeds: payload.seeds,
@@ -190,7 +221,7 @@ const startPrediction = async (payload: { seeds: string[]; steps: number; prompt
       alert('推演失败: ' + (err.error || res.statusText));
       liveLoading.value = false;
       liveActive.value = false;
-      switchBranch('trunk');
+      switchBranch(forkParentId || 'trunk');
       return;
     }
     const reader = res.body!.getReader();
@@ -238,7 +269,7 @@ const startPrediction = async (payload: { seeds: string[]; steps: number; prompt
             alert('推演错误: ' + data);
             liveLoading.value = false;
             liveActive.value = false;
-            switchBranch('trunk');
+            switchBranch(forkParentId || 'trunk');
           }
         }
       }
@@ -248,7 +279,7 @@ const startPrediction = async (payload: { seeds: string[]; steps: number; prompt
     alert('网络错误: ' + e.message);
     liveLoading.value = false;
     liveActive.value = false;
-    switchBranch('trunk');
+    switchBranch(forkParentId || 'trunk');
   }
 };
 
@@ -562,7 +593,7 @@ const startDivider = (e: MouseEvent) => {
           />
           <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
             <span class="bb-icon">⚡</span>
-            <span>当前查看推演分支（只读）</span>
+            <span>当前查看推演分支 · 可右键节点从此再次分叉</span>
             <button class="bb-back" @click="switchBranch('trunk')">返回主分支</button>
           </div>
           <NodeInfo :node="selNode" :nodes="nodes" :edges="edges" :isOpen="showSchema" @close="() => { sel = null; showSchema = false; }" />

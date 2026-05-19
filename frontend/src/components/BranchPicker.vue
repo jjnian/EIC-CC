@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 
-defineProps<{
+const props = defineProps<{
   branches: any[];
   activeBranchId: string;
 }>();
@@ -19,16 +19,72 @@ const fmtTime = (ts: number) => {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-const onDelete = (id: string, e: Event) => {
-  e.stopPropagation();
-  if (!confirm('删除此推演分支？此操作不可恢复。')) return;
-  emit('delete', id);
-};
-
 const branchIntent = (b: any): 'forward' | 'backward' =>
   (b.intent || b.dag?.intent) === 'backward' ? 'backward' : 'forward';
 
 const branchStepsCount = (b: any) => b.chain?.length || b.dag?.chain?.length || 0;
+
+// v0.8：分支按祖先 → 后代树形展开。返回 [{ branch, depth }] DFS 顺序
+const branchTree = computed(() => {
+  const byId = new Map<string, any>();
+  for (const b of props.branches) byId.set(b.id, b);
+  const childrenOf = new Map<string | null, any[]>();
+  for (const b of props.branches) {
+    const k = b.parentBranchId || null;
+    if (!childrenOf.has(k)) childrenOf.set(k, []);
+    childrenOf.get(k)!.push(b);
+  }
+  // 排序：每层按 createdAt 倒序（最新在上）
+  for (const arr of childrenOf.values()) arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  // 根：parentBranchId 缺失或指向不存在的分支（容错）都视为根
+  const roots: any[] = [];
+  for (const b of props.branches) {
+    if (!b.parentBranchId || !byId.has(b.parentBranchId)) roots.push(b);
+  }
+  roots.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  const out: { branch: any; depth: number }[] = [];
+  const visited = new Set<string>();
+  const walk = (b: any, depth: number) => {
+    if (visited.has(b.id)) return;
+    visited.add(b.id);
+    out.push({ branch: b, depth });
+    const kids = childrenOf.get(b.id) || [];
+    for (const k of kids) walk(k, depth + 1);
+  };
+  for (const r of roots) walk(r, 0);
+  // 兜底：若有循环引用未访问到的，也追加在末尾
+  for (const b of props.branches) if (!visited.has(b.id)) walk(b, 0);
+  return out;
+});
+
+const descendantCount = (id: string) => {
+  let n = 0;
+  const stack = [id];
+  const seen = new Set<string>();
+  while (stack.length) {
+    const cur = stack.pop()!;
+    for (const b of props.branches) {
+      if (b.parentBranchId === cur && !seen.has(b.id)) {
+        seen.add(b.id);
+        n++;
+        stack.push(b.id);
+      }
+    }
+  }
+  return n;
+};
+
+const onDelete = (id: string, e: Event) => {
+  e.stopPropagation();
+  const kids = descendantCount(id);
+  const msg = kids > 0
+    ? `删除此推演分支将级联删除 ${kids} 个子分支。是否继续？此操作不可恢复。`
+    : '删除此推演分支？此操作不可恢复。';
+  if (!confirm(msg)) return;
+  emit('delete', id);
+};
 </script>
 
 <template>
@@ -58,20 +114,23 @@ const branchStepsCount = (b: any) => b.chain?.length || b.dag?.chain?.length || 
 
       <template v-if="branches.length">
         <div class="bp-section-label">推演 ({{ branches.length }})</div>
-        <div v-for="b in branches" :key="b.id" class="bp-item bp-item-pred"
-             :class="{ active: activeBranchId === b.id, 'bp-item-back': branchIntent(b) === 'backward' }"
-             @click="emit('switch', b.id); open = false">
-          <span class="bp-item-icon">{{ branchIntent(b) === 'backward' ? '←' : '→' }}</span>
+        <div v-for="item in branchTree" :key="item.branch.id"
+             class="bp-item bp-item-pred"
+             :class="{ active: activeBranchId === item.branch.id, 'bp-item-back': branchIntent(item.branch) === 'backward' }"
+             :style="{ paddingLeft: (12 + item.depth * 14) + 'px' }"
+             @click="emit('switch', item.branch.id); open = false">
+          <span v-if="item.depth > 0" class="bp-tree-rail">⤷</span>
+          <span class="bp-item-icon">{{ branchIntent(item.branch) === 'backward' ? '←' : '→' }}</span>
           <div class="bp-item-info">
-            <div class="bp-item-name">{{ b.name }}</div>
+            <div class="bp-item-name">{{ item.branch.name }}</div>
             <div class="bp-item-sub">
-              {{ fmtTime(b.createdAt) }} ·
-              {{ branchIntent(b) === 'backward' ? '溯因' : '前向' }} ·
-              {{ branchStepsCount(b) }} 步
+              {{ fmtTime(item.branch.createdAt) }} ·
+              {{ branchIntent(item.branch) === 'backward' ? '溯因' : '前向' }} ·
+              {{ branchStepsCount(item.branch) }} 步
             </div>
           </div>
-          <button class="bp-del" @click="onDelete(b.id, $event)" title="删除">×</button>
-          <span v-if="activeBranchId === b.id" class="bp-check">✓</span>
+          <button class="bp-del" @click="onDelete(item.branch.id, $event)" title="删除">×</button>
+          <span v-if="activeBranchId === item.branch.id" class="bp-check">✓</span>
         </div>
       </template>
 
@@ -151,6 +210,13 @@ const branchStepsCount = (b: any) => b.chain?.length || b.dag?.chain?.length || 
 .bp-item-icon {
   font-size: 14px; color: var(--text-dim); flex-shrink: 0;
   font-family: 'JetBrains Mono', monospace; font-weight: 700;
+}
+.bp-tree-rail {
+  font-size: 10px;
+  color: rgba(255,255,255,0.25);
+  flex-shrink: 0;
+  margin-left: -4px;
+  font-family: 'JetBrains Mono', monospace;
 }
 .bp-item-pred .bp-item-icon { color: #fbbf24; }
 .bp-item-back .bp-item-icon { color: #63b3ed; }

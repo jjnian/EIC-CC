@@ -56,9 +56,38 @@ public class ScenarioService {
         objectMapper.writerWithDefaultPrettyPrinter().writeValue(fileFor(s.getId()), s);
     }
 
-    public boolean delete(String id) {
-        File f = fileFor(id);
-        return f.exists() && f.delete();
+    /**
+     * v0.8：级联删除以该 id 为祖先的所有子分支文件。
+     * 返回删除的总数（含本身）。
+     */
+    public int delete(String id) {
+        int total = 0;
+        try {
+            // 先收集所有以 id 为父或更深祖先的分支
+            List<Scenario> all = listByModel(null);
+            java.util.Map<String, String> parentMap = new java.util.HashMap<>();
+            for (Scenario s : all) parentMap.put(s.getId(), s.getParentBranchId());
+            List<String> toDelete = new ArrayList<>();
+            toDelete.add(id);
+            for (Scenario s : all) {
+                String cur = s.getParentBranchId();
+                while (cur != null) {
+                    if (cur.equals(id)) {
+                        toDelete.add(s.getId());
+                        break;
+                    }
+                    cur = parentMap.get(cur);
+                }
+            }
+            for (String d : toDelete) {
+                File f = fileFor(d);
+                if (f.exists() && f.delete()) total++;
+            }
+        } catch (IOException e) {
+            File f = fileFor(id);
+            if (f.exists() && f.delete()) total++;
+        }
+        return total;
     }
 
     private File fileFor(String id) {

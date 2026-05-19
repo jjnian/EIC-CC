@@ -52,8 +52,8 @@ public class ScenarioController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable String id) {
-        boolean ok = scenarioService.delete(id);
-        return ResponseEntity.ok(Map.of("deleted", ok));
+        int n = scenarioService.delete(id);
+        return ResponseEntity.ok(Map.of("deleted", n > 0, "count", n));
     }
 
     @PostMapping
@@ -71,6 +71,12 @@ public class ScenarioController {
         try {
             String intent = "backward".equalsIgnoreCase(req.getIntent()) ? "backward" : "forward";
             boolean backward = "backward".equals(intent);
+
+            // v0.8：从预测分支再次分叉时，新预测节点 id 需加 salt，避免与父分支的 p_N 撞车
+            boolean isFork = req.getParentBranchId() != null && !req.getParentBranchId().isBlank();
+            long now = System.currentTimeMillis();
+            String scenarioId = "sc_" + now;
+            String idSalt = isFork ? Long.toString(now, 36) : "";
 
             JsonNode result = llmService.predictChain(req);
             JsonNode chain = result.path("chain");
@@ -109,7 +115,8 @@ public class ScenarioController {
             int stepIndex = 0;
             for (JsonNode item : chain) {
                 stepIndex++;
-                String id = item.path("id").asText("p_" + stepIndex);
+                String rawId = item.path("id").asText("p_" + stepIndex);
+                String id = applyIdSalt(rawId, idSalt);
                 String label = item.path("label").asText("预测" + stepIndex);
                 String type = item.path("type").asText("event");
                 String ruleId = item.path("rule_id").isNull() ? null : item.path("rule_id").asText(null);
@@ -125,8 +132,9 @@ public class ScenarioController {
                         ? (ArrayNode) linkNode : objectMapper.createArrayNode();
 
                 // 约束剪枝：丢弃所有指向 blocked id 的连接；若 forward 链路全空则整节点剪枝并级联
+                // 同时对引用本次新预测节点的 p_N 形式作 salt 重写（祖先预测节点的 id 已是 pXXX_N，不会命中）
                 List<String> rawLinkIds = new ArrayList<>();
-                for (JsonNode t : links) rawLinkIds.add(t.asText());
+                for (JsonNode t : links) rawLinkIds.add(applyIdSalt(t.asText(), idSalt));
                 List<String> linkIds = new ArrayList<>();
                 for (String lid : rawLinkIds) {
                     if (!blockedIds.contains(lid)) linkIds.add(lid);
@@ -226,10 +234,10 @@ public class ScenarioController {
 
             // 构建 Scenario：仅保存 dag 增量，不再落 full snapshot
             Scenario s = new Scenario();
-            s.setId("sc_" + System.currentTimeMillis());
+            s.setId(scenarioId);
             s.setModelId(req.getModelId());
             s.setParentBranchId(req.getParentBranchId());
-            s.setCreatedAt(System.currentTimeMillis());
+            s.setCreatedAt(now);
             s.setIntent(intent);
             s.setSeeds(req.getSeeds());
             s.setSteps(req.getSteps() == null ? chain.size() : req.getSteps());
@@ -279,6 +287,17 @@ public class ScenarioController {
             } catch (IOException ignored) {}
             emitter.completeWithError(e);
         }
+    }
+
+    /**
+     * v0.8 fork id 重写：LLM 总是以 p_N 形式返回新预测节点 id，多级分叉时需要加 salt 隔离。
+     * 仅当 raw 严格匹配 ^p_\d+$ 时改写为 p<salt>_N；其他形态（祖先预测节点的 pXXX_N、trunk 节点）原样保留。
+     */
+    private static String applyIdSalt(String raw, String idSalt) {
+        if (idSalt == null || idSalt.isEmpty()) return raw;
+        if (raw == null) return raw;
+        if (!raw.matches("p_\\d+")) return raw;
+        return "p" + idSalt + "_" + raw.substring(2);
     }
 
     private static double clamp01(double v) {
