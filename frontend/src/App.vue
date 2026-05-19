@@ -30,6 +30,7 @@ const predictSeeds = ref<string[]>([]);
 const liveSteps = ref<any[]>([]);
 const liveLoading = ref(false);
 const liveActive = ref(false);  // true while a prediction is streaming
+const liveIntent = ref<'forward' | 'backward'>('forward');
 const trunkSnapshot = ref<{ nodes: any[]; edges: any[] } | null>(null);
 
 const models = ref<any[]>([]);
@@ -108,8 +109,17 @@ const switchBranch = (id: string) => {
   } else {
     const b = branches.value.find(x => x.id === id);
     if (b) {
-      nodes.value = JSON.parse(JSON.stringify(b.nodes || []));
-      edges.value = JSON.parse(JSON.stringify(b.edges || []));
+      // v0.6 delta 回放：分支若只存 dag 增量，则在 trunk 上合并；老分支沿用全快照
+      if (b.dag && Array.isArray(b.dag.nodes)) {
+        const trunkM = findModel(currentModelId.value);
+        const trunkNodes = trunkM ? JSON.parse(JSON.stringify(trunkM.graphData.nodes)) : [];
+        const trunkEdges = trunkM ? JSON.parse(JSON.stringify(trunkM.graphData.edges)) : [];
+        nodes.value = [...trunkNodes, ...JSON.parse(JSON.stringify(b.dag.nodes || []))];
+        edges.value = [...trunkEdges, ...JSON.parse(JSON.stringify(b.dag.edges || []))];
+      } else {
+        nodes.value = JSON.parse(JSON.stringify(b.nodes || []));
+        edges.value = JSON.parse(JSON.stringify(b.edges || []));
+      }
       activeBranchId.value = id;
     }
   }
@@ -136,7 +146,7 @@ const openPredictDialog = (seedId: string) => {
   predictDialogOpen.value = true;
 };
 
-const startPrediction = async (payload: { seeds: string[]; steps: number; prompt: string; name: string }) => {
+const startPrediction = async (payload: { seeds: string[]; steps: number; prompt: string; name: string; intent?: 'forward' | 'backward' }) => {
   predictDialogOpen.value = false;
   const m = findModel(currentModelId.value);
   if (!m) return;
@@ -154,11 +164,13 @@ const startPrediction = async (payload: { seeds: string[]; steps: number; prompt
   liveActive.value = true;
   liveSteps.value = [];
   liveLoading.value = true;
+  liveIntent.value = payload.intent || 'forward';
 
   const body = {
     modelId: currentModelId.value,
     parentBranchId: null,
     name: payload.name,
+    intent: payload.intent || 'forward',
     seeds: payload.seeds,
     steps: payload.steps,
     prompt: payload.prompt,
@@ -555,6 +567,7 @@ const startDivider = (e: MouseEvent) => {
           :steps="liveSteps"
           :loading="liveLoading"
           :nodes="nodes"
+          :intent="liveIntent"
           :style="{ width: chatW + 'px', flexShrink: 0 }"
           @close="closeTimeline"
           @focus-node="focusNodeInGraph"

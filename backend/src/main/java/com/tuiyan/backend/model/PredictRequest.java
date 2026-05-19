@@ -7,6 +7,7 @@ public class PredictRequest {
     private String modelId;
     private String parentBranchId;
     private String name;
+    private String intent;                  // forward (默认) | backward
     private List<String> seeds;
     private Integer steps;
     private String prompt;
@@ -35,4 +36,6 @@ public class PredictRequest {
     public void setModelOverride(String modelOverride) { this.modelOverride = modelOverride; }
     public String getConfigId() { return configId; }
     public void setConfigId(String configId) { this.configId = configId; }
+    public String getIntent() { return intent; }
+    public void setIntent(String intent) { this.intent = intent; }
 }

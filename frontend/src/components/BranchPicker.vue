@@ -24,6 +24,11 @@ const onDelete = (id: string, e: Event) => {
   if (!confirm('删除此推演分支？此操作不可恢复。')) return;
   emit('delete', id);
 };
+
+const branchIntent = (b: any): 'forward' | 'backward' =>
+  (b.intent || b.dag?.intent) === 'backward' ? 'backward' : 'forward';
+
+const branchStepsCount = (b: any) => b.chain?.length || b.dag?.chain?.length || 0;
 </script>
 
 <template>
@@ -54,12 +59,16 @@ const onDelete = (id: string, e: Event) => {
       <template v-if="branches.length">
         <div class="bp-section-label">推演 ({{ branches.length }})</div>
         <div v-for="b in branches" :key="b.id" class="bp-item bp-item-pred"
-             :class="{ active: activeBranchId === b.id }"
+             :class="{ active: activeBranchId === b.id, 'bp-item-back': branchIntent(b) === 'backward' }"
              @click="emit('switch', b.id); open = false">
-          <span class="bp-item-icon">⚡</span>
+          <span class="bp-item-icon">{{ branchIntent(b) === 'backward' ? '←' : '→' }}</span>
           <div class="bp-item-info">
             <div class="bp-item-name">{{ b.name }}</div>
-            <div class="bp-item-sub">{{ fmtTime(b.createdAt) }} · {{ b.chain?.length || 0 }} 步</div>
+            <div class="bp-item-sub">
+              {{ fmtTime(b.createdAt) }} ·
+              {{ branchIntent(b) === 'backward' ? '溯因' : '前向' }} ·
+              {{ branchStepsCount(b) }} 步
+            </div>
           </div>
           <button class="bp-del" @click="onDelete(b.id, $event)" title="删除">×</button>
           <span v-if="activeBranchId === b.id" class="bp-check">✓</span>
@@ -138,8 +147,14 @@ const onDelete = (id: string, e: Event) => {
 .bp-item:hover { background: rgba(255,255,255,0.06); }
 .bp-item.active { background: rgba(66, 184, 131, 0.12); }
 .bp-item-pred.active { background: rgba(251, 191, 36, 0.15); }
-.bp-item-icon { font-size: 14px; color: var(--text-dim); flex-shrink: 0; }
+.bp-item-back.active { background: rgba(99, 179, 237, 0.15); }
+.bp-item-icon {
+  font-size: 14px; color: var(--text-dim); flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace; font-weight: 700;
+}
 .bp-item-pred .bp-item-icon { color: #fbbf24; }
+.bp-item-back .bp-item-icon { color: #63b3ed; }
+.bp-item-back .bp-check { color: #63b3ed; }
 .bp-item-info { flex: 1; min-width: 0; }
 .bp-item-name {
   font-size: 13px; color: var(--text-main); font-weight: 500;

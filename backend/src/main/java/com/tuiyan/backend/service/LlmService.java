@@ -109,6 +109,40 @@ public class LlmService {
         SCHEMA:
         %s""".formatted(PREDICT_SCHEMA);
 
+    private static final String PREDICT_BACKWARD_SCHEMA = """
+        {
+          "chain": [
+            {
+              "step": 1,
+              "id": "p_1",
+              "label": "短文本（候选原因/前置事件名称）",
+              "type": "Must be one of: 'event', 'process', 'outcome', 'entity'",
+              "leads_to": ["id of downstream existing node OR earlier predicted id（即此原因导致的下游节点）"],
+              "rule_id": "id of rule node that fires (or null)",
+              "explanation": "≤40 中文字符，解释为什么这是合理的上游原因",
+              "confidence": 0.0
+            }
+          ]
+        }
+        """;
+
+    private static final String PREDICT_BACKWARD_SYSTEM = """
+        你是一个基于本体图谱的溯因推演 (Backward Simulation / Abduction) 引擎。
+        给定现有图谱和一个或多个目标节点 (seeds，即结果)，请逆向推断可能导致该结果的 N 层上游原因。
+
+        严格要求：
+        1. 所有预测节点的 id 形如 'p_1' / 'p_2'，不要复用现有节点 id。
+        2. 每个节点都要给出 leads_to（此原因直接导致的下游节点 id 数组，至少一个；通常是目标 seeds 之一，或更晚预测的中间原因）。
+        3. step=1 的预测节点应直接 leads_to 到某个 seed；step=k (k>1) 可 leads_to 到更早 step 的预测节点（更靠近 seed 的中间原因）。
+        4. 若有规则节点 (type: 'rule') 解释该因果，请在 rule_id 字段引用，否则置 null。
+        5. 多个独立原因并行存在很正常，可属于同一 step。
+        6. explanation 用简体中文，≤40 字。
+        7. confidence ∈ [0, 1]，越高越笃定。
+        8. 只输出严格符合 schema 的 JSON，禁止 markdown 包裹。
+
+        SCHEMA:
+        %s""".formatted(PREDICT_BACKWARD_SCHEMA);
+
     // ========== 模型配置 CRUD ==========
 
     public List<ModelConfig> getAllModelConfigs() throws IOException {
@@ -615,21 +649,26 @@ public class LlmService {
         boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
 
         int steps = req.getSteps() == null ? 4 : Math.max(1, Math.min(10, req.getSteps()));
+        boolean backward = "backward".equalsIgnoreCase(req.getIntent());
+        String systemPrompt = backward ? PREDICT_BACKWARD_SYSTEM : PREDICT_SYSTEM;
+        String seedRole = backward ? "目标节点 (seeds，需要溯因的结果)" : "起点节点 (seeds)";
+        String taskWord = backward ? "请向上回溯 " : "请向前推演 ";
+        String taskUnit = backward ? " 层上游原因" : " 步";
 
         String graphSummary = summarizeGraph(req.getNodes(), req.getEdges());
         String seedSummary = summarizeSeeds(req.getSeeds(), req.getNodes());
 
         StringBuilder userPrompt = new StringBuilder();
         userPrompt.append("当前本体图谱：\n").append(graphSummary).append("\n\n");
-        userPrompt.append("起点节点 (seeds)：\n").append(seedSummary).append("\n\n");
+        userPrompt.append(seedRole).append("：\n").append(seedSummary).append("\n\n");
         if (req.getPrompt() != null && !req.getPrompt().isBlank()) {
             userPrompt.append("额外场景说明：").append(req.getPrompt()).append("\n\n");
         }
-        userPrompt.append("请向前推演 ").append(steps).append(" 步，严格按 schema 输出 JSON。");
+        userPrompt.append(taskWord).append(steps).append(taskUnit).append("，严格按 schema 输出 JSON。");
 
         String requestBody;
         if (anthropic) {
-            requestBody = buildAnthropicBody(modelName, PREDICT_SYSTEM, userPrompt.toString(),
+            requestBody = buildAnthropicBody(modelName, systemPrompt, userPrompt.toString(),
                     null, null, false, ANTHROPIC_MAX_TOKENS);
         } else {
             ObjectNode requestNode = objectMapper.createObjectNode();
@@ -638,7 +677,7 @@ public class LlmService {
             ArrayNode messages = objectMapper.createArrayNode();
             ObjectNode sys = objectMapper.createObjectNode();
             sys.put("role", "system");
-            sys.put("content", PREDICT_SYSTEM);
+            sys.put("content", systemPrompt);
             messages.add(sys);
             ObjectNode user = objectMapper.createObjectNode();
             user.put("role", "user");

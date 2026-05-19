@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.model.PredictRequest;
+import com.tuiyan.backend.model.PredictionDag;
 import com.tuiyan.backend.model.Scenario;
 import com.tuiyan.backend.service.LlmService;
 import com.tuiyan.backend.service.ScenarioService;
@@ -67,6 +68,9 @@ public class ScenarioController {
 
     private void runPrediction(PredictRequest req, SseEmitter emitter) {
         try {
+            String intent = "backward".equalsIgnoreCase(req.getIntent()) ? "backward" : "forward";
+            boolean backward = "backward".equals(intent);
+
             JsonNode result = llmService.predictChain(req);
             JsonNode chain = result.path("chain");
             if (!chain.isArray() || chain.isEmpty()) {
@@ -75,11 +79,12 @@ public class ScenarioController {
                 return;
             }
 
-            // 计算预测节点坐标：以 seeds 重心为基准向右扩散
+            // 坐标：forward 向右扩散；backward 向左扩散
             double[] origin = computeOrigin(req);
             double baseX = origin[0];
             double baseY = origin[1];
             double xStep = 220, yStep = 100;
+            int direction = backward ? -1 : 1;
 
             List<Map<String, Object>> predictedNodes = new ArrayList<>();
             List<Map<String, Object>> predictedEdges = new ArrayList<>();
@@ -97,12 +102,16 @@ public class ScenarioController {
                 double confidence = item.path("confidence").asDouble(0.6);
                 int step = item.path("step").asInt(stepIndex);
 
-                ArrayNode triggers = (ArrayNode) (item.has("triggered_by") && item.get("triggered_by").isArray()
-                        ? item.get("triggered_by") : objectMapper.createArrayNode());
+                // forward 读 triggered_by；backward 读 leads_to；二者均回退兼容
+                JsonNode linkNode = backward
+                        ? (item.has("leads_to") ? item.get("leads_to") : item.path("triggered_by"))
+                        : (item.has("triggered_by") ? item.get("triggered_by") : item.path("leads_to"));
+                ArrayNode links = (linkNode != null && linkNode.isArray())
+                        ? (ArrayNode) linkNode : objectMapper.createArrayNode();
 
                 int slot = perStepCount.getOrDefault(step, 0);
                 perStepCount.put(step, slot + 1);
-                double nx = baseX + step * xStep;
+                double nx = baseX + direction * step * xStep;
                 double ny = baseY + (slot - 0.5) * yStep;
 
                 Map<String, Object> node = new LinkedHashMap<>();
@@ -111,21 +120,25 @@ public class ScenarioController {
                 node.put("type", type);
                 node.put("source", "predicted");
                 node.put("predictedStep", step);
+                node.put("predictedIntent", intent);
                 node.put("confidence", confidence);
                 node.put("explanation", explanation);
                 node.put("x", nx);
                 node.put("y", ny);
                 predictedNodes.add(node);
 
-                List<String> triggerIds = new ArrayList<>();
-                for (JsonNode t : triggers) triggerIds.add(t.asText());
+                List<String> linkIds = new ArrayList<>();
+                for (JsonNode t : links) linkIds.add(t.asText());
 
-                for (String fromId : triggerIds) {
+                // 边方向：forward = link -> predicted（上游驱动下游）；backward = predicted -> link（原因指向结果）
+                for (String otherId : linkIds) {
+                    String from = backward ? id : otherId;
+                    String to = backward ? otherId : id;
                     Map<String, Object> edge = new LinkedHashMap<>();
-                    edge.put("id", "pe_" + id + "_" + fromId);
-                    edge.put("from", fromId);
-                    edge.put("to", id);
-                    edge.put("label", "推演");
+                    edge.put("id", "pe_" + from + "_" + to);
+                    edge.put("from", from);
+                    edge.put("to", to);
+                    edge.put("label", backward ? "可能导致" : "推演");
                     edge.put("source", "predicted");
                     edge.put("rule_driven", ruleId != null);
                     if (ruleId != null) edge.put("ruleId", ruleId);
@@ -137,7 +150,8 @@ public class ScenarioController {
                 chainItem.put("nodeId", id);
                 chainItem.put("label", label);
                 chainItem.put("type", type);
-                chainItem.put("triggeredBy", triggerIds);
+                // 时间线 UI 用 triggeredBy 字段名展示，无论方向；语义由 intent 解释
+                chainItem.put("triggeredBy", linkIds);
                 chainItem.put("ruleId", ruleId);
                 chainItem.put("explanation", explanation);
                 chainItem.put("confidence", confidence);
@@ -146,9 +160,10 @@ public class ScenarioController {
                 // 流式分步推送，给前端动画喘息
                 ObjectNode stepEvent = objectMapper.createObjectNode();
                 stepEvent.put("step", step);
+                stepEvent.put("intent", intent);
                 stepEvent.set("node", objectMapper.valueToTree(node));
                 stepEvent.set("edges", objectMapper.valueToTree(
-                        predictedEdges.subList(predictedEdges.size() - triggerIds.size(), predictedEdges.size())));
+                        predictedEdges.subList(predictedEdges.size() - linkIds.size(), predictedEdges.size())));
                 stepEvent.set("chain", objectMapper.valueToTree(chainItem));
                 emitter.send(SseEmitter.event().name("step")
                         .data(objectMapper.writeValueAsString(stepEvent)));
@@ -156,12 +171,13 @@ public class ScenarioController {
                 try { Thread.sleep(220); } catch (InterruptedException ignored) {}
             }
 
-            // 构建快照
+            // 构建 Scenario：仅保存 dag 增量，不再落 full snapshot
             Scenario s = new Scenario();
             s.setId("sc_" + System.currentTimeMillis());
             s.setModelId(req.getModelId());
             s.setParentBranchId(req.getParentBranchId());
             s.setCreatedAt(System.currentTimeMillis());
+            s.setIntent(intent);
             s.setSeeds(req.getSeeds());
             s.setSteps(req.getSteps() == null ? chain.size() : req.getSteps());
             s.setPrompt(req.getPrompt());
@@ -169,22 +185,22 @@ public class ScenarioController {
             String name = req.getName();
             if (name == null || name.isBlank()) {
                 String seedLabel = lookupSeedLabel(req);
-                name = (seedLabel != null ? seedLabel : "推演") + " · "
+                String prefix = backward ? "溯因·" : "";
+                name = prefix + (seedLabel != null ? seedLabel : "推演") + " · "
                         + new java.text.SimpleDateFormat("MM-dd HH:mm").format(new Date());
             }
             s.setName(name);
 
-            List<Map<String, Object>> allNodes = new ArrayList<>();
-            if (req.getNodes() != null) allNodes.addAll(req.getNodes());
-            allNodes.addAll(predictedNodes);
-            s.setNodes(allNodes);
+            PredictionDag dag = new PredictionDag();
+            dag.setIntent(intent);
+            dag.setNodes(predictedNodes);
+            dag.setEdges(predictedEdges);
+            dag.setChain(chainList);
+            s.setDag(dag);
 
-            List<Map<String, Object>> allEdges = new ArrayList<>();
-            if (req.getEdges() != null) allEdges.addAll(req.getEdges());
-            allEdges.addAll(predictedEdges);
-            s.setEdges(allEdges);
-
+            // chain 字段保留给老 UI 直接读
             s.setChain(chainList);
+            // nodes/edges 不再写完整快照（节省 ~80% 存储）；前端加载时与 trunk 合并
 
             scenarioService.save(s);
 

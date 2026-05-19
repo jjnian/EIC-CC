@@ -9,9 +9,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'submit', payload: { seeds: string[]; steps: number; prompt: string; name: string }): void;
+  (e: 'submit', payload: { seeds: string[]; steps: number; prompt: string; name: string; intent: 'forward' | 'backward' }): void;
 }>();
 
+const intent = ref<'forward' | 'backward'>('forward');
 const steps = ref(4);
 const prompt = ref('');
 const name = ref('');
@@ -35,6 +36,7 @@ const sync = () => {
     prompt.value = '';
     name.value = '';
     search.value = '';
+    intent.value = 'forward';
   }
 };
 
@@ -48,8 +50,21 @@ const removeSeed = (id: string) => {
 
 const submit = () => {
   if (!seedIds.value.length) return;
-  emit('submit', { seeds: seedIds.value, steps: steps.value, prompt: prompt.value.trim(), name: name.value.trim() });
+  emit('submit', {
+    seeds: seedIds.value,
+    steps: steps.value,
+    prompt: prompt.value.trim(),
+    name: name.value.trim(),
+    intent: intent.value
+  });
 };
+
+const seedLabelHint = computed(() => intent.value === 'backward' ? '目标节点 (结果)' : '起点节点 (seeds)');
+const stepLabelHint = computed(() => intent.value === 'backward' ? '溯因层数' : '推演步数');
+const promptHint = computed(() => intent.value === 'backward'
+  ? '例：客户突然大量流失，希望排查可能的根因…'
+  : '例：假设供应商A遭遇罢工，影响范围扩大到原料供应…');
+const submitLabel = computed(() => intent.value === 'backward' ? '开始溯因' : '开始推演');
 
 const onBackdrop = (e: MouseEvent) => {
   if ((e.target as HTMLElement).classList.contains('predict-backdrop')) emit('close');
@@ -72,7 +87,37 @@ watch(() => props.open, sync, { immediate: true });
 
       <div class="pd-body">
         <div class="pd-section">
-          <label class="pd-label">起点节点 (seeds)</label>
+          <label class="pd-label">推演方向</label>
+          <div class="pd-tabs">
+            <button
+              class="pd-tab"
+              :class="{ 'pd-tab-on': intent === 'forward' }"
+              @click="intent = 'forward'"
+              type="button"
+            >
+              <span class="pd-tab-arrow">→</span>
+              <span class="pd-tab-text">
+                <span class="pd-tab-title">前向推演</span>
+                <span class="pd-tab-sub">从起点向下游预测</span>
+              </span>
+            </button>
+            <button
+              class="pd-tab"
+              :class="{ 'pd-tab-on': intent === 'backward' }"
+              @click="intent = 'backward'"
+              type="button"
+            >
+              <span class="pd-tab-arrow">←</span>
+              <span class="pd-tab-text">
+                <span class="pd-tab-title">溯因推演</span>
+                <span class="pd-tab-sub">从结果反推可能原因</span>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div class="pd-section">
+          <label class="pd-label">{{ seedLabelHint }}</label>
           <div class="pd-seeds">
             <span v-for="id in seedIds" :key="id" class="pd-seed-chip">
               {{ nodeMap[id]?.label || id }}
@@ -91,7 +136,7 @@ watch(() => props.open, sync, { immediate: true });
         </div>
 
         <div class="pd-section">
-          <label class="pd-label">推演步数 <span class="pd-step-val">{{ steps }}</span></label>
+          <label class="pd-label">{{ stepLabelHint }} <span class="pd-step-val">{{ steps }}</span></label>
           <input type="range" min="1" max="8" step="1" v-model.number="steps" class="pd-slider" />
           <div class="pd-slider-marks">
             <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span>
@@ -100,7 +145,7 @@ watch(() => props.open, sync, { immediate: true });
 
         <div class="pd-section">
           <label class="pd-label">场景描述（可选）</label>
-          <textarea class="pd-prompt" v-model="prompt" placeholder="例：假设供应商A遭遇罢工，影响范围扩大到原料供应…" rows="2" />
+          <textarea class="pd-prompt" v-model="prompt" :placeholder="promptHint" rows="2" />
         </div>
 
         <div class="pd-section">
@@ -112,7 +157,7 @@ watch(() => props.open, sync, { immediate: true });
       <div class="pd-foot">
         <button class="pd-btn pd-btn-cancel" @click="emit('close')">取消</button>
         <button class="pd-btn pd-btn-go" :disabled="!seedIds.length" @click="submit">
-          <span>⚡</span> 开始推演
+          <span>⚡</span> {{ submitLabel }}
         </button>
       </div>
     </div>
@@ -242,4 +287,34 @@ watch(() => props.open, sync, { immediate: true });
 .pd-btn-go { background: #fbbf24; color: #1a1a1a; }
 .pd-btn-go:hover:not(:disabled) { background: #fde68a; transform: translateY(-1px); }
 .pd-btn-go:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.pd-tabs { display: flex; gap: 8px; }
+.pd-tab {
+  flex: 1;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: rgba(10, 16, 27, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  text-align: left;
+}
+.pd-tab:hover { background: rgba(10, 16, 27, 0.9); border-color: rgba(255,255,255,0.15); }
+.pd-tab-on {
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.5);
+  color: #fbbf24;
+}
+.pd-tab-arrow {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0;
+}
+.pd-tab-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pd-tab-title { font-size: 13px; font-weight: 600; }
+.pd-tab-sub { font-size: 10px; opacity: 0.7; }
 </style>

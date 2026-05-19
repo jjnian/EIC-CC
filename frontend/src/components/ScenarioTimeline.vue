@@ -1,9 +1,12 @@
 <script setup lang="ts">
-defineProps<{
+const props = defineProps<{
   steps: any[];
   loading: boolean;
   nodes: any[];
+  intent?: 'forward' | 'backward';
 }>();
+
+const isBackward = () => props.intent === 'backward';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -21,8 +24,8 @@ const nodeLabel = (id: string, nodes: any[]) => {
     <div class="st-head">
       <div class="st-title">
         <span class="st-pulse" v-if="loading" />
-        <span class="st-icon">⚡</span>
-        <span>场景推演 {{ loading ? '进行中…' : '完成' }}</span>
+        <span class="st-icon">{{ isBackward() ? '←' : '⚡' }}</span>
+        <span>{{ isBackward() ? '溯因推演' : '前向推演' }} {{ loading ? '进行中…' : '完成' }}</span>
       </div>
       <button class="st-close" @click="emit('close')">×</button>
     </div>
@@ -48,7 +51,7 @@ const nodeLabel = (id: string, nodes: any[]) => {
           </div>
           <div class="st-step-exp">{{ s.explanation }}</div>
           <div v-if="s.triggeredBy?.length" class="st-step-meta">
-            <span class="st-meta-key">由</span>
+            <span class="st-meta-key">{{ isBackward() ? '导致' : '由' }}</span>
             <span v-for="t in s.triggeredBy" :key="t" class="st-meta-chip">{{ nodeLabel(t, nodes) }}</span>
             <span v-if="s.ruleId" class="st-meta-rule">⚡ {{ nodeLabel(s.ruleId, nodes) }}</span>
           </div>
