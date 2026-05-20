@@ -6,6 +6,8 @@ import { useConversations, type ChatMsg } from '../composables/useConversations'
 import { useAttachments } from '../composables/useAttachments';
 import { useMention } from '../composables/useMention';
 import { useChatModels } from '../composables/useChatModels';
+import ChatMessageList from './chat/ChatMessageList.vue';
+import AttachmentChips from './chat/AttachmentChips.vue';
 
 const props = defineProps<{
   nodes: OntologyNode[];
@@ -27,7 +29,7 @@ const msgs = ref<ChatMsg[]>([
 const input = ref('');
 const loading = ref(false);
 const fileRef = ref<HTMLInputElement | null>(null);
-const msgsRef = ref<HTMLElement | null>(null);
+const msgListRef = ref<InstanceType<typeof ChatMessageList> | null>(null);
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 
 // ===== SSE 流控制 =====
@@ -124,9 +126,7 @@ onBeforeUnmount(() => abortChat());
 
 // 每次消息变化:滚到底 + localStorage 持久化
 watch(msgs, () => {
-  nextTick(() => {
-    if (msgsRef.value) msgsRef.value.scrollTop = msgsRef.value.scrollHeight;
-  });
+  msgListRef.value?.scrollToBottom();
   persistCurrent();
 }, { deep: true });
 
@@ -252,28 +252,8 @@ const send = async () => {
       <div class="ch-head-l"><div class="ch-pulse" /><span>AI 推演助手</span></div>
       <div class="ch-stat">{{ nodes.length }}节点·{{ edges.length }}关系</div>
     </div>
-    <div class="ch-msgs" ref="msgsRef">
-      <div v-for="(m, i) in msgs" :key="i" :class="['msg', `msg-${m.role === 'u' ? 'user' : 'asst'}`]">
-        <div v-if="m.role === 'a'" class="avatar">推</div>
-        <div class="msg-body">
-          <div v-if="(m as any).atts?.length > 0" class="att-tags">
-            <span v-for="(a, j) in (m as any).atts" :key="j" class="att-sm" :class="{ 'att-sm-err': a.error }" :title="a.error || a.name">
-              {{ a.kind === 'image' ? '🖼' : a.kind === 'text' ? '📄' : '📎' }} {{ a.name }}
-            </span>
-          </div>
-          <div class="bubble" :class="{ streaming: m.role === 'a' && !m.text }">{{ m.text }}<span v-if="loading && m.role === 'a'" class="cursor" /></div>
-        </div>
-      </div>
-    </div>
-    <div v-if="atts.length > 0" class="att-row">
-      <div v-for="(a, i) in atts" :key="i" class="att-chip" :class="{ 'att-err': a.error, 'att-img': a.kind === 'image' }" :title="a.error || (a.truncated ? '文件较大，已截断' : '')">
-        <span class="att-kind">{{ a.kind === 'image' ? '🖼' : a.kind === 'text' ? '📄' : '📎' }}</span>
-        <span class="att-name">{{ a.name }}</span>
-        <span v-if="a.loading" class="att-spin" />
-        <span v-else-if="a.error" class="att-bad">!</span>
-        <button type="button" @click="atts = atts.filter((_, j) => j !== i)">×</button>
-      </div>
-    </div>
+    <ChatMessageList ref="msgListRef" :messages="msgs" :loading="loading" />
+    <AttachmentChips :attachments="atts" @remove="(i) => atts = atts.filter((_, j) => j !== i)" />
     <div class="ch-input-area">
       <div class="toolbar" v-if="!input && !atts.length">
         <!-- 会话切换 -->
