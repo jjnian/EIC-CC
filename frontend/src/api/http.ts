@@ -56,10 +56,12 @@ export interface SseHandle {
 
 /**
  * POST 一份 JSON body,服务端返回 text/event-stream;按 SSE 行协议解析后回调 onEvent。
+ * 支持多 `data:` 行连接 + 注释行(`:` 开头);frame 边界由空行界定。
  * 调用方负责把 onEvent 的 data 字符串(可能是 JSON)再解一层。
  */
 export function sse(path: string, body: unknown, handlers: SseHandlers): SseHandle {
   const ctrl = new AbortController();
+  let aborted = false;
   (async () => {
     try {
       const res = await fetch(path, {
@@ -79,29 +81,64 @@ export function sse(path: string, body: unknown, handlers: SseHandlers): SseHand
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let currentEvent = 'message';
+
+      let curEvent = 'message';
+      let curData: string[] = [];
+
+      const flushFrame = () => {
+        if (curData.length === 0 && curEvent === 'message') {
+          curEvent = 'message';
+          return;
+        }
+        const data = curData.join('\n');
+        if (curData.length || curEvent !== 'message') {
+          handlers.onEvent(curEvent, data);
+        }
+        curEvent = 'message';
+        curData = [];
+      };
+
+      const processLine = (raw: string) => {
+        const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+        if (line === '') { flushFrame(); return; }
+        if (line.startsWith(':')) return; // 注释行
+        if (line.startsWith('event:')) {
+          curEvent = line.slice(6).replace(/^\s/, '').trim() || 'message';
+        } else if (line.startsWith('data:')) {
+          curData.push(line.slice(5).replace(/^\s/, ''));
+        }
+        // id: / retry: 忽略
+      };
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         let idx: number;
-        while ((idx = buffer.indexOf('\n')) >= 0) {
-          const line = buffer.slice(0, idx).replace(/\r$/, '');
+        while ((idx = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, idx);
           buffer = buffer.slice(idx + 1);
-          if (line === '') { currentEvent = 'message'; continue; }
-          if (line.startsWith('event:')) {
-            currentEvent = line.slice(6).trim();
-          } else if (line.startsWith('data:')) {
-            const data = line.slice(5).trim();
-            handlers.onEvent(currentEvent, data);
-          }
+          processLine(line);
         }
       }
-      handlers.onClose?.();
+      // 处理流末尾未带 \n 的残余行
+      if (buffer.length) {
+        processLine(buffer);
+        buffer = '';
+      }
+      flushFrame();
+
+      if (!aborted) handlers.onClose?.();
     } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
-      handlers.onError?.(err as Error);
+      if (aborted || (err as Error)?.name === 'AbortError') return;
+      handlers.onError?.(err instanceof Error ? err : new Error(String(err)));
     }
   })();
-  return { abort: () => ctrl.abort() };
+  return {
+    abort: () => {
+      if (aborted) return;
+      aborted = true;
+      try { ctrl.abort(); } catch { /* noop */ }
+    },
+  };
 }
