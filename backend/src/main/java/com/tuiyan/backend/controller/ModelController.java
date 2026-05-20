@@ -72,8 +72,8 @@ public class ModelController {
     @DeleteMapping("/{id}")
     public ResponseEntity<?> deleteModel(@PathVariable String id) {
         try {
-            llmService.deleteModelConfig(id);
-            return ResponseEntity.ok(Map.of("success", true));
+            int removed = llmService.deleteModelConfig(id);
+            return ResponseEntity.ok(Map.of("success", removed > 0, "count", removed));
         } catch (IOException e) {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
         }

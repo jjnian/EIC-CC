@@ -1,40 +1,56 @@
 package com.tuiyan.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tuiyan.backend.config.AppPaths;
 import com.tuiyan.backend.model.OntologyModel;
+import com.tuiyan.backend.util.JsonAtomic;
 import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.core.io.ClassPathResource;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class OntologyModelService {
 
-    private static final String DIR = "src/main/resources/ontology-models";
+    private static final Logger log = LoggerFactory.getLogger(OntologyModelService.class);
+
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AppPaths appPaths;
+
+    public OntologyModelService(AppPaths appPaths) {
+        this.appPaths = appPaths;
+    }
 
     @PostConstruct
     public void init() throws IOException {
-        File d = new File(DIR);
+        File d = appPaths.ontologyModelsDir();
         if (!d.exists()) d.mkdirs();
-        // 首次启动时，如果目录为空，写入 3 个示例模型
-        if (Objects.requireNonNull(d.listFiles((f, n) -> n.endsWith(".json"))).length == 0) {
+        File[] existing = d.listFiles((f, n) -> n.endsWith(".json"));
+        if (Objects.requireNonNullElse(existing, new File[0]).length == 0) {
             seedDefaults();
         }
     }
 
     public List<OntologyModel> list() throws IOException {
-        File d = new File(DIR);
+        File d = appPaths.ontologyModelsDir();
         File[] files = d.listFiles((f, n) -> n.endsWith(".json"));
         List<OntologyModel> out = new ArrayList<>();
         if (files == null) return out;
         for (File f : files) {
             try {
                 out.add(objectMapper.readValue(f, OntologyModel.class));
-            } catch (IOException ignored) {}
+            } catch (IOException ioe) {
+                log.warn("skip malformed ontology-model file {}: {}", f, ioe.toString());
+            }
         }
         out.sort(Comparator.comparingLong(OntologyModel::getUpdatedAt).reversed());
         return out;
@@ -54,7 +70,7 @@ public class OntologyModelService {
         if (m.getCreatedAt() == 0L) m.setCreatedAt(now);
         m.setUpdatedAt(now);
         m.setUpdated("刚刚");
-        objectMapper.writerWithDefaultPrettyPrinter().writeValue(fileFor(m.getId()), m);
+        JsonAtomic.write(objectMapper, fileFor(m.getId()), m);
         return m;
     }
 
@@ -65,11 +81,10 @@ public class OntologyModelService {
 
     private File fileFor(String id) {
         String safe = id.replaceAll("[^a-zA-Z0-9_\\-]", "_");
-        return new File(DIR + "/" + safe + ".json");
+        return new File(appPaths.ontologyModelsDir(), safe + ".json");
     }
 
     private void seedDefaults() throws IOException {
-        // 示例 1：供应链本体模型 — 包含初始节点边
         OntologyModel m1 = buildSeed("1", "供应链本体模型", "包含供应链核心实体与关系的推演模型",
                 supplyChainNodes(), supplyChainEdges());
         OntologyModel m2 = buildSeed("2", "财务追踪模型", "用于企业财务审批及资金流向追踪",

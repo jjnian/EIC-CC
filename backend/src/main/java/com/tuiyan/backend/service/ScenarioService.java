@@ -1,15 +1,18 @@
 package com.tuiyan.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tuiyan.backend.config.AppPaths;
 import com.tuiyan.backend.model.PredictionDag;
 import com.tuiyan.backend.model.Scenario;
+import com.tuiyan.backend.util.JsonAtomic;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,16 +20,19 @@ import java.util.Map;
 @Service
 public class ScenarioService {
 
-    private static final String DIR = "src/main/resources/scenarios";
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final Logger log = LoggerFactory.getLogger(ScenarioService.class);
 
-    public ScenarioService() {
-        File d = new File(DIR);
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AppPaths appPaths;
+
+    public ScenarioService(AppPaths appPaths) {
+        this.appPaths = appPaths;
+        File d = appPaths.scenariosDir();
         if (!d.exists()) d.mkdirs();
     }
 
     public List<Scenario> listByModel(String modelId) throws IOException {
-        File d = new File(DIR);
+        File d = appPaths.scenariosDir();
         File[] files = d.listFiles((f, n) -> n.endsWith(".json"));
         List<Scenario> out = new ArrayList<>();
         if (files == null) return out;
@@ -36,8 +42,8 @@ public class ScenarioService {
                 if (modelId == null || modelId.equals(s.getModelId())) {
                     out.add(s);
                 }
-            } catch (IOException ignored) {
-                // skip malformed file
+            } catch (IOException ioe) {
+                log.warn("skip malformed scenario file {}: {}", f, ioe.toString());
             }
         }
         out.sort(Comparator.comparingLong(Scenario::getCreatedAt).reversed());
@@ -57,7 +63,7 @@ public class ScenarioService {
         if (s.getCreatedAt() == 0L) {
             s.setCreatedAt(System.currentTimeMillis());
         }
-        objectMapper.writerWithDefaultPrettyPrinter().writeValue(fileFor(s.getId()), s);
+        JsonAtomic.write(objectMapper, fileFor(s.getId()), s);
     }
 
     /**
@@ -67,7 +73,6 @@ public class ScenarioService {
     public int delete(String id) {
         int total = 0;
         try {
-            // 先收集所有以 id 为父或更深祖先的分支
             List<Scenario> all = listByModel(null);
             java.util.Map<String, String> parentMap = new java.util.HashMap<>();
             for (Scenario s : all) parentMap.put(s.getId(), s.getParentBranchId());
@@ -88,6 +93,7 @@ public class ScenarioService {
                 if (f.exists() && f.delete()) total++;
             }
         } catch (IOException e) {
+            log.warn("cascade delete listing failed, falling back to single-file delete for {}", id, e);
             File f = fileFor(id);
             if (f.exists() && f.delete()) total++;
         }
@@ -96,20 +102,9 @@ public class ScenarioService {
 
     private File fileFor(String id) {
         String safe = id.replaceAll("[^a-zA-Z0-9_\\-]", "_");
-        return new File(DIR + "/" + safe + ".json");
+        return new File(appPaths.scenariosDir(), safe + ".json");
     }
 
-    // ========== v0.9：旧格式迁移 ==========
-
-    /**
-     * 把 v0.5/0.6 时期保存的 full-snapshot 分支升级为 v0.9 的 delta 形态：
-     *   - dag.nodes 取自 nodes.filter(source == 'predicted')
-     *   - dag.edges 取自 edges.filter(source == 'predicted')
-     *   - dag.chain 直接复用 scenario.chain
-     *   - intent 缺省为 'forward'
-     *   - 升级后清空 scenario.nodes / scenario.edges 以省盘
-     * 已含 dag 的分支跳过；写盘前先 .bak 备份原始文件以便回滚。
-     */
     public Map<String, Integer> migrateAll() throws IOException {
         int migrated = 0, skipped = 0, errors = 0;
         List<Scenario> all = listByModel(null);
@@ -139,7 +134,6 @@ public class ScenarioService {
                 s.setDag(dag);
                 if (s.getIntent() == null) s.setIntent("forward");
 
-                // 备份原文件
                 File orig = fileFor(s.getId());
                 if (orig.exists()) {
                     File bak = new File(orig.getAbsolutePath() + ".bak");
@@ -148,12 +142,12 @@ public class ScenarioService {
                     }
                 }
 
-                // 清空全快照字段，节约存储
                 s.setNodes(null);
                 s.setEdges(null);
                 save(s);
                 migrated++;
             } catch (Exception ex) {
+                log.warn("scenario migration failed for id={}: {}", s.getId(), ex.toString(), ex);
                 errors++;
             }
         }

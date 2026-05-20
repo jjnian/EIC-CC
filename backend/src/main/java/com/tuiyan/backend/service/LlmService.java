@@ -4,10 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.tuiyan.backend.config.AppPaths;
 import com.tuiyan.backend.model.ChatRequest;
 import com.tuiyan.backend.model.ConfigResponse;
 import com.tuiyan.backend.model.LlmProvider;
 import com.tuiyan.backend.model.ModelConfig;
+import com.tuiyan.backend.model.ModelConfigPersist;
+import com.tuiyan.backend.util.JsonAtomic;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -23,23 +28,38 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Set;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.Set;
 
 @Service
 public class LlmService {
 
+    private static final Logger log = LoggerFactory.getLogger(LlmService.class);
+
     private final ObjectMapper objectMapper = new ObjectMapper();
+    /** 单独的 mapper：写盘时通过 mixin 重新暴露 apiKey，避免 WRITE_ONLY 把字段丢掉。 */
+    private final ObjectMapper persistMapper = new ObjectMapper()
+            .addMixIn(ModelConfig.class, ModelConfigPersist.class);
+
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(java.time.Duration.ofSeconds(20))
             .build();
-    private static final String MODELS_CONFIG_FILE = "src/main/resources/llm-models.json";
-    private static final String LEGACY_CONFIG_FILE = "src/main/resources/llm-config.json";
+
+    private final AppPaths appPaths;
+
+    public LlmService(AppPaths appPaths) {
+        this.appPaths = appPaths;
+    }
 
     private static final String ANTHROPIC_VERSION = "2023-06-01";
     private static final int ANTHROPIC_MAX_TOKENS = 8192;
+
+    // ========== 缓存：避免每次接口都读盘 ==========
+    private static final long CONFIG_CACHE_TTL_MS = 5_000;
+    private volatile List<ModelConfig> cachedConfigs;
+    private volatile long cachedAt;
 
     private static final String SCHEMA_STRING = """
         {
@@ -170,29 +190,42 @@ public class LlmService {
         SCHEMA:
         %s""".formatted(PREDICT_BACKWARD_SCHEMA);
 
+    /** 解析配置的字段集合，替代旧的 String[]。 */
+    public record ResolvedConfig(String baseURL, String modelName, String apiKey, String protocol) {}
+
     // ========== 模型配置 CRUD ==========
 
-    public List<ModelConfig> getAllModelConfigs() throws IOException {
-        File file = new File(MODELS_CONFIG_FILE);
+    public synchronized List<ModelConfig> getAllModelConfigs() throws IOException {
+        long now = System.currentTimeMillis();
+        if (cachedConfigs != null && (now - cachedAt) < CONFIG_CACHE_TTL_MS) {
+            return cachedConfigs;
+        }
+        File file = appPaths.modelsConfigFile();
         if (!file.exists()) {
             migrateLegacyConfig();
-            file = new File(MODELS_CONFIG_FILE);
+            file = appPaths.modelsConfigFile();
         }
-        if (!file.exists()) {
-            return new ArrayList<>();
-        }
-        JsonNode node = objectMapper.readTree(file);
         List<ModelConfig> configs = new ArrayList<>();
-        if (node.isArray()) {
-            for (JsonNode item : node) {
-                configs.add(objectMapper.treeToValue(item, ModelConfig.class));
+        if (file.exists()) {
+            JsonNode node = persistMapper.readTree(file);
+            if (node.isArray()) {
+                for (JsonNode item : node) {
+                    configs.add(persistMapper.treeToValue(item, ModelConfig.class));
+                }
             }
         }
+        cachedConfigs = configs;
+        cachedAt = now;
         return configs;
     }
 
+    private void invalidateCache() {
+        cachedConfigs = null;
+        cachedAt = 0L;
+    }
+
     public ModelConfig createModelConfig(com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) throws IOException {
-        List<ModelConfig> configs = getAllModelConfigs();
+        List<ModelConfig> configs = new ArrayList<>(getAllModelConfigs());
         ModelConfig nc = new ModelConfig(
                 req.getName(), req.getBaseUrl(), req.getModelName(),
                 req.getApiKey() != null ? req.getApiKey() : "");
@@ -208,7 +241,7 @@ public class LlmService {
     }
 
     public ModelConfig updateModelConfig(String id, com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) throws IOException {
-        List<ModelConfig> configs = getAllModelConfigs();
+        List<ModelConfig> configs = new ArrayList<>(getAllModelConfigs());
         for (int i = 0; i < configs.size(); i++) {
             if (configs.get(i).getId().equals(id)) {
                 ModelConfig c = configs.get(i);
@@ -233,14 +266,17 @@ public class LlmService {
         throw new IllegalArgumentException("Model config not found: " + id);
     }
 
-    public void deleteModelConfig(String id) throws IOException {
-        List<ModelConfig> configs = getAllModelConfigs();
+    public int deleteModelConfig(String id) throws IOException {
+        List<ModelConfig> configs = new ArrayList<>(getAllModelConfigs());
+        int before = configs.size();
         configs.removeIf(c -> c.getId().equals(id));
+        int removed = before - configs.size();
         saveModelConfigs(configs);
+        return removed;
     }
 
     public void toggleModelConfig(String id) throws IOException {
-        List<ModelConfig> configs = getAllModelConfigs();
+        List<ModelConfig> configs = new ArrayList<>(getAllModelConfigs());
         for (int i = 0; i < configs.size(); i++) {
             if (configs.get(i).getId().equals(id)) {
                 ModelConfig config = configs.get(i);
@@ -255,13 +291,14 @@ public class LlmService {
     }
 
     private void saveModelConfigs(List<ModelConfig> configs) throws IOException {
-        objectMapper.writerWithDefaultPrettyPrinter().writeValue(new File(MODELS_CONFIG_FILE), configs);
+        JsonAtomic.write(persistMapper, appPaths.modelsConfigFile(), configs);
+        invalidateCache();
     }
 
     private void migrateLegacyConfig() throws IOException {
-        File legacyFile = new File(LEGACY_CONFIG_FILE);
+        File legacyFile = appPaths.legacyConfigTargetFile();
         if (legacyFile.exists()) {
-            JsonNode legacy = objectMapper.readTree(legacyFile);
+            JsonNode legacy = persistMapper.readTree(legacyFile);
             String provider = legacy.has("provider") ? legacy.get("provider").asText() : "qwen";
             String baseUrl = legacy.has("baseUrl") ? legacy.get("baseUrl").asText() : "";
             String modelName = legacy.has("modelName") ? legacy.get("modelName").asText() : "";
@@ -343,15 +380,16 @@ public class LlmService {
         if (apiKey != null && !apiKey.isBlank()) {
             config.put("apiKey", apiKey);
         }
-        objectMapper.writerWithDefaultPrettyPrinter().writeValue(new File(LEGACY_CONFIG_FILE), config);
+        JsonAtomic.write(objectMapper, appPaths.legacyConfigTargetFile(), config);
+        invalidateCache();
     }
 
     // ========== 聊天接口 ==========
 
     /**
-     * 解析模型配置，返回 baseURL / modelName / apiKey
+     * 解析模型配置，返回 baseURL / modelName / apiKey / protocol。
      */
-    private String[] resolveConfig(String modelOverride, String configId) throws Exception {
+    private ResolvedConfig resolveConfig(String modelOverride, String configId) throws Exception {
         String baseURL;
         String modelName;
         String apiKey;
@@ -404,7 +442,7 @@ public class LlmService {
             throw new IllegalStateException("Missing API key. Please set environment variable: LLM_API_KEY");
         }
 
-        return new String[]{baseURL, modelName, apiKey, protocol};
+        return new ResolvedConfig(baseURL, modelName, apiKey, protocol);
     }
 
     /**
@@ -418,39 +456,36 @@ public class LlmService {
     }
 
     /**
-     * 构建 LLM 请求体 JSON
+     * 统一构建 OpenAI 兼容协议的请求体。三个调用点（chat / predict / extract）共用，
+     * 自动处理 history、image_url 多模态附件、response_format=json_object。
      */
-    private String buildRequestBody(String modelName, String message, List<Map<String, Object>> history,
-                                    List<Map<String, Object>> attachments, boolean stream) throws Exception {
-        String prompt = "Here is the user's latest message:\n" + message +
-                "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
-
-        ObjectNode requestNode = objectMapper.createObjectNode();
-        requestNode.put("model", modelName);
-        requestNode.put("stream", stream);
+    private String buildOpenAiBody(String modelName, String systemPrompt, String userText,
+                                   List<Map<String, Object>> history,
+                                   List<Map<String, Object>> attachments,
+                                   boolean stream, boolean jsonMode) throws Exception {
+        ObjectNode root = objectMapper.createObjectNode();
+        root.put("model", modelName);
+        root.put("stream", stream);
 
         ArrayNode messages = objectMapper.createArrayNode();
 
-        // System instruction
-        ObjectNode systemMsg = objectMapper.createObjectNode();
-        systemMsg.put("role", "system");
-        systemMsg.put("content", SYSTEM_INSTRUCTION);
-        messages.add(systemMsg);
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            ObjectNode sys = objectMapper.createObjectNode();
+            sys.put("role", "system");
+            sys.put("content", systemPrompt);
+            messages.add(sys);
+        }
 
-        // Conversation history
-        if (history != null && !history.isEmpty()) {
+        if (history != null) {
             for (Map<String, Object> msg : history) {
-                ObjectNode h = objectMapper.createObjectNode();
                 String role = String.valueOf(msg.get("role"));
-                h.put("role", "user".equals(role) ? "user" : "assistant");
+                if (!"user".equals(role) && !"assistant".equals(role)) continue;
+                ObjectNode h = objectMapper.createObjectNode();
+                h.put("role", role);
                 h.put("content", String.valueOf(msg.get("content")));
                 messages.add(h);
             }
         }
-
-        // Current user message — 如果有图片附件，使用多模态 content 数组
-        ObjectNode userMsg = objectMapper.createObjectNode();
-        userMsg.put("role", "user");
 
         List<Map<String, Object>> imageAtts = new ArrayList<>();
         if (attachments != null) {
@@ -463,13 +498,15 @@ public class LlmService {
             }
         }
 
+        ObjectNode userMsg = objectMapper.createObjectNode();
+        userMsg.put("role", "user");
         if (imageAtts.isEmpty()) {
-            userMsg.put("content", prompt);
+            userMsg.put("content", userText == null ? "" : userText);
         } else {
             ArrayNode contentArr = objectMapper.createArrayNode();
             ObjectNode textPart = objectMapper.createObjectNode();
             textPart.put("type", "text");
-            textPart.put("text", prompt);
+            textPart.put("text", userText == null ? "" : userText);
             contentArr.add(textPart);
             for (Map<String, Object> img : imageAtts) {
                 ObjectNode imgPart = objectMapper.createObjectNode();
@@ -483,13 +520,14 @@ public class LlmService {
         }
         messages.add(userMsg);
 
-        requestNode.set("messages", messages);
+        root.set("messages", messages);
 
-        ObjectNode responseFormat = objectMapper.createObjectNode();
-        responseFormat.put("type", "json_object");
-        requestNode.set("response_format", responseFormat);
-
-        return objectMapper.writeValueAsString(requestNode);
+        if (jsonMode) {
+            ObjectNode rf = objectMapper.createObjectNode();
+            rf.put("type", "json_object");
+            root.set("response_format", rf);
+        }
+        return objectMapper.writeValueAsString(root);
     }
 
     /**
@@ -502,21 +540,21 @@ public class LlmService {
     public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message,
                          String modelOverride, String configId, List<Map<String, Object>> history,
                          List<Map<String, Object>> attachments) throws Exception {
-        String[] cfg = resolveConfig(modelOverride, configId);
-        String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
-        boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
+        ResolvedConfig cfg = resolveConfig(modelOverride, configId);
+        boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
         String prompt = "Here is the user's latest message:\n" + message +
                 "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
 
         String requestBody = anthropic
-                ? buildAnthropicBody(modelName, SYSTEM_INSTRUCTION, prompt, history, attachments, false, ANTHROPIC_MAX_TOKENS)
-                : buildRequestBody(modelName, message, history, attachments, false);
+                ? buildAnthropicBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, history, attachments, false, ANTHROPIC_MAX_TOKENS)
+                : buildOpenAiBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, history, attachments, false, true);
 
-        HttpRequest request = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
+        HttpRequest request = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
-            throw new RuntimeException("LLM Error: " + response.statusCode() + " - " + response.body());
+            logUpstreamError("chat", response.statusCode(), response.body());
+            throw new RuntimeException("LLM 调用失败 HTTP " + response.statusCode() + "（详情见服务器日志）");
         }
 
         JsonNode responseJson = objectMapper.readTree(response.body());
@@ -531,18 +569,17 @@ public class LlmService {
      */
     public void chatStreaming(ChatRequest request, SseEmitter emitter) {
         try {
-            String[] cfg = resolveConfig(request.getModelOverride(), request.getConfigId());
-            String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
-            boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
+            ResolvedConfig cfg = resolveConfig(request.getModelOverride(), request.getConfigId());
+            boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
             String prompt = "Here is the user's latest message:\n" + request.getMessage() +
                     "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
 
             String requestBody = anthropic
-                    ? buildAnthropicBody(modelName, SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, ANTHROPIC_MAX_TOKENS)
-                    : buildRequestBody(modelName, request.getMessage(), request.getHistory(), request.getAttachments(), true);
+                    ? buildAnthropicBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, ANTHROPIC_MAX_TOKENS)
+                    : buildOpenAiBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, true);
 
-            HttpRequest httpRequest = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
+            HttpRequest httpRequest = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
 
             httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
                     .thenAccept(resp -> {
@@ -553,9 +590,13 @@ public class LlmService {
                             } catch (IOException e) {
                                 errorBody = "Unknown error";
                             }
+                            logUpstreamError("chatStreaming", resp.statusCode(), errorBody);
                             try {
-                                emitter.send(SseEmitter.event().name("error").data("LLM Error: " + resp.statusCode() + " - " + errorBody));
-                            } catch (IOException e) { /* ignore */ }
+                                emitter.send(SseEmitter.event().name("error").data(
+                                        "LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）"));
+                            } catch (IOException e) {
+                                log.warn("emit error event failed", e);
+                            }
                             emitter.complete();
                             return;
                         }
@@ -575,27 +616,37 @@ public class LlmService {
                             finalEvent.put("reply", result.path("reply").asText(""));
                             finalEvent.set("add_nodes", result.path("add_nodes"));
                             finalEvent.set("add_edges", result.path("add_edges"));
-                            emitter.send(SseEmitter.event().name("complete")
-                                    .data(objectMapper.writeValueAsString(finalEvent)));
+                            try {
+                                emitter.send(SseEmitter.event().name("complete")
+                                        .data(objectMapper.writeValueAsString(finalEvent)));
+                            } catch (IOException sendErr) {
+                                log.warn("emit complete failed (client likely disconnected): {}", sendErr.toString());
+                            }
                             emitter.complete();
                         } catch (IOException e) {
                             try {
                                 emitter.send(SseEmitter.event().name("error").data("Failed to parse response: " + e.getMessage()));
-                            } catch (IOException ex) { /* ignore */ }
+                            } catch (IOException ex) {
+                                log.warn("emit parse-error failed", ex);
+                            }
                             emitter.complete();
                         }
                     })
                     .exceptionally(ex -> {
                         try {
                             emitter.send(SseEmitter.event().name("error").data("Network error: " + ex.getMessage()));
-                        } catch (IOException e) { /* ignore */ }
+                        } catch (IOException e) {
+                            log.warn("emit network-error failed", e);
+                        }
                         emitter.completeWithError(ex);
                         return null;
                     });
         } catch (Exception e) {
             try {
                 emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
-            } catch (IOException ioEx) { /* ignore */ }
+            } catch (IOException ioEx) {
+                log.warn("emit init-error failed", ioEx);
+            }
             emitter.completeWithError(e);
         }
     }
@@ -612,17 +663,21 @@ public class LlmService {
                 String delta = chunk.path("choices").path(0).path("delta").path("content").asText("");
                 if (delta.isEmpty()) continue;
                 fullContent.append(delta);
-                emitter.send(SseEmitter.event().name("text").data(delta));
-            } catch (IOException ignored) {}
+                try {
+                    emitter.send(SseEmitter.event().name("text").data(delta));
+                } catch (IOException sendErr) {
+                    log.warn("emit chunk failed (client disconnected?): {}", sendErr.toString());
+                    break;
+                }
+            } catch (IOException parseErr) {
+                log.warn("openai stream chunk parse failed: {}", parseErr.toString());
+            }
         }
         return fullContent;
     }
 
     /**
-     * Anthropic SSE 解析：
-     *   event: content_block_delta
-     *   data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"..."}}
-     * 终止：event: message_stop
+     * Anthropic SSE 解析。
      */
     private StringBuilder streamAnthropic(BufferedReader reader, SseEmitter emitter) throws IOException {
         StringBuilder fullContent = new StringBuilder();
@@ -649,31 +704,37 @@ public class LlmService {
                         if (text.isEmpty()) text = delta.path("partial_json").asText("");
                         if (!text.isEmpty()) {
                             fullContent.append(text);
-                            emitter.send(SseEmitter.event().name("text").data(text));
+                            try {
+                                emitter.send(SseEmitter.event().name("text").data(text));
+                            } catch (IOException sendErr) {
+                                log.warn("emit anthropic chunk failed: {}", sendErr.toString());
+                                return fullContent;
+                            }
                         }
                     }
                 } else if ("message_stop".equals(type) || "message_stop".equals(currentEvent)) {
                     break;
                 } else if ("error".equals(type)) {
                     String msg = chunk.path("error").path("message").asText("Anthropic error");
-                    emitter.send(SseEmitter.event().name("error").data(msg));
+                    try {
+                        emitter.send(SseEmitter.event().name("error").data(msg));
+                    } catch (IOException sendErr) {
+                        log.warn("emit anthropic error failed: {}", sendErr.toString());
+                    }
                     break;
                 }
-            } catch (IOException ignored) {}
+            } catch (IOException parseErr) {
+                log.warn("anthropic chunk parse failed: {}", parseErr.toString());
+            }
         }
         return fullContent;
     }
 
     // ========== 场景推演 ==========
 
-    /**
-     * 对图谱进行前向推演，返回原始 chain JSON（不含落盘）。
-     * 调用方负责构建 Scenario、保存、SSE 分步推送。
-     */
     public JsonNode predictChain(com.tuiyan.backend.model.PredictRequest req) throws Exception {
-        String[] cfg = resolveConfig(req.getModelOverride(), req.getConfigId());
-        String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
-        boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
+        ResolvedConfig cfg = resolveConfig(req.getModelOverride(), req.getConfigId());
+        boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
         int steps = req.getSteps() == null ? 4 : Math.max(1, Math.min(10, req.getSteps()));
         boolean backward = "backward".equalsIgnoreCase(req.getIntent());
@@ -716,34 +777,17 @@ public class LlmService {
         }
         userPrompt.append("\n").append(taskWord).append(steps).append(taskUnit).append("，严格按 schema 输出 JSON。");
 
-        String requestBody;
-        if (anthropic) {
-            requestBody = buildAnthropicBody(modelName, systemPrompt, userPrompt.toString(),
-                    null, null, false, ANTHROPIC_MAX_TOKENS);
-        } else {
-            ObjectNode requestNode = objectMapper.createObjectNode();
-            requestNode.put("model", modelName);
-            requestNode.put("stream", false);
-            ArrayNode messages = objectMapper.createArrayNode();
-            ObjectNode sys = objectMapper.createObjectNode();
-            sys.put("role", "system");
-            sys.put("content", systemPrompt);
-            messages.add(sys);
-            ObjectNode user = objectMapper.createObjectNode();
-            user.put("role", "user");
-            user.put("content", userPrompt.toString());
-            messages.add(user);
-            requestNode.set("messages", messages);
-            ObjectNode rf = objectMapper.createObjectNode();
-            rf.put("type", "json_object");
-            requestNode.set("response_format", rf);
-            requestBody = objectMapper.writeValueAsString(requestNode);
-        }
+        String requestBody = anthropic
+                ? buildAnthropicBody(cfg.modelName(), systemPrompt, userPrompt.toString(),
+                        null, null, false, ANTHROPIC_MAX_TOKENS)
+                : buildOpenAiBody(cfg.modelName(), systemPrompt, userPrompt.toString(),
+                        null, null, false, true);
 
-        HttpRequest httpReq = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
+        HttpRequest httpReq = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
         HttpResponse<String> resp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() != 200) {
-            throw new RuntimeException("LLM Error: " + resp.statusCode() + " - " + resp.body());
+            logUpstreamError("predict", resp.statusCode(), resp.body());
+            throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
         }
 
         JsonNode root = objectMapper.readTree(resp.body());
@@ -753,21 +797,14 @@ public class LlmService {
         return objectMapper.readTree(content);
     }
 
-    private static final int EXTRACT_CHUNK_CHARS = 30_000;  // 单段文本上限；超过后透明分页多次调 LLM
+    private static final int EXTRACT_CHUNK_CHARS = 30_000;
 
-    /**
-     * v1.0 文档导入：把 PDF 抽出的文本 + 图片附件喂给 LLM，按 SCHEMA 抽取节点 / 关系 / 规则。
-     * 文本超 EXTRACT_CHUNK_CHARS 自动分段，每段独立调 LLM，按 label 跨段去重后合并。
-     * 图片只在第一段调用时一起发送（多模态成本高，单次足够）。
-     * 返回 {add_nodes, add_edges, reply}，不含 id salt——由调用方再加一层防撞。
-     */
     public JsonNode extractOntologyFromSources(String combinedText,
                                                List<Map<String, Object>> imageAttachments,
                                                String modelOverride,
                                                String configId) throws Exception {
-        String[] cfg = resolveConfig(modelOverride, configId);
-        String baseURL = cfg[0], modelName = cfg[1], apiKey = cfg[2];
-        boolean anthropic = isAnthropic(baseURL, modelName, cfg.length > 3 ? cfg[3] : null);
+        ResolvedConfig cfg = resolveConfig(modelOverride, configId);
+        boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
         List<String> chunks = chunkText(combinedText, EXTRACT_CHUNK_CHARS);
         boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
@@ -784,16 +821,13 @@ public class LlmService {
                       + " 段；语义相同的概念请保持 label 一致，便于跨段合并。）\n\n"
                     : "";
             JsonNode part = callExtractOnce(preface + chunks.get(i), imgs,
-                    modelName, baseURL, apiKey, anthropic);
+                    cfg.modelName(), cfg.baseURL(), cfg.apiKey(), anthropic);
             if (chunks.size() > 1) part = prefixChunkIds(part, "c" + i + "_");
             merged = (merged == null) ? part : mergeExtractionByLabel(merged, part);
         }
         return merged == null ? objectMapper.createObjectNode() : merged;
     }
 
-    /**
-     * 单次 LLM 抽取调用。
-     */
     private JsonNode callExtractOnce(String userText,
                                      List<Map<String, Object>> imageAttachments,
                                      String modelName, String baseURL, String apiKey, boolean anthropic) throws Exception {
@@ -811,53 +845,17 @@ public class LlmService {
         }
         userPrompt.append("请抽取所有可识别的本体节点（含规则）与关系，按 SCHEMA 输出 JSON。");
 
-        String requestBody;
-        if (anthropic) {
-            requestBody = buildAnthropicBody(modelName, EXTRACT_SYSTEM, userPrompt.toString(),
-                    null, imageAttachments, false, ANTHROPIC_MAX_TOKENS);
-        } else {
-            ObjectNode requestNode = objectMapper.createObjectNode();
-            requestNode.put("model", modelName);
-            requestNode.put("stream", false);
-            ArrayNode messages = objectMapper.createArrayNode();
-            ObjectNode sys = objectMapper.createObjectNode();
-            sys.put("role", "system");
-            sys.put("content", EXTRACT_SYSTEM);
-            messages.add(sys);
-            ObjectNode user = objectMapper.createObjectNode();
-            user.put("role", "user");
-            if (hasImages) {
-                ArrayNode contentArr = objectMapper.createArrayNode();
-                for (Map<String, Object> att : imageAttachments) {
-                    Object url = att.get("dataUrl");
-                    if (url == null) continue;
-                    ObjectNode imgPart = objectMapper.createObjectNode();
-                    imgPart.put("type", "image_url");
-                    ObjectNode urlObj = objectMapper.createObjectNode();
-                    urlObj.put("url", String.valueOf(url));
-                    imgPart.set("image_url", urlObj);
-                    contentArr.add(imgPart);
-                }
-                ObjectNode textPart = objectMapper.createObjectNode();
-                textPart.put("type", "text");
-                textPart.put("text", userPrompt.toString());
-                contentArr.add(textPart);
-                user.set("content", contentArr);
-            } else {
-                user.put("content", userPrompt.toString());
-            }
-            messages.add(user);
-            requestNode.set("messages", messages);
-            ObjectNode rf = objectMapper.createObjectNode();
-            rf.put("type", "json_object");
-            requestNode.set("response_format", rf);
-            requestBody = objectMapper.writeValueAsString(requestNode);
-        }
+        String requestBody = anthropic
+                ? buildAnthropicBody(modelName, EXTRACT_SYSTEM, userPrompt.toString(),
+                        null, imageAttachments, false, ANTHROPIC_MAX_TOKENS)
+                : buildOpenAiBody(modelName, EXTRACT_SYSTEM, userPrompt.toString(),
+                        null, imageAttachments, false, true);
 
         HttpRequest httpReq = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
         HttpResponse<String> resp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() != 200) {
-            throw new RuntimeException("LLM Error: " + resp.statusCode() + " - " + resp.body());
+            logUpstreamError("extract", resp.statusCode(), resp.body());
+            throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
         }
         JsonNode root = objectMapper.readTree(resp.body());
         String content = extractContent(root, anthropic);
@@ -866,9 +864,12 @@ public class LlmService {
         return objectMapper.readTree(content);
     }
 
-    /**
-     * 在分句 / 段落边界把长文本切成 <= maxChars 的多段。
-     */
+    /** Log upstream LLM HTTP errors, truncated to first 1000 chars for safety. */
+    private static void logUpstreamError(String where, int status, String body) {
+        String snippet = body == null ? "" : body.substring(0, Math.min(body.length(), 1000));
+        log.warn("LLM upstream error in {}: HTTP {} body[:1000]={}", where, status, snippet);
+    }
+
     private List<String> chunkText(String text, int maxChars) {
         List<String> out = new ArrayList<>();
         if (text == null || text.isBlank()) return out;
@@ -889,9 +890,6 @@ public class LlmService {
         return out;
     }
 
-    /**
-     * 把单 chunk 输出中的所有节点 id 与边端点统一加 chunk 前缀，避免不同段返回的 n_1 撞车。
-     */
     private JsonNode prefixChunkIds(JsonNode part, String prefix) {
         ObjectNode out = objectMapper.createObjectNode();
         if (part.has("reply")) out.set("reply", part.get("reply"));
@@ -928,7 +926,9 @@ public class LlmService {
     }
 
     /**
-     * 按 label 标准化跨段合并：相同标签视为同一节点，第二段的引用被重写到第一段对应 id。
+     * 按 label 标准化跨段合并：相同标签视为同一节点；
+     * 第二段重复 label 的节点不再直接丢弃，而是把它的 props 合并入第一段对应节点，
+     * 按 props.key 去重，a 中已有的 key 保留 a 的值。
      */
     private JsonNode mergeExtractionByLabel(JsonNode a, JsonNode b) {
         ObjectNode out = objectMapper.createObjectNode();
@@ -937,23 +937,36 @@ public class LlmService {
         ArrayNode outNodes = objectMapper.createArrayNode();
         ArrayNode outEdges = objectMapper.createArrayNode();
         Map<String, String> labelToId = new HashMap<>();
+        Map<String, ObjectNode> idToNode = new HashMap<>();
         Map<String, String> idRemap = new HashMap<>();
 
         for (JsonNode n : a.path("add_nodes")) {
-            outNodes.add(n);
-            String norm = normalizeLabel(n.path("label").asText(""));
-            if (!norm.isEmpty()) labelToId.put(norm, n.path("id").asText());
+            ObjectNode copy = n.deepCopy();
+            outNodes.add(copy);
+            String norm = normalizeLabel(copy.path("label").asText(""));
+            String id = copy.path("id").asText("");
+            if (!norm.isEmpty()) labelToId.put(norm, id);
+            if (!id.isEmpty()) idToNode.put(id, copy);
         }
         for (JsonNode e : a.path("add_edges")) outEdges.add(e);
 
         for (JsonNode n : b.path("add_nodes")) {
             String norm = normalizeLabel(n.path("label").asText(""));
-            String id = n.path("id").asText();
+            String id = n.path("id").asText("");
             if (!norm.isEmpty() && labelToId.containsKey(norm)) {
-                idRemap.put(id, labelToId.get(norm));
+                String aId = labelToId.get(norm);
+                idRemap.put(id, aId);
+                ObjectNode existing = idToNode.get(aId);
+                if (existing != null) {
+                    mergeNodeProps(existing, n);
+                }
             } else {
-                outNodes.add(n);
-                if (!norm.isEmpty() && !id.isEmpty()) labelToId.put(norm, id);
+                ObjectNode copy = n.deepCopy();
+                outNodes.add(copy);
+                if (!norm.isEmpty() && !id.isEmpty()) {
+                    labelToId.put(norm, id);
+                    idToNode.put(id, copy);
+                }
             }
         }
         for (JsonNode e : b.path("add_edges")) {
@@ -969,6 +982,34 @@ public class LlmService {
         return out;
     }
 
+    /**
+     * 合并 b 节点的 props 到 a 节点的 props，按 props.key 去重，a 的 key 优先保留。
+     */
+    private void mergeNodeProps(ObjectNode aNode, JsonNode bNode) {
+        JsonNode aProps = aNode.path("props");
+        JsonNode bProps = bNode.path("props");
+        if (!bProps.isArray() || bProps.isEmpty()) return;
+        ArrayNode merged;
+        Set<String> seenKeys = new HashSet<>();
+        if (aProps.isArray()) {
+            merged = (ArrayNode) aProps;
+            for (JsonNode p : aProps) {
+                String k = p.path("key").asText("");
+                if (!k.isEmpty()) seenKeys.add(k);
+            }
+        } else {
+            merged = objectMapper.createArrayNode();
+        }
+        for (JsonNode p : bProps) {
+            String k = p.path("key").asText("");
+            if (k.isEmpty()) continue;
+            if (seenKeys.contains(k)) continue;
+            merged.add(p.deepCopy());
+            seenKeys.add(k);
+        }
+        aNode.set("props", merged);
+    }
+
     private static String normalizeLabel(String s) {
         if (s == null) return "";
         return s.trim().toLowerCase().replaceAll("\\s+", " ");
@@ -976,10 +1017,6 @@ public class LlmService {
 
     // ========== 协议适配辅助 ==========
 
-    /**
-     * 构造 HTTP 请求：Anthropic 用 /messages + x-api-key + anthropic-version；
-     * OpenAI 兼容用 /chat/completions + Authorization: Bearer。
-     */
     private HttpRequest buildHttpRequest(String baseURL, String apiKey, boolean anthropic, String requestBody) {
         String url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
         HttpRequest.Builder b = HttpRequest.newBuilder()
@@ -996,9 +1033,6 @@ public class LlmService {
         return b.build();
     }
 
-    /**
-     * 从非流式响应中提取文本内容（兼容两种协议）。
-     */
     private String extractContent(JsonNode responseJson, boolean anthropic) {
         if (anthropic) {
             StringBuilder sb = new StringBuilder();
@@ -1015,10 +1049,6 @@ public class LlmService {
         return responseJson.path("choices").path(0).path("message").path("content").asText("");
     }
 
-    /**
-     * 构造 Anthropic Messages API 请求体：system 顶层、max_tokens 必填、
-     * messages 数组（role: user / assistant）、可选 image content blocks。
-     */
     private String buildAnthropicBody(String modelName, String systemPrompt, String userMessage,
                                       List<Map<String, Object>> history,
                                       List<Map<String, Object>> attachments,
@@ -1138,8 +1168,9 @@ public class LlmService {
     }
 
     /**
-     * 超过预算时，按优先级保留：seeds → 规则节点 → 约束目标 → 它们的 k-hop 邻域。
-     * 其余节点和孤立边被丢弃，并在 prompt 中告知 LLM。
+     * 超过预算时按优先级保留：mandatory（seeds + 规则节点 + 约束目标）无条件保留，
+     * 再做 BFS 邻域扩展并受预算约束。即便 mandatory 集本身已经超过预算，
+     * 也不会丢失必要节点 —— 业务正确性优先于 budget。
      */
     TruncatedGraph truncateGraphForContext(List<Map<String, Object>> nodes,
                                            List<Map<String, Object>> edges,
@@ -1154,21 +1185,25 @@ public class LlmService {
                     0, 0);
         }
 
-        Set<String> keep = new java.util.LinkedHashSet<>();
-        if (seeds != null) keep.addAll(seeds);
+        // 1) mandatory：无条件保留
+        Set<String> mandatory = new LinkedHashSet<>();
+        if (seeds != null) mandatory.addAll(seeds);
         if (nodes != null) {
             for (Map<String, Object> n : nodes) {
                 if ("rule".equalsIgnoreCase(String.valueOf(n.get("type")))) {
-                    keep.add(String.valueOf(n.get("id")));
+                    mandatory.add(String.valueOf(n.get("id")));
                 }
             }
         }
         if (constraints != null) {
             for (com.tuiyan.backend.model.Constraint c : constraints) {
-                if (c != null && c.getNodeId() != null) keep.add(c.getNodeId());
+                if (c != null && c.getNodeId() != null) mandatory.add(c.getNodeId());
             }
         }
 
+        Set<String> keep = new LinkedHashSet<>(mandatory);
+
+        // 2) 邻接表
         Map<String, List<String>> neighbors = new HashMap<>();
         if (edges != null) {
             for (Map<String, Object> e : edges) {
@@ -1179,10 +1214,10 @@ public class LlmService {
             }
         }
 
-        // BFS 扩展若干 hop，受预算约束
-        Set<String> frontier = new HashSet<>(keep);
+        // 3) BFS 扩展（mandatory 之上叠加邻域，受预算约束；mandatory 不会被踢掉）
+        Set<String> frontier = new HashSet<>(mandatory);
         for (int hop = 0; hop < CONTEXT_HOPS && keep.size() < CONTEXT_NODE_BUDGET; hop++) {
-            Set<String> next = new java.util.LinkedHashSet<>();
+            Set<String> next = new LinkedHashSet<>();
             for (String id : frontier) {
                 List<String> nbs = neighbors.get(id);
                 if (nbs != null) for (String nb : nbs) if (!keep.contains(nb)) next.add(nb);
@@ -1216,10 +1251,6 @@ public class LlmService {
                 totalEdges - outEdges.size());
     }
 
-    /**
-     * 规则节点 (type=rule) 提取为单独章节，附 baseRate / weight（若存在于 properties）。
-     * 让 LLM 优先沿规则推演，并在 rule_id 字段中显式引用。
-     */
     private String summarizeRules(List<Map<String, Object>> nodes) {
         if (nodes == null) return "";
         StringBuilder sb = new StringBuilder();
@@ -1239,9 +1270,6 @@ public class LlmService {
         return sb.toString();
     }
 
-    /**
-     * What-if 约束 → 提示词文本。force 提示 LLM 视为既成事实；block 禁止依赖。
-     */
     private String summarizeConstraints(List<com.tuiyan.backend.model.Constraint> cs,
                                         List<Map<String, Object>> nodes) {
         if (cs == null || cs.isEmpty()) return "";

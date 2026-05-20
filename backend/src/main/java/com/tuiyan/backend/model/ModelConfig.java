@@ -1,6 +1,6 @@
 package com.tuiyan.backend.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -10,6 +10,7 @@ public class ModelConfig {
     private String name;
     private String baseUrl;
     private String modelName;
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String apiKey;
     private boolean enabled;
     private long createdAt;
@@ -73,7 +74,4 @@ public class ModelConfig {
     public void setCapabilities(List<String> capabilities) { this.capabilities = capabilities; }
     public String getProtocol() { return protocol; }
     public void setProtocol(String protocol) { this.protocol = protocol; }
-
-    @JsonIgnore
-    public String getApiKeyForSerialization() { return null; }
 }

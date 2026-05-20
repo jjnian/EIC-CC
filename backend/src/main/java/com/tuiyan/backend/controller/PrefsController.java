@@ -2,7 +2,9 @@ package com.tuiyan.backend.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tuiyan.backend.config.AppPaths;
 import com.tuiyan.backend.service.ScenarioService;
+import com.tuiyan.backend.util.JsonAtomic;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,12 +17,13 @@ import java.util.Map;
 @RequestMapping("/api/prefs")
 public class PrefsController {
 
-    private static final String PREFS_FILE = "src/main/resources/prefs.json";
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ScenarioService scenarioService;
+    private final AppPaths appPaths;
 
-    public PrefsController(ScenarioService scenarioService) {
+    public PrefsController(ScenarioService scenarioService, AppPaths appPaths) {
         this.scenarioService = scenarioService;
+        this.appPaths = appPaths;
     }
 
     @GetMapping
@@ -37,7 +40,7 @@ public class PrefsController {
         try {
             Map<String, Object> merged = readOrDefault();
             merged.putAll(body);
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(new File(PREFS_FILE), merged);
+            JsonAtomic.write(objectMapper, appPaths.prefsFile(), merged);
             return ResponseEntity.ok(merged);
         } catch (IOException e) {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
@@ -47,7 +50,7 @@ public class PrefsController {
     @DeleteMapping("/scenarios")
     public ResponseEntity<?> clearAllScenarios() {
         int n = 0;
-        File dir = new File("src/main/resources/scenarios");
+        File dir = appPaths.scenariosDir();
         if (dir.exists() && dir.isDirectory()) {
             File[] files = dir.listFiles((f, name) -> name.endsWith(".json"));
             if (files != null) {
@@ -56,11 +59,11 @@ public class PrefsController {
                 }
             }
         }
-        return ResponseEntity.ok(Map.of("deleted", n));
+        return ResponseEntity.ok(Map.of("success", n > 0, "count", n));
     }
 
     private Map<String, Object> readOrDefault() throws IOException {
-        File f = new File(PREFS_FILE);
+        File f = appPaths.prefsFile();
         if (!f.exists()) return defaults();
         JsonNode node = objectMapper.readTree(f);
         Map<String, Object> out = new LinkedHashMap<>(defaults());
