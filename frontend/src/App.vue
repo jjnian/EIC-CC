@@ -18,13 +18,14 @@ import { streamSSE, type SSEController } from './composables/useSSE';
 import { listOntologies, saveOntology, updateOntology, deleteOntology } from './api/ontology';
 import { listScenarios, deleteScenario, migrateScenarios } from './api/scenarios';
 import { ApiError } from './api/http';
+import { useDivider } from './composables/useDivider';
+import { useImportFlow } from './composables/useImportFlow';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
 const showSchema = ref(false);
-const chatW = ref(360);
-const divDrag = ref<{ sx: number; sw: number } | null>(null);
 const graphRef = ref<any>(null);
+const { chatW, startDivider } = useDivider(360, () => graphRef.value?.fitView());
 
 const view = ref<'welcome' | 'list' | 'graph' | 'settings'>('welcome');
 const currentModelTitle = ref('供应链本体图');
@@ -182,7 +183,20 @@ const switchBranch = (id: string) => {
   setTimeout(() => graphRef.value?.fitView(), 50);
 };
 
-// v1.0 导入提交：根据 mode 把抽取到的 nodes/edges 合并入当前 trunk，或另存为新模型
+// v1.0 导入提交:抽到 useImportFlow composable
+const importFlow = useImportFlow({
+  nodes,
+  edges,
+  activeBranchId,
+  switchToTrunk: () => switchBranch('trunk'),
+  persistCurrentModel,
+  createNewModel: createOnBackend,
+  registerAndOpenModel: async (saved) => {
+    models.value.unshift(saved);
+    await openModel(saved);
+  },
+  fitView: () => graphRef.value?.fitView(),
+});
 const onImportCommit = async (payload: {
   mode: 'merge' | 'new';
   name: string;
@@ -190,48 +204,7 @@ const onImportCommit = async (payload: {
   edges: OntologyEdge[];
 }) => {
   importDialogOpen.value = false;
-  if (!payload.nodes.length) return;
-
-  // 给新节点默认坐标：从图谱右下角依次铺开，避免压在现有节点上
-  const baseX = (nodes.value.length ? Math.max(...nodes.value.map(n => +(n.x || 0))) : 0) + 260;
-  const baseY = (nodes.value.length ? Math.min(...nodes.value.map(n => +(n.y || 0))) : 0) + 60;
-  const cols = Math.max(1, Math.ceil(Math.sqrt(payload.nodes.length)));
-  const stamped: OntologyNode[] = payload.nodes.map((n, i) => ({
-    ...n,
-    x: n.x != null ? n.x : (baseX + (i % cols) * 200),
-    y: n.y != null ? n.y : (baseY + Math.floor(i / cols) * 120),
-    source: n.source || 'derived',
-  }));
-
-  if (payload.mode === 'merge') {
-    if (activeBranchId.value !== 'trunk') switchBranch('trunk');
-    nodes.value = [...nodes.value, ...stamped];
-    edges.value = [...edges.value, ...payload.edges];
-    persistCurrentModel(true);
-    toast.success(`已合并 ${stamped.length} 个节点 / ${payload.edges.length} 条关系`);
-    setTimeout(() => graphRef.value?.fitView(), 100);
-  } else {
-    // 另存为新模型
-    const draft: OntologyModel = {
-      id: 'om_' + Date.now(),
-      name: payload.name || '导入本体',
-      title: payload.name || '导入本体',
-      description: '从文档抽取',
-      graphData: { nodes: stamped, edges: payload.edges },
-    };
-    try {
-      const saved = await createOnBackend(draft);
-      if (!saved || !saved.id) {
-        toast.error('新模型创建失败');
-        return;
-      }
-      models.value.unshift(saved);
-      await openModel(saved);
-      toast.success('已另存为新模型');
-    } catch (e: any) {
-      toast.error('新模型创建失败：' + (e?.message || e));
-    }
-  }
+  await importFlow.onImportCommit(payload);
 };
 
 const migrateBranches = async () => {
@@ -605,24 +578,6 @@ const shareGraph = async () => {
 const focusNodeInGraph = (id: string) => {
   sel.value = id;
   graphRef.value?.focusNode?.(id);
-};
-
-const startDivider = (e: MouseEvent) => {
-  e.preventDefault();
-  divDrag.value = { sx: e.clientX, sw: chatW.value };
-  const mv = (ev: MouseEvent) => {
-    if (!divDrag.value) return;
-    const delta = divDrag.value.sx - ev.clientX;
-    chatW.value = Math.max(0, Math.min(window.innerWidth - 72, divDrag.value.sw + delta));
-    if (graphRef.value) graphRef.value.fitView();
-  };
-  const up = () => {
-    divDrag.value = null;
-    document.removeEventListener('mousemove', mv);
-    document.removeEventListener('mouseup', up);
-  };
-  document.addEventListener('mousemove', mv);
-  document.addEventListener('mouseup', up);
 };
 </script>
 
