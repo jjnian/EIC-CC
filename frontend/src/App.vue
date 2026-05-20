@@ -1,16 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import Sidebar from './components/Sidebar.vue';
-import GraphCanvas from './components/GraphCanvas.vue';
-import NodeInfo from './components/NodeInfo.vue';
-import ChatPanel from './components/ChatPanel.vue';
 import SettingsView from './components/SettingsView.vue';
 import WelcomeChat from './components/WelcomeChat.vue';
 import PredictDialog from './components/PredictDialog.vue';
 import BranchPicker from './components/BranchPicker.vue';
 import BranchCompareDialog from './components/BranchCompareDialog.vue';
 import ImportDialog from './components/ImportDialog.vue';
-import ScenarioTimeline from './components/ScenarioTimeline.vue';
+import GraphView from './components/views/GraphView.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import { toast, mountToastRoot } from './composables/useToast';
 import { confirm } from './composables/useConfirm';
@@ -218,8 +215,6 @@ const openModelById = (id: string) => {
   const m = findModel(id);
   if (m) openModel(m);
 };
-
-const selNode = computed(() => nodes.value.find(n => n.id === sel.value) || null);
 
 const onMove = (id: string, x: number, y: number) => {
   const n = nodes.value.find(n => n.id === id);
@@ -449,48 +444,33 @@ const focusNodeInGraph = (id: string) => {
       <SettingsView v-if="view === 'settings'" />
 
       <!-- Graph View -->
-      <div class="content" v-else-if="view === 'graph'">
-        <div class="graph-area">
-          <GraphCanvas
-            ref="graphRef"
-            :nodes="nodes"
-            :edges="edges"
-            :selId="sel"
-            @move="onMove"
-            @select="id => sel = id"
-            @auto-layout="autoLayout"
-            @clear="clearCanvas"
-            @predict-from="openPredictDialog"
-          />
-          <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
-            <span class="bb-icon">⚡</span>
-            <span>当前查看推演分支 · 可右键节点从此再次分叉</span>
-            <button class="bb-back" @click="switchBranch('trunk')">返回主分支</button>
-          </div>
-          <NodeInfo :node="selNode" :nodes="nodes" :edges="edges" :isOpen="showSchema" @close="() => { sel = null; showSchema = false; }" />
-        </div>
-        <div :class="['resize-divider', { dragging: divDrag }]" @mousedown="startDivider" />
-        <ScenarioTimeline
-          v-if="liveActive"
-          :steps="liveSteps"
-          :loading="liveLoading"
-          :nodes="nodes"
-          :intent="liveIntent"
-          :style="{ width: chatW + 'px', flexShrink: 0 }"
-          @close="closeTimeline"
-          @focus-node="focusNodeInGraph"
-        />
-        <ChatPanel
-          v-else
-          :nodes="nodes"
-          :edges="edges"
-          :width="chatW"
-          :seed="pendingChatSeed"
-          @update="onUpdate"
-          @clear-graph="clearCanvas"
-          @seed-consumed="pendingChatSeed = null"
-        />
-      </div>
+      <GraphView
+        v-else-if="view === 'graph'"
+        :nodes="nodes"
+        :edges="edges"
+        :selected-id="sel"
+        :show-schema="showSchema"
+        :active-branch-id="activeBranchId"
+        :live-active="liveActive"
+        :live-loading="liveLoading"
+        :live-steps="liveSteps"
+        :live-intent="liveIntent"
+        :chat-w="chatW"
+        :pending-chat-seed="pendingChatSeed"
+        @update:selected-id="(id) => sel = id"
+        @update:show-schema="(v) => showSchema = v"
+        @move="onMove"
+        @auto-layout="autoLayout"
+        @clear="clearCanvas"
+        @predict-from="openPredictDialog"
+        @switch-branch="switchBranch"
+        @close-timeline="closeTimeline"
+        @focus-node="focusNodeInGraph"
+        @update="onUpdate"
+        @seed-consumed="pendingChatSeed = null"
+        @start-divider="startDivider"
+        @graph-ref="(el) => graphRef = el"
+      />
 
       <!-- Predict Dialog (modal) -->
       <PredictDialog
@@ -618,35 +598,4 @@ const focusNodeInGraph = (id: string) => {
 .ml-time {
   margin-left: auto;
 }
-.branch-banner {
-  position: absolute;
-  top: 78px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(251, 191, 36, 0.12);
-  border: 1px solid rgba(251, 191, 36, 0.35);
-  color: #fbbf24;
-  padding: 6px 14px;
-  border-radius: 100px;
-  font-size: 12px;
-  z-index: 20;
-  box-shadow: 0 4px 16px rgba(251, 191, 36, 0.15);
-  backdrop-filter: blur(10px);
-}
-.bb-icon { font-size: 13px; }
-.bb-back {
-  background: rgba(251, 191, 36, 0.2);
-  border: none;
-  color: #fbbf24;
-  padding: 3px 10px;
-  border-radius: 100px;
-  font-size: 11px;
-  cursor: pointer;
-  font-family: inherit;
-  font-weight: 500;
-}
-.bb-back:hover { background: rgba(251, 191, 36, 0.32); }
 </style>
