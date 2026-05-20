@@ -14,12 +14,13 @@ import ScenarioTimeline from './components/ScenarioTimeline.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import { toast, mountToastRoot } from './composables/useToast';
 import { confirm } from './composables/useConfirm';
-import { listOntologies, saveOntology, updateOntology, deleteOntology } from './api/ontology';
+import { updateOntology } from './api/ontology';
 import { ApiError } from './api/http';
 import { useDivider } from './composables/useDivider';
 import { useImportFlow } from './composables/useImportFlow';
 import { useScenarios } from './composables/useScenarios';
 import { usePrediction } from './composables/usePrediction';
+import { useOntologyModel } from './composables/useOntologyModel';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
@@ -34,13 +35,20 @@ const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
 const currentModelId = ref<string>('');
 const compareDialogOpen = ref(false);
 const importDialogOpen = ref(false);
-const isCreating = ref(false);
 
-const models = ref<OntologyModel[]>([]);
+const ontology = useOntologyModel({
+  currentModelId,
+  onDeletedCurrent: () => goWelcome(),
+});
+const models = ontology.models;
+const isCreating = ontology.isCreating;
+const loadOntologyModels = ontology.loadOntologyModels;
+const findModel = ontology.findModel;
+const createOnBackend = ontology.createOnBackend;
+const deleteOntologyModel = ontology.deleteOntologyModel;
+
 const nodes = ref<OntologyNode[]>([]);
 const edges = ref<OntologyEdge[]>([]);
-
-const findModel = (id: string): OntologyModel | undefined => models.value.find(m => m.id === id);
 
 // Scenarios 与 Prediction 通过 getter 解耦循环依赖:
 //   scenarios 需要 prediction.abortLiveStream / resetLiveState
@@ -72,12 +80,6 @@ scenarios = useScenarios({
 const branches = scenarios.branches;
 const activeBranchId = scenarios.activeBranchId;
 const trunkSnapshot = scenarios.trunkSnapshot;
-
-const loadOntologyModels = async () => {
-  try {
-    models.value = await listOntologies();
-  } catch (e) { console.error('load ontology models failed', e); }
-};
 
 // 防抖保存:图谱编辑后 1.2 秒无操作 → PUT 到后端
 let saveTimer: number | null = null;
@@ -142,15 +144,6 @@ const openPredictDialog = prediction.openPredictDialog;
 const startPrediction = prediction.startPrediction;
 const closeTimeline = prediction.closeTimeline;
 
-const createOnBackend = async (draft: OntologyModel): Promise<OntologyModel> => {
-  try {
-    return await saveOntology(draft);
-  } catch (e) {
-    console.error('create model failed', e);
-    return draft;  // 退化:仅本地
-  }
-};
-
 // v1.0 导入提交:抽到 useImportFlow composable
 const importFlow = useImportFlow({
   nodes,
@@ -211,21 +204,6 @@ const onWelcomeSubmit = async (payload: { text: string; files: File[] }) => {
   } finally {
     isCreating.value = false;
   }
-};
-
-const deleteOntologyModel = async (id: string) => {
-  const ok = await confirm({
-    title: '删除本体模型',
-    message: '确定删除该本体模型？关联的推演分支不会自动清除。',
-    confirmLabel: '删除',
-    danger: true,
-  });
-  if (!ok) return;
-  try {
-    await deleteOntology(id);
-  } catch (e) { console.error(e); toast.error('删除请求失败'); }
-  models.value = models.value.filter(m => m.id !== id);
-  if (currentModelId.value === id) goWelcome();
 };
 
 const welcomeResetTick = ref(0);
