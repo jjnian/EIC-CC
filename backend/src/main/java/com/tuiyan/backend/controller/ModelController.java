@@ -20,75 +20,30 @@ public class ModelController {
     }
 
     @GetMapping
-    public ResponseEntity<?> getAllModels() {
-        try {
-            List<ModelConfig> configs = llmService.getAllModelConfigs();
-            return ResponseEntity.ok(configs);
-        } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<List<ModelConfig>> getAllModels() throws IOException {
+        return ResponseEntity.ok(llmService.getAllModelConfigs());
     }
 
     @PostMapping
-    public ResponseEntity<?> createModel(@RequestBody ModelConfigRequest request) {
-        try {
-            if (request.getName() == null || request.getName().isBlank()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "名称不能为空"));
-            }
-            if (request.getBaseUrl() == null || request.getBaseUrl().isBlank()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Base URL 不能为空"));
-            }
-            if (request.getModelName() == null || request.getModelName().isBlank()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "模型名称不能为空"));
-            }
-            ModelConfig config = llmService.createModelConfig(request);
-            return ResponseEntity.ok(config);
-        } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<ModelConfig> createModel(@RequestBody ModelConfigRequest request) throws IOException {
+        return ResponseEntity.ok(llmService.createModelConfig(request));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<?> updateModel(@PathVariable String id, @RequestBody ModelConfigRequest request) {
-        try {
-            if (request.getName() == null || request.getName().isBlank()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "名称不能为空"));
-            }
-            if (request.getBaseUrl() == null || request.getBaseUrl().isBlank()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "Base URL 不能为空"));
-            }
-            if (request.getModelName() == null || request.getModelName().isBlank()) {
-                return ResponseEntity.badRequest().body(Map.of("error", "模型名称不能为空"));
-            }
-            ModelConfig config = llmService.updateModelConfig(id, request);
-            return ResponseEntity.ok(config);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build();
-        } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<ModelConfig> updateModel(@PathVariable String id, @RequestBody ModelConfigRequest request) throws IOException {
+        return ResponseEntity.ok(llmService.updateModelConfig(id, request));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteModel(@PathVariable String id) {
-        try {
-            int removed = llmService.deleteModelConfig(id);
-            return ResponseEntity.ok(Map.of("success", removed > 0, "count", removed));
-        } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<Map<String, Object>> deleteModel(@PathVariable String id) throws IOException {
+        int removed = llmService.deleteModelConfig(id);
+        return ResponseEntity.ok(Map.of("success", removed > 0, "count", removed));
     }
 
     @PatchMapping("/{id}/toggle")
-    public ResponseEntity<?> toggleModel(@PathVariable String id) {
-        try {
-            llmService.toggleModelConfig(id);
-            return ResponseEntity.ok(Map.of("success", true));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.notFound().build();
-        } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<Map<String, Object>> toggleModel(@PathVariable String id) throws IOException {
+        llmService.toggleModelConfig(id);
+        return ResponseEntity.ok(Map.of("success", true));
     }
 
     public static class ModelConfigRequest {
