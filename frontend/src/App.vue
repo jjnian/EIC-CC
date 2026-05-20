@@ -11,15 +11,15 @@ import BranchPicker from './components/BranchPicker.vue';
 import BranchCompareDialog from './components/BranchCompareDialog.vue';
 import ImportDialog from './components/ImportDialog.vue';
 import ScenarioTimeline from './components/ScenarioTimeline.vue';
-import type { OntologyNode, OntologyEdge, OntologyModel, Scenario, ChainStep } from './types';
+import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import { toast, mountToastRoot } from './composables/useToast';
 import { confirm } from './composables/useConfirm';
-import { streamSSE, type SSEController } from './composables/useSSE';
 import { listOntologies, saveOntology, updateOntology, deleteOntology } from './api/ontology';
-import { listScenarios, deleteScenario, migrateScenarios } from './api/scenarios';
 import { ApiError } from './api/http';
 import { useDivider } from './composables/useDivider';
 import { useImportFlow } from './composables/useImportFlow';
+import { useScenarios } from './composables/useScenarios';
+import { usePrediction } from './composables/usePrediction';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
@@ -31,25 +31,47 @@ const view = ref<'welcome' | 'list' | 'graph' | 'settings'>('welcome');
 const currentModelTitle = ref('供应链本体图');
 const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
 
-// ===== Scenario / Branch State =====
 const currentModelId = ref<string>('');
-const branches = ref<Scenario[]>([]);
-const activeBranchId = ref<string>('trunk');
-const predictDialogOpen = ref(false);
-const predictSeeds = ref<string[]>([]);
-const liveSteps = ref<ChainStep[]>([]);
-const liveLoading = ref(false);
-const liveActive = ref(false);  // true while a prediction is streaming
-const liveIntent = ref<'forward' | 'backward'>('forward');
 const compareDialogOpen = ref(false);
 const importDialogOpen = ref(false);
-const trunkSnapshot = ref<{ nodes: OntologyNode[]; edges: OntologyEdge[] } | null>(null);
-const liveAbort = ref<SSEController | null>(null);
 const isCreating = ref(false);
 
 const models = ref<OntologyModel[]>([]);
 const nodes = ref<OntologyNode[]>([]);
 const edges = ref<OntologyEdge[]>([]);
+
+const findModel = (id: string): OntologyModel | undefined => models.value.find(m => m.id === id);
+
+// Scenarios 与 Prediction 通过 getter 解耦循环依赖:
+//   scenarios 需要 prediction.abortLiveStream / resetLiveState
+//   prediction 需要 scenarios.activeBranchId / trunkSnapshot / branches / switchBranch
+// prediction 通过 getter 访问 scenarios,避免初始化顺序问题。
+let scenarios: ReturnType<typeof useScenarios>;
+const prediction = usePrediction({
+  currentModelId,
+  nodes,
+  edges,
+  getActiveBranchId: () => scenarios.activeBranchId.value,
+  setActiveBranchId: (id) => { scenarios.activeBranchId.value = id; },
+  setTrunkSnapshot: (snap) => { scenarios.trunkSnapshot.value = snap; },
+  appendBranch: (s) => { scenarios.branches.value.unshift(s); },
+  switchBranch: (id) => scenarios.switchBranch(id),
+  fitView: () => graphRef.value?.fitView(),
+});
+
+scenarios = useScenarios({
+  currentModelId,
+  nodes,
+  edges,
+  findModel,
+  abortLiveStream: prediction.abortLiveStream,
+  resetLiveState: () => { prediction.resetLiveState(); sel.value = null; },
+  fitView: () => graphRef.value?.fitView(),
+});
+
+const branches = scenarios.branches;
+const activeBranchId = scenarios.activeBranchId;
+const trunkSnapshot = scenarios.trunkSnapshot;
 
 const loadOntologyModels = async () => {
   try {
@@ -57,15 +79,12 @@ const loadOntologyModels = async () => {
   } catch (e) { console.error('load ontology models failed', e); }
 };
 
-// 防抖保存：图谱编辑后 1.2 秒无操作 → PUT 到后端
+// 防抖保存:图谱编辑后 1.2 秒无操作 → PUT 到后端
 let saveTimer: number | null = null;
-let saveTargetId: string = ''; // 闭包内捕获的 modelId 快照
 const persistCurrentModel = (immediate = false) => {
   if (!currentModelId.value || activeBranchId.value !== 'trunk') return;
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-  // capture the model id at scheduling time so a later openModel can't redirect the save.
   const targetId = currentModelId.value;
-  saveTargetId = targetId;
   const run = async () => {
     const m = findModel(targetId);
     if (!m) return;
@@ -91,96 +110,45 @@ onMounted(() => {
 });
 
 const openModel = async (m: OntologyModel) => {
-  // Flush any pending save for the previous model BEFORE switching context.
   if (currentModelId.value && currentModelId.value !== m.id) {
     persistCurrentModel(true);
   }
-  // Abort any live SSE from the previous model.
-  if (liveAbort.value) { try { liveAbort.value.abort(); } catch {} liveAbort.value = null; }
+  prediction.abortLiveStream();
   currentModelTitle.value = m.title || m.name || '';
   currentModelId.value = m.id;
   nodes.value = m.graphData.nodes;
   edges.value = m.graphData.edges;
   sel.value = null;
   activeBranchId.value = 'trunk';
-  liveActive.value = false;
-  liveSteps.value = [];
+  prediction.resetLiveState();
   view.value = 'graph';
-  await loadBranches(m.id);
+  await scenarios.loadBranches(m.id);
 };
 
-const loadBranches = async (modelId: string) => {
+// 暴露给模板的别名(过渡期内,模板还在用这些名字)
+const loadBranches = scenarios.loadBranches;
+const switchBranch = scenarios.switchBranch;
+const migrateBranches = scenarios.migrateBranches;
+const deleteBranch = scenarios.deleteBranch;
+const collectAncestorChain = scenarios.collectAncestorChain;
+const predictDialogOpen = prediction.predictDialogOpen;
+const predictSeeds = prediction.predictSeeds;
+const liveSteps = prediction.liveSteps;
+const liveLoading = prediction.liveLoading;
+const liveActive = prediction.liveActive;
+const liveIntent = prediction.liveIntent;
+const liveAbort = prediction.liveAbort;
+const openPredictDialog = prediction.openPredictDialog;
+const startPrediction = prediction.startPrediction;
+const closeTimeline = prediction.closeTimeline;
+
+const createOnBackend = async (draft: OntologyModel): Promise<OntologyModel> => {
   try {
-    branches.value = await listScenarios(modelId);
-  } catch {
-    branches.value = [];
+    return await saveOntology(draft);
+  } catch (e) {
+    console.error('create model failed', e);
+    return draft;  // 退化:仅本地
   }
-};
-
-const findModel = (id: string): OntologyModel | undefined => models.value.find(m => m.id === id);
-
-// v0.8：沿 parentBranchId 链回溯，root-first 合并所有祖先 dag 增量
-const collectAncestorChain = (leafId: string): Scenario[] => {
-  const chain: Scenario[] = [];
-  let cur: Scenario | undefined = branches.value.find(x => x.id === leafId);
-  const guard = new Set<string>(); // 防御循环引用
-  while (cur && !guard.has(cur.id)) {
-    guard.add(cur.id);
-    chain.unshift(cur);
-    if (!cur.parentBranchId) break;
-    cur = branches.value.find(x => x.id === cur!.parentBranchId);
-  }
-  return chain;
-};
-
-const switchBranch = (id: string) => {
-  // Abort live stream when switching.
-  if (liveAbort.value) { try { liveAbort.value.abort(); } catch {} liveAbort.value = null; }
-  liveActive.value = false;
-  liveSteps.value = [];
-  sel.value = null;
-  if (id === 'trunk') {
-    const m = findModel(currentModelId.value);
-    if (m) {
-      // Deep-clone trunk so transient edits during preview never pollute model store.
-      nodes.value = structuredClone(m.graphData.nodes || []);
-      edges.value = structuredClone(m.graphData.edges || []);
-    }
-    activeBranchId.value = 'trunk';
-  } else {
-    const chain = collectAncestorChain(id);
-    if (chain.length) {
-      const trunkM = findModel(currentModelId.value);
-      // Merge into a Map keyed by id so later writers (descendants) overwrite earlier (ancestors).
-      const nodeMap = new Map<string, OntologyNode>();
-      const edgeMap = new Map<string, OntologyEdge>();
-      if (trunkM) {
-        for (const n of structuredClone(trunkM.graphData.nodes || [])) nodeMap.set(n.id, n);
-        for (const e of structuredClone(trunkM.graphData.edges || [])) edgeMap.set(e.id, e);
-      }
-      let hitLegacy = false;
-      for (const b of chain) {
-        if (b.dag && Array.isArray(b.dag.nodes)) {
-          for (const n of structuredClone(b.dag.nodes || [])) nodeMap.set(n.id, n);
-          for (const e of structuredClone(b.dag.edges || [])) edgeMap.set(e.id, e);
-        } else if (Array.isArray(b.nodes)) {
-          // v0.5 全快照：用其完全覆盖；停止累加后代 delta（不再合理）。
-          console.warn('[switchBranch] legacy v0.5 snapshot branch detected, halting chain merge:', b.id);
-          nodeMap.clear();
-          edgeMap.clear();
-          for (const n of structuredClone(b.nodes || [])) nodeMap.set(n.id, n);
-          for (const e of structuredClone(b.edges || [])) edgeMap.set(e.id, e);
-          hitLegacy = true;
-          break;
-        }
-      }
-      if (hitLegacy) toast.warn('该分支为旧 v0.5 快照格式，建议升级以支持级联预览');
-      nodes.value = Array.from(nodeMap.values());
-      edges.value = Array.from(edgeMap.values());
-      activeBranchId.value = id;
-    }
-  }
-  setTimeout(() => graphRef.value?.fitView(), 50);
 };
 
 // v1.0 导入提交:抽到 useImportFlow composable
@@ -205,161 +173,6 @@ const onImportCommit = async (payload: {
 }) => {
   importDialogOpen.value = false;
   await importFlow.onImportCommit(payload);
-};
-
-const migrateBranches = async () => {
-  const ok = await confirm({
-    title: '升级旧分支',
-    message: '将扫描所有旧格式分支并升级为 v0.9 delta 形态。每个文件升级前会写 .bak 备份。继续？',
-    confirmLabel: '开始升级',
-  });
-  if (!ok) return;
-  try {
-    const out = await migrateScenarios();
-    toast.success(`迁移完成:升级 ${out.migrated} 个 / 跳过 ${out.skipped} 个 / 失败 ${out.errors} 个 / 共 ${out.total} 个分支`);
-    if (currentModelId.value) await loadBranches(currentModelId.value);
-  } catch (e: any) {
-    if (e instanceof ApiError) toast.error('迁移失败: ' + e.message);
-    else toast.error('网络错误: ' + e.message);
-  }
-};
-
-const deleteBranch = async (id: string) => {
-  // v0.8：收集所有以 id 为祖先的子分支，前端同步过滤；后端会级联删除
-  const toRemove = new Set<string>([id]);
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const b of branches.value) {
-      if (b.parentBranchId && toRemove.has(b.parentBranchId) && !toRemove.has(b.id)) {
-        toRemove.add(b.id);
-        grew = true;
-      }
-    }
-  }
-  try {
-    await deleteScenario(id);
-  } catch (e: any) {
-    if (e instanceof ApiError) toast.error('删除失败 (HTTP ' + e.status + ')');
-    else toast.error('删除请求异常: ' + (e?.message || e));
-  }
-  branches.value = branches.value.filter(b => !toRemove.has(b.id));
-  if (toRemove.has(activeBranchId.value)) {
-    switchBranch('trunk');
-  }
-};
-
-const openPredictDialog = (seedId: string) => {
-  // v0.8：允许从推演分支再次分叉；当前正在流式推演时拦截
-  if (liveActive.value) {
-    toast.warn('当前推演进行中，请等待完成后再发起新推演');
-    return;
-  }
-  predictSeeds.value = [seedId];
-  predictDialogOpen.value = true;
-};
-
-const startPrediction = (payload: { seeds: string[]; steps: number; prompt: string; name: string; intent?: 'forward' | 'backward'; constraints?: { nodeId: string; mode: 'force' | 'block' }[] }) => {
-  predictDialogOpen.value = false;
-  const m = findModel(currentModelId.value);
-  if (!m) return;
-
-  // Abort any previous live stream before starting a new one.
-  if (liveAbort.value) { try { liveAbort.value.abort(); } catch {} liveAbort.value = null; }
-
-  // v0.8：fork 起点可以是 trunk 也可以是当前预测分支；快照取当前可见图谱（已合并祖先 delta）
-  // NOTE: 'live' is a transient pseudo-branch — never persist it as a parent.
-  const forkParentId = (activeBranchId.value === 'trunk' || activeBranchId.value === 'live')
-    ? null
-    : activeBranchId.value;
-  trunkSnapshot.value = {
-    nodes: structuredClone(nodes.value),
-    edges: structuredClone(edges.value),
-  };
-
-  // Fork displayed graph from snapshot (will receive predicted nodes streaming)
-  nodes.value = structuredClone(trunkSnapshot.value.nodes);
-  edges.value = structuredClone(trunkSnapshot.value.edges);
-  activeBranchId.value = 'live';
-  liveActive.value = true;
-  liveSteps.value = [];
-  liveLoading.value = true;
-  liveIntent.value = payload.intent || 'forward';
-
-  const body = {
-    modelId: currentModelId.value,
-    parentBranchId: forkParentId,
-    name: payload.name,
-    intent: payload.intent || 'forward',
-    seeds: payload.seeds,
-    steps: payload.steps,
-    prompt: payload.prompt,
-    constraints: payload.constraints || [],
-    nodes: trunkSnapshot.value.nodes,
-    edges: trunkSnapshot.value.edges,
-  };
-
-  liveAbort.value = streamSSE('/api/scenarios', body, {
-    onEvent: (name, data) => {
-      if (name === 'step') {
-        try {
-          const ev = JSON.parse(data);
-          const node: OntologyNode = { ...ev.node, isNew: true };
-          nodes.value.push(node);
-          const newEdges: OntologyEdge[] = (ev.edges || []).map((e: any) => ({ ...e, isNew: true }));
-          edges.value.push(...newEdges);
-          if (ev.chain) liveSteps.value.push(ev.chain);
-          setTimeout(() => {
-            nodes.value.forEach(n => n.isNew = false);
-            edges.value.forEach(e => e.isNew = false);
-          }, 700);
-        } catch {}
-      } else if (name === 'complete') {
-        try {
-          const scenario: Scenario = JSON.parse(data);
-          branches.value.unshift(scenario);
-          activeBranchId.value = scenario.id;
-          liveLoading.value = false;
-          setTimeout(() => graphRef.value?.fitView(), 100);
-        } catch {}
-      } else if (name === 'notice') {
-        try {
-          const note = JSON.parse(data);
-          if (note?.message) toast.info(note.message);
-        } catch {}
-      } else if (name === 'error') {
-        toast.error('推演错误: ' + data);
-        liveLoading.value = false;
-        liveActive.value = false;
-        switchBranch(forkParentId || 'trunk');
-      }
-    },
-    onError: (err) => {
-      toast.error('网络错误: ' + err.message);
-      liveLoading.value = false;
-      liveActive.value = false;
-      switchBranch(forkParentId || 'trunk');
-    },
-    onComplete: () => {
-      liveLoading.value = false;
-    },
-  });
-};
-
-const closeTimeline = () => {
-  if (liveAbort.value) { try { liveAbort.value.abort(); } catch {} liveAbort.value = null; }
-  liveActive.value = false;
-  liveLoading.value = false;
-  liveSteps.value = [];
-};
-
-const createOnBackend = async (draft: OntologyModel): Promise<OntologyModel> => {
-  try {
-    return await saveOntology(draft);
-  } catch (e) {
-    console.error('create model failed', e);
-    return draft;  // 退化:仅本地
-  }
 };
 
 const createNewModel = async () => {
