@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue';
 import type { OntologyNode, OntologyEdge, Scenario, ChainStep, Constraint } from '../types';
-import { streamSSE, type SSEController } from './useSSE';
+import { predictStream, type PredictPayload as ApiPredictPayload } from '../api/scenarios';
+import type { SseHandle } from '../api/http';
 import { toast } from './useToast';
 
 export interface PredictionCtx {
@@ -28,6 +29,15 @@ export interface PredictPayload {
   constraints?: Constraint[];
 }
 
+/** 服务端 SSE 'step' 事件的载荷形状(由 PredictionOrchestrator 写出)。 */
+interface StepEvent {
+  step: number;
+  intent: string;
+  node: OntologyNode;
+  edges: OntologyEdge[];
+  chain: ChainStep;
+}
+
 export function usePrediction(ctx: PredictionCtx) {
   const predictDialogOpen = ref(false);
   const predictSeeds = ref<string[]>([]);
@@ -35,7 +45,7 @@ export function usePrediction(ctx: PredictionCtx) {
   const liveLoading = ref(false);
   const liveActive = ref(false);
   const liveIntent = ref<'forward' | 'backward'>('forward');
-  const liveAbort = ref<SSEController | null>(null);
+  const liveAbort = ref<SseHandle | null>(null);
 
   const abortLiveStream = () => {
     if (liveAbort.value) {
@@ -81,9 +91,9 @@ export function usePrediction(ctx: PredictionCtx) {
     liveLoading.value = true;
     liveIntent.value = payload.intent || 'forward';
 
-    const body = {
+    const apiPayload: ApiPredictPayload = {
       modelId: ctx.currentModelId.value,
-      parentBranchId: forkParentId,
+      parentBranchId: forkParentId || undefined,
       name: payload.name,
       intent: payload.intent || 'forward',
       seeds: payload.seeds,
@@ -94,48 +104,38 @@ export function usePrediction(ctx: PredictionCtx) {
       edges: snapshot.edges,
     };
 
-    liveAbort.value = streamSSE('/api/scenarios', body, {
-      onEvent: (name, data) => {
-        if (name === 'step') {
-          try {
-            const ev = JSON.parse(data);
-            const node: OntologyNode = { ...ev.node, isNew: true };
-            ctx.nodes.value.push(node);
-            const newEdges: OntologyEdge[] = (ev.edges || []).map((e: any) => ({ ...e, isNew: true }));
-            ctx.edges.value.push(...newEdges);
-            if (ev.chain) liveSteps.value.push(ev.chain);
-            setTimeout(() => {
-              ctx.nodes.value.forEach(n => n.isNew = false);
-              ctx.edges.value.forEach(e => e.isNew = false);
-            }, 700);
-          } catch { /* 单步解析失败容忍 */ }
-        } else if (name === 'complete') {
-          try {
-            const scenario: Scenario = JSON.parse(data);
-            ctx.appendBranch(scenario);
-            ctx.setActiveBranchId(scenario.id);
-            liveLoading.value = false;
-            setTimeout(() => ctx.fitView?.(), 100);
-          } catch { /* noop */ }
-        } else if (name === 'notice') {
-          try {
-            const note = JSON.parse(data);
-            if (note?.message) toast.info(note.message);
-          } catch { /* noop */ }
-        } else if (name === 'error') {
-          toast.error('推演错误: ' + data);
-          liveLoading.value = false;
-          liveActive.value = false;
-          ctx.switchBranch(forkParentId || 'trunk');
-        }
+    liveAbort.value = predictStream(apiPayload, {
+      onStep: (raw: unknown) => {
+        try {
+          const ev = raw as StepEvent;
+          const node: OntologyNode = { ...ev.node, isNew: true };
+          ctx.nodes.value.push(node);
+          const newEdges: OntologyEdge[] = (ev.edges || []).map(e => ({ ...e, isNew: true }));
+          ctx.edges.value.push(...newEdges);
+          if (ev.chain) liveSteps.value.push(ev.chain);
+          setTimeout(() => {
+            ctx.nodes.value.forEach(n => n.isNew = false);
+            ctx.edges.value.forEach(e => e.isNew = false);
+          }, 700);
+        } catch { /* 单步解析失败容忍 */ }
       },
-      onError: (err) => {
-        toast.error('网络错误: ' + err.message);
+      onComplete: (scenario: Scenario) => {
+        ctx.appendBranch(scenario);
+        ctx.setActiveBranchId(scenario.id);
+        liveLoading.value = false;
+        setTimeout(() => ctx.fitView?.(), 100);
+      },
+      onNotice: (raw: unknown) => {
+        const note = raw as { message?: string };
+        if (note?.message) toast.info(note.message);
+      },
+      onError: (msg: string) => {
+        toast.error('推演错误: ' + msg);
         liveLoading.value = false;
         liveActive.value = false;
         ctx.switchBranch(forkParentId || 'trunk');
       },
-      onComplete: () => {
+      onClose: () => {
         liveLoading.value = false;
       },
     });

@@ -1,4 +1,5 @@
 import { request } from './http';
+import type { ModelConfig } from '../types';
 
 export interface ProviderInfo {
   code: string;
@@ -9,19 +10,8 @@ export interface ProviderInfo {
   apiKeyEnvName: string;
 }
 
-export interface ModelConfigInfo {
-  id: string;
-  name: string;
-  baseUrl: string;
-  modelName: string;
-  enabled: boolean;
-  provider?: string;
-  description?: string;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  capabilities?: string[];
-  protocol?: string;
-}
+/** ConfigResponse 中嵌入的 customModels 与全局 ModelConfig 同结构,直接复用。 */
+export type ModelConfigInfo = ModelConfig;
 
 export interface ConfigResponse {
   provider: string;

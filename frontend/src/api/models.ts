@@ -1,34 +1,8 @@
 import { request } from './http';
+import type { ModelConfig, ModelConfigCore } from '../types';
 
-export interface ModelConfig {
-  id: string;
-  name: string;
-  baseUrl: string;
-  modelName: string;
-  apiKey?: string;
-  enabled: boolean;
-  provider?: string;
-  description?: string;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  capabilities?: string[];
-  protocol?: string;
-  createdAt?: number;
-  updatedAt?: number;
-}
-
-export interface ModelConfigPayload {
-  name: string;
-  baseUrl: string;
-  modelName: string;
-  apiKey?: string;
-  provider?: string;
-  description?: string;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  capabilities?: string[];
-  protocol?: string;
-}
+export type { ModelConfig };
+export type ModelConfigPayload = ModelConfigCore;
 
 export function listModels() {
   return request<ModelConfig[]>('/api/models');

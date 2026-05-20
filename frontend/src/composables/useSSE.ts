@@ -12,7 +12,7 @@ export interface SSEController {
   abort(): void;
 }
 
-export function streamSSE(url: string, body: any, handlers: SSEHandlers): SSEController {
+export function streamSSE(url: string, body: unknown, handlers: SSEHandlers): SSEController {
   let aborted = false;
   const handle: SseHandle = sse(url, body, {
     onEvent: (name, data) => { handlers.onEvent?.(name, data); },

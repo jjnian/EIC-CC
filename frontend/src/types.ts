@@ -96,3 +96,27 @@ export interface SourceMeta {
   renderedPages?: number;
   reason?: string;
 }
+
+// ===== 模型配置(LLM 模型管理) =====
+
+/** 共享的模型配置元字段 — 命名/URL/能力等,不含 id 与 enabled。 */
+export interface ModelConfigCore {
+  name: string;
+  baseUrl: string;
+  modelName: string;
+  apiKey?: string;
+  provider?: string;
+  description?: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  capabilities?: string[];
+  protocol?: string;
+}
+
+/** 完整的服务端模型配置:含 id、enabled、时间戳。 */
+export interface ModelConfig extends ModelConfigCore {
+  id: string;
+  enabled: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}

@@ -49,11 +49,9 @@ public class PredictionOrchestrator {
 
     /**
      * 主入口:由 controller 注入的 executor 调用。
+     * cancelled 由 controller 通过 CancellableEmitter 装配好后传入。
      */
-    public void run(PredictRequest req, SseEmitter emitter) {
-        AtomicBoolean cancelled = new AtomicBoolean(false);
-        emitter.onCompletion(() -> cancelled.set(true));
-        emitter.onError(t -> cancelled.set(true));
+    public void run(PredictRequest req, SseEmitter emitter, AtomicBoolean cancelled) {
 
         try {
             String intent = "backward".equalsIgnoreCase(req.getIntent()) ? "backward" : "forward";

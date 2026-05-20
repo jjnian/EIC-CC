@@ -2,30 +2,12 @@ import { ref, computed } from 'vue';
 import { confirm as uiConfirm } from './useConfirm';
 import { listModels, createModel, updateModel, deleteModel as apiDeleteModel, toggleModel as apiToggleModel } from '../api/models';
 import { getConfig } from '../api/config';
+import type { ProviderInfo } from '../api/config';
+import type { ModelConfig } from '../types';
 import { ApiError } from '../api/http';
 
-export interface SettingsModelConfig {
-  id: string;
-  name: string;
-  baseUrl: string;
-  modelName: string;
-  enabled: boolean;
-  provider?: string;
-  description?: string;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  capabilities?: string[];
-  protocol?: string;
-}
-
-export interface ProviderInfo {
-  code: string;
-  displayName: string;
-  baseUrl: string;
-  defaultModel: string;
-  models: string[];
-  apiKeyEnvName: string;
-}
+export type SettingsModelConfig = ModelConfig;
+export type { ProviderInfo };
 
 export const CAPABILITY_OPTIONS = [
   { code: 'streaming', label: '流式' },

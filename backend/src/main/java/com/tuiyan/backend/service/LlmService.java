@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.config.AppPaths;
+import com.tuiyan.backend.config.ResourceNotFoundException;
 import com.tuiyan.backend.model.ChatRequest;
 import com.tuiyan.backend.model.ConfigResponse;
 import com.tuiyan.backend.model.LlmProvider;
@@ -265,7 +266,7 @@ public class LlmService {
                 return c;
             }
         }
-        throw new IllegalArgumentException("Model config not found: " + id);
+        throw new ResourceNotFoundException("Model config not found: " + id);
     }
 
     public int deleteModelConfig(String id) throws IOException {
@@ -289,7 +290,7 @@ public class LlmService {
                 return;
             }
         }
-        throw new IllegalArgumentException("Model config not found: " + id);
+        throw new ResourceNotFoundException("Model config not found: " + id);
     }
 
     private static void validateModelConfigRequest(com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) {
@@ -307,6 +308,18 @@ public class LlmService {
     private void saveModelConfigs(List<ModelConfig> configs) throws IOException {
         JsonAtomic.write(persistMapper, appPaths.modelsConfigFile(), configs);
         invalidateCache();
+    }
+
+    /**
+     * 同步 HTTP 调用 — 把 InterruptedException 翻译为 IOException,让 caller 只用 catch 一种受检异常。
+     */
+    private <T> HttpResponse<T> sendHttp(HttpRequest request, HttpResponse.BodyHandler<T> bodyHandler) throws IOException {
+        try {
+            return httpClient.send(request, bodyHandler);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("HTTP 调用被中断", e);
+        }
     }
 
     private void migrateLegacyConfig() throws IOException {
@@ -403,7 +416,7 @@ public class LlmService {
     /**
      * 解析模型配置，返回 baseURL / modelName / apiKey / protocol。
      */
-    private ResolvedConfig resolveConfig(String modelOverride, String configId) throws Exception {
+    private ResolvedConfig resolveConfig(String modelOverride, String configId) throws IOException {
         String baseURL;
         String modelName;
         String apiKey;
@@ -476,7 +489,7 @@ public class LlmService {
     private String buildOpenAiBody(String modelName, String systemPrompt, String userText,
                                    List<Map<String, Object>> history,
                                    List<Map<String, Object>> attachments,
-                                   boolean stream, boolean jsonMode) throws Exception {
+                                   boolean stream, boolean jsonMode) throws IOException {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", modelName);
         root.put("stream", stream);
@@ -547,13 +560,13 @@ public class LlmService {
     /**
      * 同步聊天（非流式）
      */
-    public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message, String modelOverride, String configId, List<Map<String, Object>> history) throws Exception {
+    public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message, String modelOverride, String configId, List<Map<String, Object>> history) throws IOException {
         return chat(nodes, edges, message, modelOverride, configId, history, null);
     }
 
     public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message,
                          String modelOverride, String configId, List<Map<String, Object>> history,
-                         List<Map<String, Object>> attachments) throws Exception {
+                         List<Map<String, Object>> attachments) throws IOException {
         ResolvedConfig cfg = resolveConfig(modelOverride, configId);
         boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
@@ -565,7 +578,7 @@ public class LlmService {
                 : buildOpenAiBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, history, attachments, false, true);
 
         HttpRequest request = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = sendHttp(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
             logUpstreamError("chat", response.statusCode(), response.body());
             throw new RuntimeException("LLM 调用失败 HTTP " + response.statusCode() + "（详情见服务器日志）");
@@ -746,7 +759,7 @@ public class LlmService {
 
     // ========== 场景推演 ==========
 
-    public JsonNode predictChain(com.tuiyan.backend.model.PredictRequest req) throws Exception {
+    public JsonNode predictChain(com.tuiyan.backend.model.PredictRequest req) throws IOException {
         ResolvedConfig cfg = resolveConfig(req.getModelOverride(), req.getConfigId());
         boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
@@ -798,7 +811,7 @@ public class LlmService {
                         null, null, false, true);
 
         HttpRequest httpReq = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
-        HttpResponse<String> resp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resp = sendHttp(httpReq, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() != 200) {
             logUpstreamError("predict", resp.statusCode(), resp.body());
             throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
@@ -816,7 +829,7 @@ public class LlmService {
     public JsonNode extractOntologyFromSources(String combinedText,
                                                List<Map<String, Object>> imageAttachments,
                                                String modelOverride,
-                                               String configId) throws Exception {
+                                               String configId) throws IOException {
         ResolvedConfig cfg = resolveConfig(modelOverride, configId);
         boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
@@ -844,7 +857,7 @@ public class LlmService {
 
     private JsonNode callExtractOnce(String userText,
                                      List<Map<String, Object>> imageAttachments,
-                                     String modelName, String baseURL, String apiKey, boolean anthropic) throws Exception {
+                                     String modelName, String baseURL, String apiKey, boolean anthropic) throws IOException {
         boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
         StringBuilder userPrompt = new StringBuilder();
         if (userText != null && !userText.isBlank()) {
@@ -866,7 +879,7 @@ public class LlmService {
                         null, imageAttachments, false, true);
 
         HttpRequest httpReq = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
-        HttpResponse<String> resp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> resp = sendHttp(httpReq, HttpResponse.BodyHandlers.ofString());
         if (resp.statusCode() != 200) {
             logUpstreamError("extract", resp.statusCode(), resp.body());
             throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
@@ -1066,7 +1079,7 @@ public class LlmService {
     private String buildAnthropicBody(String modelName, String systemPrompt, String userMessage,
                                       List<Map<String, Object>> history,
                                       List<Map<String, Object>> attachments,
-                                      boolean stream, int maxTokens) throws Exception {
+                                      boolean stream, int maxTokens) throws IOException {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", modelName);
         root.put("max_tokens", maxTokens);
