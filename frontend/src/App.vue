@@ -15,6 +15,9 @@ import type { OntologyNode, OntologyEdge, OntologyModel, Scenario, ChainStep } f
 import { toast, mountToastRoot } from './composables/useToast';
 import { confirm } from './composables/useConfirm';
 import { streamSSE, type SSEController } from './composables/useSSE';
+import { listOntologies, saveOntology, updateOntology, deleteOntology } from './api/ontology';
+import { listScenarios, deleteScenario, migrateScenarios } from './api/scenarios';
+import { ApiError } from './api/http';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
@@ -49,8 +52,7 @@ const edges = ref<OntologyEdge[]>([]);
 
 const loadOntologyModels = async () => {
   try {
-    const res = await fetch('/api/ontology-models');
-    if (res.ok) models.value = await res.json();
+    models.value = await listOntologies();
   } catch (e) { console.error('load ontology models failed', e); }
 };
 
@@ -68,18 +70,14 @@ const persistCurrentModel = (immediate = false) => {
     if (!m) return;
     m.graphData = { nodes: nodes.value, edges: edges.value };
     try {
-      const res = await fetch('/api/ontology-models/' + encodeURIComponent(m.id), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(m)
-      });
-      if (!res.ok) {
-        console.error('save failed', res.status);
-        toast.warn('未保存到服务器（HTTP ' + res.status + '）');
-      }
+      await updateOntology(m.id, m);
     } catch (e) {
       console.error('save failed', e);
-      toast.warn('未保存到服务器');
+      if (e instanceof ApiError) {
+        toast.warn('未保存到服务器(HTTP ' + e.status + ')');
+      } else {
+        toast.warn('未保存到服务器');
+      }
     }
   };
   if (immediate) run();
@@ -112,12 +110,7 @@ const openModel = async (m: OntologyModel) => {
 
 const loadBranches = async (modelId: string) => {
   try {
-    const res = await fetch('/api/scenarios?modelId=' + encodeURIComponent(modelId));
-    if (res.ok) {
-      branches.value = await res.json();
-    } else {
-      branches.value = [];
-    }
+    branches.value = await listScenarios(modelId);
   } catch {
     branches.value = [];
   }
@@ -249,17 +242,12 @@ const migrateBranches = async () => {
   });
   if (!ok) return;
   try {
-    const res = await fetch('/api/scenarios/migrate', { method: 'POST' });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: '迁移失败' }));
-      toast.error('迁移失败: ' + (err.error || res.statusText));
-      return;
-    }
-    const out = await res.json();
-    toast.success(`迁移完成：升级 ${out.migrated} 个 / 跳过 ${out.skipped} 个 / 失败 ${out.errors} 个 / 共 ${out.total} 个分支`);
+    const out = await migrateScenarios();
+    toast.success(`迁移完成:升级 ${out.migrated} 个 / 跳过 ${out.skipped} 个 / 失败 ${out.errors} 个 / 共 ${out.total} 个分支`);
     if (currentModelId.value) await loadBranches(currentModelId.value);
   } catch (e: any) {
-    toast.error('网络错误: ' + e.message);
+    if (e instanceof ApiError) toast.error('迁移失败: ' + e.message);
+    else toast.error('网络错误: ' + e.message);
   }
 };
 
@@ -277,10 +265,10 @@ const deleteBranch = async (id: string) => {
     }
   }
   try {
-    const res = await fetch('/api/scenarios/' + encodeURIComponent(id), { method: 'DELETE' });
-    if (!res.ok) toast.error('删除失败 (HTTP ' + res.status + ')');
+    await deleteScenario(id);
   } catch (e: any) {
-    toast.error('删除请求异常: ' + (e?.message || e));
+    if (e instanceof ApiError) toast.error('删除失败 (HTTP ' + e.status + ')');
+    else toast.error('删除请求异常: ' + (e?.message || e));
   }
   branches.value = branches.value.filter(b => !toRemove.has(b.id));
   if (toRemove.has(activeBranchId.value)) {
@@ -394,14 +382,11 @@ const closeTimeline = () => {
 
 const createOnBackend = async (draft: OntologyModel): Promise<OntologyModel> => {
   try {
-    const res = await fetch('/api/ontology-models', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(draft)
-    });
-    if (res.ok) return await res.json();
-  } catch (e) { console.error('create model failed', e); }
-  return draft;  // 退化：仅本地
+    return await saveOntology(draft);
+  } catch (e) {
+    console.error('create model failed', e);
+    return draft;  // 退化:仅本地
+  }
 };
 
 const createNewModel = async () => {
@@ -451,7 +436,7 @@ const deleteOntologyModel = async (id: string) => {
   });
   if (!ok) return;
   try {
-    await fetch('/api/ontology-models/' + encodeURIComponent(id), { method: 'DELETE' });
+    await deleteOntology(id);
   } catch (e) { console.error(e); toast.error('删除请求失败'); }
   models.value = models.value.filter(m => m.id !== id);
   if (currentModelId.value === id) goWelcome();
