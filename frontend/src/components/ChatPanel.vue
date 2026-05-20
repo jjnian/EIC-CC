@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from 'vue';
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
-import { toast } from '../composables/useToast';
-import { confirm as uiConfirm } from '../composables/useConfirm';
 import { streamSSE, type SSEController } from '../composables/useSSE';
-import { getConfig } from '../api/config';
-import { getPrefs } from '../api/prefs';
+import { useConversations, type ChatMsg } from '../composables/useConversations';
+import { useAttachments } from '../composables/useAttachments';
+import { useMention } from '../composables/useMention';
+import { useChatModels } from '../composables/useChatModels';
 
 const props = defineProps<{
   nodes: OntologyNode[];
@@ -20,354 +20,98 @@ const emit = defineEmits<{
   (e: 'seed-consumed'): void;
 }>();
 
-// ========== 会话管理 ==========
-
-interface Msg {
-  role: 'a' | 'u';
-  text: string;
-  atts?: { name: string; type: string; kind: 'image' | 'text' | 'binary'; error?: string }[];
-}
-
-interface Conversation {
-  id: string;
-  createdAt: number;
-  title: string;
-  msgs: Msg[];
-}
-
-const STORAGE_KEY = 'eic-conversations';
-const conversationId = ref('');
-const conversationTitle = ref('新对话');
-const showConvPicker = ref(false);
-
-// 当前 chat SSE 控制器（切换会话或重发时 abort）
-let chatStream: SSEController | null = null;
-const abortChat = () => {
-  if (chatStream) { try { chatStream.abort(); } catch {} chatStream = null; }
-};
-
-const loadConversations = (): Record<string, Conversation> => {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-  } catch (e) {
-    console.warn('loadConversations failed', e);
-    return {};
-  }
-};
-
-const saveConversations = (convs: Record<string, Conversation>) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(convs));
-  } catch (e: any) {
-    console.warn('saveConversations failed', e);
-    toast.warn('对话本地存储已满，最近内容可能未保存');
-  }
-};
-
-const autoTitle = (msgList: Msg[]): string => {
-  const firstUser = msgList.find(m => m.role === 'u');
-  if (!firstUser) return '新对话';
-  const t = (firstUser.text || '').trim();
-  return t.length > 20 ? t.slice(0, 20) + '…' : t;
-};
-
-const persistCurrent = () => {
-  const convs = loadConversations();
-  if (convs[conversationId.value]) {
-    convs[conversationId.value].msgs = structuredClone(msgs.value);
-    convs[conversationId.value].title = autoTitle(msgs.value);
-  } else if (conversationId.value) {
-    // 新建会话首次保存
-    convs[conversationId.value] = {
-      id: conversationId.value,
-      createdAt: Number(conversationId.value) || Date.now(),
-      title: autoTitle(msgs.value),
-      msgs: structuredClone(msgs.value),
-    };
-  }
-  saveConversations(convs);
-};
-
-const initConversation = (id?: string) => {
-  abortChat();
-  if (id && id !== 'new') {
-    const convs = loadConversations();
-    const conv = convs[id];
-    if (conv) {
-      conversationId.value = conv.id;
-      conversationTitle.value = conv.title;
-      msgs.value = structuredClone(conv.msgs);
-      return;
-    }
-  }
-  // 新建对话
-  conversationId.value = Date.now().toString();
-  conversationTitle.value = '新对话';
-  msgs.value = [
-    { role: 'a', text: '你好！我是推演助手。\n\n用自然语言描述实体和关系，我会自动构建本体图谱。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试：「添加一个财务审计实体，与客户相关联」' }
-  ];
-  emit('clear-graph');
-};
-
-const newConversation = () => {
-  showConvPicker.value = false;
-  initConversation('new');
-};
-
-const switchConversation = (id: string) => {
-  showConvPicker.value = false;
-  initConversation(id);
-};
-
-const deleteConversation = async (id: string, e: Event) => {
-  e.stopPropagation();
-  const ok = await uiConfirm({
-    title: '删除对话',
-    message: '确定删除这条对话记录？',
-    confirmLabel: '删除',
-    danger: true,
-  });
-  if (!ok) return;
-  const convs = loadConversations();
-  delete convs[id];
-  saveConversations(convs);
-  if (id === conversationId.value) {
-    initConversation('new');
-  }
-};
-
-const sortedConversations = (): Conversation[] => {
-  const convs = loadConversations();
-  return Object.values(convs).sort((a, b) => b.createdAt - a.createdAt);
-};
-
-// ========== 消息 & 模型 ==========
-
-const msgs = ref<Msg[]>([
-  { role: 'a', text: '你好！我是推演助手。\n\n用自然语言描述实体和关系，我会自动构建本体图谱。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试：「添加一个财务审计实体，与客户相关联」' }
+// ===== 消息/输入 状态 =====
+const msgs = ref<ChatMsg[]>([
+  { role: 'a', text: '你好!我是推演助手。\n\n用自然语言描述实体和关系,我会自动构建本体图谱。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试:「添加一个财务审计实体,与客户相关联」' }
 ]);
 const input = ref('');
 const loading = ref(false);
-const atts = ref<{name: string, type: string, kind: 'text' | 'image' | 'binary', content?: string, size: number, loading?: boolean}[]>([]);
 const fileRef = ref<HTMLInputElement | null>(null);
 const msgsRef = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 
-// ========== @ 提及节点 / 关系 ==========
-interface MentionItem {
-  kind: 'node' | 'edge';
-  id: string;
-  label: string;
-  sub: string;
-}
-const mentionOpen = ref(false);
-const mentionQuery = ref('');
-const mentionIndex = ref(0);
-const mentionStart = ref(-1);
+// ===== SSE 流控制 =====
+let chatStream: SSEController | null = null;
+const abortChat = () => {
+  if (chatStream) { try { chatStream.abort(); } catch { /* noop */ } chatStream = null; }
+};
 
-const mentionItems = computed<MentionItem[]>(() => {
-  const q = mentionQuery.value.toLowerCase().trim();
-  const nodeItems: MentionItem[] = (props.nodes || []).map(n => ({
-    kind: 'node' as const,
-    id: n.id,
-    label: n.label || n.id,
-    sub: n.type || '实体'
-  }));
-  const edgeItems: MentionItem[] = (props.edges || []).map(e => {
-    const fromN = (props.nodes || []).find(n => n.id === e.from);
-    const toN = (props.nodes || []).find(n => n.id === e.to);
-    return {
-      kind: 'edge' as const,
-      id: e.id,
-      label: e.label || '关系',
-      sub: `${fromN?.label || e.from} → ${toN?.label || e.to}`
-    };
-  });
-  const all = [...nodeItems, ...edgeItems];
-  if (!q) return all.slice(0, 12);
-  return all.filter(it =>
-    it.label.toLowerCase().includes(q) || it.sub.toLowerCase().includes(q)
-  ).slice(0, 12);
+// ===== composables 接线 =====
+const conv = useConversations({
+  msgs,
+  abortChat,
+  clearGraph: () => emit('clear-graph'),
 });
+const {
+  conversationId,
+  conversationTitle,
+  showConvPicker,
+  autoTitle,
+  persistCurrent,
+  initConversation,
+  newConversation,
+  switchConversation,
+  deleteConversation,
+  sortedConversations,
+  restoreLatestOrNew,
+} = conv;
 
-const checkMention = () => {
-  const ta = inputRef.value;
-  if (!ta) { mentionOpen.value = false; return; }
-  const cursor = ta.selectionStart || 0;
-  const before = input.value.slice(0, cursor);
-  const atIdx = before.lastIndexOf('@');
-  if (atIdx === -1) { mentionOpen.value = false; return; }
-  const prevChar = atIdx > 0 ? before[atIdx - 1] : ' ';
-  if (atIdx !== 0 && !/\s/.test(prevChar)) { mentionOpen.value = false; return; }
-  const query = before.slice(atIdx + 1);
-  if (/\s/.test(query)) { mentionOpen.value = false; return; }
-  mentionStart.value = atIdx;
-  mentionQuery.value = query;
-  mentionOpen.value = true;
-  mentionIndex.value = 0;
-};
+const { atts, addFile } = useAttachments();
 
-const selectMention = (it: MentionItem) => {
-  const ta = inputRef.value;
-  const queryLen = mentionQuery.value.length;
-  const start = mentionStart.value;
-  if (start < 0) return;
-  const before = input.value.slice(0, start);
-  const after = input.value.slice(start + 1 + queryLen);
-  const token = it.kind === 'node' ? `@${it.label}` : `@「${it.label}」`;
-  input.value = before + token + ' ' + after;
-  mentionOpen.value = false;
-  nextTick(() => {
-    if (ta) {
-      ta.focus();
-      const pos = (before + token + ' ').length;
-      ta.setSelectionRange(pos, pos);
-    }
-  });
-};
+const mention = useMention({
+  input,
+  inputRef,
+  nodes: () => props.nodes || [],
+  edges: () => props.edges || [],
+});
+const {
+  mentionOpen,
+  mentionQuery,
+  mentionIndex,
+  mentionItems,
+  checkMention,
+  selectMention,
+  handleKeydown: handleMentionKeydown,
+} = mention;
 
+const models = useChatModels();
+const {
+  currentModel,
+  showModelPicker,
+  presetModels,
+  customModels,
+  loadModels,
+  selectModel,
+} = models;
+
+// ===== 输入框键盘 / 事件 =====
 const onInputKeydown = (e: KeyboardEvent) => {
-  if (mentionOpen.value && mentionItems.value.length > 0) {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      mentionIndex.value = (mentionIndex.value + 1) % mentionItems.value.length;
-      return;
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      mentionIndex.value = (mentionIndex.value - 1 + mentionItems.value.length) % mentionItems.value.length;
-      return;
-    } else if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault();
-      const it = mentionItems.value[mentionIndex.value];
-      if (it) selectMention(it);
-      return;
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      mentionOpen.value = false;
-      return;
-    }
-  }
+  if (handleMentionKeydown(e)) return;
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
     send();
   }
 };
+const onInputEvent = () => { nextTick(() => checkMention()); };
+const onInputClick = () => { nextTick(() => checkMention()); };
 
-const onInputEvent = () => {
-  nextTick(() => checkMention());
-};
-
-const onInputClick = () => {
-  nextTick(() => checkMention());
-};
-
-const MAX_TEXT_BYTES = 200_000;  // 200KB per text file
-const MAX_IMAGE_BYTES = 8_000_000; // 8MB per image
-
-const TEXT_EXTS = ['txt','md','markdown','json','csv','tsv','log','xml','yaml','yml','html','htm','js','ts','tsx','jsx','py','java','c','cpp','h','hpp','go','rs','rb','sh','sql','toml','ini','env','vue','css','scss','less'];
-const IMAGE_EXTS = ['png','jpg','jpeg','gif','webp','bmp'];
-
-const readAsText = (f: File): Promise<string> => new Promise((resolve, reject) => {
-  const r = new FileReader();
-  r.onload = () => resolve(String(r.result || ''));
-  r.onerror = () => reject(r.error);
-  r.readAsText(f);
-});
-
-const readAsDataURL = (f: File): Promise<string> => new Promise((resolve, reject) => {
-  const r = new FileReader();
-  r.onload = () => resolve(String(r.result || ''));
-  r.onerror = () => reject(r.error);
-  r.readAsDataURL(f);
-});
-
-// 模型选择
-interface ModelOption {
-  id: string;
-  name: string;
-  type: 'preset' | 'custom';
-  configId?: string;
-}
-
-const currentModel = ref<ModelOption | null>(null);
-const availableModels = ref<ModelOption[]>([]);
-const showModelPicker = ref(false);
-
-const presetModels = computed(() => availableModels.value.filter(x => x.type === 'preset'));
-const customModels = computed(() => availableModels.value.filter(x => x.type === 'custom'));
-
-const loadModels = async () => {
-  try {
-    const data = await getConfig();
-    const models: ModelOption[] = [];
-
-    if (data.provider && data.modelName) {
-      const provider = (data.providers || []).find((p: any) => p.code === data.provider);
-      const modelName = data.modelName;
-      if (provider && provider.models) {
-        provider.models.forEach((m: string) => {
-          models.push({ id: m, name: m, type: 'preset' });
-        });
-      } else {
-        models.push({ id: modelName, name: modelName, type: 'preset' });
-      }
-    }
-
-    if (data.customModels) {
-      data.customModels
-        .filter((m: any) => m.enabled)
-        .forEach((m: any) => {
-          models.push({ id: m.id, name: m.name, type: 'custom', configId: m.id });
-        });
-    }
-
-    availableModels.value = models;
-    if (models.length > 0) {
-      // 优先使用偏好里的默认模型
-      let defaultId: string | null = null;
-      try {
-        const prefs = await getPrefs();
-        if (prefs.defaultModelConfigId) defaultId = prefs.defaultModelConfigId as string;
-      } catch { /* prefs 不可读时退化用第一个 */ }
-      const preferred = defaultId
-        ? models.find(m => m.configId === defaultId || m.id === defaultId)
-        : null;
-      currentModel.value = preferred || models[0];
-    }
-  } catch (e) {
-    console.error("Failed to load models", e);
-  }
-};
-
-const selectModel = (model: ModelOption) => {
-  currentModel.value = model;
-  showModelPicker.value = false;
-};
-
-onMounted(() => {
-  loadModels();
-  // 如果父组件传入种子消息，则开始一个全新对话并发送
-  if (props.seed && (props.seed.text || props.seed.files.length)) {
-    initConversation('new');
-    consumeSeed(props.seed);
-    return;
-  }
-  // 恢复上一次打开的会话
-  const convs = loadConversations();
-  const ids = Object.keys(convs);
-  if (ids.length > 0) {
-    // 选最近的一条
-    const latest = ids.reduce((a, b) => convs[a].createdAt > convs[b].createdAt ? a : b);
-    initConversation(latest);
-  }
-});
-
+// ===== 启动:加载模型 + 恢复/接收 seed =====
 const consumeSeed = (seed: { text: string; files: File[] }) => {
   seed.files.forEach(f => addFile(f));
   input.value = seed.text;
   emit('seed-consumed');
   nextTick(() => { send(); });
 };
+
+onMounted(() => {
+  loadModels();
+  if (props.seed && (props.seed.text || props.seed.files.length)) {
+    initConversation('new');
+    consumeSeed(props.seed);
+    return;
+  }
+  restoreLatestOrNew();
+});
 
 watch(() => props.seed, (newSeed) => {
   if (newSeed && (newSeed.text || newSeed.files.length)) {
@@ -378,7 +122,7 @@ watch(() => props.seed, (newSeed) => {
 
 onBeforeUnmount(() => abortChat());
 
-// 每次消息变化自动保存
+// 每次消息变化:滚到底 + localStorage 持久化
 watch(msgs, () => {
   nextTick(() => {
     if (msgsRef.value) msgsRef.value.scrollTop = msgsRef.value.scrollHeight;
@@ -386,48 +130,10 @@ watch(msgs, () => {
   persistCurrent();
 }, { deep: true });
 
-const addFile = async (f: File) => {
-  const ext = f.name.split('.').pop()?.toLowerCase() || '';
-  const isImage = IMAGE_EXTS.includes(ext) || f.type.startsWith('image/');
-  const isText = !isImage && (TEXT_EXTS.includes(ext) || f.type.startsWith('text/') || f.type === 'application/json');
-
-  const att: any = {
-    name: f.name,
-    type: ext,
-    kind: isImage ? 'image' : (isText ? 'text' : 'binary'),
-    size: f.size,
-    loading: true
-  };
-  atts.value.push(att);
-
-  try {
-    if (isImage) {
-      if (f.size > MAX_IMAGE_BYTES) {
-        att.error = `图片超过 ${Math.round(MAX_IMAGE_BYTES/1024/1024)}MB 限制`;
-      } else {
-        att.content = await readAsDataURL(f);
-      }
-    } else if (isText) {
-      if (f.size > MAX_TEXT_BYTES) {
-        const slice = f.slice(0, MAX_TEXT_BYTES);
-        att.content = await readAsText(new File([slice], f.name));
-        att.truncated = true;
-      } else {
-        att.content = await readAsText(f);
-      }
-    } else {
-      att.error = `不支持的文件类型 (.${ext})，请上传文本或图片`;
-    }
-  } catch (e: any) {
-    att.error = '读取失败: ' + (e?.message || e);
-  } finally {
-    att.loading = false;
-  }
-};
-
+// ===== 发送 =====
 const send = async () => {
   if (!input.value.trim() && !atts.value.length) return;
-  mentionOpen.value = false;
+  mention.closeMention();
 
   // 等待所有附件读取完成
   if (atts.value.some(a => a.loading)) {
@@ -442,17 +148,15 @@ const send = async () => {
   const failed = atts.value.filter(a => a.error);
 
   const txt = input.value;
-  // 用户消息显示用：只保留元信息
   const uaDisplay = atts.value.map(a => ({ name: a.name, type: a.type, kind: a.kind, error: a.error }));
   msgs.value.push({ role: 'u', text: txt, atts: uaDisplay });
   input.value = '';
-  // 保留附件用于本次请求构建
   const requestAtts = [...validAtts];
   atts.value = [];
   loading.value = true;
 
   if (failed.length) {
-    msgs.value.push({ role: 'a', text: '⚠ 部分文件未能加入：\n' + failed.map(a => `· ${a.name}: ${a.error}`).join('\n') });
+    msgs.value.push({ role: 'a', text: '⚠ 部分文件未能加入:\n' + failed.map(a => `· ${a.name}: ${a.error}`).join('\n') });
   }
 
   // 首次发消息自动更新标题
@@ -460,25 +164,24 @@ const send = async () => {
     conversationTitle.value = autoTitle(msgs.value);
   }
 
-  // 创建 AI 消息占位（流式显示用）
-  const aiMsg = { role: 'a' as const, text: '' };
+  // 创建 AI 消息占位(流式显示用)
+  const aiMsg: ChatMsg = { role: 'a', text: '' };
   msgs.value.push(aiMsg);
 
   try {
-    // 构建对话历史（排除刚创建的空白 AI 消息）
     const history = msgs.value
       .filter(m => m !== aiMsg && (m.role === 'u' || m.role === 'a') && m.text)
       .slice(-40)
       .map(m => ({ role: m.role === 'u' ? 'user' : 'assistant', content: m.text }));
 
-    // 构建发送给后端的消息：将文本类附件内容拼接入正文，图片作为独立 attachment
+    // 文本附件拼入正文,图片作为独立 attachment
     let composedMessage = txt;
     const textAtts = requestAtts.filter(a => a.kind === 'text' && a.content);
     if (textAtts.length) {
       const docs = textAtts.map(a =>
         `=== 文件: ${a.name}${a.truncated ? ' (已截断)' : ''} ===\n${a.content}`
       ).join('\n\n');
-      composedMessage = (txt ? txt + '\n\n' : '') + '附加文档内容：\n' + docs;
+      composedMessage = (txt ? txt + '\n\n' : '') + '附加文档内容:\n' + docs;
     }
 
     const imageAtts = requestAtts
@@ -493,7 +196,6 @@ const send = async () => {
       body.modelOverride = currentModel.value.id;
     }
 
-    // Abort any in-flight chat stream first (e.g. user clicked send while last one still running).
     abortChat();
 
     await new Promise<void>((resolveStream) => {
