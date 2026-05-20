@@ -1,22 +1,28 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import type { ChainStep, OntologyNode } from '../types';
+
 const props = defineProps<{
-  steps: any[];
+  steps: ChainStep[];
   loading: boolean;
-  nodes: any[];
+  nodes: OntologyNode[];
   intent?: 'forward' | 'backward';
 }>();
 
-const isBackward = () => props.intent === 'backward';
+const isBackward = computed(() => props.intent === 'backward');
 
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'focus-node', id: string): void;
 }>();
 
-const nodeLabel = (id: string, nodes: any[]) => {
+const nodeLabel = (id: string, nodes: OntologyNode[]) => {
   const n = nodes.find(x => x.id === id);
   return n?.label || id;
 };
+
+const pct = (n?: number) =>
+  (n != null && Number.isFinite(n)) ? Math.round(n * 100) : null;
 </script>
 
 <template>
@@ -24,10 +30,10 @@ const nodeLabel = (id: string, nodes: any[]) => {
     <div class="st-head">
       <div class="st-title">
         <span class="st-pulse" v-if="loading" />
-        <span class="st-icon">{{ isBackward() ? '←' : '⚡' }}</span>
-        <span>{{ isBackward() ? '溯因推演' : '前向推演' }} {{ loading ? '进行中…' : '完成' }}</span>
+        <span class="st-icon">{{ isBackward ? '←' : '⚡' }}</span>
+        <span>{{ isBackward ? '溯因推演' : '前向推演' }} {{ loading ? '进行中…' : '完成' }}</span>
       </div>
-      <button class="st-close" @click="emit('close')">×</button>
+      <button class="st-close" type="button" @click="emit('close')">×</button>
     </div>
 
     <div class="st-body">
@@ -37,7 +43,7 @@ const nodeLabel = (id: string, nodes: any[]) => {
       </div>
       <div v-else-if="!steps.length" class="st-empty">暂无推演步骤</div>
 
-      <div v-for="(s, i) in steps" :key="s.nodeId || i" class="st-step" @click="emit('focus-node', s.nodeId)">
+      <div v-for="(s, i) in steps" :key="s.step + ':' + s.nodeId" class="st-step" @click="emit('focus-node', s.nodeId)">
         <div class="st-step-rail">
           <div class="st-step-num">{{ s.step }}</div>
           <div class="st-step-line" v-if="i < steps.length - 1" />
@@ -47,20 +53,20 @@ const nodeLabel = (id: string, nodes: any[]) => {
             <span class="st-step-label">{{ s.label }}</span>
             <div class="st-prob-group">
               <span
-                v-if="s.effectiveProbability != null"
+                v-if="pct(s.effectiveProbability) !== null"
                 class="st-prob"
                 :title="'有效概率（noisy-OR 聚合）'"
-              >P={{ Math.round(s.effectiveProbability * 100) }}%</span>
+              >P={{ pct(s.effectiveProbability) }}%</span>
               <span
-                v-if="s.confidence != null"
+                v-if="pct(s.confidence) !== null"
                 class="st-conf"
                 :title="'LLM 置信度（节点内在）'"
-              >c={{ Math.round(s.confidence * 100) }}%</span>
+              >c={{ pct(s.confidence) }}%</span>
             </div>
           </div>
           <div class="st-step-exp">{{ s.explanation }}</div>
           <div v-if="s.triggeredBy?.length" class="st-step-meta">
-            <span class="st-meta-key">{{ isBackward() ? '导致' : '由' }}</span>
+            <span class="st-meta-key">{{ isBackward ? '导致' : '由' }}</span>
             <span v-for="t in s.triggeredBy" :key="t" class="st-meta-chip">{{ nodeLabel(t, nodes) }}</span>
             <span v-if="s.ruleId" class="st-meta-rule">⚡ {{ nodeLabel(s.ruleId, nodes) }}</span>
           </div>

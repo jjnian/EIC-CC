@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import type { Scenario } from '../types';
+import { confirm } from '../composables/useConfirm';
 
 const props = defineProps<{
-  branches: any[];
+  branches: Scenario[];
   activeBranchId: string;
 }>();
 
@@ -23,16 +25,16 @@ const fmtTime = (ts: number) => {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
-const branchIntent = (b: any): 'forward' | 'backward' =>
+const branchIntent = (b: Scenario): 'forward' | 'backward' =>
   (b.intent || b.dag?.intent) === 'backward' ? 'backward' : 'forward';
 
-const branchStepsCount = (b: any) => b.chain?.length || b.dag?.chain?.length || 0;
+const branchStepsCount = (b: Scenario) => b.chain?.length || b.dag?.chain?.length || 0;
 
 // v0.8：分支按祖先 → 后代树形展开。返回 [{ branch, depth }] DFS 顺序
 const branchTree = computed(() => {
-  const byId = new Map<string, any>();
+  const byId = new Map<string, Scenario>();
   for (const b of props.branches) byId.set(b.id, b);
-  const childrenOf = new Map<string | null, any[]>();
+  const childrenOf = new Map<string | null, Scenario[]>();
   for (const b of props.branches) {
     const k = b.parentBranchId || null;
     if (!childrenOf.has(k)) childrenOf.set(k, []);
@@ -42,15 +44,15 @@ const branchTree = computed(() => {
   for (const arr of childrenOf.values()) arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
   // 根：parentBranchId 缺失或指向不存在的分支（容错）都视为根
-  const roots: any[] = [];
+  const roots: Scenario[] = [];
   for (const b of props.branches) {
     if (!b.parentBranchId || !byId.has(b.parentBranchId)) roots.push(b);
   }
   roots.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-  const out: { branch: any; depth: number }[] = [];
+  const out: { branch: Scenario; depth: number }[] = [];
   const visited = new Set<string>();
-  const walk = (b: any, depth: number) => {
+  const walk = (b: Scenario, depth: number) => {
     if (visited.has(b.id)) return;
     visited.add(b.id);
     out.push({ branch: b, depth });
@@ -63,32 +65,51 @@ const branchTree = computed(() => {
   return out;
 });
 
-const descendantCount = (id: string) => {
-  let n = 0;
-  const stack = [id];
-  const seen = new Set<string>();
-  while (stack.length) {
-    const cur = stack.pop()!;
-    for (const b of props.branches) {
-      if (b.parentBranchId === cur && !seen.has(b.id)) {
-        seen.add(b.id);
-        n++;
-        stack.push(b.id);
+// 把后代数量提前 memo 到一张 Map 上，避免每次 onDelete 都重新走一次。
+const descendantCountMap = computed(() => {
+  const result = new Map<string, number>();
+  const childrenOf = new Map<string, string[]>();
+  for (const b of props.branches) {
+    if (!b.parentBranchId) continue;
+    if (!childrenOf.has(b.parentBranchId)) childrenOf.set(b.parentBranchId, []);
+    childrenOf.get(b.parentBranchId)!.push(b.id);
+  }
+  for (const b of props.branches) {
+    let n = 0;
+    const stack = [b.id];
+    const seen = new Set<string>();
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const kid of (childrenOf.get(cur) || [])) {
+        if (seen.has(kid)) continue;
+        seen.add(kid); n++; stack.push(kid);
       }
     }
+    result.set(b.id, n);
   }
-  return n;
-};
+  return result;
+});
 
-const onDelete = (id: string, e: Event) => {
+const descendantCount = (id: string) => descendantCountMap.value.get(id) || 0;
+
+const onDelete = async (id: string, e: Event) => {
   e.stopPropagation();
   const kids = descendantCount(id);
   const msg = kids > 0
     ? `删除此推演分支将级联删除 ${kids} 个子分支。是否继续？此操作不可恢复。`
     : '删除此推演分支？此操作不可恢复。';
-  if (!confirm(msg)) return;
+  const ok = await confirm({ title: '删除分支', message: msg, danger: true, confirmLabel: '删除' });
+  if (!ok) return;
   emit('delete', id);
 };
+
+const onEsc = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && open.value) {
+    open.value = false;
+  }
+};
+onMounted(() => document.addEventListener('keydown', onEsc));
+onBeforeUnmount(() => document.removeEventListener('keydown', onEsc));
 </script>
 
 <template>

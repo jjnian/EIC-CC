@@ -1,21 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-
-interface ChainStep {
-  step: number;
-  nodeId: string;
-  label: string;
-  type: string;
-  triggeredBy?: string[];
-  ruleId?: string | null;
-  explanation?: string;
-  confidence?: number;
-  effectiveProbability?: number;
-}
+import type { Scenario, ChainStep } from '../types';
 
 const props = defineProps<{
   open: boolean;
-  branches: any[];
+  branches: Scenario[];
   initialA?: string;
   initialB?: string;
 }>();
@@ -32,13 +21,27 @@ watch(() => props.open, (v) => {
   }
 });
 
+// 当分支列表变化（外部删除）时：选中的 id 若已失效则 fallback；若列表空则自动 close
+watch(() => props.branches.length, (n) => {
+  if (!props.open) return;
+  if (!n) { emit('close'); return; }
+  const ids = new Set(props.branches.map(b => b.id));
+  if (!ids.has(aId.value)) aId.value = props.branches[0]?.id ?? '';
+  if (!ids.has(bId.value)) bId.value = props.branches[1]?.id ?? props.branches[0]?.id ?? '';
+});
+
 const branchA = computed(() => props.branches.find(b => b.id === aId.value));
 const branchB = computed(() => props.branches.find(b => b.id === bId.value));
 
-const stepsOf = (b: any): ChainStep[] => b?.dag?.chain || b?.chain || [];
+const stepsOf = (b: Scenario | undefined): ChainStep[] => b?.dag?.chain || b?.chain || [];
 const norm = (s: string) => (s || '').trim().toLowerCase();
 
 const diff = computed(() => {
+  // Short-circuit: 同分支对比无意义。
+  if (aId.value && aId.value === bId.value) {
+    const steps = stepsOf(branchA.value);
+    return { shared: [], uniqueA: [], uniqueB: [], aSteps: steps, bSteps: steps };
+  }
   const aSteps = stepsOf(branchA.value);
   const bSteps = stepsOf(branchB.value);
   const aLabels = new Set(aSteps.map(s => norm(s.label)));
@@ -54,9 +57,11 @@ const diff = computed(() => {
   return { shared, uniqueA, uniqueB, aSteps, bSteps };
 });
 
-const fmt = (n?: number) => n == null ? '—' : `${Math.round(n * 100)}%`;
-const intentLabel = (b: any) => (b?.intent || b?.dag?.intent) === 'backward' ? '溯因' : '前向';
-const constraintsCount = (b: any) => b?.dag?.constraints?.length || 0;
+const fmt = (n?: number) =>
+  (n == null || !Number.isFinite(n)) ? '—' : `${Math.round(n * 100)}%`;
+const intentLabel = (b: Scenario | undefined) =>
+  (b?.intent || b?.dag?.intent) === 'backward' ? '溯因' : '前向';
+const constraintsCount = (b: Scenario | undefined) => b?.dag?.constraints?.length || 0;
 
 const onBackdrop = (e: MouseEvent) => {
   if ((e.target as HTMLElement).classList.contains('bc-backdrop')) emit('close');
@@ -68,7 +73,7 @@ const onBackdrop = (e: MouseEvent) => {
     <div class="bc-dialog">
       <div class="bc-head">
         <div class="bc-title"><span class="bc-icon">⚖</span><span>分支对比</span></div>
-        <button class="bc-close" @click="emit('close')">×</button>
+        <button class="bc-close" type="button" @click="emit('close')">×</button>
       </div>
 
       <div class="bc-selectors">
@@ -104,7 +109,7 @@ const onBackdrop = (e: MouseEvent) => {
               <span class="bc-sec-count">{{ diff.shared.length }}</span>
             </div>
             <div v-if="!diff.shared.length" class="bc-sec-empty">无共同节点</div>
-            <div v-for="(pair, i) in diff.shared" :key="'s' + i" class="bc-row bc-row-shared">
+            <div v-for="pair in diff.shared" :key="'s:' + pair.a.nodeId + ':' + pair.b.nodeId" class="bc-row bc-row-shared">
               <span class="bc-row-label">{{ pair.a.label }}</span>
               <div class="bc-row-probs">
                 <span class="bc-prob-a" :title="'A 中有效概率'">A·{{ fmt(pair.a.effectiveProbability ?? pair.a.confidence) }}</span>
@@ -120,7 +125,7 @@ const onBackdrop = (e: MouseEvent) => {
                 <span class="bc-sec-count">{{ diff.uniqueA.length }}</span>
               </div>
               <div v-if="!diff.uniqueA.length" class="bc-sec-empty">无</div>
-              <div v-for="(s, i) in diff.uniqueA" :key="'a' + i" class="bc-row bc-row-a">
+              <div v-for="s in diff.uniqueA" :key="'a:' + s.step + ':' + s.nodeId" class="bc-row bc-row-a">
                 <span class="bc-row-step">#{{ s.step }}</span>
                 <span class="bc-row-label">{{ s.label }}</span>
                 <span class="bc-row-prob">{{ fmt(s.effectiveProbability ?? s.confidence) }}</span>
@@ -132,7 +137,7 @@ const onBackdrop = (e: MouseEvent) => {
                 <span class="bc-sec-count">{{ diff.uniqueB.length }}</span>
               </div>
               <div v-if="!diff.uniqueB.length" class="bc-sec-empty">无</div>
-              <div v-for="(s, i) in diff.uniqueB" :key="'b' + i" class="bc-row bc-row-b">
+              <div v-for="s in diff.uniqueB" :key="'b:' + s.step + ':' + s.nodeId" class="bc-row bc-row-b">
                 <span class="bc-row-step">#{{ s.step }}</span>
                 <span class="bc-row-label">{{ s.label }}</span>
                 <span class="bc-row-prob">{{ fmt(s.effectiveProbability ?? s.confidence) }}</span>

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
+import type { OntologyNode } from '../types';
+import { toast } from '../composables/useToast';
 
 const props = defineProps<{
   open: boolean;
-  nodes: any[];
+  nodes: OntologyNode[];
   initialSeedIds: string[];
 }>();
 
@@ -104,8 +106,22 @@ const onBackdrop = (e: MouseEvent) => {
   if ((e.target as HTMLElement).classList.contains('predict-backdrop')) emit('close');
 };
 
-import { watch } from 'vue';
 watch(() => props.open, sync, { immediate: true });
+
+// Dialog 打开期间若 initialSeedIds 变化（父端再次右键 / 改 seeds），同步过去。
+watch(() => props.initialSeedIds, (v) => {
+  if (!props.open) return;
+  seedIds.value = [...(v || [])];
+});
+
+// 切换 intent 时清空 constraints（forward/backward 语义不同），通过 toast 告知。
+watch(intent, (newVal, oldVal) => {
+  if (!props.open) return;
+  if (newVal !== oldVal && constraints.value.length > 0) {
+    constraints.value = [];
+    toast.info('已切换推演方向，约束已清除');
+  }
+});
 </script>
 
 <template>
@@ -116,7 +132,7 @@ watch(() => props.open, sync, { immediate: true });
           <span class="pd-icon">⚡</span>
           <span>场景推演</span>
         </div>
-        <button class="pd-close" @click="emit('close')">×</button>
+        <button class="pd-close" type="button" @click="emit('close')">×</button>
       </div>
 
       <div class="pd-body">
@@ -155,7 +171,7 @@ watch(() => props.open, sync, { immediate: true });
           <div class="pd-seeds">
             <span v-for="id in seedIds" :key="id" class="pd-seed-chip">
               {{ nodeMap[id]?.label || id }}
-              <button @click="removeSeed(id)">×</button>
+              <button type="button" @click="removeSeed(id)">×</button>
             </span>
             <span v-if="!seedIds.length" class="pd-empty">至少需要 1 个起点</span>
           </div>
@@ -224,8 +240,8 @@ watch(() => props.open, sync, { immediate: true });
       </div>
 
       <div class="pd-foot">
-        <button class="pd-btn pd-btn-cancel" @click="emit('close')">取消</button>
-        <button class="pd-btn pd-btn-go" :disabled="!seedIds.length" @click="submit">
+        <button class="pd-btn pd-btn-cancel" type="button" @click="emit('close')">取消</button>
+        <button class="pd-btn pd-btn-go" type="button" :disabled="!seedIds.length" @click="submit">
           <span>⚡</span> {{ submitLabel }}
         </button>
       </div>

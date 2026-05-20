@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import type { OntologyNode, SourceMeta } from '../types';
 
 interface ExtractedNode {
   id: string;
@@ -16,20 +17,11 @@ interface ExtractedEdge {
   source?: string;
   rule_driven?: boolean;
 }
-interface SourceMeta {
-  name: string;
-  type: string;
-  size: number;
-  chars?: number;
-  pages?: number;
-  truncated?: boolean;
-  reason?: string;
-}
 
 const props = defineProps<{
   open: boolean;
   hasCurrentModel: boolean;
-  currentNodes?: any[];   // v1.0 Phase 2：用于 label 去重对照
+  currentNodes?: OntologyNode[];   // v1.0 Phase 2：用于 label 去重对照
 }>();
 
 const emit = defineEmits<{
@@ -47,14 +39,14 @@ const mode = ref<'merge' | 'new'>('merge');
 const newName = ref('');
 const loading = ref(false);
 const errorMsg = ref('');
-const extracted = ref<{ nodes: ExtractedNode[]; edges: ExtractedEdge[] } | null>(null);
+// 原始抽取结果（不破坏性修改），mode 切换时 dup 计算自动失效
+const extractedRaw = ref<{ nodes: ExtractedNode[]; edges: ExtractedEdge[] } | null>(null);
 const sources = ref<SourceMeta[]>([]);
 const replyText = ref('');
 const selectedNodeIds = ref<Set<string>>(new Set());
 const selectedEdgeIds = ref<Set<string>>(new Set());
-// v1.0 Phase 2：抽取 id → 已有图谱中同名节点 id 的映射
-const dupRemap = ref<Record<string, string>>({});
-const dupList = ref<{ extractedId: string; extractedLabel: string; existingLabel: string }[]>([]);
+// 抽取 fetch 的可中断控制器
+let abortCtl: AbortController | null = null;
 
 const normLabel = (s: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -64,17 +56,33 @@ const reset = () => {
   newName.value = '';
   loading.value = false;
   errorMsg.value = '';
-  extracted.value = null;
+  extractedRaw.value = null;
   sources.value = [];
   replyText.value = '';
   selectedNodeIds.value = new Set();
   selectedEdgeIds.value = new Set();
-  dupRemap.value = {};
-  dupList.value = [];
+  if (abortCtl) { try { abortCtl.abort(); } catch {} abortCtl = null; }
 };
 
 watch(() => props.open, (v) => {
   if (v) reset();
+  else if (abortCtl) { try { abortCtl.abort(); } catch {} abortCtl = null; }
+});
+
+onBeforeUnmount(() => {
+  if (abortCtl) { try { abortCtl.abort(); } catch {} abortCtl = null; }
+});
+
+// 切换 mode 时，让可见节点重新进入全选状态（避免 dup 过滤变化后选择不一致）
+watch(() => mode.value, () => {
+  if (!extractedRaw.value) return;
+  // 由于 mode 变化后 displayedNodes 已重算（dupRemap 失效），全选当前展示集合。
+  // nextTick 内执行：先让 computed 重新出值
+  Promise.resolve().then(() => {
+    if (!extractedRaw.value) return;
+    selectedNodeIds.value = new Set(displayedNodes.value.map(n => n.id));
+    selectedEdgeIds.value = new Set(displayedEdges.value.map(e => e.id));
+  });
 });
 
 const fmtSize = (n: number) => {
@@ -108,54 +116,85 @@ const extract = async () => {
   if (!files.value.length) return;
   loading.value = true;
   errorMsg.value = '';
-  extracted.value = null;
+  extractedRaw.value = null;
   const fd = new FormData();
   for (const f of files.value) fd.append('files', f);
+  if (abortCtl) { try { abortCtl.abort(); } catch {} }
+  abortCtl = new AbortController();
   try {
-    const res = await fetch('/api/ontology-models/extract', { method: 'POST', body: fd });
+    const res = await fetch('/api/ontology-models/extract', {
+      method: 'POST',
+      body: fd,
+      signal: abortCtl.signal,
+    });
     const data = await res.json();
     if (!res.ok) {
       errorMsg.value = data.error || ('HTTP ' + res.status);
       sources.value = data.sources || [];
       return;
     }
-    extracted.value = { nodes: data.nodes || [], edges: data.edges || [] };
+    extractedRaw.value = { nodes: data.nodes || [], edges: data.edges || [] };
     sources.value = data.sources || [];
     replyText.value = data.reply || '';
 
-    // v1.0 Phase 2：label 去重 —— 与当前图谱节点匹配
-    dupRemap.value = {};
-    dupList.value = [];
-    if (mode.value === 'merge' && props.currentNodes && props.currentNodes.length) {
-      const trunkLabelMap = new Map<string, { id: string; label: string }>();
-      for (const n of props.currentNodes) {
-        const k = normLabel(n.label || '');
-        if (k) trunkLabelMap.set(k, { id: n.id, label: n.label });
-      }
-      const remainingNodes = [];
-      for (const n of extracted.value.nodes) {
-        const k = normLabel(n.label || '');
-        const hit = k ? trunkLabelMap.get(k) : null;
-        if (hit) {
-          dupRemap.value[n.id] = hit.id;
-          dupList.value.push({ extractedId: n.id, extractedLabel: n.label, existingLabel: hit.label });
-        } else {
-          remainingNodes.push(n);
-        }
-      }
-      extracted.value.nodes = remainingNodes;
-      // 边里指向 dup 的端点已通过 dupRemap 重定向；保持完整列表
-    }
-
-    // 默认全选
-    selectedNodeIds.value = new Set(extracted.value.nodes.map(n => n.id));
-    selectedEdgeIds.value = new Set(extracted.value.edges.map(e => e.id));
+    // 默认全选（基于 displayedNodes 的 id 集合，dup 映射会从展示中过滤掉）
+    selectedNodeIds.value = new Set(displayedNodes.value.map(n => n.id));
+    selectedEdgeIds.value = new Set(extractedRaw.value.edges.map(e => e.id));
   } catch (e: any) {
+    if (e?.name === 'AbortError') return;
     errorMsg.value = '网络错误: ' + (e?.message || e);
   } finally {
     loading.value = false;
+    abortCtl = null;
   }
 };
+
+// 已有图谱标签 → {id,label} 索引（mode 切换时自动失效）
+const existingLabelMap = computed(() => {
+  const m = new Map<string, { id: string; label: string }>();
+  if (mode.value !== 'merge') return m;
+  for (const n of (props.currentNodes || [])) {
+    const k = normLabel(n.label || '');
+    if (k) m.set(k, { id: n.id, label: n.label });
+  }
+  return m;
+});
+
+// dup 映射：仅 merge 模式下生效。
+const dupRemap = computed<Record<string, string>>(() => {
+  const out: Record<string, string> = {};
+  if (!extractedRaw.value || mode.value !== 'merge') return out;
+  for (const n of extractedRaw.value.nodes) {
+    const k = normLabel(n.label || '');
+    const hit = k ? existingLabelMap.value.get(k) : null;
+    if (hit) out[n.id] = hit.id;
+  }
+  return out;
+});
+
+const dupList = computed(() => {
+  const out: { extractedId: string; extractedLabel: string; existingLabel: string }[] = [];
+  if (!extractedRaw.value || mode.value !== 'merge') return out;
+  for (const n of extractedRaw.value.nodes) {
+    const k = normLabel(n.label || '');
+    const hit = k ? existingLabelMap.value.get(k) : null;
+    if (hit) out.push({ extractedId: n.id, extractedLabel: n.label, existingLabel: hit.label });
+  }
+  return out;
+});
+
+// 节点显示列表：merge 模式下过滤掉 dup（在原始数据上派生）
+const displayedNodes = computed<ExtractedNode[]>(() => {
+  if (!extractedRaw.value) return [];
+  if (mode.value !== 'merge') return extractedRaw.value.nodes;
+  const dup = dupRemap.value;
+  return extractedRaw.value.nodes.filter(n => !(n.id in dup));
+});
+
+const displayedEdges = computed<ExtractedEdge[]>(() =>
+  extractedRaw.value ? extractedRaw.value.edges : []);
+
+const isExistingId = (id: string) => !!props.currentNodes?.some(n => n.id === id);
 
 const toggleNode = (id: string) => {
   const s = new Set(selectedNodeIds.value);
@@ -168,39 +207,41 @@ const toggleEdge = (id: string) => {
   selectedEdgeIds.value = s;
 };
 const toggleAllNodes = () => {
-  if (!extracted.value) return;
-  const all = extracted.value.nodes.map(n => n.id);
-  selectedNodeIds.value = selectedNodeIds.value.size === all.length ? new Set() : new Set(all);
+  const all = displayedNodes.value.map(n => n.id);
+  const cur = selectedNodeIds.value;
+  const allSelected = all.length > 0 && all.every(id => cur.has(id));
+  selectedNodeIds.value = allSelected ? new Set() : new Set(all);
 };
 const toggleAllEdges = () => {
-  if (!extracted.value) return;
-  const all = extracted.value.edges.map(e => e.id);
-  selectedEdgeIds.value = selectedEdgeIds.value.size === all.length ? new Set() : new Set(all);
+  const all = displayedEdges.value.map(e => e.id);
+  const cur = selectedEdgeIds.value;
+  const allSelected = all.length > 0 && all.every(id => cur.has(id));
+  selectedEdgeIds.value = allSelected ? new Set() : new Set(all);
 };
 
 const validEdges = computed(() => {
-  if (!extracted.value) return [];
-  // 仅保留勾选的边，端点要么是已选中的新节点、要么命中 dup 映射（即被合并到现有节点）
-  return extracted.value.edges
+  if (!extractedRaw.value) return [];
+  const dup = dupRemap.value;
+  // 仅保留勾选的边；端点用 orig id 判断是否选中，再 apply remap，最终判端点是否落到已存在节点上
+  return extractedRaw.value.edges
     .filter(e => selectedEdgeIds.value.has(e.id))
     .map(e => {
-      const from = dupRemap.value[e.from] || e.from;
-      const to = dupRemap.value[e.to] || e.to;
-      return { ...e, from, to };
+      const fromMapped = dup[e.from] || e.from;
+      const toMapped = dup[e.to] || e.to;
+      return { ...e, from: fromMapped, to: toMapped, _origFrom: e.from, _origTo: e.to };
     })
     .filter(e =>
-      (selectedNodeIds.value.has(e.from) || isExistingId(e.from)) &&
-      (selectedNodeIds.value.has(e.to) || isExistingId(e.to)));
+      (selectedNodeIds.value.has(e._origFrom) || isExistingId(e.from)) &&
+      (selectedNodeIds.value.has(e._origTo) || isExistingId(e.to)))
+    .map(({ _origFrom, _origTo, ...rest }) => rest as ExtractedEdge);
 });
 
-const isExistingId = (id: string) => !!props.currentNodes?.some(n => n.id === id);
 const selectedNodes = computed(() => {
-  if (!extracted.value) return [];
-  return extracted.value.nodes.filter(n => selectedNodeIds.value.has(n.id));
+  return displayedNodes.value.filter(n => selectedNodeIds.value.has(n.id));
 });
 
 const canCommit = computed(() => {
-  if (!extracted.value || loading.value) return false;
+  if (!extractedRaw.value || loading.value) return false;
   if (selectedNodes.value.length === 0) return false;
   if (mode.value === 'merge' && !props.hasCurrentModel) return false;
   if (mode.value === 'new' && !newName.value.trim()) return false;
@@ -208,7 +249,7 @@ const canCommit = computed(() => {
 });
 
 const commit = () => {
-  if (!canCommit.value || !extracted.value) return;
+  if (!canCommit.value || !extractedRaw.value) return;
   emit('commit', {
     mode: mode.value,
     name: newName.value.trim() || '导入本体',
@@ -232,7 +273,7 @@ const onBackdrop = (e: MouseEvent) => {
 
       <div class="imp-body">
         <!-- 文件区 -->
-        <div v-if="!extracted" class="imp-section">
+        <div v-if="!extractedRaw" class="imp-section">
           <label class="imp-label">上传 PDF / 图片（流程图、表格、文档截图）</label>
           <div
             class="imp-drop"
@@ -265,7 +306,7 @@ const onBackdrop = (e: MouseEvent) => {
         </div>
 
         <!-- 模式 -->
-        <div v-if="!extracted" class="imp-section">
+        <div v-if="!extractedRaw" class="imp-section">
           <label class="imp-label">抽取后</label>
           <div class="imp-tabs">
             <button
@@ -298,7 +339,7 @@ const onBackdrop = (e: MouseEvent) => {
         </div>
 
         <!-- 抽取结果预览 -->
-        <div v-if="extracted" class="imp-section imp-result">
+        <div v-if="extractedRaw" class="imp-section imp-result">
           <div v-if="replyText" class="imp-reply">{{ replyText }}</div>
 
           <div v-if="dupList.length" class="imp-dup-banner">
@@ -329,11 +370,11 @@ const onBackdrop = (e: MouseEvent) => {
           <div class="imp-cols">
             <div class="imp-col">
               <div class="imp-col-head">
-                <span>节点 ({{ selectedNodeIds.size }} / {{ extracted.nodes.length }})</span>
+                <span>节点 ({{ selectedNodeIds.size }} / {{ displayedNodes.length }})</span>
                 <button class="imp-link" @click="toggleAllNodes" type="button">全选 / 反选</button>
               </div>
               <div class="imp-list">
-                <label v-for="n in extracted.nodes" :key="n.id" class="imp-list-row">
+                <label v-for="n in displayedNodes" :key="n.id" class="imp-list-row">
                   <input type="checkbox" :checked="selectedNodeIds.has(n.id)" @change="toggleNode(n.id)" />
                   <span class="imp-row-label">{{ n.label }}</span>
                   <span class="imp-row-tag" :class="'imp-tag-' + (n.type || 'other')">{{ n.type }}</span>
@@ -343,15 +384,15 @@ const onBackdrop = (e: MouseEvent) => {
             </div>
             <div class="imp-col">
               <div class="imp-col-head">
-                <span>关系 ({{ selectedEdgeIds.size }} / {{ extracted.edges.length }})</span>
+                <span>关系 ({{ selectedEdgeIds.size }} / {{ displayedEdges.length }})</span>
                 <button class="imp-link" @click="toggleAllEdges" type="button">全选 / 反选</button>
               </div>
               <div class="imp-list">
-                <label v-for="e in extracted.edges" :key="e.id" class="imp-list-row">
+                <label v-for="e in displayedEdges" :key="e.id" class="imp-list-row">
                   <input type="checkbox" :checked="selectedEdgeIds.has(e.id)" @change="toggleEdge(e.id)" />
-                  <span class="imp-edge-from">{{ (extracted.nodes.find(n => n.id === e.from)?.label) || e.from }}</span>
+                  <span class="imp-edge-from">{{ (extractedRaw && extractedRaw.nodes.find(n => n.id === e.from)?.label) || e.from }}</span>
                   <span class="imp-edge-arrow">→</span>
-                  <span class="imp-edge-to">{{ (extracted.nodes.find(n => n.id === e.to)?.label) || e.to }}</span>
+                  <span class="imp-edge-to">{{ (extractedRaw && extractedRaw.nodes.find(n => n.id === e.to)?.label) || e.to }}</span>
                   <span v-if="e.rule_driven" class="imp-row-rule">⚡</span>
                 </label>
               </div>
@@ -363,10 +404,11 @@ const onBackdrop = (e: MouseEvent) => {
       </div>
 
       <div class="imp-foot">
-        <button class="imp-btn imp-btn-cancel" @click="emit('close')">取消</button>
+        <button class="imp-btn imp-btn-cancel" type="button" @click="emit('close')">取消</button>
         <button
-          v-if="!extracted"
+          v-if="!extractedRaw"
           class="imp-btn imp-btn-primary"
+          type="button"
           :disabled="!files.length || loading"
           @click="extract"
         >
@@ -375,6 +417,7 @@ const onBackdrop = (e: MouseEvent) => {
         <button
           v-else
           class="imp-btn imp-btn-primary"
+          type="button"
           :disabled="!canCommit"
           @click="commit"
         >{{ mode === 'merge' ? '合并到当前图' : '另存为新模型' }}</button>
