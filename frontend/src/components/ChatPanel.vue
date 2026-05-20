@@ -1,26 +1,36 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, computed } from 'vue';
+import { ref, watch, nextTick, onMounted, onBeforeUnmount, computed } from 'vue';
+import type { OntologyNode, OntologyEdge } from '../types';
+import { toast } from '../composables/useToast';
+import { confirm as uiConfirm } from '../composables/useConfirm';
+import { streamSSE, type SSEController } from '../composables/useSSE';
 
 const props = defineProps<{
-  nodes: any[];
-  edges: any[];
+  nodes: OntologyNode[];
+  edges: OntologyEdge[];
   width: number;
   seed?: { text: string; files: File[] } | null;
 }>();
 
 const emit = defineEmits<{
-  (e: 'update', addNodes: any[], addEdges: any[]): void;
+  (e: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[]): void;
   (e: 'clear-graph'): void;
   (e: 'seed-consumed'): void;
 }>();
 
 // ========== 会话管理 ==========
 
+interface Msg {
+  role: 'a' | 'u';
+  text: string;
+  atts?: { name: string; type: string; kind: 'image' | 'text' | 'binary'; error?: string }[];
+}
+
 interface Conversation {
   id: string;
   createdAt: number;
   title: string;
-  msgs: any[];
+  msgs: Msg[];
 }
 
 const STORAGE_KEY = 'eic-conversations';
@@ -28,40 +38,63 @@ const conversationId = ref('');
 const conversationTitle = ref('新对话');
 const showConvPicker = ref(false);
 
+// 当前 chat SSE 控制器（切换会话或重发时 abort）
+let chatStream: SSEController | null = null;
+const abortChat = () => {
+  if (chatStream) { try { chatStream.abort(); } catch {} chatStream = null; }
+};
+
 const loadConversations = (): Record<string, Conversation> => {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-  } catch { return {}; }
+  } catch (e) {
+    console.warn('loadConversations failed', e);
+    return {};
+  }
 };
 
 const saveConversations = (convs: Record<string, Conversation>) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(convs));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(convs));
+  } catch (e: any) {
+    console.warn('saveConversations failed', e);
+    toast.warn('对话本地存储已满，最近内容可能未保存');
+  }
 };
 
-const autoTitle = (msgs: any[]): string => {
-  const firstUser = msgs.find(m => m.role === 'u');
+const autoTitle = (msgList: Msg[]): string => {
+  const firstUser = msgList.find(m => m.role === 'u');
   if (!firstUser) return '新对话';
-  const t = firstUser.text.trim();
+  const t = (firstUser.text || '').trim();
   return t.length > 20 ? t.slice(0, 20) + '…' : t;
 };
 
 const persistCurrent = () => {
   const convs = loadConversations();
   if (convs[conversationId.value]) {
-    convs[conversationId.value].msgs = JSON.parse(JSON.stringify(msgs.value));
+    convs[conversationId.value].msgs = structuredClone(msgs.value);
     convs[conversationId.value].title = autoTitle(msgs.value);
+  } else if (conversationId.value) {
+    // 新建会话首次保存
+    convs[conversationId.value] = {
+      id: conversationId.value,
+      createdAt: Number(conversationId.value) || Date.now(),
+      title: autoTitle(msgs.value),
+      msgs: structuredClone(msgs.value),
+    };
   }
   saveConversations(convs);
 };
 
 const initConversation = (id?: string) => {
+  abortChat();
   if (id && id !== 'new') {
     const convs = loadConversations();
     const conv = convs[id];
     if (conv) {
       conversationId.value = conv.id;
       conversationTitle.value = conv.title;
-      msgs.value = JSON.parse(JSON.stringify(conv.msgs));
+      msgs.value = structuredClone(conv.msgs);
       return;
     }
   }
@@ -84,9 +117,15 @@ const switchConversation = (id: string) => {
   initConversation(id);
 };
 
-const deleteConversation = (id: string, e: Event) => {
+const deleteConversation = async (id: string, e: Event) => {
   e.stopPropagation();
-  if (!confirm('确定删除这条对话记录？')) return;
+  const ok = await uiConfirm({
+    title: '删除对话',
+    message: '确定删除这条对话记录？',
+    confirmLabel: '删除',
+    danger: true,
+  });
+  if (!ok) return;
   const convs = loadConversations();
   delete convs[id];
   saveConversations(convs);
@@ -102,7 +141,7 @@ const sortedConversations = (): Conversation[] => {
 
 // ========== 消息 & 模型 ==========
 
-const msgs = ref<any[]>([
+const msgs = ref<Msg[]>([
   { role: 'a', text: '你好！我是推演助手。\n\n用自然语言描述实体和关系，我会自动构建本体图谱。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试：「添加一个财务审计实体，与客户相关联」' }
 ]);
 const input = ref('');
@@ -252,6 +291,9 @@ const currentModel = ref<ModelOption | null>(null);
 const availableModels = ref<ModelOption[]>([]);
 const showModelPicker = ref(false);
 
+const presetModels = computed(() => availableModels.value.filter(x => x.type === 'preset'));
+const customModels = computed(() => availableModels.value.filter(x => x.type === 'custom'));
+
 const loadModels = async () => {
   try {
     const res = await fetch('/api/config');
@@ -337,6 +379,8 @@ watch(() => props.seed, (newSeed) => {
     consumeSeed(newSeed);
   }
 });
+
+onBeforeUnmount(() => abortChat());
 
 // 每次消息变化自动保存
 watch(msgs, () => {
@@ -453,88 +497,52 @@ const send = async () => {
       body.modelOverride = currentModel.value.id;
     }
 
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream'
-      },
-      body: JSON.stringify(body)
-    });
+    // Abort any in-flight chat stream first (e.g. user clicked send while last one still running).
+    abortChat();
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: '请求失败' }));
-      aiMsg.text = `请求失败: ${err.error}`;
-      loading.value = false;
-      return;
-    }
-
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let currentEvent = '';
-    let currentData = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7);
-        } else if (line.startsWith('data: ')) {
-          currentData = line.slice(6);
-
-          if (currentEvent === 'text') {
-            aiMsg.text += currentData;
-          } else if (currentEvent === 'complete') {
+    await new Promise<void>((resolveStream) => {
+      chatStream = streamSSE('/api/chat', body, {
+        onEvent: (name, data) => {
+          if (name === 'text') {
+            aiMsg.text += data;
+          } else if (name === 'complete') {
             try {
-              const data = JSON.parse(currentData);
-              if (!aiMsg.text && data.reply) {
-                aiMsg.text = data.reply;
-              }
-
+              const parsed = JSON.parse(data);
+              if (!aiMsg.text && parsed.reply) aiMsg.text = parsed.reply;
               const nodeOffset = Math.random() * 50 - 25;
               const cx = 400 + nodeOffset;
               const cy = 300 + nodeOffset;
               const r = 150;
-
-              const pNodes = (data.add_nodes || []).map((n: any, idx: number, arr: any[]) => {
+              const pNodes: OntologyNode[] = (parsed.add_nodes || []).map((n: OntologyNode, idx: number, arr: OntologyNode[]) => {
                 const angle = (idx / arr.length) * Math.PI * 2;
                 return { ...n, x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
               });
-
-              emit('update', pNodes, data.add_edges || []);
+              emit('update', pNodes, parsed.add_edges || []);
             } catch (parseErr) {
               console.error('Failed to parse complete event:', parseErr);
             }
-          } else if (currentEvent === 'error') {
-            if (!aiMsg.text) {
-              aiMsg.text = `错误: ${currentData}`;
-            } else {
-              aiMsg.text += `\n\n[错误] ${currentData}`;
-            }
+          } else if (name === 'error') {
+            if (!aiMsg.text) aiMsg.text = `错误: ${data}`;
+            else aiMsg.text += `\n\n[错误] ${data}`;
           }
-
-          currentEvent = '';
-          currentData = '';
-        }
-      }
-    }
-
-    if (!aiMsg.text) {
-      aiMsg.text = '未收到有效回复';
-    }
+        },
+        onError: (err) => {
+          if (!aiMsg.text) aiMsg.text = `网络或解析错误: ${err.message}`;
+          resolveStream();
+        },
+        onComplete: () => {
+          if (!aiMsg.text) aiMsg.text = '未收到有效回复';
+          resolveStream();
+        },
+      });
+    });
   } catch (error: any) {
     const lastAi = [...msgs.value].reverse().find(m => m.role === 'a');
-    if (lastAi && !(lastAi as any).text) {
-      (lastAi as any).text = `网络或解析错误: ${error.message}`;
+    if (lastAi && !lastAi.text) {
+      lastAi.text = `网络或解析错误: ${error.message}`;
     }
   } finally {
+    chatStream = null;
     loading.value = false;
   }
 };
@@ -565,18 +573,18 @@ const send = async () => {
         <span class="att-name">{{ a.name }}</span>
         <span v-if="a.loading" class="att-spin" />
         <span v-else-if="a.error" class="att-bad">!</span>
-        <button @click="atts = atts.filter((_, j) => j !== i)">×</button>
+        <button type="button" @click="atts = atts.filter((_, j) => j !== i)">×</button>
       </div>
     </div>
     <div class="ch-input-area">
       <div class="toolbar" v-if="!input && !atts.length">
         <!-- 会话切换 -->
-        <button class="conv-selector" @click="showConvPicker = !showConvPicker" :title="conversationTitle">
+        <button class="conv-selector" type="button" @click="showConvPicker = !showConvPicker" :title="conversationTitle">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           <span class="conv-title">{{ conversationTitle }}</span>
           <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
         </button>
-        <button class="new-conv-btn" @click="newConversation" title="新建对话">
+        <button class="new-conv-btn" type="button" @click="newConversation" title="新建对话">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
         <!-- 会话下拉 -->
@@ -597,7 +605,7 @@ const send = async () => {
           </div>
         </div>
         <!-- 模型选择 -->
-        <button class="model-selector" @click="showModelPicker = !showModelPicker" :title="'当前模型: ' + (currentModel?.name || '未选择')">
+        <button class="model-selector" type="button" @click="showModelPicker = !showModelPicker" :title="'当前模型: ' + (currentModel?.name || '未选择')">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
           <span>{{ currentModel?.name || '选择模型' }}</span>
           <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
@@ -605,16 +613,16 @@ const send = async () => {
         <div class="model-dropdown" v-if="showModelPicker">
           <div class="model-group-label">预设模型</div>
           <div class="model-dropdown-item"
-               v-for="m in availableModels.filter(x => x.type === 'preset')"
+               v-for="m in presetModels"
                :key="m.id"
                :class="{ active: m.id === currentModel?.id }"
                @click="selectModel(m)">
             {{ m.name }}
             <span class="model-check" v-if="m.id === currentModel?.id">✓</span>
           </div>
-          <div class="model-group-label" v-if="availableModels.some(x => x.type === 'custom')">自定义模型</div>
+          <div class="model-group-label" v-if="customModels.length">自定义模型</div>
           <div class="model-dropdown-item"
-               v-for="m in availableModels.filter(x => x.type === 'custom')"
+               v-for="m in customModels"
                :key="m.id"
                :class="{ active: m.id === currentModel?.id }"
                @click="selectModel(m)">
@@ -647,12 +655,12 @@ const send = async () => {
         <textarea ref="inputRef" class="ch-input" v-model="input" placeholder="描述本体关系，输入 @ 可引用节点/关系，或附加文件…" @keydown="onInputKeydown" @input="onInputEvent" @click="onInputClick" rows="2" />
         <div class="input-footer">
           <div class="file-tools">
-            <button class="file-icon-btn attach-btn" title="上传文件 (图片/MD/TXT/JSON等)" @click="() => { if (fileRef) fileRef.click(); }">
+            <button class="file-icon-btn attach-btn" type="button" title="上传文件 (图片/MD/TXT/JSON等)" @click="() => { if (fileRef) fileRef.click(); }">
               <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
             <input ref="fileRef" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.csv,.tsv,.log,.xml,.yaml,.yml,.html,.htm,.js,.ts,.py,.java,.sql,.toml,.ini,.env,.vue,.css,text/*" style="display:none" @change="(e: any) => { Array.from(e.target.files || []).forEach((f: any) => addFile(f)); e.target.value = ''; }" />
           </div>
-          <button class="send-btn" @click="send" :disabled="loading">
+          <button class="send-btn" type="button" @click="send" :disabled="loading">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="19" x2="12" y2="5"></line>
               <polyline points="5 12 12 5 19 12"></polyline>

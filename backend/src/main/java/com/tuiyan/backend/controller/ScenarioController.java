@@ -10,24 +10,35 @@ import com.tuiyan.backend.model.PredictionDag;
 import com.tuiyan.backend.model.Scenario;
 import com.tuiyan.backend.service.LlmService;
 import com.tuiyan.backend.service.ScenarioService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @RestController
 @RequestMapping("/api/scenarios")
 public class ScenarioController {
 
+    private static final Logger log = LoggerFactory.getLogger(ScenarioController.class);
+
     private final ScenarioService scenarioService;
     private final LlmService llmService;
+    private final TaskExecutor predictionExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public ScenarioController(ScenarioService scenarioService, LlmService llmService) {
+    public ScenarioController(ScenarioService scenarioService,
+                              LlmService llmService,
+                              @Qualifier("predictionExecutor") TaskExecutor predictionExecutor) {
         this.scenarioService = scenarioService;
         this.llmService = llmService;
+        this.predictionExecutor = predictionExecutor;
     }
 
     @GetMapping
@@ -53,7 +64,7 @@ public class ScenarioController {
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable String id) {
         int n = scenarioService.delete(id);
-        return ResponseEntity.ok(Map.of("deleted", n > 0, "count", n));
+        return ResponseEntity.ok(Map.of("success", n > 0, "count", n));
     }
 
     @PostMapping("/migrate")
@@ -68,48 +79,57 @@ public class ScenarioController {
     @PostMapping
     public SseEmitter predict(@RequestBody PredictRequest req) {
         SseEmitter emitter = new SseEmitter(180_000L);
+        AtomicBoolean cancelled = new AtomicBoolean(false);
         emitter.onTimeout(() -> {
+            cancelled.set(true);
             try {
                 emitter.send(SseEmitter.event().name("error")
                         .data("LLM 响应超时（>180s），请检查 LLM 配置或网络后重试"));
-            } catch (IOException ignored) { /* already closed */ }
+            } catch (IOException ioErr) {
+                log.warn("emit timeout-error failed: {}", ioErr.toString());
+            }
             emitter.complete();
         });
+        emitter.onCompletion(() -> cancelled.set(true));
+        emitter.onError(t -> cancelled.set(true));
 
-        Thread t = new Thread(() -> runPrediction(req, emitter));
-        t.setDaemon(true);
-        t.start();
+        predictionExecutor.execute(() -> runPrediction(req, emitter, cancelled));
         return emitter;
     }
 
-    private void runPrediction(PredictRequest req, SseEmitter emitter) {
+    private void runPrediction(PredictRequest req, SseEmitter emitter, AtomicBoolean cancelled) {
         try {
             String intent = "backward".equalsIgnoreCase(req.getIntent()) ? "backward" : "forward";
             boolean backward = "backward".equals(intent);
 
-            // v0.8：从预测分支再次分叉时，新预测节点 id 需加 salt，避免与父分支的 p_N 撞车
             boolean isFork = req.getParentBranchId() != null && !req.getParentBranchId().isBlank();
             long now = System.currentTimeMillis();
             String scenarioId = "sc_" + now;
             String idSalt = isFork ? Long.toString(now, 36) : "";
 
+            if (cancelled.get()) return;
             JsonNode result = llmService.predictChain(req);
             JsonNode chain = result.path("chain");
             if (!chain.isArray() || chain.isEmpty()) {
-                emitter.send(SseEmitter.event().name("error").data("LLM 未返回有效推演链"));
-                emitter.complete();
+                safeSend(emitter, cancelled, "error", "LLM 未返回有效推演链");
+                if (!cancelled.get()) emitter.complete();
                 return;
             }
 
-            // 坐标：forward 向右扩散；backward 向左扩散
+            // 先扫描本批 chain 的全部 id，构造 currentChainIds —— applyIdSalt 仅对该集合内
+            // 形如 ^p_\d+$ 的 raw 值生效；引用祖先节点 id (p<oldSalt>_N) 或 trunk id 时原样保留。
+            Set<String> currentChainIds = new HashSet<>();
+            for (JsonNode item : chain) {
+                String raw = item.path("id").asText("");
+                if (!raw.isEmpty()) currentChainIds.add(raw);
+            }
+
             double[] origin = computeOrigin(req);
             double baseX = origin[0];
             double baseY = origin[1];
             double xStep = 220, yStep = 100;
             int direction = backward ? -1 : 1;
 
-            // v0.7：约束 → blockedIds 集合；预测中链路命中 block 节点的整条节点被剪枝（级联）
-            // force 仅通过 prompt 暗示给 LLM，无需后端附加处理（trunk 节点本就视作 P=1.0）
             Set<String> blockedIds = new HashSet<>();
             if (req.getConstraints() != null) {
                 for (Constraint c : req.getConstraints()) {
@@ -118,7 +138,6 @@ public class ScenarioController {
                 }
             }
 
-            // v0.7：用于概率聚合（noisy-OR），predicted -> 计算得到的有效概率
             Map<String, Double> effProb = new HashMap<>();
 
             List<Map<String, Object>> predictedNodes = new ArrayList<>();
@@ -129,9 +148,10 @@ public class ScenarioController {
 
             int stepIndex = 0;
             for (JsonNode item : chain) {
+                if (cancelled.get()) return;
                 stepIndex++;
                 String rawId = item.path("id").asText("p_" + stepIndex);
-                String id = applyIdSalt(rawId, idSalt);
+                String id = applyIdSalt(rawId, idSalt, currentChainIds);
                 String label = item.path("label").asText("预测" + stepIndex);
                 String type = item.path("type").asText("event");
                 String ruleId = item.path("rule_id").isNull() ? null : item.path("rule_id").asText(null);
@@ -139,31 +159,21 @@ public class ScenarioController {
                 double confidence = item.path("confidence").asDouble(0.6);
                 int step = item.path("step").asInt(stepIndex);
 
-                // forward 读 triggered_by；backward 读 leads_to；二者均回退兼容
                 JsonNode linkNode = backward
                         ? (item.has("leads_to") ? item.get("leads_to") : item.path("triggered_by"))
                         : (item.has("triggered_by") ? item.get("triggered_by") : item.path("leads_to"));
                 ArrayNode links = (linkNode != null && linkNode.isArray())
                         ? (ArrayNode) linkNode : objectMapper.createArrayNode();
 
-                // 约束剪枝：丢弃所有指向 blocked id 的连接；若 forward 链路全空则整节点剪枝并级联
-                // 同时对引用本次新预测节点的 p_N 形式作 salt 重写（祖先预测节点的 id 已是 pXXX_N，不会命中）
                 List<String> rawLinkIds = new ArrayList<>();
-                for (JsonNode t : links) rawLinkIds.add(applyIdSalt(t.asText(), idSalt));
+                for (JsonNode t : links) rawLinkIds.add(applyIdSalt(t.asText(), idSalt, currentChainIds));
                 List<String> linkIds = new ArrayList<>();
                 for (String lid : rawLinkIds) {
                     if (!blockedIds.contains(lid)) linkIds.add(lid);
                 }
-                boolean pruneThis;
-                if (backward) {
-                    // backward: predicted 是因，leads_to 是结果；若结果全被 block，该假设失去意义
-                    pruneThis = !rawLinkIds.isEmpty() && linkIds.isEmpty();
-                } else {
-                    // forward: predicted 是果，triggered_by 是因；若所有上游被 block，该预测无依据
-                    pruneThis = !rawLinkIds.isEmpty() && linkIds.isEmpty();
-                }
+                boolean pruneThis = !rawLinkIds.isEmpty() && linkIds.isEmpty();
                 if (pruneThis) {
-                    blockedIds.add(id); // 级联：后续引用本节点的预测也会被剪枝
+                    blockedIds.add(id);
                     prunedCount++;
                     continue;
                 }
@@ -173,17 +183,13 @@ public class ScenarioController {
                 double nx = baseX + direction * step * xStep;
                 double ny = baseY + (slot - 0.5) * yStep;
 
-                // 概率聚合：
-                //  forward — P_eff(N) = confidence × NoisyOR({P_eff(parent_i)})
-                //            其中 trunk 节点视为 P=1.0，被 force 的节点同样 P=1.0
-                //  backward — P_eff 保留为节点自身 confidence（候选原因的内在置信）
                 double pEff;
                 if (backward || linkIds.isEmpty()) {
                     pEff = clamp01(confidence);
                 } else {
                     double notOr = 1.0;
                     for (String pid : linkIds) {
-                        double pp = effProb.containsKey(pid) ? effProb.get(pid) : 1.0; // trunk 默认 1.0
+                        double pp = effProb.containsKey(pid) ? effProb.get(pid) : 1.0;
                         notOr *= (1.0 - clamp01(pp));
                     }
                     double orVal = 1.0 - notOr;
@@ -205,7 +211,6 @@ public class ScenarioController {
                 node.put("y", ny);
                 predictedNodes.add(node);
 
-                // 边方向：forward = link -> predicted（上游驱动下游）；backward = predicted -> link（原因指向结果）
                 for (String otherId : linkIds) {
                     String from = backward ? id : otherId;
                     String to = backward ? otherId : id;
@@ -225,7 +230,6 @@ public class ScenarioController {
                 chainItem.put("nodeId", id);
                 chainItem.put("label", label);
                 chainItem.put("type", type);
-                // 时间线 UI 用 triggeredBy 字段名展示，无论方向；语义由 intent 解释
                 chainItem.put("triggeredBy", linkIds);
                 chainItem.put("ruleId", ruleId);
                 chainItem.put("explanation", explanation);
@@ -233,7 +237,6 @@ public class ScenarioController {
                 chainItem.put("effectiveProbability", round3(pEff));
                 chainList.add(chainItem);
 
-                // 流式分步推送，给前端动画喘息
                 ObjectNode stepEvent = objectMapper.createObjectNode();
                 stepEvent.put("step", step);
                 stepEvent.put("intent", intent);
@@ -241,13 +244,19 @@ public class ScenarioController {
                 stepEvent.set("edges", objectMapper.valueToTree(
                         predictedEdges.subList(predictedEdges.size() - linkIds.size(), predictedEdges.size())));
                 stepEvent.set("chain", objectMapper.valueToTree(chainItem));
-                emitter.send(SseEmitter.event().name("step")
-                        .data(objectMapper.writeValueAsString(stepEvent)));
 
-                try { Thread.sleep(220); } catch (InterruptedException ignored) {}
+                if (cancelled.get()) return;
+                if (!safeSend(emitter, cancelled, "step", objectMapper.writeValueAsString(stepEvent))) {
+                    return;
+                }
+
+                try { Thread.sleep(220); } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
             }
 
-            // 构建 Scenario：仅保存 dag 增量，不再落 full snapshot
+            if (cancelled.get()) return;
             Scenario s = new Scenario();
             s.setId(scenarioId);
             s.setModelId(req.getModelId());
@@ -275,43 +284,58 @@ public class ScenarioController {
             dag.setConstraints(req.getConstraints());
             s.setDag(dag);
 
-            // 若被约束剪枝过，也额外提示前端
             if (prunedCount > 0) {
-                try {
-                    ObjectNode note = objectMapper.createObjectNode();
-                    note.put("type", "pruned");
-                    note.put("count", prunedCount);
-                    note.put("message", "已根据 what-if 约束剪枝 " + prunedCount + " 个预测节点");
-                    emitter.send(SseEmitter.event().name("notice")
-                            .data(objectMapper.writeValueAsString(note)));
-                } catch (IOException ignored) {}
+                ObjectNode note = objectMapper.createObjectNode();
+                note.put("type", "pruned");
+                note.put("count", prunedCount);
+                note.put("message", "已根据 what-if 约束剪枝 " + prunedCount + " 个预测节点");
+                safeSend(emitter, cancelled, "notice", objectMapper.writeValueAsString(note));
             }
 
-            // chain 字段保留给老 UI 直接读
             s.setChain(chainList);
-            // nodes/edges 不再写完整快照（节省 ~80% 存储）；前端加载时与 trunk 合并
-
             scenarioService.save(s);
 
-            emitter.send(SseEmitter.event().name("complete")
-                    .data(objectMapper.writeValueAsString(s)));
-            emitter.complete();
+            safeSend(emitter, cancelled, "complete", objectMapper.writeValueAsString(s));
+            if (!cancelled.get()) emitter.complete();
         } catch (Exception e) {
+            log.warn("runPrediction failed: {}", e.toString(), e);
+            safeSend(emitter, cancelled, "error", e.getMessage() == null ? "推演失败" : e.getMessage());
             try {
-                emitter.send(SseEmitter.event().name("error").data(e.getMessage() == null ? "推演失败" : e.getMessage()));
-            } catch (IOException ignored) {}
-            emitter.completeWithError(e);
+                if (!cancelled.get()) emitter.completeWithError(e);
+            } catch (Exception completeErr) {
+                log.warn("completeWithError after failure also failed: {}", completeErr.toString());
+            }
         }
     }
 
     /**
-     * v0.8 fork id 重写：LLM 总是以 p_N 形式返回新预测节点 id，多级分叉时需要加 salt 隔离。
-     * 仅当 raw 严格匹配 ^p_\d+$ 时改写为 p<salt>_N；其他形态（祖先预测节点的 pXXX_N、trunk 节点）原样保留。
+     * 安全发送：在 cancelled 已置位时静默跳过；send 抛错时记日志并返回 false，调用方应停止后续推送。
      */
-    private static String applyIdSalt(String raw, String idSalt) {
+    private static boolean safeSend(SseEmitter emitter, AtomicBoolean cancelled, String event, String data) {
+        if (cancelled.get()) return false;
+        try {
+            emitter.send(SseEmitter.event().name(event).data(data));
+            return true;
+        } catch (IllegalStateException stateErr) {
+            log.warn("emitter already closed when sending {}: {}", event, stateErr.toString());
+            cancelled.set(true);
+            return false;
+        } catch (IOException ioErr) {
+            log.warn("emit {} failed (client disconnected?): {}", event, ioErr.toString());
+            cancelled.set(true);
+            return false;
+        }
+    }
+
+    /**
+     * v0.8 fork id 重写：只对本批 chain 内、严格匹配 ^p_\d+$ 的 raw id 改写为 p<salt>_N。
+     * 引用祖先节点的 pXXX_N、trunk 节点 id 原样保留。
+     */
+    static String applyIdSalt(String raw, String idSalt, Set<String> currentChainIds) {
         if (idSalt == null || idSalt.isEmpty()) return raw;
-        if (raw == null) return raw;
+        if (raw == null) return null;
         if (!raw.matches("p_\\d+")) return raw;
+        if (currentChainIds == null || !currentChainIds.contains(raw)) return raw;
         return "p" + idSalt + "_" + raw.substring(2);
     }
 

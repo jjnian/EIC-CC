@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
+import { confirm as uiConfirm } from '../composables/useConfirm';
+import { toast } from '../composables/useToast';
 
 interface ModelConfig {
   id: string;
@@ -175,14 +177,22 @@ const savePrefs = async () => {
 
 // ===== Data Ops =====
 const clearAllScenarios = async () => {
-  if (!confirm('确定清空所有推演分支？此操作不可恢复。')) return;
+  const ok = await uiConfirm({
+    title: '清空推演分支',
+    message: '确定清空所有推演分支？此操作不可恢复。',
+    confirmLabel: '清空',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     const res = await fetch('/api/prefs/scenarios', { method: 'DELETE' });
     if (res.ok) {
       const data = await res.json();
-      alert(`已删除 ${data.deleted} 个推演分支`);
+      toast.success(`已删除 ${data.count ?? data.deleted ?? 0} 个推演分支`);
+    } else {
+      toast.error('清空失败 (HTTP ' + res.status + ')');
     }
-  } catch (e) { console.error(e); }
+  } catch (e) { console.error(e); toast.error('请求异常'); }
 };
 
 const APP_VERSION = '0.5.0';
@@ -287,12 +297,20 @@ const saveModel = async () => {
 };
 
 const deleteModel = async (id: string) => {
-  if (!confirm('确定要删除这个模型配置吗？')) return;
+  const ok = await uiConfirm({
+    title: '删除模型配置',
+    message: '确定要删除这个模型配置吗？',
+    confirmLabel: '删除',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     const res = await fetch(`/api/models/${id}`, { method: 'DELETE' });
     if (res.ok) await loadModels();
+    else toast.error('删除失败 (HTTP ' + res.status + ')');
   } catch (e) {
     console.error("Failed to delete model", e);
+    toast.error('删除请求失败');
   }
 };
 

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { NT, NW, getPath } from '../constants';
+import type { OntologyNode, OntologyEdge } from '../types';
 
 const props = defineProps<{
-  nodes: any[];
-  edges: any[];
+  nodes: OntologyNode[];
+  edges: OntologyEdge[];
   selId: string | null;
 }>();
 
@@ -106,25 +107,26 @@ const startPan = (e: MouseEvent) => {
 
 let ro: ResizeObserver | null = null;
 
+const onWindowMouseMove = (e: MouseEvent) => {
+  if (drag.value) {
+    const { id, sx, sy, ox, oy } = drag.value;
+    const nx = ox + (e.clientX - sx) / zoom.value;
+    const ny = oy + (e.clientY - sy) / zoom.value;
+    emit('move', id, Math.max(0, nx), Math.max(0, ny));
+    isAutoFit.value = false;
+  } else if (pan.value && cvRef.value) {
+    cvRef.value.scrollLeft = pan.value.sl - (e.clientX - pan.value.sx);
+    cvRef.value.scrollTop = pan.value.st - (e.clientY - pan.value.sy);
+  }
+};
+const onWindowMouseUp = () => {
+  drag.value = null;
+  pan.value = null;
+};
+
 onMounted(() => {
-  const mv = (e: MouseEvent) => {
-    if (drag.value) {
-      const { id, sx, sy, ox, oy } = drag.value;
-      const nx = ox + (e.clientX - sx) / zoom.value;
-      const ny = oy + (e.clientY - sy) / zoom.value;
-      emit('move', id, Math.max(0, nx), Math.max(0, ny));
-      isAutoFit.value = false;
-    } else if (pan.value && cvRef.value) {
-      cvRef.value.scrollLeft = pan.value.sl - (e.clientX - pan.value.sx);
-      cvRef.value.scrollTop = pan.value.st - (e.clientY - pan.value.sy);
-    }
-  };
-  const up = () => {
-    drag.value = null;
-    pan.value = null;
-  };
-  window.addEventListener('mousemove', mv);
-  window.addEventListener('mouseup', up);
+  window.addEventListener('mousemove', onWindowMouseMove);
+  window.addEventListener('mouseup', onWindowMouseUp);
 
   ro = new ResizeObserver(() => {
     window.requestAnimationFrame(() => {
@@ -138,12 +140,13 @@ onMounted(() => {
   }
 
   setTimeout(fitView, 50);
+});
 
-  onUnmounted(() => {
-    window.removeEventListener('mousemove', mv);
-    window.removeEventListener('mouseup', up);
-    ro?.disconnect();
-  });
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onWindowMouseMove);
+  window.removeEventListener('mouseup', onWindowMouseUp);
+  ro?.disconnect();
+  ro = null;
 });
 
 const onWheel = (e: WheelEvent) => {

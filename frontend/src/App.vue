@@ -11,12 +11,16 @@ import BranchPicker from './components/BranchPicker.vue';
 import BranchCompareDialog from './components/BranchCompareDialog.vue';
 import ImportDialog from './components/ImportDialog.vue';
 import ScenarioTimeline from './components/ScenarioTimeline.vue';
+import type { OntologyNode, OntologyEdge, OntologyModel, Scenario, ChainStep } from './types';
+import { toast, mountToastRoot } from './composables/useToast';
+import { confirm } from './composables/useConfirm';
+import { streamSSE, type SSEController } from './composables/useSSE';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
 const showSchema = ref(false);
 const chatW = ref(360);
-const divDrag = ref<any>(null);
+const divDrag = ref<{ sx: number; sw: number } | null>(null);
 const graphRef = ref<any>(null);
 
 const view = ref<'welcome' | 'list' | 'graph' | 'settings'>('welcome');
@@ -25,21 +29,23 @@ const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
 
 // ===== Scenario / Branch State =====
 const currentModelId = ref<string>('');
-const branches = ref<any[]>([]);
+const branches = ref<Scenario[]>([]);
 const activeBranchId = ref<string>('trunk');
 const predictDialogOpen = ref(false);
 const predictSeeds = ref<string[]>([]);
-const liveSteps = ref<any[]>([]);
+const liveSteps = ref<ChainStep[]>([]);
 const liveLoading = ref(false);
 const liveActive = ref(false);  // true while a prediction is streaming
 const liveIntent = ref<'forward' | 'backward'>('forward');
 const compareDialogOpen = ref(false);
 const importDialogOpen = ref(false);
-const trunkSnapshot = ref<{ nodes: any[]; edges: any[] } | null>(null);
+const trunkSnapshot = ref<{ nodes: OntologyNode[]; edges: OntologyEdge[] } | null>(null);
+const liveAbort = ref<SSEController | null>(null);
+const isCreating = ref(false);
 
-const models = ref<any[]>([]);
-const nodes = ref<any[]>([]);
-const edges = ref<any[]>([]);
+const models = ref<OntologyModel[]>([]);
+const nodes = ref<OntologyNode[]>([]);
+const edges = ref<OntologyEdge[]>([]);
 
 const loadOntologyModels = async () => {
   try {
@@ -50,29 +56,49 @@ const loadOntologyModels = async () => {
 
 // 防抖保存：图谱编辑后 1.2 秒无操作 → PUT 到后端
 let saveTimer: number | null = null;
+let saveTargetId: string = ''; // 闭包内捕获的 modelId 快照
 const persistCurrentModel = (immediate = false) => {
   if (!currentModelId.value || activeBranchId.value !== 'trunk') return;
-  if (saveTimer) clearTimeout(saveTimer);
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  // capture the model id at scheduling time so a later openModel can't redirect the save.
+  const targetId = currentModelId.value;
+  saveTargetId = targetId;
   const run = async () => {
-    const m = findModel(currentModelId.value);
+    const m = findModel(targetId);
     if (!m) return;
     m.graphData = { nodes: nodes.value, edges: edges.value };
     try {
-      await fetch('/api/ontology-models/' + encodeURIComponent(m.id), {
+      const res = await fetch('/api/ontology-models/' + encodeURIComponent(m.id), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(m)
       });
-    } catch (e) { console.error('save failed', e); }
+      if (!res.ok) {
+        console.error('save failed', res.status);
+        toast.warn('未保存到服务器（HTTP ' + res.status + '）');
+      }
+    } catch (e) {
+      console.error('save failed', e);
+      toast.warn('未保存到服务器');
+    }
   };
   if (immediate) run();
   else saveTimer = window.setTimeout(run, 1200);
 };
 
-onMounted(() => loadOntologyModels());
+onMounted(() => {
+  mountToastRoot();
+  loadOntologyModels();
+});
 
-const openModel = async (m: any) => {
-  currentModelTitle.value = m.title;
+const openModel = async (m: OntologyModel) => {
+  // Flush any pending save for the previous model BEFORE switching context.
+  if (currentModelId.value && currentModelId.value !== m.id) {
+    persistCurrentModel(true);
+  }
+  // Abort any live SSE from the previous model.
+  if (liveAbort.value) { try { liveAbort.value.abort(); } catch {} liveAbort.value = null; }
+  currentModelTitle.value = m.title || m.name || '';
   currentModelId.value = m.id;
   nodes.value = m.graphData.nodes;
   edges.value = m.graphData.edges;
@@ -97,51 +123,66 @@ const loadBranches = async (modelId: string) => {
   }
 };
 
-const findModel = (id: string) => models.value.find(m => m.id === id);
+const findModel = (id: string): OntologyModel | undefined => models.value.find(m => m.id === id);
 
 // v0.8：沿 parentBranchId 链回溯，root-first 合并所有祖先 dag 增量
-const collectAncestorChain = (leafId: string): any[] => {
-  const chain: any[] = [];
-  let cur = branches.value.find(x => x.id === leafId);
+const collectAncestorChain = (leafId: string): Scenario[] => {
+  const chain: Scenario[] = [];
+  let cur: Scenario | undefined = branches.value.find(x => x.id === leafId);
   const guard = new Set<string>(); // 防御循环引用
   while (cur && !guard.has(cur.id)) {
     guard.add(cur.id);
     chain.unshift(cur);
     if (!cur.parentBranchId) break;
-    cur = branches.value.find(x => x.id === cur.parentBranchId);
+    cur = branches.value.find(x => x.id === cur!.parentBranchId);
   }
   return chain;
 };
 
 const switchBranch = (id: string) => {
+  // Abort live stream when switching.
+  if (liveAbort.value) { try { liveAbort.value.abort(); } catch {} liveAbort.value = null; }
   liveActive.value = false;
   liveSteps.value = [];
   sel.value = null;
   if (id === 'trunk') {
     const m = findModel(currentModelId.value);
     if (m) {
-      nodes.value = m.graphData.nodes;
-      edges.value = m.graphData.edges;
+      // Deep-clone trunk so transient edits during preview never pollute model store.
+      nodes.value = structuredClone(m.graphData.nodes || []);
+      edges.value = structuredClone(m.graphData.edges || []);
     }
     activeBranchId.value = 'trunk';
   } else {
     const chain = collectAncestorChain(id);
     if (chain.length) {
       const trunkM = findModel(currentModelId.value);
-      let mergedNodes: any[] = trunkM ? JSON.parse(JSON.stringify(trunkM.graphData.nodes || [])) : [];
-      let mergedEdges: any[] = trunkM ? JSON.parse(JSON.stringify(trunkM.graphData.edges || [])) : [];
+      // Merge into a Map keyed by id so later writers (descendants) overwrite earlier (ancestors).
+      const nodeMap = new Map<string, OntologyNode>();
+      const edgeMap = new Map<string, OntologyEdge>();
+      if (trunkM) {
+        for (const n of structuredClone(trunkM.graphData.nodes || [])) nodeMap.set(n.id, n);
+        for (const e of structuredClone(trunkM.graphData.edges || [])) edgeMap.set(e.id, e);
+      }
+      let hitLegacy = false;
       for (const b of chain) {
         if (b.dag && Array.isArray(b.dag.nodes)) {
-          mergedNodes = [...mergedNodes, ...JSON.parse(JSON.stringify(b.dag.nodes || []))];
-          mergedEdges = [...mergedEdges, ...JSON.parse(JSON.stringify(b.dag.edges || []))];
-        } else {
-          // 老分支全快照：用其覆盖（仅可能出现在 v0.5 历史数据，链应止步于此）
-          mergedNodes = JSON.parse(JSON.stringify(b.nodes || []));
-          mergedEdges = JSON.parse(JSON.stringify(b.edges || []));
+          for (const n of structuredClone(b.dag.nodes || [])) nodeMap.set(n.id, n);
+          for (const e of structuredClone(b.dag.edges || [])) edgeMap.set(e.id, e);
+        } else if (Array.isArray(b.nodes)) {
+          // v0.5 全快照：用其完全覆盖；停止累加后代 delta（不再合理）。
+          console.warn('[switchBranch] legacy v0.5 snapshot branch detected, halting chain merge:', b.id);
+          nodeMap.clear();
+          edgeMap.clear();
+          for (const n of structuredClone(b.nodes || [])) nodeMap.set(n.id, n);
+          for (const e of structuredClone(b.edges || [])) edgeMap.set(e.id, e);
+          hitLegacy = true;
+          break;
         }
       }
-      nodes.value = mergedNodes;
-      edges.value = mergedEdges;
+      if (hitLegacy) toast.warn('该分支为旧 v0.5 快照格式，建议升级以支持级联预览');
+      nodes.value = Array.from(nodeMap.values());
+      edges.value = Array.from(edgeMap.values());
       activeBranchId.value = id;
     }
   }
@@ -152,17 +193,17 @@ const switchBranch = (id: string) => {
 const onImportCommit = async (payload: {
   mode: 'merge' | 'new';
   name: string;
-  nodes: any[];
-  edges: any[];
+  nodes: OntologyNode[];
+  edges: OntologyEdge[];
 }) => {
   importDialogOpen.value = false;
   if (!payload.nodes.length) return;
 
   // 给新节点默认坐标：从图谱右下角依次铺开，避免压在现有节点上
-  const baseX = (nodes.value.length ? Math.max(...nodes.value.map(n => +n.x || 0)) : 0) + 260;
-  const baseY = (nodes.value.length ? Math.min(...nodes.value.map(n => +n.y || 0)) : 0) + 60;
+  const baseX = (nodes.value.length ? Math.max(...nodes.value.map(n => +(n.x || 0))) : 0) + 260;
+  const baseY = (nodes.value.length ? Math.min(...nodes.value.map(n => +(n.y || 0))) : 0) + 60;
   const cols = Math.max(1, Math.ceil(Math.sqrt(payload.nodes.length)));
-  const stamped = payload.nodes.map((n, i) => ({
+  const stamped: OntologyNode[] = payload.nodes.map((n, i) => ({
     ...n,
     x: n.x != null ? n.x : (baseX + (i % cols) * 200),
     y: n.y != null ? n.y : (baseY + Math.floor(i / cols) * 120),
@@ -174,35 +215,51 @@ const onImportCommit = async (payload: {
     nodes.value = [...nodes.value, ...stamped];
     edges.value = [...edges.value, ...payload.edges];
     persistCurrentModel(true);
+    toast.success(`已合并 ${stamped.length} 个节点 / ${payload.edges.length} 条关系`);
     setTimeout(() => graphRef.value?.fitView(), 100);
   } else {
     // 另存为新模型
-    const draft = {
+    const draft: OntologyModel = {
       id: 'om_' + Date.now(),
       name: payload.name || '导入本体',
+      title: payload.name || '导入本体',
       description: '从文档抽取',
       graphData: { nodes: stamped, edges: payload.edges },
     };
-    const saved = await createOnBackend(draft);
-    models.value.unshift(saved);
-    await openModel(saved);
+    try {
+      const saved = await createOnBackend(draft);
+      if (!saved || !saved.id) {
+        toast.error('新模型创建失败');
+        return;
+      }
+      models.value.unshift(saved);
+      await openModel(saved);
+      toast.success('已另存为新模型');
+    } catch (e: any) {
+      toast.error('新模型创建失败：' + (e?.message || e));
+    }
   }
 };
 
 const migrateBranches = async () => {
-  if (!confirm('将扫描所有旧格式分支并升级为 v0.9 delta 形态。每个文件升级前会写 .bak 备份。继续？')) return;
+  const ok = await confirm({
+    title: '升级旧分支',
+    message: '将扫描所有旧格式分支并升级为 v0.9 delta 形态。每个文件升级前会写 .bak 备份。继续？',
+    confirmLabel: '开始升级',
+  });
+  if (!ok) return;
   try {
     const res = await fetch('/api/scenarios/migrate', { method: 'POST' });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: '迁移失败' }));
-      alert('迁移失败: ' + (err.error || res.statusText));
+      toast.error('迁移失败: ' + (err.error || res.statusText));
       return;
     }
     const out = await res.json();
-    alert(`迁移完成：升级 ${out.migrated} 个 / 跳过 ${out.skipped} 个 / 失败 ${out.errors} 个 / 共 ${out.total} 个分支`);
+    toast.success(`迁移完成：升级 ${out.migrated} 个 / 跳过 ${out.skipped} 个 / 失败 ${out.errors} 个 / 共 ${out.total} 个分支`);
     if (currentModelId.value) await loadBranches(currentModelId.value);
   } catch (e: any) {
-    alert('网络错误: ' + e.message);
+    toast.error('网络错误: ' + e.message);
   }
 };
 
@@ -213,15 +270,18 @@ const deleteBranch = async (id: string) => {
   while (grew) {
     grew = false;
     for (const b of branches.value) {
-      if (toRemove.has(b.parentBranchId) && !toRemove.has(b.id)) {
+      if (b.parentBranchId && toRemove.has(b.parentBranchId) && !toRemove.has(b.id)) {
         toRemove.add(b.id);
         grew = true;
       }
     }
   }
   try {
-    await fetch('/api/scenarios/' + encodeURIComponent(id), { method: 'DELETE' });
-  } catch {}
+    const res = await fetch('/api/scenarios/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!res.ok) toast.error('删除失败 (HTTP ' + res.status + ')');
+  } catch (e: any) {
+    toast.error('删除请求异常: ' + (e?.message || e));
+  }
   branches.value = branches.value.filter(b => !toRemove.has(b.id));
   if (toRemove.has(activeBranchId.value)) {
     switchBranch('trunk');
@@ -231,28 +291,34 @@ const deleteBranch = async (id: string) => {
 const openPredictDialog = (seedId: string) => {
   // v0.8：允许从推演分支再次分叉；当前正在流式推演时拦截
   if (liveActive.value) {
-    alert('当前推演进行中，请等待完成后再发起新推演');
+    toast.warn('当前推演进行中，请等待完成后再发起新推演');
     return;
   }
   predictSeeds.value = [seedId];
   predictDialogOpen.value = true;
 };
 
-const startPrediction = async (payload: { seeds: string[]; steps: number; prompt: string; name: string; intent?: 'forward' | 'backward'; constraints?: { nodeId: string; mode: 'force' | 'block' }[] }) => {
+const startPrediction = (payload: { seeds: string[]; steps: number; prompt: string; name: string; intent?: 'forward' | 'backward'; constraints?: { nodeId: string; mode: 'force' | 'block' }[] }) => {
   predictDialogOpen.value = false;
   const m = findModel(currentModelId.value);
   if (!m) return;
 
+  // Abort any previous live stream before starting a new one.
+  if (liveAbort.value) { try { liveAbort.value.abort(); } catch {} liveAbort.value = null; }
+
   // v0.8：fork 起点可以是 trunk 也可以是当前预测分支；快照取当前可见图谱（已合并祖先 delta）
-  const forkParentId = activeBranchId.value === 'trunk' ? null : activeBranchId.value;
+  // NOTE: 'live' is a transient pseudo-branch — never persist it as a parent.
+  const forkParentId = (activeBranchId.value === 'trunk' || activeBranchId.value === 'live')
+    ? null
+    : activeBranchId.value;
   trunkSnapshot.value = {
-    nodes: JSON.parse(JSON.stringify(nodes.value)),
-    edges: JSON.parse(JSON.stringify(edges.value))
+    nodes: structuredClone(nodes.value),
+    edges: structuredClone(edges.value),
   };
 
   // Fork displayed graph from snapshot (will receive predicted nodes streaming)
-  nodes.value = JSON.parse(JSON.stringify(trunkSnapshot.value.nodes));
-  edges.value = JSON.parse(JSON.stringify(trunkSnapshot.value.edges));
+  nodes.value = structuredClone(trunkSnapshot.value.nodes);
+  edges.value = structuredClone(trunkSnapshot.value.edges);
   activeBranchId.value = 'live';
   liveActive.value = true;
   liveSteps.value = [];
@@ -269,88 +335,64 @@ const startPrediction = async (payload: { seeds: string[]; steps: number; prompt
     prompt: payload.prompt,
     constraints: payload.constraints || [],
     nodes: trunkSnapshot.value.nodes,
-    edges: trunkSnapshot.value.edges
+    edges: trunkSnapshot.value.edges,
   };
 
-  try {
-    const res = await fetch('/api/scenarios', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-      body: JSON.stringify(body)
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: '请求失败' }));
-      alert('推演失败: ' + (err.error || res.statusText));
+  liveAbort.value = streamSSE('/api/scenarios', body, {
+    onEvent: (name, data) => {
+      if (name === 'step') {
+        try {
+          const ev = JSON.parse(data);
+          const node: OntologyNode = { ...ev.node, isNew: true };
+          nodes.value.push(node);
+          const newEdges: OntologyEdge[] = (ev.edges || []).map((e: any) => ({ ...e, isNew: true }));
+          edges.value.push(...newEdges);
+          if (ev.chain) liveSteps.value.push(ev.chain);
+          setTimeout(() => {
+            nodes.value.forEach(n => n.isNew = false);
+            edges.value.forEach(e => e.isNew = false);
+          }, 700);
+        } catch {}
+      } else if (name === 'complete') {
+        try {
+          const scenario: Scenario = JSON.parse(data);
+          branches.value.unshift(scenario);
+          activeBranchId.value = scenario.id;
+          liveLoading.value = false;
+          setTimeout(() => graphRef.value?.fitView(), 100);
+        } catch {}
+      } else if (name === 'notice') {
+        try {
+          const note = JSON.parse(data);
+          if (note?.message) toast.info(note.message);
+        } catch {}
+      } else if (name === 'error') {
+        toast.error('推演错误: ' + data);
+        liveLoading.value = false;
+        liveActive.value = false;
+        switchBranch(forkParentId || 'trunk');
+      }
+    },
+    onError: (err) => {
+      toast.error('网络错误: ' + err.message);
       liveLoading.value = false;
       liveActive.value = false;
       switchBranch(forkParentId || 'trunk');
-      return;
-    }
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let curEvent = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          curEvent = line.slice(7).trim();
-        } else if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (curEvent === 'step') {
-            try {
-              const ev = JSON.parse(data);
-              const node = { ...ev.node, isNew: true };
-              nodes.value.push(node);
-              const newEdges = (ev.edges || []).map((e: any) => ({ ...e, isNew: true }));
-              edges.value.push(...newEdges);
-              liveSteps.value.push(ev.chain);
-              setTimeout(() => {
-                nodes.value.forEach(n => n.isNew = false);
-                edges.value.forEach(e => e.isNew = false);
-              }, 700);
-            } catch {}
-          } else if (curEvent === 'complete') {
-            try {
-              const scenario = JSON.parse(data);
-              branches.value.unshift(scenario);
-              activeBranchId.value = scenario.id;
-              liveLoading.value = false;
-              setTimeout(() => graphRef.value?.fitView(), 100);
-            } catch {}
-          } else if (curEvent === 'notice') {
-            try {
-              const note = JSON.parse(data);
-              if (note?.message) console.info('[predict-notice]', note.message);
-            } catch {}
-          } else if (curEvent === 'error') {
-            alert('推演错误: ' + data);
-            liveLoading.value = false;
-            liveActive.value = false;
-            switchBranch(forkParentId || 'trunk');
-          }
-        }
-      }
-    }
-    liveLoading.value = false;
-  } catch (e: any) {
-    alert('网络错误: ' + e.message);
-    liveLoading.value = false;
-    liveActive.value = false;
-    switchBranch(forkParentId || 'trunk');
-  }
+    },
+    onComplete: () => {
+      liveLoading.value = false;
+    },
+  });
 };
 
 const closeTimeline = () => {
+  if (liveAbort.value) { try { liveAbort.value.abort(); } catch {} liveAbort.value = null; }
   liveActive.value = false;
+  liveLoading.value = false;
   liveSteps.value = [];
 };
 
-const createOnBackend = async (draft: any) => {
+const createOnBackend = async (draft: OntologyModel): Promise<OntologyModel> => {
   try {
     const res = await fetch('/api/ontology-models', {
       method: 'POST',
@@ -363,34 +405,54 @@ const createOnBackend = async (draft: any) => {
 };
 
 const createNewModel = async () => {
-  const draft = {
-    title: `新建推演模型 ${models.value.length + 1}`,
-    desc: '新创建的空白本体模型画布',
-    graphData: { nodes: [], edges: [] }
-  };
-  const saved = await createOnBackend(draft);
-  models.value.unshift(saved);
-  openModel(saved);
+  if (isCreating.value) return;
+  isCreating.value = true;
+  try {
+    const draft: OntologyModel = {
+      id: 'om_' + Date.now(),
+      title: `新建推演模型 ${models.value.length + 1}`,
+      desc: '新创建的空白本体模型画布',
+      graphData: { nodes: [], edges: [] }
+    };
+    const saved = await createOnBackend(draft);
+    models.value.unshift(saved);
+    await openModel(saved);
+  } finally {
+    isCreating.value = false;
+  }
 };
 
 const onWelcomeSubmit = async (payload: { text: string; files: File[] }) => {
-  const title = payload.text.slice(0, 18).trim() || '新建本体图';
-  const draft = {
-    title: title.length > 16 ? title.slice(0, 16) + '…' : title,
-    desc: payload.text || '通过对话生成的本体模型',
-    graphData: { nodes: [], edges: [] }
-  };
-  const saved = await createOnBackend(draft);
-  models.value.unshift(saved);
-  pendingChatSeed.value = payload;
-  openModel(saved);
+  if (isCreating.value) return;
+  isCreating.value = true;
+  try {
+    const title = payload.text.slice(0, 18).trim() || '新建本体图';
+    const draft: OntologyModel = {
+      id: 'om_' + Date.now(),
+      title: title.length > 16 ? title.slice(0, 16) + '…' : title,
+      desc: payload.text || '通过对话生成的本体模型',
+      graphData: { nodes: [], edges: [] }
+    };
+    const saved = await createOnBackend(draft);
+    models.value.unshift(saved);
+    pendingChatSeed.value = payload;
+    await openModel(saved);
+  } finally {
+    isCreating.value = false;
+  }
 };
 
 const deleteOntologyModel = async (id: string) => {
-  if (!confirm('确定删除该本体模型？关联的推演分支不会自动清除。')) return;
+  const ok = await confirm({
+    title: '删除本体模型',
+    message: '确定删除该本体模型？关联的推演分支不会自动清除。',
+    confirmLabel: '删除',
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await fetch('/api/ontology-models/' + encodeURIComponent(id), { method: 'DELETE' });
-  } catch (e) { console.error(e); }
+  } catch (e) { console.error(e); toast.error('删除请求失败'); }
   models.value = models.value.filter(m => m.id !== id);
   if (currentModelId.value === id) goWelcome();
 };
@@ -419,7 +481,7 @@ const onMove = (id: string, x: number, y: number) => {
   }
 };
 
-const onUpdate = (addNodes: any[], addEdges: any[]) => {
+const onUpdate = (addNodes: OntologyNode[], addEdges: OntologyEdge[]) => {
   nodes.value.push(...addNodes.map(n => ({...n, isNew: true})));
   edges.value.push(...addEdges);
   setTimeout(() => {
@@ -429,6 +491,8 @@ const onUpdate = (addNodes: any[], addEdges: any[]) => {
 };
 
 const clearCanvas = () => {
+  // Flush any pending debounced save with previous state first to keep history honest.
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   nodes.value = [];
   edges.value = [];
   sel.value = null;
@@ -546,9 +610,10 @@ const shareGraph = async () => {
   const summary = `${m?.title || '本体模型'}\n节点 ${nodes.value.length} · 关系 ${edges.value.length}\n${nodes.value.slice(0, 10).map(n => `· ${n.label}（${n.type}）`).join('\n')}`;
   try {
     await navigator.clipboard.writeText(summary);
-    alert('图谱摘要已复制到剪贴板');
+    toast.success('图谱摘要已复制到剪贴板');
   } catch {
-    alert('剪贴板不可用：\n\n' + summary);
+    toast.warn('剪贴板不可用，已输出到控制台');
+    console.info('[shareGraph]\n' + summary);
   }
 };
 
@@ -561,6 +626,7 @@ const startDivider = (e: MouseEvent) => {
   e.preventDefault();
   divDrag.value = { sx: e.clientX, sw: chatW.value };
   const mv = (ev: MouseEvent) => {
+    if (!divDrag.value) return;
     const delta = divDrag.value.sx - ev.clientX;
     chatW.value = Math.max(0, Math.min(window.innerWidth - 72, divDrag.value.sw + delta));
     if (graphRef.value) graphRef.value.fitView();

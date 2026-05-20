@@ -68,7 +68,7 @@ const startResize = (e: MouseEvent) => {
                   <div class="ni-section-title">节点详情</div>
                   <div class="ni-row"><div class="ni-key">ID</div><div class="ni-val">{{ node.id }}</div></div>
                   <div class="ni-row"><div class="ni-key">名称</div><div class="ni-val">{{ node.label }}</div></div>
-                  <div class="ni-row"><div class="ni-key">类型</div><div class="ni-val">{{ t.label }}</div></div>
+                  <div class="ni-row"><div class="ni-key">类型</div><div class="ni-val">{{ t?.label || '—' }}</div></div>
                   <div class="ni-row"><div class="ni-key">来源</div>
                     <div class="ni-val">
                       <span v-if="node.source === 'inferred'" style="color:#bb77ff; background:rgba(187,119,255,0.1); padding:2px 6px; border-radius:4px; font-size:11px;">AI 推理展开</span>
@@ -125,10 +125,7 @@ const startResize = (e: MouseEvent) => {
                       <span v-else-if="p.source === 'derived'" style="color:#22dd88; font-size:10px;">● 提取</span>
                     </div>
                   </div>
-                  <div style="margin-top:12px; padding-top:12px; border-top:1px dashed rgba(255,255,255,0.05)"></div>
-                  <div v-for="[k, v] in [['版本','v1.0'],['更新时间',new Date().toLocaleString()]]" :key="k" class="ni-row">
-                    <div class="ni-key">{{ k }}</div><div class="ni-val" style="opacity: 0.6">{{ v }}</div>
-                  </div>
+                  <!-- TODO: 显示后端返回的 version / updatedAt 等真实属性 -->
                 </div>
               </template>
               <template v-if="tab === 3">
@@ -166,9 +163,9 @@ const startResize = (e: MouseEvent) => {
               <template v-if="tab === 2">
                 <div class="ni-section">
                   <div class="ni-section-title">模型属性表</div>
-                  <div v-for="[k, v] in [['模型范式','Supply Chain Ontology'],['合规等级','Level 3 (内部安全)'],['版本号','v2.1.4']]" :key="k" class="ni-row">
-                    <div class="ni-key">{{ k }}</div><div class="ni-val">{{ v }}</div>
-                  </div>
+                  <!-- TODO: 接入后端的模型 metadata（type / level / version 等） -->
+                  <div class="ni-row"><div class="ni-key">节点总数</div><div class="ni-val">{{ nodes.length }}</div></div>
+                  <div class="ni-row"><div class="ni-key">关系总数</div><div class="ni-val">{{ edges.length }}</div></div>
                 </div>
               </template>
               <template v-if="tab === 3">
