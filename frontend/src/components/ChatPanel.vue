@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
-import { streamSSE, type SSEController } from '../composables/useSSE';
+import { chatStream, type ChatPayload, type ChatResult } from '../api/chat';
+import type { SseHandle } from '../api/http';
 import { useConversations, type ChatMsg } from '../composables/useConversations';
 import { useAttachments } from '../composables/useAttachments';
 import { useMention } from '../composables/useMention';
@@ -33,9 +34,9 @@ const msgListRef = ref<InstanceType<typeof ChatMessageList> | null>(null);
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 
 // ===== SSE 流控制 =====
-let chatStream: SSEController | null = null;
+let chatHandle: SseHandle | null = null;
 const abortChat = () => {
-  if (chatStream) { try { chatStream.abort(); } catch { /* noop */ } chatStream = null; }
+  if (chatHandle) { try { chatHandle.abort(); } catch { /* noop */ } chatHandle = null; }
 };
 
 // ===== composables 接线 =====
@@ -188,7 +189,7 @@ const send = async () => {
       .filter(a => a.kind === 'image' && a.content)
       .map(a => ({ name: a.name, type: 'image', dataUrl: a.content }));
 
-    const body: any = { message: composedMessage, history };
+    const body: ChatPayload = { message: composedMessage, history };
     if (imageAtts.length) body.attachments = imageAtts;
     if (currentModel.value?.configId) {
       body.configId = currentModel.value.configId;
@@ -199,36 +200,32 @@ const send = async () => {
     abortChat();
 
     await new Promise<void>((resolveStream) => {
-      chatStream = streamSSE('/api/chat', body, {
-        onEvent: (name, data) => {
-          if (name === 'text') {
-            aiMsg.text += data;
-          } else if (name === 'complete') {
-            try {
-              const parsed = JSON.parse(data);
-              if (!aiMsg.text && parsed.reply) aiMsg.text = parsed.reply;
-              const nodeOffset = Math.random() * 50 - 25;
-              const cx = 400 + nodeOffset;
-              const cy = 300 + nodeOffset;
-              const r = 150;
-              const pNodes: OntologyNode[] = (parsed.add_nodes || []).map((n: OntologyNode, idx: number, arr: OntologyNode[]) => {
-                const angle = (idx / arr.length) * Math.PI * 2;
-                return { ...n, x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
-              });
-              emit('update', pNodes, parsed.add_edges || []);
-            } catch (parseErr) {
-              console.error('Failed to parse complete event:', parseErr);
-            }
-          } else if (name === 'error') {
-            if (!aiMsg.text) aiMsg.text = `错误: ${data}`;
-            else aiMsg.text += `\n\n[错误] ${data}`;
+      chatHandle = chatStream(body, {
+        onText: (chunk: string) => {
+          aiMsg.text += chunk;
+        },
+        onComplete: (parsed: ChatResult) => {
+          try {
+            if (!aiMsg.text && parsed.reply) aiMsg.text = parsed.reply;
+            const nodeOffset = Math.random() * 50 - 25;
+            const cx = 400 + nodeOffset;
+            const cy = 300 + nodeOffset;
+            const r = 150;
+            const pNodes: OntologyNode[] = (parsed.add_nodes as OntologyNode[] || []).map((n, idx, arr) => {
+              const angle = (idx / arr.length) * Math.PI * 2;
+              return { ...n, x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
+            });
+            emit('update', pNodes, (parsed.add_edges as OntologyEdge[]) || []);
+          } catch (parseErr) {
+            console.error('Failed to handle complete event:', parseErr);
           }
         },
-        onError: (err) => {
-          if (!aiMsg.text) aiMsg.text = `网络或解析错误: ${err.message}`;
+        onError: (msg: string) => {
+          if (!aiMsg.text) aiMsg.text = `错误: ${msg}`;
+          else aiMsg.text += `\n\n[错误] ${msg}`;
           resolveStream();
         },
-        onComplete: () => {
+        onClose: () => {
           if (!aiMsg.text) aiMsg.text = '未收到有效回复';
           resolveStream();
         },
@@ -240,7 +237,7 @@ const send = async () => {
       lastAi.text = `网络或解析错误: ${error.message}`;
     }
   } finally {
-    chatStream = null;
+    chatHandle = null;
     loading.value = false;
   }
 };

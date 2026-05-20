@@ -24,7 +24,7 @@ const sel = ref<string | null>(null);
 const sbExp = ref(true);
 const showSchema = ref(false);
 const graphRef = ref<any>(null);
-const { chatW, startDivider } = useDivider(360, () => graphRef.value?.fitView());
+const { chatW, startDivider, isDragging } = useDivider(360, () => graphRef.value?.fitView());
 
 const view = ref<'welcome' | 'list' | 'graph' | 'settings'>('welcome');
 const currentModelTitle = ref('供应链本体图');
@@ -137,7 +137,6 @@ const liveSteps = prediction.liveSteps;
 const liveLoading = prediction.liveLoading;
 const liveActive = prediction.liveActive;
 const liveIntent = prediction.liveIntent;
-const liveAbort = prediction.liveAbort;
 const openPredictDialog = prediction.openPredictDialog;
 const startPrediction = prediction.startPrediction;
 const closeTimeline = prediction.closeTimeline;
@@ -351,6 +350,7 @@ const focusNodeInGraph = (id: string) => {
         :live-steps="liveSteps"
         :live-intent="liveIntent"
         :chat-w="chatW"
+        :div-drag-active="isDragging"
         :pending-chat-seed="pendingChatSeed"
         @update:selected-id="(id) => sel = id"
         @update:show-schema="(v) => showSchema = v"

@@ -8,6 +8,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
+
 @RestController
 @RequestMapping("/api/chat")
 public class ChatController {
@@ -22,9 +24,9 @@ public class ChatController {
     public Object chat(@RequestBody ChatRequest request,
                        @RequestHeader(value = "Accept", defaultValue = "application/json") String accept) throws Exception {
         if (accept.contains("text/event-stream")) {
-            SseEmitter emitter = SsePushUtils.newEmitter(180_000L);
-            llmService.chatStreaming(request, emitter);
-            return emitter;
+            SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(180_000L);
+            llmService.chatStreaming(request, ce.emitter());
+            return ce.emitter();
         }
         JsonNode result = llmService.chat(request.getNodes(), request.getEdges(), request.getMessage(),
                 request.getModelOverride(), request.getConfigId(), request.getHistory(), request.getAttachments());

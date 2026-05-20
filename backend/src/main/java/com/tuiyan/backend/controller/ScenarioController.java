@@ -54,8 +54,8 @@ public class ScenarioController {
 
     @PostMapping
     public SseEmitter predict(@RequestBody PredictRequest req) {
-        SseEmitter emitter = SsePushUtils.newEmitter(180_000L);
-        predictionExecutor.execute(() -> predictionOrchestrator.run(req, emitter));
-        return emitter;
+        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(180_000L);
+        predictionExecutor.execute(() -> predictionOrchestrator.run(req, ce.emitter(), ce.cancelled()));
+        return ce.emitter();
     }
 }
