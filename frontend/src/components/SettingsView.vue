@@ -1,123 +1,32 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
-import { confirm as uiConfirm } from '../composables/useConfirm';
-import { toast } from '../composables/useToast';
-import { listModels, createModel, updateModel, deleteModel as apiDeleteModel, toggleModel as apiToggleModel } from '../api/models';
-import { getConfig } from '../api/config';
-import { getPrefs, savePrefs as apiSavePrefs, clearAllScenarios as apiClearAllScenarios } from '../api/prefs';
-import { ApiError } from '../api/http';
+import { ref, onMounted } from 'vue';
+import { useModelConfigs, CAPABILITY_OPTIONS, CAPABILITY_LABELS, fmtTokens } from '../composables/useModelConfigs';
+import { useSettingsPrefs } from '../composables/useSettingsPrefs';
 
-interface ModelConfig {
-  id: string;
-  name: string;
-  baseUrl: string;
-  modelName: string;
-  enabled: boolean;
-  provider?: string;
-  description?: string;
-  contextWindow?: number;
-  maxOutputTokens?: number;
-  capabilities?: string[];
-  protocol?: string;
-}
-
-const CAPABILITY_OPTIONS = [
-  { code: 'streaming', label: '流式' },
-  { code: 'vision', label: '图像' },
-  { code: 'json', label: 'JSON 模式' },
-  { code: 'tool-use', label: '工具调用' },
-  { code: 'reasoning', label: '推理链' }
-];
-
-const CAPABILITY_LABELS: Record<string, string> = Object.fromEntries(
-  CAPABILITY_OPTIONS.map(o => [o.code, o.label])
-);
-
-const fmtTokens = (n?: number) => {
-  if (!n) return '';
-  if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1) + 'M';
-  if (n >= 1000) return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + 'K';
-  return String(n);
-};
-
-interface ProviderInfo {
-  code: string;
-  displayName: string;
-  baseUrl: string;
-  defaultModel: string;
-  models: string[];
-  apiKeyEnvName: string;
-}
-
-const models = ref<ModelConfig[]>([]);
-const providers = ref<ProviderInfo[]>([]);
-const loading = ref(true);
-const showAddModal = ref(false);
-const editingModel = ref<ModelConfig | null>(null);
-const formData = ref({
-  name: '', baseUrl: '', modelName: '', apiKey: '', providerCode: '',
-  description: '', contextWindow: null as number | null, maxOutputTokens: null as number | null,
-  capabilities: [] as string[], protocol: ''
-});
-const emptyForm = () => ({
-  name: '', baseUrl: '', modelName: '', apiKey: '', providerCode: '',
-  description: '', contextWindow: null as number | null, maxOutputTokens: null as number | null,
-  capabilities: [] as string[], protocol: ''
-});
-const formErrors = ref<Record<string, string>>({});
-const saved = ref(false);
-const saveError = ref('');
-const saving = ref(false);
-const toast = ref<{ msg: string; kind: 'success' | 'error' } | null>(null);
-
+// 局部 toast(SettingsView 自带的轻量通知,不走全局 toast)
+const localToast = ref<{ msg: string; kind: 'success' | 'error' } | null>(null);
 const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
-  toast.value = { msg, kind };
-  setTimeout(() => { toast.value = null; }, 2500);
+  localToast.value = { msg, kind };
+  setTimeout(() => { localToast.value = null; }, 2500);
 };
 
-const loadModels = async () => {
-  try {
-    models.value = await listModels();
-  } catch (e) {
-    console.error("Failed to load models", e);
-  } finally {
-    loading.value = false;
-  }
-};
+const mc = useModelConfigs({ showToast });
+const sp = useSettingsPrefs();
 
-const loadProviders = async () => {
-  try {
-    const cfg = await getConfig();
-    providers.value = (cfg.providers || []).filter((p: ProviderInfo) => p.code !== 'custom');
-  } catch (e) {
-    console.error("Failed to load providers", e);
-  }
-};
+// 暴露给模板的别名(保持模板不改)
+const models = mc.models;
+const providers = mc.providers;
+const loading = mc.loading;
+const showAddModal = mc.showAddModal;
+const editingModel = mc.editingModel;
+const formData = mc.formData;
+const formErrors = mc.formErrors;
+const saveError = mc.saveError;
+const saving = mc.saving;
+const selectedProvider = mc.selectedProvider;
+const prefs = sp.prefs;
+const prefsSaved = sp.prefsSaved;
 
-const selectedProvider = computed(() =>
-  providers.value.find(p => p.code === formData.value.providerCode) || null
-);
-
-const applyPreset = (code: string) => {
-  formData.value.providerCode = code;
-  if (!code) return;
-  const p = providers.value.find(x => x.code === code);
-  if (!p) return;
-  formData.value.baseUrl = p.baseUrl;
-  formData.value.modelName = p.defaultModel;
-  if (!formData.value.name.trim()) {
-    formData.value.name = p.displayName;
-  }
-  formData.value.protocol = code === 'anthropic' ? 'anthropic' : 'openai';
-};
-
-onMounted(() => {
-  loadModels();
-  loadProviders();
-  loadPrefs();
-});
-
-// ===== Tabs =====
 const TABS = [
   { id: 'models',   label: '模型管理', icon: '◈' },
   { id: 'predict',  label: '推演偏好', icon: '⚡' },
@@ -126,182 +35,28 @@ const TABS = [
   { id: 'about',    label: '关于',     icon: 'ⓘ' }
 ];
 const activeTab = ref('models');
-
-// ===== Prefs =====
-interface Prefs {
-  predictDefaultSteps: number;
-  predictMinConfidence: number;
-  predictStepDelayMs: number;
-  showEdgeLabels: boolean;
-  autoFit: boolean;
-  graphFontSize: number;
-  defaultModelConfigId: string;
-}
-const prefs = ref<Prefs>({
-  predictDefaultSteps: 4,
-  predictMinConfidence: 0.3,
-  predictStepDelayMs: 220,
-  showEdgeLabels: true,
-  autoFit: true,
-  graphFontSize: 13,
-  defaultModelConfigId: ''
-});
-const prefsSaved = ref(false);
-let prefsTimer: number | null = null;
-
-const loadPrefs = async () => {
-  try {
-    const data = await getPrefs();
-    prefs.value = { ...prefs.value, ...data };
-  } catch (e) { console.error(e); }
-};
-
-const savePrefs = async () => {
-  if (prefsTimer) clearTimeout(prefsTimer);
-  prefsTimer = window.setTimeout(async () => {
-    try {
-      await apiSavePrefs(prefs.value);
-      prefsSaved.value = true;
-      setTimeout(() => prefsSaved.value = false, 1500);
-    } catch (e) { console.error(e); }
-  }, 400);
-};
-
-// ===== Data Ops =====
-const clearAllScenarios = async () => {
-  const ok = await uiConfirm({
-    title: '清空推演分支',
-    message: '确定清空所有推演分支？此操作不可恢复。',
-    confirmLabel: '清空',
-    danger: true,
-  });
-  if (!ok) return;
-  try {
-    const data = await apiClearAllScenarios();
-    toast.success(`已删除 ${data.count ?? 0} 个推演分支`);
-  } catch (e) {
-    console.error(e);
-    if (e instanceof ApiError) toast.error('清空失败 (HTTP ' + e.status + ')');
-    else toast.error('请求异常');
-  }
-};
-
 const APP_VERSION = '0.5.0';
 
-const openAdd = () => {
-  editingModel.value = null;
-  formData.value = emptyForm();
-  formErrors.value = {};
-  saveError.value = '';
-  saving.value = false;
-  showAddModal.value = true;
-};
+onMounted(() => {
+  mc.loadModelList();
+  mc.loadProviders();
+  sp.loadPrefs();
+});
 
-const toggleCapability = (code: string) => {
-  const idx = formData.value.capabilities.indexOf(code);
-  if (idx >= 0) formData.value.capabilities.splice(idx, 1);
-  else formData.value.capabilities.push(code);
-};
+// 模板中使用的函数别名
+const loadModels = mc.loadModelList;
+const applyPreset = mc.applyPreset;
+const toggleCapability = mc.toggleCapability;
+const openAdd = mc.openAdd;
+const openEdit = mc.openEdit;
+const saveModel = mc.saveModel;
+const deleteModel = mc.deleteModelConfig;
+const toggleModel = mc.toggleModelEnabled;
+const savePrefs = sp.savePrefs;
+const clearAllScenarios = sp.clearAllScenarios;
 
-const detectProviderCode = (baseUrl: string): string => {
-  if (!baseUrl) return '';
-  const m = providers.value.find(p => p.baseUrl && baseUrl.includes(new URL(p.baseUrl).hostname));
-  return m ? m.code : '';
-};
-
-const openEdit = (model: ModelConfig) => {
-  editingModel.value = model;
-  formData.value = {
-    name: model.name,
-    baseUrl: model.baseUrl,
-    modelName: model.modelName,
-    apiKey: '',
-    providerCode: model.provider || detectProviderCode(model.baseUrl),
-    description: model.description || '',
-    contextWindow: model.contextWindow ?? null,
-    maxOutputTokens: model.maxOutputTokens ?? null,
-    capabilities: [...(model.capabilities || [])],
-    protocol: model.protocol || ''
-  };
-  formErrors.value = {};
-  saveError.value = '';
-  saving.value = false;
-  showAddModal.value = true;
-};
-
-const validateForm = (): boolean => {
-  formErrors.value = {};
-  if (!formData.value.name.trim()) formErrors.value.name = '名称不能为空';
-  if (!formData.value.baseUrl.trim()) formErrors.value.baseUrl = 'Base URL 不能为空';
-  if (!formData.value.modelName.trim()) formErrors.value.modelName = '模型名称不能为空';
-  return Object.keys(formErrors.value).length === 0;
-};
-
-const saveModel = async () => {
-  saveError.value = '';
-  if (!validateForm()) {
-    saveError.value = '请检查必填项';
-    return;
-  }
-  if (saving.value) return;
-  saving.value = true;
-  try {
-    const payload = {
-      name: formData.value.name,
-      baseUrl: formData.value.baseUrl,
-      modelName: formData.value.modelName,
-      apiKey: formData.value.apiKey,
-      provider: formData.value.providerCode || undefined,
-      description: formData.value.description || undefined,
-      contextWindow: formData.value.contextWindow ?? undefined,
-      maxOutputTokens: formData.value.maxOutputTokens ?? undefined,
-      capabilities: formData.value.capabilities,
-      protocol: formData.value.protocol || undefined,
-    };
-    if (editingModel.value) {
-      await updateModel(editingModel.value.id, payload);
-    } else {
-      await createModel(payload);
-    }
-    const wasEdit = !!editingModel.value;
-    showAddModal.value = false;
-    await loadModels();
-    showToast(wasEdit ? '修改已保存' : '模型已添加', 'success');
-  } catch (e: any) {
-    if (e instanceof ApiError) saveError.value = e.message;
-    else saveError.value = '网络错误:' + (e?.message || e);
-    showToast(saveError.value, 'error');
-  } finally {
-    saving.value = false;
-  }
-};
-
-const deleteModel = async (id: string) => {
-  const ok = await uiConfirm({
-    title: '删除模型配置',
-    message: '确定要删除这个模型配置吗?',
-    confirmLabel: '删除',
-    danger: true,
-  });
-  if (!ok) return;
-  try {
-    await apiDeleteModel(id);
-    await loadModels();
-  } catch (e) {
-    console.error("Failed to delete model", e);
-    if (e instanceof ApiError) toast.error('删除失败 (HTTP ' + e.status + ')');
-    else toast.error('删除请求失败');
-  }
-};
-
-const toggleModel = async (model: ModelConfig) => {
-  try {
-    await apiToggleModel(model.id);
-    await loadModels();
-  } catch (e) {
-    console.error("Failed to toggle model", e);
-  }
-};
+// 模板中引用的 toast(局部)
+const toast = localToast;
 </script>
 
 <template>
