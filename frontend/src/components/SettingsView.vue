@@ -2,6 +2,10 @@
 import { ref, onMounted, computed } from 'vue';
 import { confirm as uiConfirm } from '../composables/useConfirm';
 import { toast } from '../composables/useToast';
+import { listModels, createModel, updateModel, deleteModel as apiDeleteModel, toggleModel as apiToggleModel } from '../api/models';
+import { getConfig } from '../api/config';
+import { getPrefs, savePrefs as apiSavePrefs, clearAllScenarios as apiClearAllScenarios } from '../api/prefs';
+import { ApiError } from '../api/http';
 
 interface ModelConfig {
   id: string;
@@ -73,10 +77,7 @@ const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
 
 const loadModels = async () => {
   try {
-    const res = await fetch('/api/models');
-    if (res.ok) {
-      models.value = await res.json();
-    }
+    models.value = await listModels();
   } catch (e) {
     console.error("Failed to load models", e);
   } finally {
@@ -86,11 +87,8 @@ const loadModels = async () => {
 
 const loadProviders = async () => {
   try {
-    const res = await fetch('/api/config');
-    if (res.ok) {
-      const cfg = await res.json();
-      providers.value = (cfg.providers || []).filter((p: ProviderInfo) => p.code !== 'custom');
-    }
+    const cfg = await getConfig();
+    providers.value = (cfg.providers || []).filter((p: ProviderInfo) => p.code !== 'custom');
   } catch (e) {
     console.error("Failed to load providers", e);
   }
@@ -153,8 +151,8 @@ let prefsTimer: number | null = null;
 
 const loadPrefs = async () => {
   try {
-    const res = await fetch('/api/prefs');
-    if (res.ok) prefs.value = { ...prefs.value, ...(await res.json()) };
+    const data = await getPrefs();
+    prefs.value = { ...prefs.value, ...data };
   } catch (e) { console.error(e); }
 };
 
@@ -162,15 +160,9 @@ const savePrefs = async () => {
   if (prefsTimer) clearTimeout(prefsTimer);
   prefsTimer = window.setTimeout(async () => {
     try {
-      const res = await fetch('/api/prefs', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(prefs.value)
-      });
-      if (res.ok) {
-        prefsSaved.value = true;
-        setTimeout(() => prefsSaved.value = false, 1500);
-      }
+      await apiSavePrefs(prefs.value);
+      prefsSaved.value = true;
+      setTimeout(() => prefsSaved.value = false, 1500);
     } catch (e) { console.error(e); }
   }, 400);
 };
@@ -185,14 +177,13 @@ const clearAllScenarios = async () => {
   });
   if (!ok) return;
   try {
-    const res = await fetch('/api/prefs/scenarios', { method: 'DELETE' });
-    if (res.ok) {
-      const data = await res.json();
-      toast.success(`已删除 ${data.count ?? data.deleted ?? 0} 个推演分支`);
-    } else {
-      toast.error('清空失败 (HTTP ' + res.status + ')');
-    }
-  } catch (e) { console.error(e); toast.error('请求异常'); }
+    const data = await apiClearAllScenarios();
+    toast.success(`已删除 ${data.count ?? 0} 个推演分支`);
+  } catch (e) {
+    console.error(e);
+    if (e instanceof ApiError) toast.error('清空失败 (HTTP ' + e.status + ')');
+    else toast.error('请求异常');
+  }
 };
 
 const APP_VERSION = '0.5.0';
@@ -255,41 +246,30 @@ const saveModel = async () => {
   if (saving.value) return;
   saving.value = true;
   try {
-    const url = editingModel.value ? `/api/models/${editingModel.value.id}` : '/api/models';
-    const method = editingModel.value ? 'PUT' : 'POST';
     const payload = {
       name: formData.value.name,
       baseUrl: formData.value.baseUrl,
       modelName: formData.value.modelName,
       apiKey: formData.value.apiKey,
-      provider: formData.value.providerCode || null,
-      description: formData.value.description || null,
-      contextWindow: formData.value.contextWindow,
-      maxOutputTokens: formData.value.maxOutputTokens,
+      provider: formData.value.providerCode || undefined,
+      description: formData.value.description || undefined,
+      contextWindow: formData.value.contextWindow ?? undefined,
+      maxOutputTokens: formData.value.maxOutputTokens ?? undefined,
       capabilities: formData.value.capabilities,
-      protocol: formData.value.protocol || null
+      protocol: formData.value.protocol || undefined,
     };
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (res.ok) {
-      const wasEdit = !!editingModel.value;
-      showAddModal.value = false;
-      await loadModels();
-      showToast(wasEdit ? '修改已保存' : '模型已添加', 'success');
+    if (editingModel.value) {
+      await updateModel(editingModel.value.id, payload);
     } else {
-      let msg = `保存失败 (HTTP ${res.status})`;
-      try {
-        const err = await res.json();
-        if (err && err.error) msg = err.error;
-      } catch {}
-      saveError.value = msg;
-      showToast(msg, 'error');
+      await createModel(payload);
     }
+    const wasEdit = !!editingModel.value;
+    showAddModal.value = false;
+    await loadModels();
+    showToast(wasEdit ? '修改已保存' : '模型已添加', 'success');
   } catch (e: any) {
-    saveError.value = '网络错误：' + (e?.message || e);
+    if (e instanceof ApiError) saveError.value = e.message;
+    else saveError.value = '网络错误:' + (e?.message || e);
     showToast(saveError.value, 'error');
   } finally {
     saving.value = false;
@@ -299,25 +279,25 @@ const saveModel = async () => {
 const deleteModel = async (id: string) => {
   const ok = await uiConfirm({
     title: '删除模型配置',
-    message: '确定要删除这个模型配置吗？',
+    message: '确定要删除这个模型配置吗?',
     confirmLabel: '删除',
     danger: true,
   });
   if (!ok) return;
   try {
-    const res = await fetch(`/api/models/${id}`, { method: 'DELETE' });
-    if (res.ok) await loadModels();
-    else toast.error('删除失败 (HTTP ' + res.status + ')');
+    await apiDeleteModel(id);
+    await loadModels();
   } catch (e) {
     console.error("Failed to delete model", e);
-    toast.error('删除请求失败');
+    if (e instanceof ApiError) toast.error('删除失败 (HTTP ' + e.status + ')');
+    else toast.error('删除请求失败');
   }
 };
 
 const toggleModel = async (model: ModelConfig) => {
   try {
-    const res = await fetch(`/api/models/${model.id}/toggle`, { method: 'PATCH' });
-    if (res.ok) await loadModels();
+    await apiToggleModel(model.id);
+    await loadModels();
   } catch (e) {
     console.error("Failed to toggle model", e);
   }

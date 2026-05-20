@@ -4,6 +4,8 @@ import type { OntologyNode, OntologyEdge } from '../types';
 import { toast } from '../composables/useToast';
 import { confirm as uiConfirm } from '../composables/useConfirm';
 import { streamSSE, type SSEController } from '../composables/useSSE';
+import { getConfig } from '../api/config';
+import { getPrefs } from '../api/prefs';
 
 const props = defineProps<{
   nodes: OntologyNode[];
@@ -296,47 +298,41 @@ const customModels = computed(() => availableModels.value.filter(x => x.type ===
 
 const loadModels = async () => {
   try {
-    const res = await fetch('/api/config');
-    if (res.ok) {
-      const data = await res.json();
-      const models: ModelOption[] = [];
+    const data = await getConfig();
+    const models: ModelOption[] = [];
 
-      if (data.provider && data.modelName) {
-        const provider = (data.providers || []).find((p: any) => p.code === data.provider);
-        const modelName = data.modelName;
-        if (provider && provider.models) {
-          provider.models.forEach((m: string) => {
-            models.push({ id: m, name: m, type: 'preset' });
-          });
-        } else {
-          models.push({ id: modelName, name: modelName, type: 'preset' });
-        }
+    if (data.provider && data.modelName) {
+      const provider = (data.providers || []).find((p: any) => p.code === data.provider);
+      const modelName = data.modelName;
+      if (provider && provider.models) {
+        provider.models.forEach((m: string) => {
+          models.push({ id: m, name: m, type: 'preset' });
+        });
+      } else {
+        models.push({ id: modelName, name: modelName, type: 'preset' });
       }
+    }
 
-      if (data.customModels) {
-        data.customModels
-          .filter((m: any) => m.enabled)
-          .forEach((m: any) => {
-            models.push({ id: m.id, name: m.name, type: 'custom', configId: m.id });
-          });
-      }
+    if (data.customModels) {
+      data.customModels
+        .filter((m: any) => m.enabled)
+        .forEach((m: any) => {
+          models.push({ id: m.id, name: m.name, type: 'custom', configId: m.id });
+        });
+    }
 
-      availableModels.value = models;
-      if (models.length > 0) {
-        // 优先使用偏好里的默认模型
-        let defaultId: string | null = null;
-        try {
-          const pr = await fetch('/api/prefs');
-          if (pr.ok) {
-            const prefs = await pr.json();
-            if (prefs.defaultModelConfigId) defaultId = prefs.defaultModelConfigId;
-          }
-        } catch {}
-        const preferred = defaultId
-          ? models.find(m => m.configId === defaultId || m.id === defaultId)
-          : null;
-        currentModel.value = preferred || models[0];
-      }
+    availableModels.value = models;
+    if (models.length > 0) {
+      // 优先使用偏好里的默认模型
+      let defaultId: string | null = null;
+      try {
+        const prefs = await getPrefs();
+        if (prefs.defaultModelConfigId) defaultId = prefs.defaultModelConfigId as string;
+      } catch { /* prefs 不可读时退化用第一个 */ }
+      const preferred = defaultId
+        ? models.find(m => m.configId === defaultId || m.id === defaultId)
+        : null;
+      currentModel.value = preferred || models[0];
     }
   } catch (e) {
     console.error("Failed to load models", e);

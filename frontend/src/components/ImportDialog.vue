@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import type { OntologyNode, SourceMeta } from '../types';
+import { extractFromFiles } from '../api/ontology';
+import { ApiError } from '../api/http';
 
 interface ExtractedNode {
   id: string;
@@ -117,32 +119,26 @@ const extract = async () => {
   loading.value = true;
   errorMsg.value = '';
   extractedRaw.value = null;
-  const fd = new FormData();
-  for (const f of files.value) fd.append('files', f);
-  if (abortCtl) { try { abortCtl.abort(); } catch {} }
+  if (abortCtl) { try { abortCtl.abort(); } catch { /* noop */ } }
   abortCtl = new AbortController();
   try {
-    const res = await fetch('/api/ontology-models/extract', {
-      method: 'POST',
-      body: fd,
-      signal: abortCtl.signal,
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      errorMsg.value = data.error || ('HTTP ' + res.status);
-      sources.value = data.sources || [];
-      return;
-    }
+    const data = await extractFromFiles(files.value, { signal: abortCtl.signal });
     extractedRaw.value = { nodes: data.nodes || [], edges: data.edges || [] };
     sources.value = data.sources || [];
     replyText.value = data.reply || '';
 
-    // 默认全选（基于 displayedNodes 的 id 集合，dup 映射会从展示中过滤掉）
+    // 默认全选(基于 displayedNodes 的 id 集合,dup 映射会从展示中过滤掉)
     selectedNodeIds.value = new Set(displayedNodes.value.map(n => n.id));
     selectedEdgeIds.value = new Set(extractedRaw.value.edges.map(e => e.id));
   } catch (e: any) {
     if (e?.name === 'AbortError') return;
-    errorMsg.value = '网络错误: ' + (e?.message || e);
+    if (e instanceof ApiError) {
+      errorMsg.value = e.message;
+      const body = e.body as { sources?: SourceMeta[] } | null;
+      if (body && Array.isArray(body.sources)) sources.value = body.sources;
+    } else {
+      errorMsg.value = '网络错误: ' + (e?.message || e);
+    }
   } finally {
     loading.value = false;
     abortCtl = null;
