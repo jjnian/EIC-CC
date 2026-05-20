@@ -225,6 +225,7 @@ public class LlmService {
     }
 
     public ModelConfig createModelConfig(com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) throws IOException {
+        validateModelConfigRequest(req);
         List<ModelConfig> configs = new ArrayList<>(getAllModelConfigs());
         ModelConfig nc = new ModelConfig(
                 req.getName(), req.getBaseUrl(), req.getModelName(),
@@ -241,6 +242,7 @@ public class LlmService {
     }
 
     public ModelConfig updateModelConfig(String id, com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) throws IOException {
+        validateModelConfigRequest(req);
         List<ModelConfig> configs = new ArrayList<>(getAllModelConfigs());
         for (int i = 0; i < configs.size(); i++) {
             if (configs.get(i).getId().equals(id)) {
@@ -288,6 +290,18 @@ public class LlmService {
             }
         }
         throw new IllegalArgumentException("Model config not found: " + id);
+    }
+
+    private static void validateModelConfigRequest(com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) {
+        if (req.getName() == null || req.getName().isBlank()) {
+            throw new IllegalArgumentException("名称不能为空");
+        }
+        if (req.getBaseUrl() == null || req.getBaseUrl().isBlank()) {
+            throw new IllegalArgumentException("Base URL 不能为空");
+        }
+        if (req.getModelName() == null || req.getModelName().isBlank()) {
+            throw new IllegalArgumentException("模型名称不能为空");
+        }
     }
 
     private void saveModelConfigs(List<ModelConfig> configs) throws IOException {

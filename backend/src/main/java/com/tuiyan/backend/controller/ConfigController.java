@@ -20,22 +20,13 @@ public class ConfigController {
     }
 
     @GetMapping
-    public ResponseEntity<?> getConfig() {
-        try {
-            ConfigResponse config = llmService.getConfigResponse();
-            return ResponseEntity.ok(config);
-        } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<ConfigResponse> getConfig() throws IOException {
+        return ResponseEntity.ok(llmService.getConfigResponse());
     }
 
     @PostMapping
-    public ResponseEntity<?> saveConfig(@RequestBody ConfigRequest request) {
-        try {
-            llmService.saveConfig(request.getProvider(), request.getBaseUrl(), request.getModelName(), request.getApiKey());
-            return ResponseEntity.ok(Map.of("success", true));
-        } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<Map<String, Object>> saveConfig(@RequestBody ConfigRequest request) throws IOException {
+        llmService.saveConfig(request.getProvider(), request.getBaseUrl(), request.getModelName(), request.getApiKey());
+        return ResponseEntity.ok(Map.of("success", true));
     }
 }
