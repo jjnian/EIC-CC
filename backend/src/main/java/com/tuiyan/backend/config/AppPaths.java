@@ -24,6 +24,7 @@ public class AppPaths {
             Files.createDirectories(rootDir().toPath());
             Files.createDirectories(scenariosDir().toPath());
             Files.createDirectories(ontologyModelsDir().toPath());
+            Files.createDirectories(conversationsDir().toPath());
         } catch (IOException e) {
             log.warn("Failed to prepare data dir {}: {}", dataDir, e.toString(), e);
         }
@@ -34,6 +35,8 @@ public class AppPaths {
     public File scenariosDir() { return new File(rootDir(), "scenarios"); }
 
     public File ontologyModelsDir() { return new File(rootDir(), "ontology-models"); }
+
+    public File conversationsDir() { return new File(rootDir(), "conversations"); }
 
     public File prefsFile() { return new File(rootDir(), "prefs.json"); }
 }

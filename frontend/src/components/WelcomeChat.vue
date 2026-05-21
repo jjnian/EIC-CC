@@ -50,6 +50,15 @@ const onDrop = (e: DragEvent) => {
   dragOver.value = false;
   addFiles(e.dataTransfer?.files || null);
 };
+
+const onInputKeydown = (e: KeyboardEvent) => {
+  if (e.key !== 'Enter') return;
+  // 中文输入法选词时按 Enter,e.isComposing 为 true,不应触发发送。
+  if (e.isComposing || (e as any).keyCode === 229) return;
+  if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+  e.preventDefault();
+  handleSubmit();
+};
 </script>
 
 <template>
@@ -74,7 +83,7 @@ const onDrop = (e: DragEvent) => {
           v-model="input"
           placeholder="例如：构建一个包含客户、订单、商品与物流的电商本体模型…"
           rows="3"
-          @keydown.enter.exact.prevent="handleSubmit"
+          @keydown="onInputKeydown"
         />
         <div class="welcome-input-footer">
           <button class="welcome-icon-btn" title="上传文件 (支持文本、PDF、图片)" @click="fileRef?.click()">
