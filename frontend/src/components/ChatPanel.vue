@@ -7,6 +7,7 @@ import { useConversations, type ChatMsg } from '../composables/useConversations'
 import { useAttachments } from '../composables/useAttachments';
 import { useMention } from '../composables/useMention';
 import { useChatModels } from '../composables/useChatModels';
+import { toast } from '../composables/useToast';
 import ChatMessageList from './chat/ChatMessageList.vue';
 import AttachmentChips from './chat/AttachmentChips.vue';
 
@@ -156,9 +157,11 @@ const send = async () => {
     conversationTitle.value = autoTitle(msgs.value);
   }
 
-  // 创建 AI 消息占位(流式显示用)
-  const aiMsg: ChatMsg = { role: 'a', text: '' };
+  // 创建 AI 消息占位(流式期间显示"分析中",complete 后替换为 parsed.reply)
+  const aiMsg: ChatMsg = { role: 'a', text: '正在分析对话内容并构建图谱…' };
   msgs.value.push(aiMsg);
+  // LLM 返回的是 JSON,流式 chunk 不要直接灌入气泡(会让用户看到一坨原始 JSON)。
+  let rawJsonBuf = '';
 
   try {
     const history = msgs.value
@@ -193,31 +196,67 @@ const send = async () => {
     await new Promise<void>((resolveStream) => {
       chatHandle = chatStream(body, {
         onText: (chunk: string) => {
-          aiMsg.text += chunk;
+          rawJsonBuf += chunk;
         },
         onComplete: (parsed: ChatResult) => {
           try {
-            if (!aiMsg.text && parsed.reply) aiMsg.text = parsed.reply;
+            const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
+            const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
+            const reply = (parsed.reply || '').trim();
+            if (reply) {
+              aiMsg.text = reply;
+            } else if (addNodes.length || addEdges.length) {
+              aiMsg.text = `已从对话内容提取 ${addNodes.length} 个节点 / ${addEdges.length} 条关系,已加入图谱。`;
+            } else {
+              aiMsg.text = '未识别到可加入图谱的实体或关系,请补充更具体的描述。';
+            }
+
             const nodeOffset = Math.random() * 50 - 25;
             const cx = 400 + nodeOffset;
             const cy = 300 + nodeOffset;
             const r = 150;
-            const pNodes: OntologyNode[] = (parsed.add_nodes as OntologyNode[] || []).map((n, idx, arr) => {
-              const angle = (idx / arr.length) * Math.PI * 2;
+            const pNodes: OntologyNode[] = addNodes.map((n, idx, arr) => {
+              const angle = arr.length > 1 ? (idx / arr.length) * Math.PI * 2 : 0;
               return { ...n, x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
             });
-            emit('update', pNodes, (parsed.add_edges as OntologyEdge[]) || []);
+            emit('update', pNodes, addEdges);
+
+            if (addNodes.length || addEdges.length) {
+              toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
+            }
           } catch (parseErr) {
             console.error('Failed to handle complete event:', parseErr);
+            if (!aiMsg.text || aiMsg.text === '正在分析对话内容并构建图谱…') {
+              aiMsg.text = '解析失败,模型返回内容非合法 JSON。';
+            }
           }
         },
         onError: (msg: string) => {
-          if (!aiMsg.text) aiMsg.text = `错误: ${msg}`;
-          else aiMsg.text += `\n\n[错误] ${msg}`;
+          aiMsg.text = `错误: ${msg}`;
           resolveStream();
         },
         onClose: () => {
-          if (!aiMsg.text) aiMsg.text = '未收到有效回复';
+          if (aiMsg.text === '正在分析对话内容并构建图谱…') {
+            // 兜底:complete 没触发但有累计的原始 JSON,尝试解析一次。
+            const fallback = rawJsonBuf.trim().replace(/^```json/i, '').replace(/```$/, '').trim();
+            if (fallback) {
+              try {
+                const parsed = JSON.parse(fallback) as ChatResult;
+                const reply = (parsed.reply || '').trim();
+                aiMsg.text = reply || '已收到回复,但未识别到图谱更新。';
+                const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
+                const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
+                if (addNodes.length || addEdges.length) {
+                  emit('update', addNodes.map(n => ({ ...n, x: 400, y: 300 })), addEdges);
+                  toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
+                }
+              } catch {
+                aiMsg.text = '未收到有效回复';
+              }
+            } else {
+              aiMsg.text = '未收到有效回复';
+            }
+          }
           resolveStream();
         },
       });

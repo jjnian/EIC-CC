@@ -180,6 +180,54 @@ public class LlmService {
 
     public record ResolvedConfig(String baseURL, String modelName, String apiKey, String protocol) {}
 
+    /** 单条文本日志最大字符数,超出后截断,避免日志被大段 base64 / JSON 撑爆。 */
+    private static final int LOG_TEXT_MAX = 2000;
+
+    private static String truncateForLog(String s) {
+        if (s == null) return "";
+        if (s.length() <= LOG_TEXT_MAX) return s;
+        return s.substring(0, LOG_TEXT_MAX) + "…(已截断,原长 " + s.length() + ")";
+    }
+
+    /**
+     * 把发给 LLM 的对话内容(system + history + 当前 user prompt)按可读格式打到 INFO 日志,
+     * 方便排查"模型为什么这么回"。图片/超长文本会被脱敏 + 截断。
+     */
+    private void logConversation(String tag, String modelName, String systemPrompt,
+                                 List<Map<String, Object>> history, String userText,
+                                 List<Map<String, Object>> attachments) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n========== [").append(tag).append("] → LLM 请求 model=").append(modelName).append(" ==========\n");
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            sb.append("[system]\n").append(truncateForLog(systemPrompt)).append("\n");
+        }
+        int hi = 0;
+        if (history != null) {
+            for (Map<String, Object> msg : history) {
+                String role = String.valueOf(msg.get("role"));
+                if (!"user".equals(role) && !"assistant".equals(role)) continue;
+                sb.append("[history#").append(hi++).append(" ").append(role).append("]\n")
+                  .append(truncateForLog(String.valueOf(msg.get("content")))).append("\n");
+            }
+        }
+        sb.append("[user]\n").append(truncateForLog(userText == null ? "" : userText)).append("\n");
+        if (attachments != null && !attachments.isEmpty()) {
+            int imgCount = 0;
+            for (Map<String, Object> a : attachments) {
+                if ("image".equals(String.valueOf(a.get("type")))) imgCount++;
+            }
+            sb.append("[attachments] images=").append(imgCount).append(" total=").append(attachments.size()).append("\n");
+        }
+        sb.append("==========================================================");
+        log.info(sb.toString());
+    }
+
+    /** 打印从 LLM 收到的最终文本内容(已去掉 ```json 包装),便于和前端展示对照。 */
+    private void logLlmResponse(String tag, String modelName, long elapsedMs, String content) {
+        log.info("\n========== [{}] ← LLM 响应 model={} 耗时={}ms 长度={} ==========\n{}\n==========================================================",
+                tag, modelName, elapsedMs, content == null ? 0 : content.length(), truncateForLog(content));
+    }
+
     // ========== 模型配置（只读，来自 yaml） ==========
 
     public List<LlmProperties.ModelEntry> getAllModelConfigs() {
@@ -386,10 +434,11 @@ public class LlmService {
         boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
         log.info("[LLM-chat] 开始请求 model={} url={} protocol={}", cfg.modelName(), cfg.baseURL(), anthropic ? "anthropic" : "openai");
-        log.debug("[LLM-chat] 用户消息: {}", message);
 
         String prompt = "Here is the user's latest message:\n" + message +
                 "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
+
+        logConversation("LLM-chat", cfg.modelName(), SYSTEM_INSTRUCTION, history, prompt, attachments);
 
         String requestBody = anthropic
                 ? buildAnthropicBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, history, attachments, false, ANTHROPIC_MAX_TOKENS)
@@ -414,6 +463,7 @@ public class LlmService {
         String content = extractContent(responseJson, anthropic);
         content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
         if (content.isEmpty()) content = "{}";
+        logLlmResponse("LLM-chat", cfg.modelName(), elapsed, content);
         return objectMapper.readTree(content);
     }
 
@@ -423,10 +473,12 @@ public class LlmService {
             boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
             log.info("[LLM-stream] 开始流式请求 model={} url={} protocol={}", cfg.modelName(), cfg.baseURL(), anthropic ? "anthropic" : "openai");
-            log.debug("[LLM-stream] 用户消息: {}", request.getMessage());
 
             String prompt = "Here is the user's latest message:\n" + request.getMessage() +
                     "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
+
+            logConversation("LLM-stream", cfg.modelName(), SYSTEM_INSTRUCTION,
+                    request.getHistory(), prompt, request.getAttachments());
 
             String requestBody = anthropic
                     ? buildAnthropicBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, ANTHROPIC_MAX_TOKENS)
@@ -473,6 +525,7 @@ public class LlmService {
                             String content = fullContent.toString()
                                     .replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
                             if (content.isEmpty()) content = "{}";
+                            logLlmResponse("LLM-stream", cfg.modelName(), totalTime, content);
                             JsonNode result = objectMapper.readTree(content);
 
                             ObjectNode finalEvent = objectMapper.createObjectNode();
@@ -643,6 +696,8 @@ public class LlmService {
         }
         userPrompt.append("\n").append(taskWord).append(steps).append(taskUnit).append("，严格按 schema 输出 JSON。");
 
+        logConversation("LLM-predict", cfg.modelName(), systemPrompt, null, userPrompt.toString(), null);
+
         String requestBody = anthropic
                 ? buildAnthropicBody(cfg.modelName(), systemPrompt, userPrompt.toString(),
                         null, null, false, ANTHROPIC_MAX_TOKENS)
@@ -668,6 +723,7 @@ public class LlmService {
         String content = extractContent(root, anthropic);
         content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
         if (content.isEmpty()) content = "{}";
+        logLlmResponse("LLM-predict", cfg.modelName(), elapsed, content);
         return objectMapper.readTree(content);
     }
 
@@ -722,6 +778,8 @@ public class LlmService {
         }
         userPrompt.append("请抽取所有可识别的本体节点（含规则）与关系，按 SCHEMA 输出 JSON。");
 
+        logConversation("LLM-extract", modelName, EXTRACT_SYSTEM, null, userPrompt.toString(), imageAttachments);
+
         String requestBody = anthropic
                 ? buildAnthropicBody(modelName, EXTRACT_SYSTEM, userPrompt.toString(),
                         null, imageAttachments, false, ANTHROPIC_MAX_TOKENS)
@@ -744,6 +802,7 @@ public class LlmService {
         String content = extractContent(root, anthropic);
         content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
         if (content.isEmpty()) content = "{}";
+        logLlmResponse("LLM-extract", modelName, elapsed, content);
         return objectMapper.readTree(content);
     }
 
