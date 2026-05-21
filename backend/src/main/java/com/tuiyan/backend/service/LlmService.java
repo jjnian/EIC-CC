@@ -4,21 +4,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.tuiyan.backend.config.AppPaths;
-import com.tuiyan.backend.config.ResourceNotFoundException;
+import com.tuiyan.backend.config.LlmProperties;
 import com.tuiyan.backend.model.ChatRequest;
 import com.tuiyan.backend.model.ConfigResponse;
 import com.tuiyan.backend.model.LlmProvider;
-import com.tuiyan.backend.model.ModelConfig;
-import com.tuiyan.backend.model.ModelConfigPersist;
-import com.tuiyan.backend.util.JsonAtomic;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URI;
@@ -40,27 +35,19 @@ public class LlmService {
     private static final Logger log = LoggerFactory.getLogger(LlmService.class);
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    /** 单独的 mapper：写盘时通过 mixin 重新暴露 apiKey，避免 WRITE_ONLY 把字段丢掉。 */
-    private final ObjectMapper persistMapper = new ObjectMapper()
-            .addMixIn(ModelConfig.class, ModelConfigPersist.class);
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(java.time.Duration.ofSeconds(20))
             .build();
 
-    private final AppPaths appPaths;
+    private final LlmProperties llmProperties;
 
-    public LlmService(AppPaths appPaths) {
-        this.appPaths = appPaths;
+    public LlmService(LlmProperties llmProperties) {
+        this.llmProperties = llmProperties;
     }
 
     private static final String ANTHROPIC_VERSION = "2023-06-01";
     private static final int ANTHROPIC_MAX_TOKENS = 8192;
-
-    // ========== 缓存：避免每次接口都读盘 ==========
-    private static final long CONFIG_CACHE_TTL_MS = 5_000;
-    private volatile List<ModelConfig> cachedConfigs;
-    private volatile long cachedAt;
 
     private static final String SCHEMA_STRING = """
         {
@@ -191,180 +178,28 @@ public class LlmService {
         SCHEMA:
         %s""".formatted(PREDICT_BACKWARD_SCHEMA);
 
-    /** 解析配置的字段集合，替代旧的 String[]。 */
     public record ResolvedConfig(String baseURL, String modelName, String apiKey, String protocol) {}
 
-    // ========== 模型配置 CRUD ==========
+    // ========== 模型配置（只读，来自 yaml） ==========
 
-    public synchronized List<ModelConfig> getAllModelConfigs() throws IOException {
-        long now = System.currentTimeMillis();
-        if (cachedConfigs != null && (now - cachedAt) < CONFIG_CACHE_TTL_MS) {
-            return cachedConfigs;
-        }
-        File file = appPaths.modelsConfigFile();
-        if (!file.exists()) {
-            migrateLegacyConfig();
-            file = appPaths.modelsConfigFile();
-        }
-        List<ModelConfig> configs = new ArrayList<>();
-        if (file.exists()) {
-            JsonNode node = persistMapper.readTree(file);
-            if (node.isArray()) {
-                for (JsonNode item : node) {
-                    configs.add(persistMapper.treeToValue(item, ModelConfig.class));
-                }
-            }
-        }
-        cachedConfigs = configs;
-        cachedAt = now;
-        return configs;
-    }
-
-    private void invalidateCache() {
-        cachedConfigs = null;
-        cachedAt = 0L;
-    }
-
-    public ModelConfig createModelConfig(com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) throws IOException {
-        validateModelConfigRequest(req);
-        List<ModelConfig> configs = new ArrayList<>(getAllModelConfigs());
-        ModelConfig nc = new ModelConfig(
-                req.getName(), req.getBaseUrl(), req.getModelName(),
-                req.getApiKey() != null ? req.getApiKey() : "");
-        nc.setProvider(req.getProvider());
-        nc.setDescription(req.getDescription());
-        nc.setContextWindow(req.getContextWindow());
-        nc.setMaxOutputTokens(req.getMaxOutputTokens());
-        nc.setCapabilities(req.getCapabilities());
-        nc.setProtocol(req.getProtocol());
-        configs.add(nc);
-        saveModelConfigs(configs);
-        return nc;
-    }
-
-    public ModelConfig updateModelConfig(String id, com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) throws IOException {
-        validateModelConfigRequest(req);
-        List<ModelConfig> configs = new ArrayList<>(getAllModelConfigs());
-        for (int i = 0; i < configs.size(); i++) {
-            if (configs.get(i).getId().equals(id)) {
-                ModelConfig c = configs.get(i);
-                c.setName(req.getName());
-                c.setBaseUrl(req.getBaseUrl());
-                c.setModelName(req.getModelName());
-                if (req.getApiKey() != null && !req.getApiKey().isBlank()) {
-                    c.setApiKey(req.getApiKey());
-                }
-                if (req.getProvider() != null) c.setProvider(req.getProvider());
-                if (req.getDescription() != null) c.setDescription(req.getDescription());
-                if (req.getContextWindow() != null) c.setContextWindow(req.getContextWindow());
-                if (req.getMaxOutputTokens() != null) c.setMaxOutputTokens(req.getMaxOutputTokens());
-                if (req.getCapabilities() != null) c.setCapabilities(req.getCapabilities());
-                if (req.getProtocol() != null) c.setProtocol(req.getProtocol());
-                c.setUpdatedAt(System.currentTimeMillis());
-                configs.set(i, c);
-                saveModelConfigs(configs);
-                return c;
-            }
-        }
-        throw new ResourceNotFoundException("Model config not found: " + id);
-    }
-
-    public int deleteModelConfig(String id) throws IOException {
-        List<ModelConfig> configs = new ArrayList<>(getAllModelConfigs());
-        int before = configs.size();
-        configs.removeIf(c -> c.getId().equals(id));
-        int removed = before - configs.size();
-        saveModelConfigs(configs);
-        return removed;
-    }
-
-    public void toggleModelConfig(String id) throws IOException {
-        List<ModelConfig> configs = new ArrayList<>(getAllModelConfigs());
-        for (int i = 0; i < configs.size(); i++) {
-            if (configs.get(i).getId().equals(id)) {
-                ModelConfig config = configs.get(i);
-                config.setEnabled(!config.isEnabled());
-                config.setUpdatedAt(System.currentTimeMillis());
-                configs.set(i, config);
-                saveModelConfigs(configs);
-                return;
-            }
-        }
-        throw new ResourceNotFoundException("Model config not found: " + id);
-    }
-
-    private static void validateModelConfigRequest(com.tuiyan.backend.controller.ModelController.ModelConfigRequest req) {
-        if (req.getName() == null || req.getName().isBlank()) {
-            throw new IllegalArgumentException("名称不能为空");
-        }
-        if (req.getBaseUrl() == null || req.getBaseUrl().isBlank()) {
-            throw new IllegalArgumentException("Base URL 不能为空");
-        }
-        if (req.getModelName() == null || req.getModelName().isBlank()) {
-            throw new IllegalArgumentException("模型名称不能为空");
-        }
-    }
-
-    private void saveModelConfigs(List<ModelConfig> configs) throws IOException {
-        JsonAtomic.write(persistMapper, appPaths.modelsConfigFile(), configs);
-        invalidateCache();
-    }
-
-    /**
-     * 同步 HTTP 调用 — 把 InterruptedException 翻译为 IOException,让 caller 只用 catch 一种受检异常。
-     */
-    private <T> HttpResponse<T> sendHttp(HttpRequest request, HttpResponse.BodyHandler<T> bodyHandler) throws IOException {
-        try {
-            return httpClient.send(request, bodyHandler);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("HTTP 调用被中断", e);
-        }
-    }
-
-    private void migrateLegacyConfig() throws IOException {
-        File legacyFile = appPaths.legacyConfigTargetFile();
-        if (legacyFile.exists()) {
-            JsonNode legacy = persistMapper.readTree(legacyFile);
-            String provider = legacy.has("provider") ? legacy.get("provider").asText() : "qwen";
-            String baseUrl = legacy.has("baseUrl") ? legacy.get("baseUrl").asText() : "";
-            String modelName = legacy.has("modelName") ? legacy.get("modelName").asText() : "";
-
-            List<ModelConfig> configs = new ArrayList<>();
-            ModelConfig migrated = new ModelConfig("迁移配置", baseUrl, modelName, "");
-            migrated.setId("legacy-" + provider);
-            configs.add(migrated);
-            saveModelConfigs(configs);
-        } else {
-            saveModelConfigs(new ArrayList<>());
-        }
+    public List<LlmProperties.ModelEntry> getAllModelConfigs() {
+        return llmProperties.getModels();
     }
 
     // ========== 兼容旧接口 ==========
 
-    public JsonNode getConfig() throws IOException {
-        List<ModelConfig> configs = getAllModelConfigs();
-        ObjectNode node = objectMapper.createObjectNode();
-        if (!configs.isEmpty()) {
-            ModelConfig first = configs.get(0);
-            node.put("provider", "qwen");
-            node.put("baseUrl", first.getBaseUrl());
-            node.put("modelName", first.getModelName());
-        } else {
-            node.put("provider", "qwen");
-            node.put("baseUrl", "https://dashscope.aliyuncs.com/compatible-mode/v1");
-            node.put("modelName", "qwen-max");
+    public ConfigResponse getConfigResponse() {
+        List<LlmProperties.ModelEntry> models = llmProperties.getModels();
+
+        String providerCode = "qwen";
+        String baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+        String modelName = "qwen-max";
+        if (!models.isEmpty()) {
+            LlmProperties.ModelEntry first = models.get(0);
+            providerCode = first.getProvider() != null ? first.getProvider() : providerCode;
+            baseUrl = first.getBaseUrl() != null ? first.getBaseUrl() : baseUrl;
+            modelName = first.getModelName() != null ? first.getModelName() : modelName;
         }
-        return node;
-    }
-
-    public ConfigResponse getConfigResponse() throws IOException {
-        JsonNode config = getConfig();
-        String providerCode = config.has("provider") ? config.get("provider").asText() : LlmProvider.QWEN.getCode();
-        LlmProvider provider = LlmProvider.fromCode(providerCode);
-
-        String baseUrl = config.has("baseUrl") ? config.get("baseUrl").asText() : provider.getBaseUrl();
-        String modelName = config.has("modelName") ? config.get("modelName").asText() : provider.getDefaultModel();
 
         List<ConfigResponse.ProviderInfo> providers = new ArrayList<>();
         for (LlmProvider p : LlmProvider.values()) {
@@ -379,7 +214,7 @@ public class LlmService {
         }
 
         List<ConfigResponse.ModelConfigInfo> customModels = new ArrayList<>();
-        for (ModelConfig mc : getAllModelConfigs()) {
+        for (LlmProperties.ModelEntry mc : models) {
             ConfigResponse.ModelConfigInfo info = new ConfigResponse.ModelConfigInfo(
                 mc.getId(),
                 mc.getName(),
@@ -399,33 +234,17 @@ public class LlmService {
         return new ConfigResponse(providerCode, baseUrl, modelName, providers, customModels);
     }
 
-    public void saveConfig(String provider, String baseUrl, String modelName, String apiKey) throws IOException {
-        ObjectNode config = objectMapper.createObjectNode();
-        config.put("provider", provider);
-        config.put("baseUrl", baseUrl);
-        config.put("modelName", modelName);
-        if (apiKey != null && !apiKey.isBlank()) {
-            config.put("apiKey", apiKey);
-        }
-        JsonAtomic.write(objectMapper, appPaths.legacyConfigTargetFile(), config);
-        invalidateCache();
-    }
-
     // ========== 聊天接口 ==========
 
-    /**
-     * 解析模型配置，返回 baseURL / modelName / apiKey / protocol。
-     */
-    private ResolvedConfig resolveConfig(String modelOverride, String configId) throws IOException {
+    private ResolvedConfig resolveConfig(String modelOverride, String configId) {
         String baseURL;
         String modelName;
         String apiKey;
         String protocol = null;
 
         if (configId != null && !configId.isBlank()) {
-            List<ModelConfig> configs = getAllModelConfigs();
-            ModelConfig selected = null;
-            for (ModelConfig mc : configs) {
+            LlmProperties.ModelEntry selected = null;
+            for (LlmProperties.ModelEntry mc : llmProperties.getModels()) {
                 if (mc.getId().equals(configId)) {
                     selected = mc;
                     break;
@@ -442,13 +261,19 @@ public class LlmService {
             apiKey = selected.getApiKey();
             protocol = selected.getProtocol();
         } else {
-            JsonNode fileConfig = getConfig();
-            String providerCode = fileConfig.has("provider") ? fileConfig.get("provider").asText() : LlmProvider.QWEN.getCode();
-            LlmProvider provider = LlmProvider.fromCode(providerCode);
-
-            apiKey = getApiKey(provider, fileConfig);
-            baseURL = fileConfig.has("baseUrl") ? fileConfig.get("baseUrl").asText() : provider.getBaseUrl();
-            modelName = fileConfig.has("modelName") ? fileConfig.get("modelName").asText() : provider.getDefaultModel();
+            List<LlmProperties.ModelEntry> models = llmProperties.getModels();
+            if (!models.isEmpty()) {
+                LlmProperties.ModelEntry first = models.get(0);
+                baseURL = first.getBaseUrl();
+                modelName = first.getModelName();
+                apiKey = first.getApiKey();
+                protocol = first.getProtocol();
+            } else {
+                LlmProvider provider = LlmProvider.QWEN;
+                baseURL = provider.getBaseUrl();
+                modelName = provider.getDefaultModel();
+                apiKey = System.getenv(provider.getApiKeyEnvName());
+            }
         }
 
         if (modelOverride != null && !modelOverride.isBlank()) {
@@ -461,20 +286,17 @@ public class LlmService {
         if (System.getenv("LLM_MODEL_NAME") != null && !System.getenv("LLM_MODEL_NAME").isBlank()) {
             modelName = System.getenv("LLM_MODEL_NAME");
         }
-        if (apiKey == null && System.getenv("LLM_API_KEY") != null && !System.getenv("LLM_API_KEY").isBlank()) {
+        if ((apiKey == null || apiKey.isBlank()) && System.getenv("LLM_API_KEY") != null && !System.getenv("LLM_API_KEY").isBlank()) {
             apiKey = System.getenv("LLM_API_KEY");
         }
 
         if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("Missing API key. Please set environment variable: LLM_API_KEY");
+            throw new IllegalStateException("Missing API key. Please configure api-key in application.yml or set environment variable: LLM_API_KEY");
         }
 
         return new ResolvedConfig(baseURL, modelName, apiKey, protocol);
     }
 
-    /**
-     * 决定是否走 Anthropic 协议：显式 protocol 字段最高优先，其次按 baseURL/modelName 探测。
-     */
     private boolean isAnthropic(String baseURL, String modelName, String protocol) {
         if (protocol != null && !protocol.isBlank()) {
             return "anthropic".equalsIgnoreCase(protocol);
@@ -482,10 +304,6 @@ public class LlmService {
         return LlmProvider.isAnthropicEndpoint(baseURL, modelName);
     }
 
-    /**
-     * 统一构建 OpenAI 兼容协议的请求体。三个调用点（chat / predict / extract）共用，
-     * 自动处理 history、image_url 多模态附件、response_format=json_object。
-     */
     private String buildOpenAiBody(String modelName, String systemPrompt, String userText,
                                    List<Map<String, Object>> history,
                                    List<Map<String, Object>> attachments,
@@ -557,9 +375,6 @@ public class LlmService {
         return objectMapper.writeValueAsString(root);
     }
 
-    /**
-     * 同步聊天（非流式）
-     */
     public JsonNode chat(List<Map<String, Object>> nodes, List<Map<String, Object>> edges, String message, String modelOverride, String configId, List<Map<String, Object>> history) throws IOException {
         return chat(nodes, edges, message, modelOverride, configId, history, null);
     }
@@ -570,6 +385,9 @@ public class LlmService {
         ResolvedConfig cfg = resolveConfig(modelOverride, configId);
         boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
+        log.info("[LLM-chat] 开始请求 model={} url={} protocol={}", cfg.modelName(), cfg.baseURL(), anthropic ? "anthropic" : "openai");
+        log.debug("[LLM-chat] 用户消息: {}", message);
+
         String prompt = "Here is the user's latest message:\n" + message +
                 "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
 
@@ -577,12 +395,20 @@ public class LlmService {
                 ? buildAnthropicBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, history, attachments, false, ANTHROPIC_MAX_TOKENS)
                 : buildOpenAiBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, history, attachments, false, true);
 
+        log.debug("[LLM-chat] 请求体大小: {} chars", requestBody.length());
+        long startTime = System.currentTimeMillis();
+
         HttpRequest request = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
         HttpResponse<String> response = sendHttp(request, HttpResponse.BodyHandlers.ofString());
+        long elapsed = System.currentTimeMillis() - startTime;
+
         if (response.statusCode() != 200) {
+            log.error("[LLM-chat] 请求失败 status={} 耗时={}ms", response.statusCode(), elapsed);
             logUpstreamError("chat", response.statusCode(), response.body());
             throw new RuntimeException("LLM 调用失败 HTTP " + response.statusCode() + "（详情见服务器日志）");
         }
+
+        log.info("[LLM-chat] 请求成功 status=200 耗时={}ms 响应大小={} chars", elapsed, response.body().length());
 
         JsonNode responseJson = objectMapper.readTree(response.body());
         String content = extractContent(responseJson, anthropic);
@@ -591,13 +417,13 @@ public class LlmService {
         return objectMapper.readTree(content);
     }
 
-    /**
-     * 流式聊天：通过 SSE 逐 token 推送文本，完成后发送结构化数据
-     */
     public void chatStreaming(ChatRequest request, SseEmitter emitter) {
         try {
             ResolvedConfig cfg = resolveConfig(request.getModelOverride(), request.getConfigId());
             boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
+
+            log.info("[LLM-stream] 开始流式请求 model={} url={} protocol={}", cfg.modelName(), cfg.baseURL(), anthropic ? "anthropic" : "openai");
+            log.debug("[LLM-stream] 用户消息: {}", request.getMessage());
 
             String prompt = "Here is the user's latest message:\n" + request.getMessage() +
                     "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
@@ -606,10 +432,14 @@ public class LlmService {
                     ? buildAnthropicBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, ANTHROPIC_MAX_TOKENS)
                     : buildOpenAiBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, true);
 
+            log.debug("[LLM-stream] 请求体大小: {} chars", requestBody.length());
+            long streamStart = System.currentTimeMillis();
+
             HttpRequest httpRequest = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
 
             httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
                     .thenAccept(resp -> {
+                        long firstByteTime = System.currentTimeMillis() - streamStart;
                         if (resp.statusCode() != 200) {
                             String errorBody;
                             try {
@@ -617,6 +447,7 @@ public class LlmService {
                             } catch (IOException e) {
                                 errorBody = "Unknown error";
                             }
+                            log.error("[LLM-stream] 请求失败 status={} 首字节耗时={}ms", resp.statusCode(), firstByteTime);
                             logUpstreamError("chatStreaming", resp.statusCode(), errorBody);
                             try {
                                 emitter.send(SseEmitter.event().name("error").data(
@@ -628,11 +459,16 @@ public class LlmService {
                             return;
                         }
 
+                        log.info("[LLM-stream] 连接成功 首字节耗时={}ms", firstByteTime);
+
                         try (BufferedReader reader = new BufferedReader(
                                 new InputStreamReader(resp.body(), StandardCharsets.UTF_8))) {
                             StringBuilder fullContent = anthropic
                                     ? streamAnthropic(reader, emitter)
                                     : streamOpenAI(reader, emitter);
+
+                            long totalTime = System.currentTimeMillis() - streamStart;
+                            log.info("[LLM-stream] 流式完成 总耗时={}ms 响应长度={} chars", totalTime, fullContent.length());
 
                             String content = fullContent.toString()
                                     .replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
@@ -651,6 +487,7 @@ public class LlmService {
                             }
                             emitter.complete();
                         } catch (IOException e) {
+                            log.error("[LLM-stream] 响应解析失败: {}", e.getMessage());
                             try {
                                 emitter.send(SseEmitter.event().name("error").data("Failed to parse response: " + e.getMessage()));
                             } catch (IOException ex) {
@@ -660,6 +497,8 @@ public class LlmService {
                         }
                     })
                     .exceptionally(ex -> {
+                        long totalTime = System.currentTimeMillis() - streamStart;
+                        log.error("[LLM-stream] 网络异常 耗时={}ms error={}", totalTime, ex.getMessage());
                         try {
                             emitter.send(SseEmitter.event().name("error").data("Network error: " + ex.getMessage()));
                         } catch (IOException e) {
@@ -669,6 +508,7 @@ public class LlmService {
                         return null;
                     });
         } catch (Exception e) {
+            log.error("[LLM-stream] 初始化失败: {}", e.getMessage());
             try {
                 emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
             } catch (IOException ioEx) {
@@ -703,9 +543,6 @@ public class LlmService {
         return fullContent;
     }
 
-    /**
-     * Anthropic SSE 解析。
-     */
     private StringBuilder streamAnthropic(BufferedReader reader, SseEmitter emitter) throws IOException {
         StringBuilder fullContent = new StringBuilder();
         String line;
@@ -765,6 +602,9 @@ public class LlmService {
 
         int steps = req.getSteps() == null ? 4 : Math.max(1, Math.min(10, req.getSteps()));
         boolean backward = "backward".equalsIgnoreCase(req.getIntent());
+
+        log.info("[LLM-predict] 开始推演 model={} url={} direction={} steps={}", cfg.modelName(), cfg.baseURL(), backward ? "backward" : "forward", steps);
+
         String systemPrompt = backward ? PREDICT_BACKWARD_SYSTEM : PREDICT_SYSTEM;
         String seedRole = backward ? "目标节点 (seeds，需要溯因的结果)" : "起点节点 (seeds)";
         String taskWord = backward ? "请向上回溯 " : "请向前推演 ";
@@ -775,7 +615,6 @@ public class LlmService {
         String rulesSummary = summarizeRules(req.getNodes());
         String constraintsSummary = summarizeConstraints(req.getConstraints(), req.getNodes());
 
-        // v0.9：context 截断 —— 大图谱时只保留 seeds/规则/约束目标 + k-hop 邻域
         TruncatedGraph truncated = truncateGraphForContext(
                 req.getNodes(), req.getEdges(), req.getSeeds(), req.getConstraints());
         boolean wasTruncated = truncated.droppedNodes > 0 || truncated.droppedEdges > 0;
@@ -810,12 +649,20 @@ public class LlmService {
                 : buildOpenAiBody(cfg.modelName(), systemPrompt, userPrompt.toString(),
                         null, null, false, true);
 
+        log.debug("[LLM-predict] 请求体大小: {} chars", requestBody.length());
+        long startTime = System.currentTimeMillis();
+
         HttpRequest httpReq = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
         HttpResponse<String> resp = sendHttp(httpReq, HttpResponse.BodyHandlers.ofString());
+        long elapsed = System.currentTimeMillis() - startTime;
+
         if (resp.statusCode() != 200) {
+            log.error("[LLM-predict] 请求失败 status={} 耗时={}ms", resp.statusCode(), elapsed);
             logUpstreamError("predict", resp.statusCode(), resp.body());
             throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
         }
+
+        log.info("[LLM-predict] 请求成功 status=200 耗时={}ms 响应大小={} chars", elapsed, resp.body().length());
 
         JsonNode root = objectMapper.readTree(resp.body());
         String content = extractContent(root, anthropic);
@@ -835,6 +682,9 @@ public class LlmService {
 
         List<String> chunks = chunkText(combinedText, EXTRACT_CHUNK_CHARS);
         boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
+
+        log.info("[LLM-extract] 开始抽取 model={} url={} textChunks={} hasImages={}", cfg.modelName(), cfg.baseURL(), chunks.size(), hasImages);
+
         if (chunks.isEmpty() && !hasImages) {
             throw new IllegalArgumentException("No usable text or images for extraction");
         }
@@ -879,11 +729,17 @@ public class LlmService {
                         null, imageAttachments, false, true);
 
         HttpRequest httpReq = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
+        long startTime = System.currentTimeMillis();
         HttpResponse<String> resp = sendHttp(httpReq, HttpResponse.BodyHandlers.ofString());
+        long elapsed = System.currentTimeMillis() - startTime;
+
         if (resp.statusCode() != 200) {
+            log.error("[LLM-extract] chunk请求失败 status={} 耗时={}ms", resp.statusCode(), elapsed);
             logUpstreamError("extract", resp.statusCode(), resp.body());
             throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
         }
+
+        log.info("[LLM-extract] chunk请求成功 耗时={}ms 响应大小={} chars", elapsed, resp.body().length());
         JsonNode root = objectMapper.readTree(resp.body());
         String content = extractContent(root, anthropic);
         content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
@@ -891,7 +747,6 @@ public class LlmService {
         return objectMapper.readTree(content);
     }
 
-    /** Log upstream LLM HTTP errors, truncated to first 1000 chars for safety. */
     private static void logUpstreamError(String where, int status, String body) {
         String snippet = body == null ? "" : body.substring(0, Math.min(body.length(), 1000));
         log.warn("LLM upstream error in {}: HTTP {} body[:1000]={}", where, status, snippet);
@@ -952,11 +807,6 @@ public class LlmService {
         return out;
     }
 
-    /**
-     * 按 label 标准化跨段合并：相同标签视为同一节点；
-     * 第二段重复 label 的节点不再直接丢弃，而是把它的 props 合并入第一段对应节点，
-     * 按 props.key 去重，a 中已有的 key 保留 a 的值。
-     */
     private JsonNode mergeExtractionByLabel(JsonNode a, JsonNode b) {
         ObjectNode out = objectMapper.createObjectNode();
         if (a.has("reply")) out.set("reply", a.get("reply"));
@@ -1009,9 +859,6 @@ public class LlmService {
         return out;
     }
 
-    /**
-     * 合并 b 节点的 props 到 a 节点的 props，按 props.key 去重，a 的 key 优先保留。
-     */
     private void mergeNodeProps(ObjectNode aNode, JsonNode bNode) {
         JsonNode aProps = aNode.path("props");
         JsonNode bProps = bNode.path("props");
@@ -1153,6 +1000,15 @@ public class LlmService {
         return objectMapper.writeValueAsString(root);
     }
 
+    private <T> HttpResponse<T> sendHttp(HttpRequest request, HttpResponse.BodyHandler<T> bodyHandler) throws IOException {
+        try {
+            return httpClient.send(request, bodyHandler);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("HTTP 调用被中断", e);
+        }
+    }
+
     private String summarizeGraph(List<Map<String, Object>> nodes, List<Map<String, Object>> edges) {
         StringBuilder sb = new StringBuilder();
         if (nodes != null) {
@@ -1178,7 +1034,7 @@ public class LlmService {
         return sb.toString();
     }
 
-    // ========== v0.9：context 截断 ==========
+    // ========== context 截断 ==========
 
     private static final int CONTEXT_NODE_BUDGET = 120;
     private static final int CONTEXT_EDGE_BUDGET = 240;
@@ -1194,11 +1050,6 @@ public class LlmService {
         }
     }
 
-    /**
-     * 超过预算时按优先级保留：mandatory（seeds + 规则节点 + 约束目标）无条件保留，
-     * 再做 BFS 邻域扩展并受预算约束。即便 mandatory 集本身已经超过预算，
-     * 也不会丢失必要节点 —— 业务正确性优先于 budget。
-     */
     TruncatedGraph truncateGraphForContext(List<Map<String, Object>> nodes,
                                            List<Map<String, Object>> edges,
                                            List<String> seeds,
@@ -1212,7 +1063,6 @@ public class LlmService {
                     0, 0);
         }
 
-        // 1) mandatory：无条件保留
         Set<String> mandatory = new LinkedHashSet<>();
         if (seeds != null) mandatory.addAll(seeds);
         if (nodes != null) {
@@ -1230,7 +1080,6 @@ public class LlmService {
 
         Set<String> keep = new LinkedHashSet<>(mandatory);
 
-        // 2) 邻接表
         Map<String, List<String>> neighbors = new HashMap<>();
         if (edges != null) {
             for (Map<String, Object> e : edges) {
@@ -1241,7 +1090,6 @@ public class LlmService {
             }
         }
 
-        // 3) BFS 扩展（mandatory 之上叠加邻域，受预算约束；mandatory 不会被踢掉）
         Set<String> frontier = new HashSet<>(mandatory);
         for (int hop = 0; hop < CONTEXT_HOPS && keep.size() < CONTEXT_NODE_BUDGET; hop++) {
             Set<String> next = new LinkedHashSet<>();
@@ -1343,39 +1191,5 @@ public class LlmService {
             sb.append("\n");
         }
         return sb.toString();
-    }
-
-    private String getApiKey(LlmProvider provider, JsonNode fileConfig) {
-        if (fileConfig.has("apiKey")) {
-            String savedApiKey = fileConfig.get("apiKey").asText();
-            if (savedApiKey != null && !savedApiKey.isBlank()) {
-                return savedApiKey;
-            }
-        }
-
-        String envName = provider.getApiKeyEnvName();
-        String apiKey = System.getenv(envName);
-        if (apiKey != null && !apiKey.isBlank()) {
-            return apiKey;
-        }
-
-        if (provider == LlmProvider.QWEN) {
-            apiKey = System.getenv("QWEN_API_KEY");
-            if (apiKey != null && !apiKey.isBlank()) return apiKey;
-        } else if (provider == LlmProvider.KIMI) {
-            apiKey = System.getenv("KIMI_API_KEY");
-            if (apiKey != null && !apiKey.isBlank()) return apiKey;
-        } else if (provider == LlmProvider.DEEPSEEK) {
-            apiKey = System.getenv("DEEPSEEK_KEY");
-            if (apiKey != null && !apiKey.isBlank()) return apiKey;
-        } else if (provider == LlmProvider.ANTHROPIC) {
-            apiKey = System.getenv("CLAUDE_API_KEY");
-            if (apiKey != null && !apiKey.isBlank()) return apiKey;
-        } else if (provider == LlmProvider.OPENAI) {
-            apiKey = System.getenv("OPENAI_KEY");
-            if (apiKey != null && !apiKey.isBlank()) return apiKey;
-        }
-
-        return null;
     }
 }

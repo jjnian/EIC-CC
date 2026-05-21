@@ -10,7 +10,6 @@ export interface ProviderInfo {
   apiKeyEnvName: string;
 }
 
-/** ConfigResponse 中嵌入的 customModels 与全局 ModelConfig 同结构,直接复用。 */
 export type ModelConfigInfo = ModelConfig;
 
 export interface ConfigResponse {
@@ -23,8 +22,4 @@ export interface ConfigResponse {
 
 export function getConfig() {
   return request<ConfigResponse>('/api/config');
-}
-
-export function saveConfig(payload: { provider: string; baseUrl: string; modelName: string; apiKey?: string }) {
-  return request<{ success: true }>('/api/config', { method: 'POST', body: JSON.stringify(payload) });
 }

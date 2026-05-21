@@ -1,5 +1,0 @@
-{
-  "provider": "deepseek",
-  "baseUrl": "https://api.deepseek.com/v1",
-  "modelName": "deepseek-chat"
-}

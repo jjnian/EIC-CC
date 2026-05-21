@@ -14,3 +14,18 @@ server:
 app:
   data:
     dir: ${user.home}/.tuiyan
+  llm:
+    models:
+      - id: deepseek-chat
+        name: DeepSeek Chat
+        provider: deepseek
+        base-url: https://api.deepseek.com
+        model-name: deepseek-v4-flash
+        api-key: ${DEEPSEEK_API_KEY:sk-6e221473e331438d849319d376288d13}
+        protocol: openai
+        enabled: true
+        context-window: 64000
+        max-output-tokens: 8192
+        capabilities:
+          - streaming
+          - json

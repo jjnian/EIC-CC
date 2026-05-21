@@ -1,13 +1,11 @@
 package com.tuiyan.backend.controller;
 
-import com.tuiyan.backend.model.ModelConfig;
+import com.tuiyan.backend.config.LlmProperties;
 import com.tuiyan.backend.service.LlmService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/models")
@@ -20,63 +18,7 @@ public class ModelController {
     }
 
     @GetMapping
-    public ResponseEntity<List<ModelConfig>> getAllModels() throws IOException {
+    public ResponseEntity<List<LlmProperties.ModelEntry>> getAllModels() {
         return ResponseEntity.ok(llmService.getAllModelConfigs());
-    }
-
-    @PostMapping
-    public ResponseEntity<ModelConfig> createModel(@RequestBody ModelConfigRequest request) throws IOException {
-        return ResponseEntity.ok(llmService.createModelConfig(request));
-    }
-
-    @PutMapping("/{id}")
-    public ResponseEntity<ModelConfig> updateModel(@PathVariable String id, @RequestBody ModelConfigRequest request) throws IOException {
-        return ResponseEntity.ok(llmService.updateModelConfig(id, request));
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> deleteModel(@PathVariable String id) throws IOException {
-        int removed = llmService.deleteModelConfig(id);
-        return ResponseEntity.ok(Map.of("success", removed > 0, "count", removed));
-    }
-
-    @PatchMapping("/{id}/toggle")
-    public ResponseEntity<Map<String, Object>> toggleModel(@PathVariable String id) throws IOException {
-        llmService.toggleModelConfig(id);
-        return ResponseEntity.ok(Map.of("success", true));
-    }
-
-    public static class ModelConfigRequest {
-        private String name;
-        private String baseUrl;
-        private String modelName;
-        private String apiKey;
-        private String provider;
-        private String description;
-        private Integer contextWindow;
-        private Integer maxOutputTokens;
-        private List<String> capabilities;
-        private String protocol;
-
-        public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
-        public String getBaseUrl() { return baseUrl; }
-        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
-        public String getModelName() { return modelName; }
-        public void setModelName(String modelName) { this.modelName = modelName; }
-        public String getApiKey() { return apiKey; }
-        public void setApiKey(String apiKey) { this.apiKey = apiKey; }
-        public String getProvider() { return provider; }
-        public void setProvider(String provider) { this.provider = provider; }
-        public String getDescription() { return description; }
-        public void setDescription(String description) { this.description = description; }
-        public Integer getContextWindow() { return contextWindow; }
-        public void setContextWindow(Integer contextWindow) { this.contextWindow = contextWindow; }
-        public Integer getMaxOutputTokens() { return maxOutputTokens; }
-        public void setMaxOutputTokens(Integer maxOutputTokens) { this.maxOutputTokens = maxOutputTokens; }
-        public List<String> getCapabilities() { return capabilities; }
-        public void setCapabilities(List<String> capabilities) { this.capabilities = capabilities; }
-        public String getProtocol() { return protocol; }
-        public void setProtocol(String protocol) { this.protocol = protocol; }
     }
 }

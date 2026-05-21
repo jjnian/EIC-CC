@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useModelConfigs, CAPABILITY_OPTIONS, CAPABILITY_LABELS, fmtTokens } from '../composables/useModelConfigs';
+import { useModelConfigs, CAPABILITY_LABELS, fmtTokens } from '../composables/useModelConfigs';
 import { useSettingsPrefs } from '../composables/useSettingsPrefs';
-import ModelConfigForm from './settings/ModelConfigForm.vue';
 
-// 局部 toast(SettingsView 自带的轻量通知,不走全局 toast)
 const localToast = ref<{ msg: string; kind: 'success' | 'error' } | null>(null);
 const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
   localToast.value = { msg, kind };
@@ -14,17 +12,8 @@ const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
 const mc = useModelConfigs({ showToast });
 const sp = useSettingsPrefs();
 
-// 暴露给模板的别名(保持模板不改)
 const models = mc.models;
-const providers = mc.providers;
 const loading = mc.loading;
-const showAddModal = mc.showAddModal;
-const editingModel = mc.editingModel;
-const formData = mc.formData;
-const formErrors = mc.formErrors;
-const saveError = mc.saveError;
-const saving = mc.saving;
-const selectedProvider = mc.selectedProvider;
 const prefs = sp.prefs;
 const prefsSaved = sp.prefsSaved;
 
@@ -44,19 +33,9 @@ onMounted(() => {
   sp.loadPrefs();
 });
 
-// 模板中使用的函数别名
-const loadModels = mc.loadModelList;
-const applyPreset = mc.applyPreset;
-const toggleCapability = mc.toggleCapability;
-const openAdd = mc.openAdd;
-const openEdit = mc.openEdit;
-const saveModel = mc.saveModel;
-const deleteModel = mc.deleteModelConfig;
-const toggleModel = mc.toggleModelEnabled;
 const savePrefs = sp.savePrefs;
 const clearAllScenarios = sp.clearAllScenarios;
 
-// 模板中引用的 toast(局部)
 const toast = localToast;
 </script>
 
@@ -87,12 +66,8 @@ const toast = localToast;
           <div class="sv-section-head">
             <div>
               <h3>大模型管理</h3>
-              <p>OpenAI / Anthropic / DeepSeek / 通义千问 等。预设无需重启即可使用，填入 API Key 后启用。</p>
+              <p>模型配置来自 application.yml，修改后重启生效。</p>
             </div>
-            <button class="add-btn" @click="openAdd">
-              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              新增模型
-            </button>
           </div>
     <div class="model-list" v-if="!loading">
       <div v-for="m in models" :key="m.id" class="model-card" :class="{ disabled: !m.enabled }">
@@ -121,21 +96,12 @@ const toast = localToast;
             <span class="status-badge" :class="m.enabled ? 'enabled' : 'disabled'">
               {{ m.enabled ? '已启用' : '已禁用' }}
             </span>
-            <button class="action-btn toggle" @click="toggleModel(m)" :title="m.enabled ? '禁用' : '启用'">
-              {{ m.enabled ? '禁用' : '启用' }}
-            </button>
-            <button class="action-btn edit" @click="openEdit(m)" title="编辑">
-              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            </button>
-            <button class="action-btn delete" @click="deleteModel(m.id)" title="删除">
-              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button>
           </div>
         </div>
       </div>
 
       <div v-if="models.length === 0" class="empty-state">
-        <p>暂无模型配置，点击"新增模型"开始添加。</p>
+        <p>暂无模型配置，请在 application.yml 的 app.llm.models 中添加。</p>
       </div>
     </div>
         </section>
@@ -303,22 +269,6 @@ const toast = localToast;
         </section>
       </div>
     </div>
-
-    <!-- 新增/编辑模态框 -->
-    <ModelConfigForm
-      :show="showAddModal"
-      :editing="editingModel"
-      :providers="providers"
-      :form-data="formData"
-      :form-errors="formErrors"
-      :selected-provider="selectedProvider"
-      :saving="saving"
-      :save-error="saveError"
-      @update:show="showAddModal = $event"
-      @submit="saveModel"
-      @apply-preset="applyPreset"
-      @toggle-capability="toggleCapability"
-    />
 
     <!-- Top-level toast -->
     <div v-if="toast" class="sv-toast" :class="'sv-toast-' + toast.kind">

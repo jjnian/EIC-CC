@@ -46,16 +46,11 @@ const conv = useConversations({
   clearGraph: () => emit('clear-graph'),
 });
 const {
-  conversationId,
   conversationTitle,
-  showConvPicker,
   autoTitle,
   persistCurrent,
   initConversation,
   newConversation,
-  switchConversation,
-  deleteConversation,
-  sortedConversations,
   restoreLatestOrNew,
 } = conv;
 
@@ -80,11 +75,7 @@ const {
 const models = useChatModels();
 const {
   currentModel,
-  showModelPicker,
-  presetModels,
-  customModels,
   loadModels,
-  selectModel,
 } = models;
 
 // ===== 输入框键盘 / 事件 =====
@@ -252,61 +243,6 @@ const send = async () => {
     <ChatMessageList ref="msgListRef" :messages="msgs" :loading="loading" />
     <AttachmentChips :attachments="atts" @remove="(i) => atts = atts.filter((_, j) => j !== i)" />
     <div class="ch-input-area">
-      <div class="toolbar" v-if="!input && !atts.length">
-        <!-- 会话切换 -->
-        <button class="conv-selector" type="button" @click="showConvPicker = !showConvPicker" :title="conversationTitle">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-          <span class="conv-title">{{ conversationTitle }}</span>
-          <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <button class="new-conv-btn" type="button" @click="newConversation" title="新建对话">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-        <!-- 会话下拉 -->
-        <div class="conv-dropdown" v-if="showConvPicker">
-          <div class="conv-dropdown-item" @click="newConversation">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            <span>新建对话</span>
-          </div>
-          <div class="conv-divider" v-if="sortedConversations().length > 0"></div>
-          <div class="conv-dropdown-item history"
-               v-for="c in sortedConversations()"
-               :key="c.id"
-               :class="{ active: c.id === conversationId }"
-               @click="switchConversation(c.id)">
-            <span class="conv-name">{{ c.title }}</span>
-            <span class="conv-time">{{ new Date(c.createdAt).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</span>
-            <button class="conv-del" @click="deleteConversation(c.id, $event)" title="删除">×</button>
-          </div>
-        </div>
-        <!-- 模型选择 -->
-        <button class="model-selector" type="button" @click="showModelPicker = !showModelPicker" :title="'当前模型: ' + (currentModel?.name || '未选择')">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-          <span>{{ currentModel?.name || '选择模型' }}</span>
-          <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <div class="model-dropdown" v-if="showModelPicker">
-          <div class="model-group-label">预设模型</div>
-          <div class="model-dropdown-item"
-               v-for="m in presetModels"
-               :key="m.id"
-               :class="{ active: m.id === currentModel?.id }"
-               @click="selectModel(m)">
-            {{ m.name }}
-            <span class="model-check" v-if="m.id === currentModel?.id">✓</span>
-          </div>
-          <div class="model-group-label" v-if="customModels.length">自定义模型</div>
-          <div class="model-dropdown-item"
-               v-for="m in customModels"
-               :key="m.id"
-               :class="{ active: m.id === currentModel?.id }"
-               @click="selectModel(m)">
-            {{ m.name }}
-            <span class="model-check" v-if="m.id === currentModel?.id">✓</span>
-          </div>
-          <div class="model-dropdown-item custom" @click="showModelPicker = false">关闭</div>
-        </div>
-      </div>
       <div class="input-box">
         <!-- @ mention dropdown -->
         <div class="mention-dropdown" v-if="mentionOpen && mentionItems.length > 0">
@@ -433,81 +369,6 @@ const send = async () => {
   align-items: center; justify-content: center;
 }
 .ch-input-area { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.06); }
-.toolbar { position: relative; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-.conv-selector {
-  display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
-  background: rgba(10, 16, 27, 0.8); border: 1px solid rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.7); padding: 6px 12px; border-radius: 8px;
-  font-size: 12px; cursor: pointer; transition: all 0.2s;
-  font-family: 'JetBrains Mono', monospace;
-}
-.conv-selector:hover { border-color: #42b883; color: white; }
-.conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.new-conv-btn {
-  background: rgba(10, 16, 27, 0.8); border: 1px solid rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.5); padding: 6px 8px; border-radius: 8px;
-  cursor: pointer; transition: all 0.2s; display: flex; align-items: center;
-}
-.new-conv-btn:hover { border-color: #42b883; color: #42b883; }
-.conv-dropdown {
-  position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 6px;
-  background: rgba(14, 25, 41, 0.98); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px; padding: 4px; z-index: 100;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4); max-height: 300px; overflow-y: auto;
-}
-.conv-dropdown-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 12px; border-radius: 6px; font-size: 13px;
-  color: rgba(255,255,255,0.7); cursor: pointer; transition: all 0.15s;
-  font-family: 'JetBrains Mono', monospace;
-}
-.conv-dropdown-item:hover { background: rgba(66, 184, 131, 0.15); color: white; }
-.conv-dropdown-item.active { background: rgba(66, 184, 131, 0.2); color: #42b883; }
-.conv-dropdown-item.history { justify-content: space-between; }
-.conv-divider { height: 1px; background: rgba(255,255,255,0.06); margin: 4px 8px; }
-.conv-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conv-time { font-size: 10px; color: rgba(255,255,255,0.3); white-space: nowrap; flex-shrink: 0; }
-.conv-del {
-  background: none; border: none; color: rgba(255,255,255,0.3);
-  font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1;
-  transition: color 0.15s;
-}
-.conv-del:hover { color: #ff6644; }
-.model-bar { position: relative; margin-bottom: 12px; }
-.model-selector {
-  display: flex; align-items: center; gap: 6px;
-  background: rgba(10, 16, 27, 0.8); border: 1px solid rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.7); padding: 6px 12px; border-radius: 8px;
-  font-size: 12px; cursor: pointer; transition: all 0.2s;
-  font-family: 'JetBrains Mono', monospace;
-}
-.model-selector:hover { border-color: #42b883; color: white; }
-.model-dropdown {
-  position: absolute; bottom: 100%; left: 0; margin-bottom: 6px;
-  background: rgba(14, 25, 41, 0.98); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px; padding: 4px; min-width: 240px;
-  max-height: 360px; overflow-y: auto; z-index: 100;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-}
-.model-group-label {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
-  color: rgba(255,255,255,0.3); padding: 6px 12px 4px;
-  font-family: 'Inter', sans-serif;
-}
-.model-dropdown-item {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 7px 12px; border-radius: 6px; font-size: 13px;
-  color: rgba(255,255,255,0.7); cursor: pointer; transition: all 0.15s;
-  font-family: 'JetBrains Mono', monospace;
-}
-.model-dropdown-item:hover { background: rgba(66, 184, 131, 0.15); color: white; }
-.model-dropdown-item.active { background: rgba(66, 184, 131, 0.2); color: #42b883; }
-.model-check { font-size: 12px; color: #42b883; }
-.model-dropdown-item.custom {
-  color: var(--text-dim); justify-content: center; margin-top: 4px;
-  border-top: 1px solid rgba(255,255,255,0.06); padding-top: 8px;
-}
-.model-dropdown-item.custom:hover { background: rgba(255,255,255,0.06); color: var(--text-main); }
 .input-box {
   background: rgba(10, 16, 27, 0.6); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px; padding: 10px 14px; transition: border-color 0.2s;
