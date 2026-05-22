@@ -27,6 +27,7 @@ const emit = defineEmits<{
   (e: 'update:selectedId', id: string | null): void;
   (e: 'update:showSchema', value: boolean): void;
   (e: 'move', id: string, x: number, y: number): void;
+  (e: 'drag-start', id: string): void;
   (e: 'auto-layout'): void;
   (e: 'toggle-layout-direction'): void;
   (e: 'clear'): void;
@@ -59,6 +60,7 @@ const onCloseInfo = () => {
         :selId="selectedId"
         :layoutDirection="layoutDirection"
         @move="(id, x, y) => emit('move', id, x, y)"
+        @drag-start="(id) => emit('drag-start', id)"
         @select="onSelect"
         @auto-layout="emit('auto-layout')"
         @toggle-layout-direction="emit('toggle-layout-direction')"

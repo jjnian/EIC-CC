@@ -10,10 +10,24 @@ import {
 } from '../api/conversations';
 import { ApiError } from '../api/http';
 
+export interface ChatMsgAttachment {
+  name: string;
+  type: string;
+  kind: 'image' | 'text' | 'binary';
+  size?: number;
+  error?: string;
+  /** 保存到消息里的内容(图片是 dataUrl,文本是字符串)。超出大小阈值不存。 */
+  content?: string;
+  /** 原文已被截断(读取时按 200KB 切片)。 */
+  truncated?: boolean;
+  /** 内容因为体积过大被剥离,只保留元数据。 */
+  storedTruncated?: boolean;
+}
+
 export interface ChatMsg {
   role: 'a' | 'u';
   text: string;
-  atts?: { name: string; type: string; kind: 'image' | 'text' | 'binary'; error?: string }[];
+  atts?: ChatMsgAttachment[];
 }
 
 export interface Conversation {

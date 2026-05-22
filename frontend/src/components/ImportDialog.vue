@@ -106,7 +106,11 @@ const onDrop = (e: DragEvent) => {
 };
 const addFile = (f: File) => {
   if (files.value.length >= 8) return;
-  const ok = f.type.startsWith('image/') || f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+  const lname = f.name.toLowerCase();
+  const ok = f.type.startsWith('image/')
+          || f.type === 'application/pdf' || lname.endsWith('.pdf')
+          || lname.endsWith('.docx')
+          || f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   if (!ok) { errorMsg.value = `不支持的文件类型：${f.name}`; return; }
   if (files.value.find(x => x.name === f.name && x.size === f.size)) return;
   files.value.push(f);
@@ -270,7 +274,7 @@ const onBackdrop = (e: MouseEvent) => {
       <div class="imp-body">
         <!-- 文件区 -->
         <div v-if="!extractedRaw" class="imp-section">
-          <label class="imp-label">上传 PDF / 图片（流程图、表格、文档截图）</label>
+          <label class="imp-label">上传 PDF / DOCX / 图片（流程图、表格、文档截图）</label>
           <div
             class="imp-drop"
             @dragover.prevent
@@ -281,14 +285,14 @@ const onBackdrop = (e: MouseEvent) => {
               ref="fileInput"
               type="file"
               multiple
-              accept=".pdf,image/*,application/pdf"
+              accept=".pdf,.docx,image/*,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               style="display:none"
               @change="onPick"
             />
             <div class="imp-drop-msg">
               <div style="font-size: 28px;">📎</div>
               <div>点击或拖拽文件到此处 · 最多 8 个</div>
-              <div class="imp-drop-hint">PDF 走文本抽取 · 图片走多模态视觉</div>
+              <div class="imp-drop-hint">PDF / DOCX 走文本抽取 · 图片走多模态视觉</div>
             </div>
           </div>
           <div v-if="files.length" class="imp-files">
@@ -352,10 +356,13 @@ const onBackdrop = (e: MouseEvent) => {
 
           <div v-if="sources.length" class="imp-sources">
             <div v-for="(s, i) in sources" :key="i" class="imp-source-item">
-              <span class="imp-source-icon">{{ s.type === 'image' ? '🖼' : (s.type === 'pdf' ? '📄' : '⛔') }}</span>
+              <span class="imp-source-icon">{{ s.type === 'image' ? '🖼' : (s.type === 'pdf' ? '📄' : (s.type === 'docx' ? '📝' : '⛔')) }}</span>
               <span class="imp-source-name">{{ s.name }}</span>
               <span v-if="s.type === 'pdf'" class="imp-source-meta">
                 {{ s.pages }} 页 · {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}
+              </span>
+              <span v-else-if="s.type === 'docx'" class="imp-source-meta">
+                {{ s.paragraphs }} 段{{ s.tables ? ' · ' + s.tables + ' 表' : '' }} · {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}
               </span>
               <span v-else-if="s.type === 'image'" class="imp-source-meta">{{ fmtSize(s.size) }}</span>
               <span v-else class="imp-source-meta imp-source-skip">{{ s.reason }}</span>

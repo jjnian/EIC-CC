@@ -435,8 +435,7 @@ public class LlmService {
 
         log.info("[LLM-chat] 开始请求 model={} url={} protocol={}", cfg.modelName(), cfg.baseURL(), anthropic ? "anthropic" : "openai");
 
-        String prompt = "Here is the user's latest message:\n" + message +
-                "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
+        String prompt = buildChatPrompt(nodes, edges, message);
 
         logConversation("LLM-chat", cfg.modelName(), SYSTEM_INSTRUCTION, history, prompt, attachments);
 
@@ -474,8 +473,7 @@ public class LlmService {
 
             log.info("[LLM-stream] 开始流式请求 model={} url={} protocol={}", cfg.modelName(), cfg.baseURL(), anthropic ? "anthropic" : "openai");
 
-            String prompt = "Here is the user's latest message:\n" + request.getMessage() +
-                    "\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.";
+            String prompt = buildChatPrompt(request.getNodes(), request.getEdges(), request.getMessage());
 
             logConversation("LLM-stream", cfg.modelName(), SYSTEM_INSTRUCTION,
                     request.getHistory(), prompt, request.getAttachments());
@@ -1066,6 +1064,29 @@ public class LlmService {
             Thread.currentThread().interrupt();
             throw new IOException("HTTP 调用被中断", e);
         }
+    }
+
+    /**
+     * 构造 chat 用 user prompt:把现有图谱摘要放在前面,作为"已知上下文",
+     * 让 LLM 在增量扩展时避免重复实体/关系,而是引用已有 id。
+     */
+    private String buildChatPrompt(List<Map<String, Object>> nodes,
+                                   List<Map<String, Object>> edges,
+                                   String message) {
+        StringBuilder sb = new StringBuilder();
+        boolean hasGraph = (nodes != null && !nodes.isEmpty()) || (edges != null && !edges.isEmpty());
+        if (hasGraph) {
+            sb.append("Existing ontology graph (the user is incrementally extending this — do NOT recreate any of these; reuse the ids exactly when you need to reference them):\n");
+            sb.append(summarizeGraph(nodes, edges));
+            sb.append("\nIncremental update rules:\n");
+            sb.append("  - In add_nodes, include ONLY genuinely new entities/events/rules not already present above.\n");
+            sb.append("  - If a concept already exists above, reuse its existing id in add_edges instead of creating a duplicate node.\n");
+            sb.append("  - In add_edges, 'from'/'to' may reference existing node ids OR ids of nodes in your own add_nodes list.\n");
+            sb.append("  - Do not emit an edge that already exists above with the same (from, to, label).\n\n");
+        }
+        sb.append("Here is the user's latest message:\n").append(message)
+          .append("\n\nPlease generate the corresponding entities and relationships strictly in JSON format matching the given schema.");
+        return sb.toString();
     }
 
     private String summarizeGraph(List<Map<String, Object>> nodes, List<Map<String, Object>> edges) {
