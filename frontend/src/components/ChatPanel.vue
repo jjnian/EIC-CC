@@ -36,8 +36,20 @@ const inputRef = ref<HTMLTextAreaElement | null>(null);
 
 // ===== SSE 流控制 =====
 let chatHandle: SseHandle | null = null;
+let currentResolveStream: (() => void) | null = null;
+let currentAiMsg: ChatMsg | null = null;
 const abortChat = () => {
   if (chatHandle) { try { chatHandle.abort(); } catch { /* noop */ } chatHandle = null; }
+  // 中断后 SSE 不会再回调 onClose,这里手动收尾,避免 loading 卡住。
+  if (currentResolveStream) {
+    if (currentAiMsg && currentAiMsg.text === '正在分析对话内容并构建图谱…') {
+      currentAiMsg.text = '已停止生成。';
+    }
+    const r = currentResolveStream;
+    currentResolveStream = null;
+    currentAiMsg = null;
+    r();
+  }
 };
 
 // ===== composables 接线 =====
@@ -194,6 +206,8 @@ const send = async () => {
     abortChat();
 
     await new Promise<void>((resolveStream) => {
+      currentResolveStream = resolveStream;
+      currentAiMsg = aiMsg;
       chatHandle = chatStream(body, {
         onText: (chunk: string) => {
           rawJsonBuf += chunk;
@@ -262,6 +276,8 @@ const send = async () => {
     }
   } finally {
     chatHandle = null;
+    currentResolveStream = null;
+    currentAiMsg = null;
     loading.value = false;
   }
 };
@@ -304,8 +320,17 @@ const send = async () => {
             </button>
             <input ref="fileRef" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.csv,.tsv,.log,.xml,.yaml,.yml,.html,.htm,.js,.ts,.py,.java,.sql,.toml,.ini,.env,.vue,.css,text/*" style="display:none" @change="(e: any) => { Array.from(e.target.files || []).forEach((f: any) => addFile(f)); e.target.value = ''; }" />
           </div>
-          <button class="send-btn" type="button" @click="send" :disabled="loading">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <button
+            class="send-btn"
+            :class="{ 'send-btn-stop': loading }"
+            type="button"
+            :title="loading ? '停止生成' : '发送'"
+            @click="loading ? abortChat() : send()"
+          >
+            <svg v-if="loading" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+            </svg>
+            <svg v-else viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="19" x2="12" y2="5"></line>
               <polyline points="5 12 12 5 19 12"></polyline>
             </svg>
@@ -500,4 +525,21 @@ const send = async () => {
 }
 .send-btn:hover:not(:disabled) { background: #50caa3; transform: translateY(-1px); }
 .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.send-btn-stop {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0a1019;
+  position: relative;
+}
+.send-btn-stop::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 11px;
+  border: 1.5px solid rgba(66, 184, 131, 0.5);
+  border-top-color: #42b883;
+  animation: send-spin 0.9s linear infinite;
+  pointer-events: none;
+}
+.send-btn-stop:hover { background: #ffffff; transform: translateY(-1px); }
+@keyframes send-spin { to { transform: rotate(360deg); } }
 </style>
