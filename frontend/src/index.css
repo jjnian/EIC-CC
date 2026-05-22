@@ -169,9 +169,15 @@ body {
 .ca-btn:hover { background:rgba(255,255,255,0.08); color:var(--text-main); }
 .ca-btn svg { opacity:0.8; }
 
-.legend { position:absolute; top:24px; right:24px; background:rgba(15,23,42,0.6); backdrop-filter:blur(10px); border:1px solid var(--glass-border); border-radius:16px; padding:12px 16px; display:flex; flex-direction:column; gap:8px; z-index:5; }
-.legend-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-main); font-weight:500; }
-.legend-sq { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
+.legend { position:absolute; top:24px; right:24px; background:rgba(15,23,42,0.6); backdrop-filter:blur(10px); border:1px solid var(--glass-border); border-radius:16px; padding:12px 16px; display:flex; flex-direction:column; gap:4px; z-index:5; }
+.legend-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-main); font-weight:500; padding:4px 8px; margin:-4px -8px; border-radius:8px; cursor:pointer; transition:background .15s, opacity .15s, color .15s; user-select:none; }
+.legend-row:hover { background:rgba(255,255,255,0.06); }
+.legend-row-active { background:rgba(255,255,255,0.1); color:#fff; }
+.legend-row-inactive { opacity:0.45; }
+.legend-sq { width:10px; height:10px; border-radius:3px; flex-shrink:0; transition:box-shadow .15s; }
+
+.node-dim { opacity:0.2; transition:opacity .2s; }
+.node-hl { transition:opacity .2s, box-shadow .2s; }
 
 /* ── Flow Animation ── */
 @keyframes line-flow {

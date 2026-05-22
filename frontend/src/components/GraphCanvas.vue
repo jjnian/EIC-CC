@@ -19,6 +19,18 @@ const emit = defineEmits<{
   (e: 'predict-from', id: string): void;
 }>();
 
+const typeFilter = ref<string | null>(null);
+const toggleTypeFilter = (k: string) => {
+  typeFilter.value = typeFilter.value === k ? null : k;
+};
+const matchesFilter = (n: any) => !typeFilter.value || n.type === typeFilter.value;
+const edgeMatchesFilter = (e: any) => {
+  if (!typeFilter.value) return true;
+  const fn = nmap.value[e.from];
+  const tn = nmap.value[e.to];
+  return (fn && fn.type === typeFilter.value) || (tn && tn.type === typeFilter.value);
+};
+
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
 const onNodeContext = (e: MouseEvent, id: string) => {
   e.preventDefault();
@@ -223,7 +235,7 @@ defineExpose({ fitView, focusNode });
             </defs>
             <g>
               <template v-for="e in edges" :key="e.id">
-                <g v-if="nmap[e.from] && nmap[e.to]">
+                <g v-if="nmap[e.from] && nmap[e.to]" :style="{ opacity: edgeMatchesFilter(e) ? 1 : 0.15 }">
                   <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : '#42b883')" :stroke-width="8" opacity="0.1"/>
                   <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
                         :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.3)'))"
@@ -244,14 +256,14 @@ defineExpose({ fitView, focusNode });
 
           <div class="graph-root" style="transform:none;">
             <div v-for="n in nodes" :key="n.id"
-                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-predicted': n.source === 'predicted' }]"
+                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n), 'node-hl': typeFilter && matchesFilter(n) }]"
                 :style="{
                   left: n.x + 'px', top: n.y + 'px', width: NW + 'px',
                   background: getT(n).bg, borderLeftColor: getT(n).color,
-                  borderTopColor: selId === n.id ? getT(n).color + '44' : '#111c2c',
-                  borderRightColor: selId === n.id ? getT(n).color + '44' : '#111c2c',
-                  borderBottomColor: selId === n.id ? getT(n).color + '44' : '#111c2c',
-                  boxShadow: selId === n.id ? `0 0 0 1px ${getT(n).color}33,0 4px 24px ${getT(n).color}1a` : '0 2px 8px rgba(0,0,0,0.4)'
+                  borderTopColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
+                  borderRightColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
+                  borderBottomColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
+                  boxShadow: (selId === n.id || (typeFilter && matchesFilter(n))) ? `0 0 0 1px ${getT(n).color}55,0 4px 24px ${getT(n).color}33` : '0 2px 8px rgba(0,0,0,0.4)'
                 }"
                 @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @click.stop>
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
@@ -293,8 +305,11 @@ defineExpose({ fitView, focusNode });
       </div>
 
       <div class="legend" style="position: absolute; top: 24px; right: 24px; pointer-events: auto;">
-        <div v-for="(t, k) in NT" :key="k" class="legend-row">
-          <div class="legend-sq" :style="{ background: (t as any).color }"/>
+        <div v-for="(t, k) in NT" :key="k"
+             :class="['legend-row', { 'legend-row-active': typeFilter === k, 'legend-row-inactive': typeFilter && typeFilter !== k }]"
+             :title="typeFilter === k ? '点击取消筛选' : '点击仅显示' + (t as any).label"
+             @click.stop="toggleTypeFilter(k as string)">
+          <div class="legend-sq" :style="{ background: (t as any).color, boxShadow: typeFilter === k ? `0 0 0 2px ${(t as any).color}66` : 'none' }"/>
           <span>{{ (t as any).label }}</span>
         </div>
       </div>
