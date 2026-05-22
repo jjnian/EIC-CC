@@ -70,9 +70,12 @@ body {
 .tb-badge { font-size:12px; font-family:'SF Pro Display', monospace; color:var(--text-main); background:rgba(255,255,255,0.1); padding:6px 12px; border-radius:100px; border:1px solid var(--glass-border); }
 .tb-badge.ok { color:var(--accent); background:rgba(66, 184, 131, 0.1); border-color:rgba(66, 184, 131, 0.3); }
 .tb-btn { font-size:13px; background:rgba(255,255,255,0.1); color:var(--text-main); border:1px solid var(--glass-border); padding:8px 16px; border-radius:12px; cursor:pointer; transition:all .15s; font-family:inherit; }
-.tb-btn:hover { background:rgba(255,255,255,0.2); }
+.tb-btn:hover:not(:disabled) { background:rgba(255,255,255,0.2); }
+.tb-btn:disabled { opacity:0.35; cursor:not-allowed; }
 .tb-btn.hi { background:var(--accent); color:#1a1a1a; border:none; padding:9px 17px; font-weight:600; }
 .tb-btn.hi:hover { opacity: 0.9; }
+.tb-undo-group { display:flex; gap:4px; }
+.tb-icon-btn { padding:8px 10px; display:flex; align-items:center; justify-content:center; }
 
 /* ── Content row ── */
 .content { flex:1; display:flex; overflow:hidden; min-height:0; gap: 0; position:relative; }

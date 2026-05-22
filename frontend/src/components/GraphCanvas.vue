@@ -12,6 +12,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'move', id: string, x: number, y: number): void;
+  (e: 'drag-start', id: string): void;
   (e: 'select', id: string | null): void;
   (e: 'auto-layout'): void;
   (e: 'toggle-layout-direction'): void;
@@ -102,7 +103,7 @@ const startDrag = (e: MouseEvent, id: string) => {
   emit('select', id);
   const n = nmap.value[id];
   if (n) {
-    drag.value = { id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y };
+    drag.value = { id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y, moved: false };
   }
 };
 
@@ -123,9 +124,13 @@ let ro: ResizeObserver | null = null;
 
 const onWindowMouseMove = (e: MouseEvent) => {
   if (drag.value) {
-    const { id, sx, sy, ox, oy } = drag.value;
+    const { id, sx, sy, ox, oy, moved } = drag.value;
     const nx = ox + (e.clientX - sx) / zoom.value;
     const ny = oy + (e.clientY - sy) / zoom.value;
+    if (!moved && (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy)) > 2) {
+      drag.value.moved = true;
+      emit('drag-start', id);
+    }
     emit('move', id, Math.max(0, nx), Math.max(0, ny));
     isAutoFit.value = false;
   } else if (pan.value && cvRef.value) {

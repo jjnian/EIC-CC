@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import SettingsView from './components/SettingsView.vue';
 import WelcomeChat from './components/WelcomeChat.vue';
@@ -19,6 +19,7 @@ import { useScenarios } from './composables/useScenarios';
 import { usePrediction } from './composables/usePrediction';
 import { useOntologyModel } from './composables/useOntologyModel';
 import { useGraphActions } from './composables/useGraphActions';
+import { useGraphHistory } from './composables/useGraphHistory';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
@@ -104,9 +105,41 @@ const persistCurrentModel = (immediate = false) => {
   else saveTimer = window.setTimeout(run, 1200);
 };
 
+const history = useGraphHistory({
+  nodes,
+  edges,
+  persist: persistCurrentModel,
+});
+const canUndo = history.canUndo;
+const canRedo = history.canRedo;
+const undoGraph = () => { if (history.undo()) { sel.value = null; nextTick(() => graphRef.value?.fitView?.()); } };
+const redoGraph = () => { if (history.redo()) { sel.value = null; nextTick(() => graphRef.value?.fitView?.()); } };
+
+const onGlobalKeydown = (e: KeyboardEvent) => {
+  if (view.value !== 'graph') return;
+  // 输入框里别抢快捷键
+  const t = e.target as HTMLElement | null;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  const mod = e.ctrlKey || e.metaKey;
+  if (!mod) return;
+  const key = e.key.toLowerCase();
+  if (key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    undoGraph();
+  } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+    e.preventDefault();
+    redoGraph();
+  }
+};
+
 onMounted(() => {
   mountToastRoot();
   loadOntologyModels();
+  window.addEventListener('keydown', onGlobalKeydown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown);
 });
 
 const openModel = async (m: OntologyModel) => {
@@ -122,6 +155,7 @@ const openModel = async (m: OntologyModel) => {
   activeBranchId.value = 'trunk';
   prediction.resetLiveState();
   view.value = 'graph';
+  history.reset(nodes.value, edges.value);
   await scenarios.loadBranches(m.id);
 };
 
@@ -163,6 +197,7 @@ const onImportCommit = async (payload: {
   edges: OntologyEdge[];
 }) => {
   importDialogOpen.value = false;
+  if (payload.mode === 'merge') history.snapshot();
   await importFlow.onImportCommit(payload);
 };
 
@@ -217,6 +252,11 @@ const openModelById = (id: string) => {
   if (m) openModel(m);
 };
 
+const onDragStart = (_id: string) => {
+  // 一次拖拽只快照一次:落点前的"原状态"先入栈,然后才开始连续 move。
+  history.snapshot();
+};
+
 const onMove = (id: string, x: number, y: number) => {
   const n = nodes.value.find(n => n.id === id);
   if (n) {
@@ -226,29 +266,93 @@ const onMove = (id: string, x: number, y: number) => {
   }
 };
 
+/**
+ * 把 LLM 返回的新增节点/关系合并到现有图,做两层去重:
+ *   1. id 命中(同一节点重复回写) → 丢弃
+ *   2. label+type 命中现有节点 → 把新节点视作"已存在",并在 edges 里把对它的引用重写到旧 id
+ * edges 同样做 id 去重 + (from,to,label) 去重。
+ */
+const dedupeIncoming = (addNodes: OntologyNode[], addEdges: OntologyEdge[]) => {
+  const norm = (s?: string) => (s || '').trim().toLowerCase();
+  const byId = new Map(nodes.value.map(n => [n.id, n]));
+  const byKey = new Map<string, OntologyNode>();
+  nodes.value.forEach(n => byKey.set(norm(n.label) + '|' + norm(n.type), n));
+
+  const idRemap: Record<string, string> = {};
+  const acceptedNodes: OntologyNode[] = [];
+  for (const n of addNodes) {
+    if (!n || !n.id) continue;
+    if (byId.has(n.id)) { idRemap[n.id] = n.id; continue; }
+    const k = norm(n.label) + '|' + norm(n.type);
+    const hit = byKey.get(k);
+    if (hit) { idRemap[n.id] = hit.id; continue; }
+    acceptedNodes.push(n);
+    byId.set(n.id, n);
+    byKey.set(k, n);
+  }
+
+  const edgeKey = new Set(edges.value.map(e => e.from + '→' + e.to + '|' + norm(e.label)));
+  const edgeIdSet = new Set(edges.value.map(e => e.id));
+  const acceptedEdges: OntologyEdge[] = [];
+  for (const e of addEdges) {
+    if (!e) continue;
+    const from = idRemap[e.from] || e.from;
+    const to = idRemap[e.to] || e.to;
+    if (!byId.has(from) || !byId.has(to)) continue; // 引用的节点不在图里,丢弃
+    const k = from + '→' + to + '|' + norm(e.label);
+    if (edgeKey.has(k)) continue;
+    let id = e.id;
+    if (!id || edgeIdSet.has(id)) id = 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+    acceptedEdges.push({ ...e, id, from, to });
+    edgeKey.add(k);
+    edgeIdSet.add(id);
+  }
+
+  return { nodes: acceptedNodes, edges: acceptedEdges, skipped: {
+    nodes: addNodes.length - acceptedNodes.length,
+    edges: addEdges.length - acceptedEdges.length,
+  }};
+};
+
 const onUpdate = (addNodes: OntologyNode[], addEdges: OntologyEdge[]) => {
+  const { nodes: newNodes, edges: newEdges, skipped } = dedupeIncoming(addNodes, addEdges);
+  if (newNodes.length === 0 && newEdges.length === 0) {
+    if (skipped.nodes || skipped.edges) {
+      toast.info(`已忽略 ${skipped.nodes} 个重复节点 / ${skipped.edges} 条重复关系`);
+    }
+    return;
+  }
+
+  history.snapshot();
+
   const existingIds = new Set(nodes.value.map(n => n.id));
-  const connectsToExisting = addEdges.some(e => existingIds.has(e.from) || existingIds.has(e.to));
+  const connectsToExisting = newEdges.some(e => existingIds.has(e.from) || existingIds.has(e.to));
 
   // 用 placeIncomingNodes 给新节点选一个不和现有图冲突的初始位置(右侧暂存区)。
-  graphActions.placeIncomingNodes(addNodes);
+  graphActions.placeIncomingNodes(newNodes);
 
-  nodes.value.push(...addNodes.map(n => ({...n, isNew: true})));
-  edges.value.push(...addEdges);
+  nodes.value.push(...newNodes.map(n => ({...n, isNew: true})));
+  edges.value.push(...newEdges);
   setTimeout(() => {
     nodes.value.forEach(n => n.isNew = false);
   }, 800);
   persistCurrentModel();
 
+  if (skipped.nodes || skipped.edges) {
+    toast.info(`已合并:+${newNodes.length} 节点 / +${newEdges.length} 关系,跳过 ${skipped.nodes}/${skipped.edges} 个重复项`);
+  }
+
   // 新节点接上了现有血缘 / 或图本身还很小时,自动跑一次分层布局,让因果链一目了然。
   const shouldAutoLayout =
-    addNodes.length > 0 && (connectsToExisting || nodes.value.length <= 12);
+    newNodes.length > 0 && (connectsToExisting || nodes.value.length <= 12);
   if (shouldAutoLayout) {
     nextTick(() => graphActions.autoLayout());
   }
 };
 
 const clearCanvas = () => {
+  if (nodes.value.length === 0 && edges.value.length === 0) return;
+  history.snapshot();
   // Flush any pending debounced save with previous state first to keep history honest.
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   nodes.value = [];
@@ -265,7 +369,7 @@ const graphActions = useGraphActions({
   fitView: () => graphRef.value?.fitView(),
   persist: persistCurrentModel,
 });
-const autoLayout = graphActions.autoLayout;
+const autoLayout = () => { history.snapshot(); graphActions.autoLayout(); };
 const exportGraph = graphActions.exportGraph;
 const shareGraph = graphActions.shareGraph;
 const toggleLayoutDirection = graphActions.toggleLayoutDirection;
@@ -295,6 +399,14 @@ const focusNodeInGraph = (id: string) => {
           <span class="bc-star">☆</span>
         </div>
         <div class="tb-tools" v-if="view === 'graph'">
+          <div class="tb-undo-group">
+            <button class="tb-btn tb-icon-btn" :disabled="!canUndo" @click="undoGraph" title="撤销 (Ctrl+Z)">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
+            </button>
+            <button class="tb-btn tb-icon-btn" :disabled="!canRedo" @click="redoGraph" title="重做 (Ctrl+Shift+Z)">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg>
+            </button>
+          </div>
           <BranchPicker
             :branches="branches"
             :activeBranchId="activeBranchId"
@@ -373,6 +485,7 @@ const focusNodeInGraph = (id: string) => {
         @update:selected-id="(id) => sel = id"
         @update:show-schema="(v) => showSchema = v"
         @move="onMove"
+        @drag-start="onDragStart"
         @auto-layout="autoLayout"
         @toggle-layout-direction="toggleLayoutDirection"
         @clear="clearCanvas"

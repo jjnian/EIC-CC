@@ -196,6 +196,13 @@ const send = async () => {
       .map(a => ({ name: a.name, type: 'image', dataUrl: a.content }));
 
     const body: ChatPayload = { message: composedMessage, history };
+    // 把当前画布的节点/关系一并发给后端,让模型避免重复实体并基于已有图谱增量扩展
+    if (props.nodes?.length) {
+      body.nodes = props.nodes.map(n => ({ id: n.id, label: n.label, type: n.type }));
+    }
+    if (props.edges?.length) {
+      body.edges = props.edges.map(e => ({ id: e.id, from: e.from, to: e.to, label: e.label || '' }));
+    }
     if (imageAtts.length) body.attachments = imageAtts;
     if (currentModel.value?.configId) {
       body.configId = currentModel.value.configId;
