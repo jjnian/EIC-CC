@@ -38,10 +38,21 @@ export function getPath(fn: any, tn: any) {
   const x2 = tn.x + NW / 2;
   const y2 = tn.y + NH / 2;
   const dx = Math.abs(x2 - x1);
+  const dy = Math.abs(y2 - y1);
+  // 主方向是横向(LR 布局)还是纵向(TB 布局)?控制点跟着主方向走,
+  // 这样切换布局方向时连线弯曲方向也自然一致。
+  if (dy > dx) {
+    const cp = Math.max(dy * 0.5, 40);
+    return {
+      d: `M${x1},${y1} C${x1},${y1+cp} ${x2},${y2-cp} ${x2},${y2}`,
+      mx: (x1+x2)/2,
+      my: (y1+y2)/2,
+    };
+  }
   const cp = Math.max(dx * 0.5, 50);
   return {
     d: `M${x1},${y1} C${x1+cp},${y1} ${x2-cp},${y2} ${x2},${y2}`,
     mx: (x1+x2)/2,
-    my: (y1+y2)/2
+    my: (y1+y2)/2,
   };
 }

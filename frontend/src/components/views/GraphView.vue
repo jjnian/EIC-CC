@@ -19,6 +19,7 @@ const props = defineProps({
   chatW:           { type: Number, required: true },
   divDragActive:   { type: Boolean, default: false },
   pendingChatSeed: { type: Object as PropType<{ text: string; files: File[] } | null>, default: null },
+  layoutDirection: { type: String as PropType<'LR' | 'TB'>, default: 'LR' },
 });
 
 const emit = defineEmits<{
@@ -26,6 +27,7 @@ const emit = defineEmits<{
   (e: 'update:showSchema', value: boolean): void;
   (e: 'move', id: string, x: number, y: number): void;
   (e: 'auto-layout'): void;
+  (e: 'toggle-layout-direction'): void;
   (e: 'clear'): void;
   (e: 'predict-from', id: string): void;
   (e: 'switch-branch', id: string): void;
@@ -54,9 +56,11 @@ const onCloseInfo = () => {
         :nodes="nodes"
         :edges="edges"
         :selId="selectedId"
+        :layoutDirection="layoutDirection"
         @move="(id, x, y) => emit('move', id, x, y)"
         @select="onSelect"
         @auto-layout="emit('auto-layout')"
+        @toggle-layout-direction="emit('toggle-layout-direction')"
         @clear="emit('clear')"
         @predict-from="(id) => emit('predict-from', id)"
       />

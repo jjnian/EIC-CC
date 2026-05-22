@@ -267,6 +267,8 @@ const graphActions = useGraphActions({
 const autoLayout = graphActions.autoLayout;
 const exportGraph = graphActions.exportGraph;
 const shareGraph = graphActions.shareGraph;
+const toggleLayoutDirection = graphActions.toggleLayoutDirection;
+const layoutDirection = graphActions.layoutDirection;
 
 const focusNodeInGraph = (id: string) => {
   sel.value = id;
@@ -365,10 +367,12 @@ const focusNodeInGraph = (id: string) => {
         :chat-w="chatW"
         :div-drag-active="isDragging"
         :pending-chat-seed="pendingChatSeed"
+        :layout-direction="layoutDirection"
         @update:selected-id="(id) => sel = id"
         @update:show-schema="(v) => showSchema = v"
         @move="onMove"
         @auto-layout="autoLayout"
+        @toggle-layout-direction="toggleLayoutDirection"
         @clear="clearCanvas"
         @predict-from="openPredictDialog"
         @switch-branch="switchBranch"

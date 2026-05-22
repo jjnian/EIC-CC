@@ -1,6 +1,8 @@
-import type { Ref } from 'vue';
+import { ref, type Ref } from 'vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from '../types';
 import { toast } from './useToast';
+
+export type LayoutDirection = 'LR' | 'TB';
 
 export interface GraphActionsCtx {
   nodes: Ref<OntologyNode[]>;
@@ -17,24 +19,31 @@ export interface GraphActionsCtx {
 
 const NODE_W = 172;
 const NODE_H = 44;
-const X_GAP = 90;
-const Y_GAP = 28;
-const X_SPACING = NODE_W + X_GAP;
-const Y_SPACING = NODE_H + Y_GAP;
 const ORIGIN_X = 80;
 const ORIGIN_Y = 80;
+
+// 层与层之间(沿因果流向)的间距 / 同层节点(垂直于流向)的间距。
+// LR:水平=层间,垂直=层内;TB:垂直=层间,水平=层内。
+const LR_LAYER_GAP = NODE_W + 90; // 列间
+const LR_INTRA_GAP = NODE_H + 28; // 同列内
+const TB_LAYER_GAP = NODE_H + 80; // 行间
+const TB_INTRA_GAP = NODE_W + 40; // 同行内
 
 /**
  * 图谱顶栏的三个动作:auto-layout、exportGraph、shareGraph。
  */
 export function useGraphActions(ctx: GraphActionsCtx) {
+  /** 当前布局方向:LR(左→右,默认)或 TB(上→下)。 */
+  const layoutDirection = ref<LayoutDirection>('LR');
+
   /**
    * 血缘分层布局(Sugiyama 风格简化版):
    *   1. 检测 DAG 中的回边,布局时忽略掉(避免无限层级)。
-   *   2. 用「最长路径」给每个节点定层 lvl(L→R 表示因果/血缘流向)。
+   *   2. 用「最长路径」给每个节点定层 lvl(沿因果/血缘流向)。
    *   3. 多轮 barycenter 排序减少线交叉。
-   *   4. 每一列按节点数竖直居中,整体观感平衡。
-   *   5. 孤立节点放到底部,按 4 列网格平铺。
+   *   4. 每一层垂直于流向方向居中,整体观感平衡。
+   *   5. 孤立节点放到末尾,按网格平铺。
+   *   6. 方向由 layoutDirection 控制:LR = 横向流动;TB = 纵向流动。
    */
   const autoLayout = () => {
     const nodes = ctx.nodes.value;
@@ -138,67 +147,111 @@ export function useGraphActions(ctx: GraphActionsCtx) {
       sweep('up');
     }
 
-    // 6. 计算每列高度,整体竖直居中
+    // 6. 计算每层最大节点数,沿"垂直于流向"方向居中
     let maxLayerCount = 1;
     for (let lvl = 0; lvl <= maxLevel; lvl++) {
       const g = groups[lvl];
       if (g && g.length > maxLayerCount) maxLayerCount = g.length;
     }
-    const totalHeight = (maxLayerCount - 1) * Y_SPACING;
+    const lr = layoutDirection.value === 'LR';
+    const layerGap = lr ? LR_LAYER_GAP : TB_LAYER_GAP;
+    const intraGap = lr ? LR_INTRA_GAP : TB_INTRA_GAP;
+    const totalIntra = (maxLayerCount - 1) * intraGap;
 
     for (let lvl = 0; lvl <= maxLevel; lvl++) {
       const group = groups[lvl];
       if (!group) continue;
-      const groupHeight = (group.length - 1) * Y_SPACING;
-      const yOffset = (totalHeight - groupHeight) / 2;
+      const groupIntra = (group.length - 1) * intraGap;
+      const offset = (totalIntra - groupIntra) / 2;
       group.forEach((n, idx) => {
-        n.x = ORIGIN_X + lvl * X_SPACING;
-        n.y = ORIGIN_Y + yOffset + idx * Y_SPACING;
+        if (lr) {
+          n.x = ORIGIN_X + lvl * layerGap;
+          n.y = ORIGIN_Y + offset + idx * intraGap;
+        } else {
+          n.x = ORIGIN_X + offset + idx * intraGap;
+          n.y = ORIGIN_Y + lvl * layerGap;
+        }
       });
     }
 
-    // 7. 孤立节点:底部 4 列网格
+    // 7. 孤立节点:摆在主图之后,按网格平铺
     if (isolated.length > 0) {
       const cols = Math.min(4, isolated.length);
-      const isoStartY = ORIGIN_Y + totalHeight + Y_SPACING * 2;
-      isolated.forEach((n, idx) => {
-        n.x = ORIGIN_X + (idx % cols) * X_SPACING;
-        n.y = isoStartY + Math.floor(idx / cols) * Y_SPACING;
-      });
+      if (lr) {
+        const isoStartY = ORIGIN_Y + totalIntra + intraGap * 2;
+        isolated.forEach((n, idx) => {
+          n.x = ORIGIN_X + (idx % cols) * (NODE_W + 90);
+          n.y = isoStartY + Math.floor(idx / cols) * (NODE_H + 28);
+        });
+      } else {
+        const isoStartX = ORIGIN_X + totalIntra + intraGap * 2;
+        isolated.forEach((n, idx) => {
+          n.x = isoStartX + (idx % cols) * (NODE_W + 40);
+          n.y = ORIGIN_Y + Math.floor(idx / cols) * (NODE_H + 28);
+        });
+      }
     }
 
     setTimeout(() => ctx.fitView?.(), 50);
     ctx.persist();
   };
 
+  /** 切换布局方向并立即重新布局。 */
+  const toggleLayoutDirection = () => {
+    layoutDirection.value = layoutDirection.value === 'LR' ? 'TB' : 'LR';
+    autoLayout();
+    toast.success(layoutDirection.value === 'LR' ? '已切换为从左向右布局' : '已切换为从上到下布局');
+  };
+
   /**
    * 给一批"刚从对话中提取出来"的新节点选一个合理初始位置:
-   * 若画布已经有节点,放到现有图右侧的"暂存区";否则原点处摆开。
+   * 若画布已经有节点,放到现有图沿当前方向"后面"的暂存区;否则原点处摆开。
    * 实际美化由后续 autoLayout 完成。
    */
   const placeIncomingNodes = (newNodes: OntologyNode[]) => {
     if (newNodes.length === 0) return;
+    const lr = layoutDirection.value === 'LR';
+    const layerGap = lr ? LR_LAYER_GAP : TB_LAYER_GAP;
+    const intraGap = lr ? LR_INTRA_GAP : TB_INTRA_GAP;
     const existing = ctx.nodes.value;
     if (existing.length === 0) {
+      const cols = 4;
       newNodes.forEach((n, idx) => {
-        n.x = ORIGIN_X + (idx % 4) * X_SPACING;
-        n.y = ORIGIN_Y + Math.floor(idx / 4) * Y_SPACING;
+        if (lr) {
+          n.x = ORIGIN_X + (idx % cols) * layerGap;
+          n.y = ORIGIN_Y + Math.floor(idx / cols) * intraGap;
+        } else {
+          n.x = ORIGIN_X + (idx % cols) * intraGap;
+          n.y = ORIGIN_Y + Math.floor(idx / cols) * layerGap;
+        }
       });
       return;
     }
-    let maxX = -Infinity;
-    let minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity, minY = Infinity;
     for (const n of existing) {
       if (n.x > maxX) maxX = n.x;
+      if (n.y > maxY) maxY = n.y;
+      if (n.x < minX) minX = n.x;
       if (n.y < minY) minY = n.y;
     }
-    const baseX = maxX + X_SPACING;
-    const baseY = minY;
-    const cols = Math.max(1, Math.min(2, Math.ceil(newNodes.length / 6)));
-    newNodes.forEach((n, idx) => {
-      n.x = baseX + (idx % cols) * X_SPACING;
-      n.y = baseY + Math.floor(idx / cols) * Y_SPACING;
-    });
+    if (lr) {
+      const baseX = maxX + layerGap;
+      const baseY = minY;
+      const cols = Math.max(1, Math.min(2, Math.ceil(newNodes.length / 6)));
+      newNodes.forEach((n, idx) => {
+        n.x = baseX + (idx % cols) * layerGap;
+        n.y = baseY + Math.floor(idx / cols) * intraGap;
+      });
+    } else {
+      const baseY = maxY + layerGap;
+      const baseX = minX;
+      const rows = Math.max(1, Math.min(2, Math.ceil(newNodes.length / 6)));
+      newNodes.forEach((n, idx) => {
+        n.x = baseX + Math.floor(idx / rows) * intraGap;
+        n.y = baseY + (idx % rows) * layerGap;
+      });
+    }
   };
 
   /** 把当前图谱导出为 JSON 文件下载。 */
@@ -233,5 +286,5 @@ export function useGraphActions(ctx: GraphActionsCtx) {
     }
   };
 
-  return { autoLayout, placeIncomingNodes, exportGraph, shareGraph };
+  return { autoLayout, toggleLayoutDirection, layoutDirection, placeIncomingNodes, exportGraph, shareGraph };
 }
