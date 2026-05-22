@@ -3,13 +3,14 @@ import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { chatStream, type ChatPayload, type ChatResult } from '../api/chat';
 import type { SseHandle } from '../api/http';
-import { useConversations, type ChatMsg } from '../composables/useConversations';
+import { useConversations, type ChatMsg, type ChatMsgAttachment } from '../composables/useConversations';
 import { useAttachments } from '../composables/useAttachments';
 import { useMention } from '../composables/useMention';
 import { useChatModels } from '../composables/useChatModels';
 import { toast } from '../composables/useToast';
 import ChatMessageList from './chat/ChatMessageList.vue';
 import AttachmentChips from './chat/AttachmentChips.vue';
+import AttachmentPreview from './chat/AttachmentPreview.vue';
 
 const props = defineProps<{
   nodes: OntologyNode[];
@@ -33,6 +34,7 @@ const loading = ref(false);
 const fileRef = ref<HTMLInputElement | null>(null);
 const msgListRef = ref<InstanceType<typeof ChatMessageList> | null>(null);
 const inputRef = ref<HTMLTextAreaElement | null>(null);
+const previewAtt = ref<ChatMsgAttachment | null>(null);
 
 // ===== SSE 流控制 =====
 let chatHandle: SseHandle | null = null;
@@ -153,7 +155,30 @@ const send = async () => {
   const failed = atts.value.filter(a => a.error);
 
   const txt = input.value;
-  const uaDisplay = atts.value.map(a => ({ name: a.name, type: a.type, kind: a.kind, error: a.error }));
+  // 把内容随消息一起存,后续在历史里可以重新预览。体积阈值控制持久化大小。
+  const PERSIST_TEXT_MAX = 100_000;   // ~100KB per text attachment
+  const PERSIST_IMG_MAX  = 2_000_000; // ~2MB per image dataUrl
+  const uaDisplay: ChatMsgAttachment[] = atts.value.map(a => {
+    const out: ChatMsgAttachment = {
+      name: a.name, type: a.type, kind: a.kind, size: a.size, error: a.error,
+      truncated: a.truncated,
+    };
+    if (!a.error && a.content) {
+      const len = a.content.length;
+      if (a.kind === 'image' && len <= PERSIST_IMG_MAX) {
+        out.content = a.content;
+      } else if (a.kind === 'text' && len <= PERSIST_TEXT_MAX) {
+        out.content = a.content;
+      } else if (a.kind === 'text') {
+        out.content = a.content.slice(0, PERSIST_TEXT_MAX);
+        out.storedTruncated = true;
+      } else if (a.kind === 'image') {
+        // 太大的图就不持久化 dataUrl 了,只留预览失败提示
+        out.storedTruncated = true;
+      }
+    }
+    return out;
+  });
   msgs.value.push({ role: 'u', text: txt, atts: uaDisplay });
   input.value = '';
   const requestAtts = [...validAtts];
@@ -296,7 +321,8 @@ const send = async () => {
       <div class="ch-head-l"><div class="ch-pulse" /><span>AI 推演助手</span></div>
       <div class="ch-stat">{{ nodes.length }}节点·{{ edges.length }}关系</div>
     </div>
-    <ChatMessageList ref="msgListRef" :messages="msgs" :loading="loading" />
+    <ChatMessageList ref="msgListRef" :messages="msgs" :loading="loading" @preview="(a) => previewAtt = a" />
+    <AttachmentPreview :attachment="previewAtt" @close="previewAtt = null" />
     <AttachmentChips :attachments="atts" @remove="(i) => atts = atts.filter((_, j) => j !== i)" />
     <div class="ch-input-area">
       <div class="input-box">
