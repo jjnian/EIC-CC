@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import SettingsView from './components/SettingsView.vue';
 import WelcomeChat from './components/WelcomeChat.vue';
@@ -226,12 +226,25 @@ const onMove = (id: string, x: number, y: number) => {
 };
 
 const onUpdate = (addNodes: OntologyNode[], addEdges: OntologyEdge[]) => {
+  const existingIds = new Set(nodes.value.map(n => n.id));
+  const connectsToExisting = addEdges.some(e => existingIds.has(e.from) || existingIds.has(e.to));
+
+  // 用 placeIncomingNodes 给新节点选一个不和现有图冲突的初始位置(右侧暂存区)。
+  graphActions.placeIncomingNodes(addNodes);
+
   nodes.value.push(...addNodes.map(n => ({...n, isNew: true})));
   edges.value.push(...addEdges);
   setTimeout(() => {
     nodes.value.forEach(n => n.isNew = false);
   }, 800);
   persistCurrentModel();
+
+  // 新节点接上了现有血缘 / 或图本身还很小时,自动跑一次分层布局,让因果链一目了然。
+  const shouldAutoLayout =
+    addNodes.length > 0 && (connectsToExisting || nodes.value.length <= 12);
+  if (shouldAutoLayout) {
+    nextTick(() => graphActions.autoLayout());
+  }
 };
 
 const clearCanvas = () => {

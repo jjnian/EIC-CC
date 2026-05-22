@@ -211,15 +211,9 @@ const send = async () => {
               aiMsg.text = '未识别到可加入图谱的实体或关系,请补充更具体的描述。';
             }
 
-            const nodeOffset = Math.random() * 50 - 25;
-            const cx = 400 + nodeOffset;
-            const cy = 300 + nodeOffset;
-            const r = 150;
-            const pNodes: OntologyNode[] = addNodes.map((n, idx, arr) => {
-              const angle = arr.length > 1 ? (idx / arr.length) * Math.PI * 2 : 0;
-              return { ...n, x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r };
-            });
-            emit('update', pNodes, addEdges);
+            // 位置交给 App.vue 的 placeIncomingNodes + autoLayout 统一摆,
+            // 这里只透传节点本身,避免圆形堆叠盖在已有图上。
+            emit('update', addNodes.map(n => ({ ...n })), addEdges);
 
             if (addNodes.length || addEdges.length) {
               toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
@@ -247,7 +241,7 @@ const send = async () => {
                 const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
                 const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
                 if (addNodes.length || addEdges.length) {
-                  emit('update', addNodes.map(n => ({ ...n, x: 400, y: 300 })), addEdges);
+                  emit('update', addNodes.map(n => ({ ...n })), addEdges);
                   toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
                 }
               } catch {
