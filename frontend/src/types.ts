@@ -53,6 +53,7 @@ export interface ChainStep {
   explanation?: string;
   confidence?: number;
   effectiveProbability?: number;
+  cumulativeCredibility?: number;
 }
 
 export interface Constraint {

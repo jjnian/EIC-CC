@@ -16,6 +16,7 @@ const props = defineProps({
   liveLoading:     { type: Boolean, required: true },
   liveSteps:       { type: Array as PropType<ChainStep[]>, required: true },
   liveIntent:      { type: String as PropType<'forward' | 'backward'>, required: true },
+  livePruneDetails: { type: Array as PropType<{ nodeId: string; label: string; reason: string }[]>, default: () => [] },
   chatW:           { type: Number, required: true },
   divDragActive:   { type: Boolean, default: false },
   pendingChatSeed: { type: Object as PropType<{ text: string; files: File[] } | null>, default: null },
@@ -84,6 +85,7 @@ const onCloseInfo = () => {
       :loading="liveLoading"
       :nodes="nodes"
       :intent="liveIntent"
+      :prune-details="livePruneDetails"
       :style="{ width: chatW + 'px', flexShrink: 0 }"
       @close="emit('close-timeline')"
       @focus-node="(id) => emit('focus-node', id)"

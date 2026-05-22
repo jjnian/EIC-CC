@@ -46,6 +46,7 @@ export function usePrediction(ctx: PredictionCtx) {
   const liveActive = ref(false);
   const liveIntent = ref<'forward' | 'backward'>('forward');
   const liveAbort = ref<SseHandle | null>(null);
+  const livePruneDetails = ref<{ nodeId: string; label: string; reason: string }[]>([]);
 
   const abortLiveStream = () => {
     if (liveAbort.value) {
@@ -88,6 +89,7 @@ export function usePrediction(ctx: PredictionCtx) {
     ctx.setActiveBranchId('live');
     liveActive.value = true;
     liveSteps.value = [];
+    livePruneDetails.value = [];
     liveLoading.value = true;
     liveIntent.value = payload.intent || 'forward';
 
@@ -126,8 +128,11 @@ export function usePrediction(ctx: PredictionCtx) {
         setTimeout(() => ctx.fitView?.(), 100);
       },
       onNotice: (raw: unknown) => {
-        const note = raw as { message?: string };
+        const note = raw as { type?: string; message?: string; details?: { nodeId: string; label: string; reason: string }[] };
         if (note?.message) toast.info(note.message);
+        if (note?.type === 'pruned' && note?.details) {
+          livePruneDetails.value = note.details;
+        }
       },
       onError: (msg: string) => {
         toast.error('推演错误: ' + msg);
@@ -156,6 +161,7 @@ export function usePrediction(ctx: PredictionCtx) {
     liveActive,
     liveIntent,
     liveAbort,
+    livePruneDetails,
     openPredictDialog,
     startPrediction,
     closeTimeline,

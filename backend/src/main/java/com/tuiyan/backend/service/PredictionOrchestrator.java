@@ -93,10 +93,12 @@ public class PredictionOrchestrator {
             }
 
             Map<String, Double> effProb = new HashMap<>();
+            Map<String, Double> cumCredibility = new HashMap<>();
             List<Map<String, Object>> predictedNodes = new ArrayList<>();
             List<Map<String, Object>> predictedEdges = new ArrayList<>();
             List<Map<String, Object>> chainList = new ArrayList<>();
             Map<Integer, Integer> perStepCount = new HashMap<>();
+            List<Map<String, Object>> pruneDetails = new ArrayList<>();
             int prunedCount = 0;
 
             int stepIndex = 0;
@@ -104,13 +106,19 @@ public class PredictionOrchestrator {
                 if (cancelled.get()) return;
                 stepIndex++;
                 StepBuildResult sr = buildStep(item, stepIndex, idSalt, currentChainIds,
-                        backward, blockedIds, effProb, perStepCount, baseX, baseY, direction);
+                        backward, blockedIds, effProb, cumCredibility, perStepCount, baseX, baseY, direction);
                 if (sr == null) {
                     // 被剪枝:把本节点 id 也加入 blocked,避免后续引用
                     String rawId = item.path("id").asText("p_" + stepIndex);
                     String prunedId = IdSaltRewriter.applyPredictionIdSalt(rawId, idSalt, currentChainIds);
+                    String prunedLabel = item.path("label").asText("预测" + stepIndex);
                     blockedIds.add(prunedId);
                     prunedCount++;
+                    Map<String, Object> detail = new LinkedHashMap<>();
+                    detail.put("nodeId", prunedId);
+                    detail.put("label", prunedLabel);
+                    detail.put("reason", "上游节点均被 block 约束剪枝");
+                    pruneDetails.add(detail);
                     continue;
                 }
                 predictedNodes.add(sr.node);
@@ -145,6 +153,7 @@ public class PredictionOrchestrator {
                 note.put("type", "pruned");
                 note.put("count", prunedCount);
                 note.put("message", "已根据 what-if 约束剪枝 " + prunedCount + " 个预测节点");
+                note.set("details", objectMapper.valueToTree(pruneDetails));
                 SsePushUtils.safeSend(emitter, cancelled, "notice", objectMapper.writeValueAsString(note));
             }
 
@@ -172,6 +181,7 @@ public class PredictionOrchestrator {
 
     private StepBuildResult buildStep(JsonNode item, int stepIndex, String idSalt, Set<String> currentChainIds,
                                       boolean backward, Set<String> blockedIds, Map<String, Double> effProb,
+                                      Map<String, Double> cumCredibility,
                                       Map<Integer, Integer> perStepCount, double baseX, double baseY, int direction) {
         String rawId = item.path("id").asText("p_" + stepIndex);
         String id = IdSaltRewriter.applyPredictionIdSalt(rawId, idSalt, currentChainIds);
@@ -218,6 +228,20 @@ public class PredictionOrchestrator {
         }
         effProb.put(id, pEff);
 
+        // 计算累积置信度:从 seed 到当前步的综合可信度
+        double cumCred;
+        if (linkIds.isEmpty()) {
+            cumCred = PredictionMath.round3(pEff);
+        } else {
+            double maxUpstream = 0.0;
+            for (String pid : linkIds) {
+                double up = cumCredibility.containsKey(pid) ? cumCredibility.get(pid) : 1.0;
+                if (up > maxUpstream) maxUpstream = up;
+            }
+            cumCred = PredictionMath.round3(pEff * maxUpstream);
+        }
+        cumCredibility.put(id, cumCred);
+
         Map<String, Object> node = new LinkedHashMap<>();
         node.put("id", id);
         node.put("label", label);
@@ -227,6 +251,7 @@ public class PredictionOrchestrator {
         node.put("predictedIntent", backward ? "backward" : "forward");
         node.put("confidence", confidence);
         node.put("effectiveProbability", PredictionMath.round3(pEff));
+        node.put("cumulativeCredibility", cumCred);
         node.put("explanation", explanation);
         node.put("x", nx);
         node.put("y", ny);
@@ -256,6 +281,7 @@ public class PredictionOrchestrator {
         chainItem.put("explanation", explanation);
         chainItem.put("confidence", confidence);
         chainItem.put("effectiveProbability", PredictionMath.round3(pEff));
+        chainItem.put("cumulativeCredibility", cumCred);
 
         StepBuildResult sr = new StepBuildResult();
         sr.node = node;

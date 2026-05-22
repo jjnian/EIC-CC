@@ -114,6 +114,8 @@ const onBackdrop = (e: MouseEvent) => {
               <div class="bc-row-probs">
                 <span class="bc-prob-a" :title="'A 中有效概率'">A·{{ fmt(pair.a.effectiveProbability ?? pair.a.confidence) }}</span>
                 <span class="bc-prob-b" :title="'B 中有效概率'">B·{{ fmt(pair.b.effectiveProbability ?? pair.b.confidence) }}</span>
+                <span v-if="pair.a.cumulativeCredibility != null" class="bc-cred-a" :title="'A 链路置信度'">链A·{{ fmt(pair.a.cumulativeCredibility) }}</span>
+                <span v-if="pair.b.cumulativeCredibility != null" class="bc-cred-b" :title="'B 链路置信度'">链B·{{ fmt(pair.b.cumulativeCredibility) }}</span>
               </div>
             </div>
           </div>
@@ -258,4 +260,16 @@ const onBackdrop = (e: MouseEvent) => {
 }
 .bc-columns { display: flex; gap: 12px; }
 .bc-col { flex: 1; min-width: 0; }
+.bc-cred-a {
+  font-size: 10px; color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  padding: 1px 6px; border-radius: 100px;
+  font-style: italic;
+}
+.bc-cred-b {
+  font-size: 10px; color: #63b3ed;
+  background: rgba(99, 179, 237, 0.08);
+  padding: 1px 6px; border-radius: 100px;
+  font-style: italic;
+}
 </style>

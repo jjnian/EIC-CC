@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import type { ChainStep, OntologyNode } from '../types';
 
 const props = defineProps<{
@@ -7,9 +7,20 @@ const props = defineProps<{
   loading: boolean;
   nodes: OntologyNode[];
   intent?: 'forward' | 'backward';
+  pruneDetails?: { nodeId: string; label: string; reason: string }[];
 }>();
 
 const isBackward = computed(() => props.intent === 'backward');
+
+// 置信度过滤阈值（0 表示不过滤）
+const credFilter = ref(0);
+
+const filteredSteps = computed(() => {
+  if (credFilter.value <= 0) return props.steps;
+  return props.steps.filter(s =>
+    s.cumulativeCredibility == null || s.cumulativeCredibility * 100 >= credFilter.value
+  );
+});
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -23,6 +34,14 @@ const nodeLabel = (id: string, nodes: OntologyNode[]) => {
 
 const pct = (n?: number) =>
   (n != null && Number.isFinite(n)) ? Math.round(n * 100) : null;
+
+const credClass = (v?: number) => {
+  if (v == null) return '';
+  const p = v * 100;
+  if (p >= 60) return 'st-cred-high';
+  if (p >= 30) return 'st-cred-mid';
+  return 'st-cred-low';
+};
 </script>
 
 <template>
@@ -36,6 +55,14 @@ const pct = (n?: number) =>
       <button class="st-close" type="button" @click="emit('close')">×</button>
     </div>
 
+    <div class="st-filter" v-if="steps.length > 0">
+      <label class="st-filter-label">
+        置信度过滤
+        <span class="st-filter-val">{{ credFilter > 0 ? `≥${credFilter}%` : '全部' }}</span>
+      </label>
+      <input type="range" min="0" max="80" step="5" v-model.number="credFilter" class="st-filter-slider" />
+    </div>
+
     <div class="st-body">
       <div v-if="!steps.length && loading" class="st-empty">
         <div class="st-spinner" />
@@ -43,15 +70,21 @@ const pct = (n?: number) =>
       </div>
       <div v-else-if="!steps.length" class="st-empty">暂无推演步骤</div>
 
-      <div v-for="(s, i) in steps" :key="s.step + ':' + s.nodeId" class="st-step" @click="emit('focus-node', s.nodeId)">
+      <div v-for="(s, i) in filteredSteps" :key="s.step + ':' + s.nodeId" class="st-step" @click="emit('focus-node', s.nodeId)">
         <div class="st-step-rail">
           <div class="st-step-num">{{ s.step }}</div>
-          <div class="st-step-line" v-if="i < steps.length - 1" />
+          <div class="st-step-line" v-if="i < filteredSteps.length - 1" />
         </div>
         <div class="st-step-card">
           <div class="st-step-head">
             <span class="st-step-label">{{ s.label }}</span>
             <div class="st-prob-group">
+              <span
+                v-if="pct(s.cumulativeCredibility) !== null"
+                class="st-cred"
+                :class="credClass(s.cumulativeCredibility)"
+                :title="'链路累积置信度（从起点到此步的综合可信度）'"
+              >链={{ pct(s.cumulativeCredibility) }}%</span>
               <span
                 v-if="pct(s.effectiveProbability) !== null"
                 class="st-prob"
@@ -70,6 +103,14 @@ const pct = (n?: number) =>
             <span v-for="t in s.triggeredBy" :key="t" class="st-meta-chip">{{ nodeLabel(t, nodes) }}</span>
             <span v-if="s.ruleId" class="st-meta-rule">⚡ {{ nodeLabel(s.ruleId, nodes) }}</span>
           </div>
+        </div>
+      </div>
+
+      <div v-if="pruneDetails?.length" class="st-prune-summary">
+        <div class="st-prune-title">🔗 剪枝报告（{{ pruneDetails.length }} 个节点被约束剪枝）</div>
+        <div v-for="(d, i) in pruneDetails" :key="i" class="st-prune-item">
+          <span class="st-prune-label">{{ d.label }}</span>
+          <span class="st-prune-reason">{{ d.reason }}</span>
         </div>
       </div>
     </div>
@@ -201,5 +242,71 @@ const pct = (n?: number) =>
   padding: 1px 6px;
   border-radius: 4px;
   margin-left: 4px;
+}
+.st-filter {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.st-filter-label {
+  font-size: 11px; color: var(--text-dim);
+  display: flex; align-items: center; gap: 6px;
+  white-space: nowrap;
+}
+.st-filter-val {
+  color: #fbbf24;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  font-size: 10px;
+}
+.st-filter-slider {
+  flex: 1;
+  accent-color: #fbbf24;
+  max-width: 160px;
+}
+.st-cred {
+  font-size: 10px;
+  padding: 1px 6px; border-radius: 100px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+}
+.st-cred-high {
+  color: #42b883;
+  background: rgba(66, 184, 131, 0.14);
+}
+.st-cred-mid {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+}
+.st-cred-low {
+  color: #ff8a8a;
+  background: rgba(255, 80, 80, 0.12);
+}
+.st-prune-summary {
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: rgba(255, 80, 80, 0.06);
+  border: 1px solid rgba(255, 80, 80, 0.2);
+  border-radius: 10px;
+}
+.st-prune-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ff8a8a;
+  margin-bottom: 8px;
+}
+.st-prune-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 3px 0;
+}
+.st-prune-label {
+  color: var(--text-main);
+  font-weight: 600;
+}
+.st-prune-reason {
+  color: var(--text-dim);
 }
 </style>

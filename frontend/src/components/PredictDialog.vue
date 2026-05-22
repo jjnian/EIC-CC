@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import type { OntologyNode } from '../types';
+import type { OntologyNode, OntologyEdge } from '../types';
 import { toast } from '../composables/useToast';
+import { listTemplates, saveTemplate, touchTemplate, deleteTemplate, type HypothesisTemplate } from '../api/hypothesisTemplates';
 
 const props = defineProps<{
   open: boolean;
   nodes: OntologyNode[];
+  edges: OntologyEdge[];
   initialSeedIds: string[];
+  modelId?: string;
 }>();
 
 type Constraint = { nodeId: string; mode: 'force' | 'block' };
@@ -28,6 +31,9 @@ const search = ref('');
 const constraints = ref<Constraint[]>([]);
 const cSearch = ref('');
 const showConstraints = ref(false);
+const templates = ref<HypothesisTemplate[]>([]);
+const showTemplatePanel = ref(false);
+const templateName = ref('');
 
 const nodeMap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])));
 
@@ -50,10 +56,84 @@ const sync = () => {
     constraints.value = [];
     cSearch.value = '';
     showConstraints.value = false;
+    showTemplatePanel.value = false;
+    templateName.value = '';
+    loadTemplates();
   }
 };
 
+const loadTemplates = async () => {
+  if (!props.modelId) return;
+  try {
+    templates.value = await listTemplates(props.modelId);
+  } catch { /* 静默失败 */ }
+};
+
+const saveAsTemplate = async () => {
+  const tName = templateName.value.trim();
+  if (!tName) { toast.warn('请输入模板名称'); return; }
+  try {
+    const t = await saveTemplate({
+      modelId: props.modelId,
+      name: tName,
+      seeds: seedIds.value,
+      steps: steps.value,
+      intent: intent.value,
+      constraints: constraints.value.slice(),
+      prompt: prompt.value.trim(),
+    });
+    templates.value.unshift(t);
+    templateName.value = '';
+    toast.info('模板已保存');
+  } catch { toast.error('保存模板失败'); }
+};
+
+const loadFromTemplate = async (t: HypothesisTemplate) => {
+  const existingIds = new Set(props.nodes.map(n => n.id));
+  seedIds.value = t.seeds.filter(id => existingIds.has(id));
+  steps.value = t.steps;
+  intent.value = (t.intent as 'forward' | 'backward') || 'forward';
+  constraints.value = (t.constraints || []).filter(c => existingIds.has(c.nodeId));
+  prompt.value = t.prompt || '';
+  showTemplatePanel.value = false;
+  if (seedIds.value.length < t.seeds.length) {
+    toast.warn(`部分节点已不存在，已加载 ${seedIds.value.length}/${t.seeds.length} 个起点`);
+  }
+  try { await touchTemplate(t.id); } catch { /* 静默 */ }
+};
+
+const removeTemplate = async (t: HypothesisTemplate) => {
+  try {
+    await deleteTemplate(t.id);
+    templates.value = templates.value.filter(x => x.id !== t.id);
+    toast.info('模板已删除');
+  } catch { toast.error('删除失败'); }
+};
+
 const constraintNodeIds = computed(() => new Set(constraints.value.map(c => c.nodeId)));
+
+// 约束冲突检测:检查 force/block 之间是否存在直接因果边
+interface ConflictWarning { message: string; }
+const constraintConflicts = computed<ConflictWarning[]>(() => {
+  if (constraints.value.length < 2) return [];
+  const forced = new Set(constraints.value.filter(c => c.mode === 'force').map(c => c.nodeId));
+  const blocked = new Set(constraints.value.filter(c => c.mode === 'block').map(c => c.nodeId));
+  if (!forced.size || !blocked.size) return [];
+  const warnings: ConflictWarning[] = [];
+  for (const edge of (props.edges || [])) {
+    if (forced.has(edge.from) && blocked.has(edge.to)) {
+      const fl = nodeMap.value[edge.from]?.label || edge.from;
+      const bl = nodeMap.value[edge.to]?.label || edge.to;
+      warnings.push({ message: `「${fl}」(必然) → 「${bl}」(禁止): 存在直接因果关系` });
+    }
+    if (blocked.has(edge.from) && forced.has(edge.to)) {
+      const bl = nodeMap.value[edge.from]?.label || edge.from;
+      const fl = nodeMap.value[edge.to]?.label || edge.to;
+      warnings.push({ message: `「${bl}」(禁止) → 「${fl}」(必然): 禁止上游可能阻断必然节点` });
+    }
+  }
+  return warnings;
+});
 const constraintCandidates = computed(() => {
   const q = cSearch.value.trim().toLowerCase();
   if (!q) return [];
@@ -136,6 +216,34 @@ watch(intent, (newVal, oldVal) => {
       </div>
 
       <div class="pd-body">
+        <div class="pd-section pd-template-section">
+          <button class="pd-collapse" type="button" @click="showTemplatePanel = !showTemplatePanel">
+            <span class="pd-collapse-arrow" :class="{ 'pd-collapse-open': showTemplatePanel }">▶</span>
+            <span class="pd-collapse-label">推演模板</span>
+            <span v-if="templates.length" class="pd-collapse-badge">{{ templates.length }}</span>
+            <span class="pd-collapse-hint">保存/加载常用配置</span>
+          </button>
+          <div v-if="showTemplatePanel" class="pd-template-body">
+            <div v-if="templates.length" class="pd-template-list">
+              <div v-for="t in templates" :key="t.id" class="pd-template-row">
+                <div class="pd-template-info" @click="loadFromTemplate(t)">
+                  <span class="pd-template-name">{{ t.name }}</span>
+                  <span class="pd-template-meta">
+                    {{ t.intent === 'backward' ? '溯因' : '前向' }} · {{ t.steps }}步 · {{ t.seeds.length }}起点
+                    <span v-if="t.constraints?.length"> · {{ t.constraints.length }}约束</span>
+                  </span>
+                </div>
+                <button class="pd-template-del" @click.stop="removeTemplate(t)" type="button" title="删除模板">×</button>
+              </div>
+            </div>
+            <div v-else class="pd-empty pd-empty-inline">暂无保存的模板</div>
+            <div class="pd-template-save">
+              <input class="pd-search" v-model="templateName" placeholder="输入模板名称…" @keydown.enter="saveAsTemplate" />
+              <button class="pd-btn pd-btn-save" type="button" @click="saveAsTemplate" :disabled="!templateName.trim()">保存当前配置</button>
+            </div>
+          </div>
+        </div>
+
         <div class="pd-section">
           <label class="pd-label">推演方向</label>
           <div class="pd-tabs">
@@ -206,6 +314,12 @@ watch(intent, (newVal, oldVal) => {
             <span class="pd-collapse-hint">假设某节点必然 / 不会发生</span>
           </button>
           <div v-if="showConstraints" class="pd-constraint-body">
+            <div v-if="constraintConflicts.length" class="pd-conflict-warnings">
+              <div class="pd-conflict-title">⚠ 约束冲突检测</div>
+              <div v-for="(w, i) in constraintConflicts" :key="i" class="pd-conflict-item">
+                {{ w.message }}
+              </div>
+            </div>
             <div v-if="constraints.length" class="pd-constraint-list">
               <div v-for="c in constraints" :key="c.nodeId" class="pd-constraint-row">
                 <button
@@ -480,4 +594,118 @@ watch(intent, (newVal, oldVal) => {
 .pd-cand-force { background: rgba(99, 179, 237, 0.1); color: #63b3ed; border-color: rgba(99, 179, 237, 0.3); }
 .pd-cand-force:hover { background: rgba(99, 179, 237, 0.2); }
 .pd-cand { justify-content: space-between; }
+.pd-conflict-warnings {
+  background: rgba(255, 80, 80, 0.08);
+  border: 1px solid rgba(255, 80, 80, 0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.pd-conflict-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ff8a8a;
+  margin-bottom: 6px;
+}
+.pd-conflict-item {
+  font-size: 11px;
+  color: rgba(255, 138, 138, 0.85);
+  line-height: 1.5;
+  padding: 2px 0;
+}
+.pd-template-section {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 12px;
+}
+.pd-template-body {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pd-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.pd-template-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(10, 16, 27, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pd-template-row:hover {
+  background: rgba(66, 184, 131, 0.08);
+  border-color: rgba(66, 184, 131, 0.3);
+}
+.pd-template-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pd-template-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-template-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+}
+.pd-template-del {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px 6px;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.pd-template-del:hover {
+  color: #ff8a8a;
+  background: rgba(255, 80, 80, 0.1);
+}
+.pd-template-save {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.pd-template-save .pd-search {
+  flex: 1;
+}
+.pd-btn-save {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(66, 184, 131, 0.3);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  background: rgba(66, 184, 131, 0.15);
+  color: #42b883;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.pd-btn-save:hover:not(:disabled) {
+  background: rgba(66, 184, 131, 0.25);
+}
+.pd-btn-save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 </style>

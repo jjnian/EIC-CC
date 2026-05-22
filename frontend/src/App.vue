@@ -137,6 +137,7 @@ const liveSteps = prediction.liveSteps;
 const liveLoading = prediction.liveLoading;
 const liveActive = prediction.liveActive;
 const liveIntent = prediction.liveIntent;
+const livePruneDetails = prediction.livePruneDetails;
 const openPredictDialog = prediction.openPredictDialog;
 const startPrediction = prediction.startPrediction;
 const closeTimeline = prediction.closeTimeline;
@@ -364,6 +365,7 @@ const focusNodeInGraph = (id: string) => {
         :live-loading="liveLoading"
         :live-steps="liveSteps"
         :live-intent="liveIntent"
+        :live-prune-details="livePruneDetails"
         :chat-w="chatW"
         :div-drag-active="isDragging"
         :pending-chat-seed="pendingChatSeed"
@@ -388,7 +390,9 @@ const focusNodeInGraph = (id: string) => {
       <PredictDialog
         :open="predictDialogOpen"
         :nodes="nodes"
+        :edges="edges"
         :initialSeedIds="predictSeeds"
+        :modelId="currentModelId"
         @close="predictDialogOpen = false"
         @submit="startPrediction"
       />
