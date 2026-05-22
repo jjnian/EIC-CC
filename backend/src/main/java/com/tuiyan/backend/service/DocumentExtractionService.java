@@ -1,6 +1,7 @@
 package com.tuiyan.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.tuiyan.backend.support.DocxTextExtractor;
 import com.tuiyan.backend.support.FileSniffer;
 import com.tuiyan.backend.support.IdSaltRewriter;
 import com.tuiyan.backend.support.PdfTextExtractor;
@@ -27,6 +28,7 @@ public class DocumentExtractionService {
     private static final Logger log = LoggerFactory.getLogger(DocumentExtractionService.class);
 
     private static final int PDF_TEXT_CHAR_BUDGET = 60_000;
+    private static final int DOCX_TEXT_CHAR_BUDGET = 60_000;
     private static final long IMAGE_BYTE_LIMIT    = 8L * 1024 * 1024;
     private static final int  TOTAL_FILE_LIMIT    = 8;
     private static final int  MIN_TEXT_PER_PAGE   = 200;
@@ -34,6 +36,7 @@ public class DocumentExtractionService {
     private static final int  RENDER_DPI          = 110;
     private static final int  TOTAL_IMAGE_BUDGET  = 12;
     private static final long PDF_FILE_BYTES_LIMIT = 12L * 1024 * 1024;
+    private static final long DOCX_FILE_BYTES_LIMIT = 12L * 1024 * 1024;
 
     private final LlmService llmService;
 
@@ -68,16 +71,24 @@ public class DocumentExtractionService {
             meta.put("contentType", contentType);
             meta.put("size", size);
 
-            byte[] head = FileSniffer.readHead(f, 8);
+            byte[] head = FileSniffer.readHead(f, 12);
             boolean pdfMagic = FileSniffer.isPdfMagic(head);
             boolean imageMagic = FileSniffer.isImageMagic(head);
-            boolean isPdf = (contentType != null && contentType.toLowerCase().contains("pdf") && pdfMagic)
-                    || (safeName.toLowerCase().endsWith(".pdf") && pdfMagic);
-            boolean isImage = (contentType != null && contentType.toLowerCase().startsWith("image/") && imageMagic)
-                    || imageMagic;
+            boolean zipMagic = FileSniffer.isZipMagic(head);
+            String lname = safeName.toLowerCase();
+            String lct = contentType == null ? "" : contentType.toLowerCase();
+            boolean isPdf = (lct.contains("pdf") && pdfMagic)
+                    || (lname.endsWith(".pdf") && pdfMagic);
+            boolean isDocx = zipMagic && (
+                    lname.endsWith(".docx")
+                            || lct.contains("wordprocessingml")
+                            || lct.contains("officedocument"));
+            boolean isImage = (lct.startsWith("image/") && imageMagic) || imageMagic;
 
             if (isPdf) {
                 handlePdf(f, safeName, size, meta, combinedText, imageAttachments);
+            } else if (isDocx) {
+                handleDocx(f, safeName, size, meta, combinedText);
             } else if (isImage) {
                 handleImage(f, safeName, size, contentType, meta, imageAttachments);
             } else {
@@ -138,6 +149,32 @@ public class DocumentExtractionService {
         }
         meta.put("type", "pdf");
         meta.put("chars", rawChars);
+        if (text != null && !text.isBlank()) {
+            combinedText.append("# 文件 ").append(safeName).append("\n\n")
+                        .append(text).append("\n\n");
+        }
+    }
+
+    private void handleDocx(MultipartFile f, String safeName, long size,
+                            Map<String, Object> meta, StringBuilder combinedText) throws IOException {
+        if (size > DOCX_FILE_BYTES_LIMIT) {
+            throw new IllegalArgumentException(
+                    "DOCX " + safeName + " 超过 " + (DOCX_FILE_BYTES_LIMIT / (1024 * 1024)) + " MB 限制");
+        }
+        DocxTextExtractor.Result r;
+        try (var in = f.getInputStream()) {
+            r = DocxTextExtractor.extract(in);
+        }
+        String text = r.text;
+        int rawChars = text == null ? 0 : text.length();
+        if (text != null && text.length() > DOCX_TEXT_CHAR_BUDGET) {
+            text = text.substring(0, DOCX_TEXT_CHAR_BUDGET) + "\n[…truncated…]";
+            meta.put("truncated", true);
+        }
+        meta.put("type", "docx");
+        meta.put("chars", rawChars);
+        meta.put("paragraphs", r.paragraphs);
+        meta.put("tables", r.tables);
         if (text != null && !text.isBlank()) {
             combinedText.append("# 文件 ").append(safeName).append("\n\n")
                         .append(text).append("\n\n");

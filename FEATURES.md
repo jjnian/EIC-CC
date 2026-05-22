@@ -402,7 +402,8 @@ cd frontend && npm install && npm run dev
 
 #### 6.8.1 支持来源
 
-- PDF（后端用 PDFBox 抽取每页文字，超长会切片）
+- PDF（后端用 PDFBox 抽取每页文字，超长会切片；扫描件自动回落到逐页渲染走视觉抽取）
+- DOCX（Word 文档，用 Apache POI 抽取段落 + 表格；表格保留二维结构以 markdown 形式）
 - 图片（PNG/JPEG/WebP/GIF，作为多模态 attachment 给 LLM）
 - 文本类（直接 base64 / utf-8 拼入 prompt）
 
@@ -420,8 +421,10 @@ cd frontend && npm install && npm run dev
 
 | 参数 | 默认 |
 |---|---|
-| 单文件 | ≤ 20 MB |
+| 单文件 | ≤ 20 MB（PDF/DOCX 各自单独再限 12 MB；图片 8 MB） |
 | 单次请求 | ≤ 80 MB（spring multipart） |
+| 单次上传文件数 | ≤ 8 |
+| 抽取文本预算 | PDF / DOCX 各自 60K 字，超出截断 |
 | LLM 上下文 | 由配置的 `context-window` 决定，超长会截断并提示 |
 
 ---

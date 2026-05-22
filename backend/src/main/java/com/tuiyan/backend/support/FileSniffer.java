@@ -49,6 +49,18 @@ public final class FileSniffer {
                 && (head[3] & 0xff) == 0x46;
     }
 
+    /**
+     * ZIP magic bytes: 50 4B 03 04(PK\x03\x04)。
+     * DOCX / XLSX / PPTX 都是 ZIP 容器,需要再结合扩展名/内容类型区分。
+     */
+    public static boolean isZipMagic(byte[] head) {
+        if (head == null || head.length < 4) return false;
+        return (head[0] & 0xff) == 0x50
+                && (head[1] & 0xff) == 0x4B
+                && (head[2] & 0xff) == 0x03
+                && (head[3] & 0xff) == 0x04;
+    }
+
     /** PNG / JPEG / GIF / WebP magic bytes。 */
     public static boolean isImageMagic(byte[] head) {
         if (head == null || head.length < 4) return false;
