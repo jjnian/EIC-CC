@@ -47,6 +47,14 @@ export function usePrediction(ctx: PredictionCtx) {
   const liveIntent = ref<'forward' | 'backward'>('forward');
   const liveAbort = ref<SseHandle | null>(null);
   const livePruneDetails = ref<{ nodeId: string; label: string; reason: string }[]>([]);
+  // 启动时的上下文,供对话里展示推演消息使用
+  const liveSeeds = ref<string[]>([]);
+  const livePrompt = ref<string>('');
+  const liveName = ref<string>('');
+  const liveBranchId = ref<string>('');
+  const liveError = ref<string>('');
+  /** 0=空闲 1=运行中 2=完成 3=错误 4=已停止。给 ChatPanel 监听用。 */
+  const liveStatus = ref<0 | 1 | 2 | 3 | 4>(0);
 
   const abortLiveStream = () => {
     if (liveAbort.value) {
@@ -92,6 +100,12 @@ export function usePrediction(ctx: PredictionCtx) {
     livePruneDetails.value = [];
     liveLoading.value = true;
     liveIntent.value = payload.intent || 'forward';
+    liveSeeds.value = [...payload.seeds];
+    livePrompt.value = payload.prompt || '';
+    liveName.value = payload.name || '';
+    liveBranchId.value = '';
+    liveError.value = '';
+    liveStatus.value = 1;
 
     const apiPayload: ApiPredictPayload = {
       modelId: ctx.currentModelId.value,
@@ -125,6 +139,8 @@ export function usePrediction(ctx: PredictionCtx) {
         ctx.appendBranch(scenario);
         ctx.setActiveBranchId(scenario.id);
         liveLoading.value = false;
+        liveBranchId.value = scenario.id;
+        liveStatus.value = 2;
         setTimeout(() => ctx.fitView?.(), 100);
       },
       onNotice: (raw: unknown) => {
@@ -137,6 +153,8 @@ export function usePrediction(ctx: PredictionCtx) {
       onError: (msg: string) => {
         toast.error('推演错误: ' + msg);
         liveLoading.value = false;
+        liveError.value = msg;
+        liveStatus.value = 3;
         liveActive.value = false;
         ctx.switchBranch(forkParentId || 'trunk');
       },
@@ -148,6 +166,8 @@ export function usePrediction(ctx: PredictionCtx) {
 
   const closeTimeline = () => {
     abortLiveStream();
+    // 状态机:若仍在 running,标记 aborted,让对话里的推演消息显示"已停止"。
+    if (liveStatus.value === 1) liveStatus.value = 4;
     liveActive.value = false;
     liveLoading.value = false;
     liveSteps.value = [];
@@ -162,6 +182,12 @@ export function usePrediction(ctx: PredictionCtx) {
     liveIntent,
     liveAbort,
     livePruneDetails,
+    liveSeeds,
+    livePrompt,
+    liveName,
+    liveBranchId,
+    liveError,
+    liveStatus,
     openPredictDialog,
     startPrediction,
     closeTimeline,

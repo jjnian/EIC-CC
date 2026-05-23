@@ -172,6 +172,12 @@ const liveLoading = prediction.liveLoading;
 const liveActive = prediction.liveActive;
 const liveIntent = prediction.liveIntent;
 const livePruneDetails = prediction.livePruneDetails;
+const liveSeeds = prediction.liveSeeds;
+const livePrompt = prediction.livePrompt;
+const liveName = prediction.liveName;
+const liveBranchId = prediction.liveBranchId;
+const liveError = prediction.liveError;
+const liveStatus = prediction.liveStatus;
 const openPredictDialog = prediction.openPredictDialog;
 const startPrediction = prediction.startPrediction;
 const closeTimeline = prediction.closeTimeline;
@@ -379,6 +385,15 @@ const focusNodeInGraph = (id: string) => {
   sel.value = id;
   graphRef.value?.focusNode?.(id);
 };
+
+/** 在新标签页打开当前模型的只读预览页(走 ?preview=<id> 路径,main.ts 据此挂载 PreviewView)。 */
+const openPreview = () => {
+  if (!currentModelId.value) return;
+  // 先把当前的修改 flush 一下,避免新 tab 加载到旧数据
+  persistCurrentModel(true);
+  const url = `${location.origin}${location.pathname}?preview=${encodeURIComponent(currentModelId.value)}`;
+  window.open(url, '_blank', 'noopener');
+};
 </script>
 
 <template>
@@ -428,6 +443,7 @@ const focusNodeInGraph = (id: string) => {
           <span class="tb-badge ok">● {{ nodes.length }} 节点</span>
           <span class="tb-badge">{{ edges.length }} 关系</span>
           <button class="tb-btn" @click="showSchema = !showSchema">Schema</button>
+          <button class="tb-btn" @click="openPreview" title="在新标签页里以只读模式预览整张图谱" :disabled="!currentModelId">预览</button>
           <button class="tb-btn" @click="exportGraph" title="下载当前图谱为 JSON">导出</button>
           <button class="tb-btn hi" @click="shareGraph" title="复制图谱摘要到剪贴板">共享</button>
         </div>
@@ -478,6 +494,12 @@ const focusNodeInGraph = (id: string) => {
         :live-steps="liveSteps"
         :live-intent="liveIntent"
         :live-prune-details="livePruneDetails"
+        :live-seeds="liveSeeds"
+        :live-prompt="livePrompt"
+        :live-name="liveName"
+        :live-branch-id="liveBranchId"
+        :live-error="liveError"
+        :live-status="liveStatus"
         :chat-w="chatW"
         :div-drag-active="isDragging"
         :pending-chat-seed="pendingChatSeed"
@@ -497,6 +519,7 @@ const focusNodeInGraph = (id: string) => {
         @seed-consumed="pendingChatSeed = null"
         @start-divider="startDivider"
         @graph-ref="(el) => graphRef = el"
+        @abort-prediction="closeTimeline"
       />
 
       <!-- Predict Dialog (modal) -->

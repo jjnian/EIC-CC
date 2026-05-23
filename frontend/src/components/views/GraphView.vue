@@ -3,7 +3,6 @@ import { computed, type PropType } from 'vue';
 import GraphCanvas from '../GraphCanvas.vue';
 import NodeInfo from '../NodeInfo.vue';
 import ChatPanel from '../ChatPanel.vue';
-import ScenarioTimeline from '../ScenarioTimeline.vue';
 import type { OntologyNode, OntologyEdge, ChainStep } from '../../types';
 
 const props = defineProps({
@@ -17,11 +16,29 @@ const props = defineProps({
   liveSteps:       { type: Array as PropType<ChainStep[]>, required: true },
   liveIntent:      { type: String as PropType<'forward' | 'backward'>, required: true },
   livePruneDetails: { type: Array as PropType<{ nodeId: string; label: string; reason: string }[]>, default: () => [] },
+  liveSeeds:       { type: Array as PropType<string[]>, default: () => [] },
+  livePrompt:      { type: String, default: '' },
+  liveName:        { type: String, default: '' },
+  liveBranchId:    { type: String, default: '' },
+  liveError:       { type: String, default: '' },
+  liveStatus:      { type: Number as PropType<0 | 1 | 2 | 3 | 4>, default: 0 },
   chatW:           { type: Number, required: true },
   divDragActive:   { type: Boolean, default: false },
   pendingChatSeed: { type: Object as PropType<{ text: string; files: File[] } | null>, default: null },
   layoutDirection: { type: String as PropType<'LR' | 'TB'>, default: 'LR' },
 });
+
+const livePrediction = computed(() => ({
+  status: props.liveStatus,
+  intent: props.liveIntent,
+  seeds: props.liveSeeds,
+  prompt: props.livePrompt,
+  name: props.liveName,
+  steps: props.liveSteps,
+  pruneDetails: props.livePruneDetails,
+  branchId: props.liveBranchId,
+  error: props.liveError,
+}));
 
 const emit = defineEmits<{
   (e: 'update:selectedId', id: string | null): void;
@@ -39,6 +56,7 @@ const emit = defineEmits<{
   (e: 'seed-consumed'): void;
   (e: 'start-divider', ev: MouseEvent): void;
   (e: 'graph-ref', el: any): void;
+  (e: 'abort-prediction'): void;
 }>();
 
 const selNode = computed(() => props.nodes.find(n => n.id === props.selectedId) || null);
@@ -81,26 +99,17 @@ const onCloseInfo = () => {
       />
     </div>
     <div :class="['resize-divider', { dragging: divDragActive }]" @mousedown="emit('start-divider', $event)" />
-    <ScenarioTimeline
-      v-if="liveActive"
-      :steps="liveSteps"
-      :loading="liveLoading"
-      :nodes="nodes"
-      :intent="liveIntent"
-      :prune-details="livePruneDetails"
-      :style="{ width: chatW + 'px', flexShrink: 0 }"
-      @close="emit('close-timeline')"
-      @focus-node="(id) => emit('focus-node', id)"
-    />
     <ChatPanel
-      v-else
       :nodes="nodes"
       :edges="edges"
       :width="chatW"
       :seed="pendingChatSeed"
+      :live-prediction="livePrediction"
       @update="(addNodes, addEdges) => emit('update', addNodes, addEdges)"
       @clear-graph="emit('clear')"
       @seed-consumed="emit('seed-consumed')"
+      @focus-node="(id) => emit('focus-node', id)"
+      @abort-prediction="emit('abort-prediction')"
     />
   </div>
 </template>

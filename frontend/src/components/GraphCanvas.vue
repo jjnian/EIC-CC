@@ -8,6 +8,8 @@ const props = defineProps<{
   edges: OntologyEdge[];
   selId: string | null;
   layoutDirection?: 'LR' | 'TB';
+  /** 只读模式:禁用拖拽、禁用右键菜单、隐藏画布动作浮条与清空按钮(预览页用)。 */
+  readonly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -36,6 +38,7 @@ const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
 const onNodeContext = (e: MouseEvent, id: string) => {
   e.preventDefault();
   e.stopPropagation();
+  if (props.readonly) return; // 只读模式不弹推演菜单
   emit('select', id);
   ctxMenu.value = { x: e.clientX, y: e.clientY, id };
 };
@@ -101,6 +104,7 @@ const fitView = () => {
 const startDrag = (e: MouseEvent, id: string) => {
   e.stopPropagation();
   emit('select', id);
+  if (props.readonly) return; // 只读模式不允许拖动节点
   const n = nmap.value[id];
   if (n) {
     drag.value = { id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y, moved: false };
@@ -293,7 +297,7 @@ defineExpose({ fitView, focusNode });
     </div>
 
     <div class="hud-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">
-      <div class="canvas-actions" style="position: absolute; top: 24px; left: 50%; transform: translateX(-50%); pointer-events: auto; display: flex; gap: 8px; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); padding: 6px 8px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <div v-if="!readonly" class="canvas-actions" style="position: absolute; top: 24px; left: 50%; transform: translateX(-50%); pointer-events: auto; display: flex; gap: 8px; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); padding: 6px 8px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
         <button class="ca-btn" @click="fitView"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7 7"/></svg>适应屏幕</button>
         <button class="ca-btn" @click="emit('auto-layout')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3M21 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3M4 12h16"/></svg>自动布局</button>
         <button class="ca-btn" @click="emit('toggle-layout-direction')" :title="layoutDirection === 'LR' ? '当前从左向右,点击改为从上到下' : '当前从上到下,点击改为从左向右'">
