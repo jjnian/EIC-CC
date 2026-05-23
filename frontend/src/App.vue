@@ -36,6 +36,15 @@ const currentModelId = ref<string>('');
 const compareDialogOpen = ref(false);
 const importDialogOpen = ref(false);
 
+// 分支对比差异高亮状态
+const diffHighlight = ref<{ sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null>(null);
+const onHighlightDiff = (data: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null) => {
+  diffHighlight.value = data;
+};
+const clearDiffHighlight = () => {
+  diffHighlight.value = null;
+};
+
 const ontology = useOntologyModel({
   currentModelId,
   onDeletedCurrent: () => goWelcome(),
@@ -631,6 +640,7 @@ const openPreview = () => {
         :div-drag-active="isDragging"
         :pending-chat-seed="pendingChatSeed"
         :layout-direction="layoutDirection"
+        :diff-highlight="diffHighlight"
         @update:selected-id="(id) => sel = id"
         @update:show-schema="(v) => showSchema = v"
         @move="onMove"
@@ -652,6 +662,7 @@ const openPreview = () => {
         @abort-prediction="closeTimeline"
         @update-node-props="updateNodeProps"
         @delete-edge="deleteEdge"
+        @clear-diff="clearDiffHighlight"
       />
 
       <!-- Predict Dialog (modal) -->
@@ -670,6 +681,7 @@ const openPreview = () => {
         :open="compareDialogOpen"
         :branches="branches"
         @close="compareDialogOpen = false"
+        @highlight-diff="onHighlightDiff"
       />
 
       <!-- Import Dialog (modal) -->

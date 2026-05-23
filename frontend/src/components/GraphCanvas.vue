@@ -10,6 +10,8 @@ const props = defineProps<{
   layoutDirection?: 'LR' | 'TB';
   /** 只读模式:禁用拖拽、禁用右键菜单、隐藏画布动作浮条与清空按钮(预览页用)。 */
   readonly?: boolean;
+  /** 分支对比差异高亮数据 */
+  diffHighlight?: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null;
 }>();
 
 const emit = defineEmits<{
@@ -23,6 +25,7 @@ const emit = defineEmits<{
   (e: 'delete-node', id: string): void;
   (e: 'delete-nodes', ids: string[]): void;
   (e: 'edit-node', id: string): void;
+  (e: 'clear-diff'): void;
 }>();
 
 const typeFilter = ref<string | null>(null);
@@ -93,6 +96,15 @@ const heatColor = (n: any) => {
   // 绿(高概率) → 黄(中) → 红(低)
   const h = p * 120; // 0=红, 60=黄, 120=绿
   return `hsl(${h}, 80%, 45%)`;
+};
+
+// 分支对比差异着色:蓝=A独有, 橙=B独有, 紫=共同
+const diffColor = (n: any) => {
+  if (!props.diffHighlight) return null;
+  if (props.diffHighlight.uniqueAIds.includes(n.id)) return '#3b82f6'; // 蓝色 = A独有
+  if (props.diffHighlight.uniqueBIds.includes(n.id)) return '#f97316'; // 橙色 = B独有
+  if (props.diffHighlight.sharedIds.includes(n.id)) return '#a855f7';  // 紫色 = 共同
+  return null;
 };
 
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
@@ -450,7 +462,7 @@ defineExpose({ fitView, focusNode });
                 :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-multi-sel': multiSel.has(n.id), 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n) || (searchQuery && !isSearchMatch(n)), 'node-hl': typeFilter && matchesFilter(n), 'node-search-current': isCurrentSearchTarget(n) }]"
                 :style="{
                   left: n.x + 'px', top: n.y + 'px', width: NW + 'px',
-                  background: heatColor(n) || getT(n).bg, borderLeftColor: getT(n).color,
+                  background: diffColor(n) || heatColor(n) || getT(n).bg, borderLeftColor: getT(n).color,
                   borderTopColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
                   borderRightColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
                   borderBottomColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
@@ -529,6 +541,9 @@ defineExpose({ fitView, focusNode });
         </button>
         <button class="ca-btn" :class="{ 'ca-active': heatmapMode }" @click="heatmapMode = !heatmapMode" title="热力图模式">
           🌡
+        </button>
+        <button v-if="diffHighlight" class="ca-btn ca-active" @click="emit('clear-diff')" title="清除对比高亮">
+          ✕ 对比
         </button>
         <button class="ca-btn" @click="emit('clear')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空画布</button>
       </div>

@@ -26,6 +26,7 @@ const props = defineProps({
   divDragActive:   { type: Boolean, default: false },
   pendingChatSeed: { type: Object as PropType<{ text: string; files: File[] } | null>, default: null },
   layoutDirection: { type: String as PropType<'LR' | 'TB'>, default: 'LR' },
+  diffHighlight:   { type: Object as PropType<{ sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null>, default: null },
 });
 
 const livePrediction = computed(() => ({
@@ -62,6 +63,7 @@ const emit = defineEmits<{
   (e: 'abort-prediction'): void;
   (e: 'update-node-props', id: string, props: { key: string; value: any; source?: string }[]): void;
   (e: 'delete-edge', edgeId: string): void;
+  (e: 'clear-diff'): void;
 }>();
 
 const selNode = computed(() => props.nodes.find(n => n.id === props.selectedId) || null);
@@ -82,6 +84,7 @@ const onCloseInfo = () => {
         :edges="edges"
         :selId="selectedId"
         :layoutDirection="layoutDirection"
+        :diffHighlight="diffHighlight"
         @move="(id, x, y) => emit('move', id, x, y)"
         @drag-start="(id) => emit('drag-start', id)"
         @select="onSelect"
@@ -92,6 +95,7 @@ const onCloseInfo = () => {
         @edit-node="(id) => emit('edit-node', id)"
         @delete-node="(id) => emit('delete-node', id)"
         @delete-nodes="(ids) => emit('delete-nodes', ids)"
+        @clear-diff="emit('clear-diff')"
       />
       <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
         <span class="bb-icon">⚡</span>

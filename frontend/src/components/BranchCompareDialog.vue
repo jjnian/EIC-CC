@@ -9,7 +9,19 @@ const props = defineProps<{
   initialB?: string;
 }>();
 
-const emit = defineEmits<{ (e: 'close'): void }>();
+const emit = defineEmits<{
+  (e: 'close'): void;
+  (e: 'highlight-diff', data: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null): void;
+}>();
+
+// 将对比差异高亮到画布上
+const emitHighlight = () => {
+  const sharedIds = diff.value.shared.map(s => s.a.nodeId);
+  const uniqueAIds = diff.value.uniqueA.map(s => s.nodeId);
+  const uniqueBIds = diff.value.uniqueB.map(s => s.nodeId);
+  emit('highlight-diff', { sharedIds, uniqueAIds, uniqueBIds });
+  emit('close');
+};
 
 const aId = ref<string>('');
 const bId = ref<string>('');
@@ -99,6 +111,12 @@ const onBackdrop = (e: MouseEvent) => {
           </div>
         </div>
       </div>
+
+      <button v-if="aId !== bId && (diff.shared.length || diff.uniqueA.length || diff.uniqueB.length)"
+              class="bc-highlight-btn"
+              @click="emitHighlight">
+        🎨 在画布上高亮差异
+      </button>
 
       <div class="bc-body">
         <div v-if="aId === bId" class="bc-empty">请选择两个不同的分支</div>
@@ -272,4 +290,16 @@ const onBackdrop = (e: MouseEvent) => {
   padding: 1px 6px; border-radius: 100px;
   font-style: italic;
 }
+.bc-highlight-btn {
+  background: rgba(96, 165, 250, 0.12);
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  color: #60a5fa;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  margin: 8px 16px;
+  transition: all 0.15s;
+}
+.bc-highlight-btn:hover { background: rgba(96, 165, 250, 0.22); }
 </style>
