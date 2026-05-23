@@ -224,9 +224,29 @@ const onScroll = () => {
 // 视口外扩裁剪边距，避免滚动时节点突然出现 / 消失造成视觉跳变
 const CULL_MARGIN = 200;
 
+// 只把 class 节点画到画布。attribute / constraint / relation_type 等 TBox 元素
+// 在 Schema 面板里展示,不占图上空间。预测节点 (source==='predicted') 永远保留,
+// 否则历史推演分支会一片空白。
+const ONTOLOGY_GRAPH_TYPES = new Set(['class']);
+const graphNodes = computed(() =>
+  props.nodes.filter(n => ONTOLOGY_GRAPH_TYPES.has(n.type) || n.source === 'predicted')
+);
+// Legend 只列出图上真正会出现的节点类型(默认只有 class;若分支里出现预测节点的其它类型,
+// 也一并列上,避免用户筛选不到)
+const legendTypes = computed(() => {
+  const present = new Set<string>();
+  for (const n of graphNodes.value) present.add(n.type);
+  if (present.size === 0) present.add('class');
+  const out: Record<string, any> = {};
+  for (const k of Object.keys(NT)) {
+    if (present.has(k)) out[k] = (NT as any)[k];
+  }
+  return out;
+});
+
 const visibleNodes = computed(() => {
   // 小图谱不做裁剪，省下计算开销 + 避免裁剪带来的复杂度
-  if (!cvRef.value || props.nodes.length < 80) return props.nodes;
+  if (!cvRef.value || graphNodes.value.length < 80) return graphNodes.value;
 
   // 视口换算到内容坐标系：除以 zoom 即可
   const z = zoom.value;
@@ -238,7 +258,7 @@ const visibleNodes = computed(() => {
   const margin = CULL_MARGIN / z;
 
   // 节点矩形与视口（含 margin）相交即保留
-  return props.nodes.filter(n => {
+  return graphNodes.value.filter(n => {
     const nx = n.x || 0;
     const ny = n.y || 0;
     return nx + NW >= vl - margin && nx <= vr + margin &&
@@ -575,10 +595,11 @@ defineExpose({ fitView, focusNode });
                         :marker-end="e.source === 'predicted' ? 'url(#arr-p)' : (e.rule_driven ? 'url(#arr-r)' : (selId === e.from || selId === e.to ? 'url(#arr-s)' : 'url(#arr)'))"/>
                   <path v-if="e.source !== 'predicted'" :class="selId === e.from || selId === e.to ? 'line-flow-fast' : 'line-flow'" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (selId === e.from || selId === e.to ? '#a7f3d0' : 'rgba(66, 184, 131, 0.6)')" :stroke-width="selId === e.from || selId === e.to ? 2.5 : 1.5"/>
                   <g v-if="e.label">
-                    <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 20" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="40" height="14" rx="3" fill="#0f172a" opacity="0.8"/>
+                    <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 22" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="44" height="14" rx="3" fill="#0f172a" opacity="0.8"/>
                     <text :x="getPath(nmap[e.from], nmap[e.to]).mx" :y="getPath(nmap[e.from], nmap[e.to]).my - 6" text-anchor="middle" :style="{fill: e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.7)')), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
-                      <tspan v-if="e.source === 'predicted'">◇</tspan><tspan v-else-if="e.rule_driven">⚡</tspan>{{ e.label }}
+                      <tspan v-if="e.source === 'predicted'">◇</tspan><tspan v-else-if="e.rule_driven">⚡</tspan>{{ e.label }}<tspan v-if="(e.constraints?.length || 0) > 0" dx="2" style="font-size:10px">🔒</tspan>
                     </text>
+                    <title v-if="(e.constraints?.length || 0) > 0">{{ (e.constraints || []).map((c: any) => c.note).join('\n') }}</title>
                   </g>
                 </g>
               </template>
@@ -599,7 +620,12 @@ defineExpose({ fitView, focusNode });
                 @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @dblclick.stop="emit('edit-node', n.id)" @click.stop>
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
               <div class="node-label">{{ n.label }}</div>
-              <div class="node-type">{{ getT(n).label }}</div>
+              <div class="node-type">
+                {{ getT(n).label }}
+                <span v-if="(n.attributes?.length || 0) > 0" class="node-attr-chip" :title="'属性: ' + (n.attributes || []).map(a => a.name).join(', ')">{{ n.attributes.length }}属性</span>
+              </div>
+              <div v-if="(n.constraints?.length || 0) > 0" class="node-lock"
+                   :title="(n.constraints || []).map(c => c.note).join('\n')">🔒</div>
               <div v-if="n.source === 'predicted'" class="node-pred-badge"
                    :title="'置信度: ' + Math.round((n.confidence || 0) * 100) + '% | 有效概率: ' + Math.round((n.effectiveProbability || 0) * 100) + '%'">
                 {{ Math.round((n.effectiveProbability || n.confidence || 0) * 100) }}%
@@ -710,7 +736,8 @@ defineExpose({ fitView, focusNode });
       </span>
 
       <div class="legend" style="position: absolute; top: 24px; right: 24px; pointer-events: auto;">
-        <div v-for="(t, k) in NT" :key="k"
+        <!-- 只显示图上真正画出来的类别(默认就是 class)。attribute / constraint 在 Schema 面板里。 -->
+        <div v-for="(t, k) in legendTypes" :key="k"
              :class="['legend-row', { 'legend-row-active': typeFilter === k, 'legend-row-inactive': typeFilter && typeFilter !== k }]"
              :title="typeFilter === k ? '点击取消筛选' : '点击仅显示' + (t as any).label"
              @click.stop="toggleTypeFilter(k as string)">

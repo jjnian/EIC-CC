@@ -11,6 +11,9 @@ export interface OntologyNode {
   y?: number;
   properties?: Record<string, any>;
   props?: { key: string; value: any; source?: string }[];
+  // 静态本体 TBox: 类节点上的属性定义与约束(不渲染为图节点,只在 Schema 面板里)
+  attributes?: OntologyAttribute[];
+  constraints?: OntologyConstraint[];
   predictedStep?: number;
   predictedIntent?: 'forward' | 'backward';
   confidence?: number;
@@ -28,8 +31,23 @@ export interface OntologyEdge {
   source?: NodeSource;
   rule_driven?: boolean;
   ruleId?: string;
+  // 关系类型上的约束: 基数/对称/传递…(不渲染在边上,只在 Schema 面板里 + 边上一个🔒)
+  constraints?: OntologyConstraint[];
   isNew?: boolean;
   [k: string]: any;
+}
+
+/** TBox 属性定义: 类节点上挂的属性 + 取值范围 */
+export interface OntologyAttribute {
+  name: string;
+  valueSpace?: string;
+  description?: string;
+}
+
+/** TBox 约束: 基数限制 / 互斥 / 对称 / 传递 … */
+export interface OntologyConstraint {
+  kind?: 'cardinality' | 'exclusive' | 'symmetric' | 'transitive' | 'custom';
+  note: string;
 }
 
 export interface OntologyModel {

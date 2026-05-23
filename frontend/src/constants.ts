@@ -1,8 +1,10 @@
 // 静态本体层 (TBox / 世界的家具与规则)
-//   class         : 概念/类节点          —— 范畴层级 (坦克、国家、谈判)
-//   relation_type : 关系类型定义         —— 隶属/敌对/依赖的合法性声明 + 定义域/值域
-//   attribute     : 属性定义与值空间     —— 重量/士气/GDP 增速 + 取值范围
-//   constraint    : 约束                 —— 基数限制 / 互斥
+//   class         : 概念/类节点  —— 图上的方块
+//   relation_type : 关系类型     —— 图上的边(label = 关系名)
+//   attribute     : 属性定义     —— 不在图上,Schema 面板里
+//   constraint    : 约束         —— 不在图上,Schema 面板里;有约束的类/边上挂 🔒
+//
+// NT 仍然保留 4 个类别供 Schema 面板分类着色;但 GraphCanvas 只把 `class` 节点画到画布上。
 export const NT = {
   class:         {color:'#3d9bff',bg:'#071d3a',label:'概念/类'},
   relation_type: {color:'#22dd88',bg:'#002418',label:'关系类型'},
@@ -14,22 +16,46 @@ export const NW = 172;
 export const NH = 44;
 
 export const INIT_NODES = [
-  {id:'n1',label:'国家',type:'class',x:130,y:330},
-  {id:'n2',label:'坦克',type:'class',x:360,y:330},
-  {id:'n3',label:'谈判',type:'class',x:610,y:330},
-  {id:'n4',label:'敌对',type:'relation_type',x:360,y:170},
-  {id:'n5',label:'隶属',type:'relation_type',x:130,y:170},
-  {id:'n6',label:'GDP 增速',type:'attribute',x:130,y:490},
-  {id:'n7',label:'士气',type:'attribute',x:360,y:490},
-  {id:'n8',label:'互斥:结盟⊕交战',type:'constraint',x:610,y:170},
+  {
+    id:'n1', label:'国家', type:'class', x:130, y:200,
+    attributes:[
+      {name:'GDP增速', valueSpace:'number'},
+      {name:'人口',    valueSpace:'number'},
+    ],
+    constraints:[
+      {kind:'exclusive', note:'同一国家不能同时与同一对象既结盟又交战'},
+    ],
+  },
+  {
+    id:'n2', label:'坦克', type:'class', x:430, y:380,
+    attributes:[
+      {name:'重量', valueSpace:'number(吨)'},
+      {name:'士气', valueSpace:'0..1'},
+    ],
+  },
+  {
+    id:'n3', label:'谈判', type:'class', x:730, y:200,
+    attributes:[
+      {name:'议题', valueSpace:'string'},
+    ],
+    constraints:[
+      {kind:'cardinality', note:'参与方至少 2 个'},
+    ],
+  },
 ];
 
 export const INIT_EDGES = [
-  {id:'e1',from:'n5',to:'n1',label:'定义域'},
-  {id:'e2',from:'n4',to:'n1',label:'定义域/值域'},
-  {id:'e3',from:'n6',to:'n1',label:'属于'},
-  {id:'e4',from:'n7',to:'n2',label:'属于'},
-  {id:'e5',from:'n8',to:'n4',label:'约束'},
+  {
+    id:'e1', from:'n1', to:'n2', label:'拥有',
+    constraints:[{kind:'cardinality', note:'多对多'}],
+  },
+  {
+    id:'e2', from:'n1', to:'n1', label:'敌对',
+    constraints:[{kind:'symmetric', note:'对称'}],
+  },
+  {
+    id:'e3', from:'n1', to:'n3', label:'参与',
+  },
 ];
 
 export function getPath(fn: any, tn: any) {
