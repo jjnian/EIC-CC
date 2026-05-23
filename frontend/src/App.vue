@@ -440,6 +440,24 @@ const deleteNode = async (id: string) => {
   persistCurrentModel();
 };
 
+// 批量删除节点（含确认弹窗）
+const deleteNodes = async (ids: string[]) => {
+  if (!ids.length) return;
+  const ok = await confirm({
+    title: '批量删除',
+    message: `确定删除选中的 ${ids.length} 个节点？相关关系也会一并删除。`,
+    danger: true,
+    confirmLabel: '删除',
+  });
+  if (!ok) return;
+  history.snapshot();
+  const idSet = new Set(ids);
+  nodes.value = nodes.value.filter(n => !idSet.has(n.id));
+  edges.value = edges.value.filter(e => !idSet.has(e.from) && !idSet.has(e.to));
+  if (sel.value && idSet.has(sel.value)) sel.value = null;
+  persistCurrentModel();
+};
+
 const focusNodeInGraph = (id: string) => {
   sel.value = id;
   graphRef.value?.focusNode?.(id);
@@ -623,6 +641,7 @@ const openPreview = () => {
         @predict-from="openPredictDialog"
         @edit-node="openEditNode"
         @delete-node="deleteNode"
+        @delete-nodes="deleteNodes"
         @switch-branch="switchBranch"
         @close-timeline="closeTimeline"
         @focus-node="focusNodeInGraph"

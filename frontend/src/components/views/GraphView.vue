@@ -58,6 +58,7 @@ const emit = defineEmits<{
   (e: 'graph-ref', el: any): void;
   (e: 'edit-node', id: string): void;
   (e: 'delete-node', id: string): void;
+  (e: 'delete-nodes', ids: string[]): void;
   (e: 'abort-prediction'): void;
   (e: 'update-node-props', id: string, props: { key: string; value: any; source?: string }[]): void;
   (e: 'delete-edge', edgeId: string): void;
@@ -90,6 +91,7 @@ const onCloseInfo = () => {
         @predict-from="(id) => emit('predict-from', id)"
         @edit-node="(id) => emit('edit-node', id)"
         @delete-node="(id) => emit('delete-node', id)"
+        @delete-nodes="(ids) => emit('delete-nodes', ids)"
       />
       <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
         <span class="bb-icon">⚡</span>

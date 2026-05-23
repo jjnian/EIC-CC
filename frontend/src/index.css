@@ -240,6 +240,22 @@ body {
   z-index: 10;
 }
 
+/* ── 多选高亮 ── */
+.node-multi-sel {
+  outline: 2px solid #60a5fa !important;
+  outline-offset: 2px;
+  z-index: 9;
+}
+
+/* ── 框选矩形 ── */
+.box-select {
+  position: absolute;
+  border: 1px dashed #60a5fa;
+  background: rgba(96, 165, 250, 0.1);
+  pointer-events: none;
+  z-index: 5;
+}
+
 /* ── Flow Animation ── */
 @keyframes line-flow {
   from { stroke-dashoffset: 0; }

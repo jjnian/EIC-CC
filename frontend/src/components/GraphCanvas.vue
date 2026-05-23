@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { NT, NW, getPath } from '../constants';
+import { ref, computed, watch, reactive, onMounted, onUnmounted, nextTick } from 'vue';
+import { NT, NW, NH, getPath } from '../constants';
 import type { OntologyNode, OntologyEdge } from '../types';
 
 const props = defineProps<{
@@ -21,6 +21,7 @@ const emit = defineEmits<{
   (e: 'clear'): void;
   (e: 'predict-from', id: string): void;
   (e: 'delete-node', id: string): void;
+  (e: 'delete-nodes', ids: string[]): void;
   (e: 'edit-node', id: string): void;
 }>();
 
@@ -124,6 +125,19 @@ const triggerDelete = () => {
   }
 };
 
+const triggerBatchDelete = () => {
+  if (multiSel.size > 0) {
+    emit('delete-nodes', [...multiSel]);
+    multiSel.clear();
+    ctxMenu.value = null;
+  }
+};
+
+/* ── 多选状态 ── */
+const multiSel = reactive(new Set<string>());
+/* ── 框选状态 ── */
+const boxSel = ref<{ sx: number; sy: number; cx: number; cy: number } | null>(null);
+
 const cvRef = ref<HTMLElement | null>(null);
 const zoom = ref(1);
 const drag = ref<any>(null);
@@ -177,11 +191,32 @@ const fitView = () => {
 
 const startDrag = (e: MouseEvent, id: string) => {
   e.stopPropagation();
+
+  if (e.ctrlKey || e.metaKey) {
+    // Ctrl+点击：切换多选状态
+    if (multiSel.has(id)) {
+      multiSel.delete(id);
+    } else {
+      multiSel.add(id);
+    }
+    emit('select', id);
+    return;
+  }
+
+  // 非Ctrl点击：如果点的是多选集中的节点，保留多选准备批量拖拽
+  if (!multiSel.has(id)) {
+    multiSel.clear(); // 点击未选中的节点，清空多选
+  }
+
   emit('select', id);
-  if (props.readonly) return; // 只读模式不允许拖动节点
+  if (props.readonly) return;
   const n = nmap.value[id];
   if (n) {
-    drag.value = { id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y, moved: false };
+    // 如果拖拽的节点在多选集中且多选数量大于1，记录所有选中节点的初始位置
+    const batchOrigins = multiSel.has(id) && multiSel.size > 1
+      ? Object.fromEntries([...multiSel].map(sid => [sid, { x: nmap.value[sid]?.x || 0, y: nmap.value[sid]?.y || 0 }]))
+      : null;
+    drag.value = { id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y, moved: false, batchOrigins };
   }
 };
 
@@ -190,6 +225,16 @@ const startPan = (e: MouseEvent) => {
     return;
   }
   isAutoFit.value = false;
+
+  // Shift+拖拽：框选模式
+  if (e.shiftKey && !props.readonly) {
+    const rect = cvRef.value!.getBoundingClientRect();
+    const x = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
+    const y = (e.clientY - rect.top + cvRef.value!.scrollTop) / zoom.value;
+    boxSel.value = { sx: x, sy: y, cx: x, cy: y };
+    return;
+  }
+
   pan.value = {
     sx: e.clientX,
     sy: e.clientY,
@@ -201,15 +246,34 @@ const startPan = (e: MouseEvent) => {
 let ro: ResizeObserver | null = null;
 
 const onWindowMouseMove = (e: MouseEvent) => {
+  // 框选拖拽中：更新框选的当前坐标
+  if (boxSel.value) {
+    const rect = cvRef.value!.getBoundingClientRect();
+    const x = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
+    const y = (e.clientY - rect.top + cvRef.value!.scrollTop) / zoom.value;
+    boxSel.value.cx = x;
+    boxSel.value.cy = y;
+    return;
+  }
+
   if (drag.value) {
-    const { id, sx, sy, ox, oy, moved } = drag.value;
-    const nx = ox + (e.clientX - sx) / zoom.value;
-    const ny = oy + (e.clientY - sy) / zoom.value;
-    if (!moved && (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy)) > 2) {
+    const { id, sx, sy, ox, oy, batchOrigins } = drag.value;
+    const dx = (e.clientX - sx) / zoom.value;
+    const dy = (e.clientY - sy) / zoom.value;
+
+    if (!drag.value.moved && (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy)) > 2) {
       drag.value.moved = true;
       emit('drag-start', id);
     }
-    emit('move', id, Math.max(0, nx), Math.max(0, ny));
+
+    // 批量移动：对所有选中节点应用相同偏移
+    if (batchOrigins) {
+      for (const [selId, origin] of Object.entries(batchOrigins) as [string, { x: number; y: number }][]) {
+        emit('move', selId, Math.max(0, origin.x + dx), Math.max(0, origin.y + dy));
+      }
+    } else {
+      emit('move', id, Math.max(0, ox + dx), Math.max(0, oy + dy));
+    }
     isAutoFit.value = false;
   } else if (pan.value && cvRef.value) {
     cvRef.value.scrollLeft = pan.value.sl - (e.clientX - pan.value.sx);
@@ -217,6 +281,26 @@ const onWindowMouseMove = (e: MouseEvent) => {
   }
 };
 const onWindowMouseUp = () => {
+  // 框选结束：计算框选范围内的节点
+  if (boxSel.value) {
+    const { sx, sy, cx, cy } = boxSel.value;
+    const left = Math.min(sx, cx);
+    const top = Math.min(sy, cy);
+    const right = Math.max(sx, cx);
+    const bottom = Math.max(sy, cy);
+
+    multiSel.clear();
+    for (const n of props.nodes) {
+      // 节点完全在框选区域内才选中
+      const nx = n.x ?? 0;
+      const ny = n.y ?? 0;
+      if (nx >= left && nx + NW <= right && ny >= top && ny + NH <= bottom) {
+        multiSel.add(n.id);
+      }
+    }
+    boxSel.value = null;
+    return;
+  }
   drag.value = null;
   pan.value = null;
 };
@@ -230,10 +314,22 @@ const onSearchKeydown = (e: KeyboardEvent) => {
   }
 };
 
+/* Delete 键批量删除选中节点 */
+const onDeleteKey = (e: KeyboardEvent) => {
+  if (e.key === 'Delete' && multiSel.size > 0 && !props.readonly) {
+    // 避免在输入框内触发
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    emit('delete-nodes', [...multiSel]);
+    multiSel.clear();
+  }
+};
+
 onMounted(() => {
   window.addEventListener('mousemove', onWindowMouseMove);
   window.addEventListener('mouseup', onWindowMouseUp);
   window.addEventListener('keydown', onSearchKeydown);
+  window.addEventListener('keydown', onDeleteKey);
 
   ro = new ResizeObserver(() => {
     window.requestAnimationFrame(() => {
@@ -253,6 +349,7 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', onWindowMouseMove);
   window.removeEventListener('mouseup', onWindowMouseUp);
   window.removeEventListener('keydown', onSearchKeydown);
+  window.removeEventListener('keydown', onDeleteKey);
   ro?.disconnect();
   ro = null;
 });
@@ -309,7 +406,7 @@ defineExpose({ fitView, focusNode });
 
 <template>
   <div class="graph-wrapper" style="position: relative; flex: 1; overflow: hidden; display: flex; background: transparent;">
-    <div ref="cvRef" class="graph-canvas" style="flex: 1; overflow: auto; min-width: 0; position: relative;" @mousedown="startPan" @wheel="onWheel" @click="() => { closeCtx(); emit('select', null); }" @contextmenu.prevent>
+    <div ref="cvRef" class="graph-canvas" style="flex: 1; overflow: auto; min-width: 0; position: relative;" @mousedown="startPan" @wheel="onWheel" @click="() => { closeCtx(); multiSel.clear(); emit('select', null); }" @contextmenu.prevent>
       <div :style="{ width: Math.max(3000, bounds.w * zoom) + 'px', height: Math.max(3000, bounds.h * zoom) + 'px', position: 'relative' }">
         <div class="scale-container" :style="{ transform: `scale(${zoom})`, transformOrigin: '0 0', width: '3000px', height: '3000px', position: 'absolute', top: 0, left: 0 }">
           <svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible">
@@ -350,7 +447,7 @@ defineExpose({ fitView, focusNode });
 
           <div class="graph-root" style="transform:none;">
             <div v-for="n in nodes" :key="n.id"
-                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n) || (searchQuery && !isSearchMatch(n)), 'node-hl': typeFilter && matchesFilter(n), 'node-search-current': isCurrentSearchTarget(n) }]"
+                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-multi-sel': multiSel.has(n.id), 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n) || (searchQuery && !isSearchMatch(n)), 'node-hl': typeFilter && matchesFilter(n), 'node-search-current': isCurrentSearchTarget(n) }]"
                 :style="{
                   left: n.x + 'px', top: n.y + 'px', width: NW + 'px',
                   background: heatColor(n) || getT(n).bg, borderLeftColor: getT(n).color,
@@ -369,6 +466,14 @@ defineExpose({ fitView, focusNode });
               </div>
             </div>
           </div>
+
+          <!-- 框选矩形视觉反馈 -->
+          <div v-if="boxSel" class="box-select" :style="{
+            left: Math.min(boxSel.sx, boxSel.cx) + 'px',
+            top: Math.min(boxSel.sy, boxSel.cy) + 'px',
+            width: Math.abs(boxSel.cx - boxSel.sx) + 'px',
+            height: Math.abs(boxSel.cy - boxSel.sy) + 'px'
+          }"></div>
         </div>
       </div>
     </div>
@@ -385,7 +490,12 @@ defineExpose({ fitView, focusNode });
         <span class="ctx-icon">✎</span>
         <span>编辑节点</span>
       </button>
-      <button class="ctx-item ctx-danger" @click="triggerDelete">
+      <button v-if="multiSel.size > 1" class="ctx-item ctx-danger" @click="triggerBatchDelete">
+        <span class="ctx-icon">✕</span>
+        <span>删除选中 ({{ multiSel.size }})</span>
+        <span class="ctx-hint">Delete</span>
+      </button>
+      <button v-else class="ctx-item ctx-danger" @click="triggerDelete">
         <span class="ctx-icon">✕</span>
         <span>删除节点</span>
       </button>
