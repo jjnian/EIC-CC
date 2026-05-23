@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, type PropType } from 'vue';
+import { computed, ref, watch, type PropType } from 'vue';
 import GraphCanvas from '../GraphCanvas.vue';
 import NodeInfo from '../NodeInfo.vue';
 import ChatPanel from '../ChatPanel.vue';
+import ExplanationPanel from '../ExplanationPanel.vue';
+import { toast } from '../../composables/useToast';
 import type { OntologyNode, OntologyEdge, ChainStep } from '../../types';
 
 const props = defineProps({
@@ -73,6 +75,49 @@ const onCloseInfo = () => {
   emit('update:selectedId', null);
   emit('update:showSchema', false);
 };
+
+// P1-7：浮动解释面板栈。最多同时打开 3 个，按 nodeId 唯一。
+const MAX_PANELS = 3;
+type ExplainPanelEntry = { scenarioId: string; nodeId: string; nodeLabel: string; nodeType?: string; confidence?: number };
+const explanationPanels = ref<ExplainPanelEntry[]>([]);
+
+const onExplainNode = (nodeId: string) => {
+  const node = props.nodes.find(n => n.id === nodeId);
+  if (!node) return;
+  if (node.source !== 'predicted') {
+    toast.warn('该节点不是推演节点，无需解释');
+    return;
+  }
+  // 解释只对已落库的分支有效；live 阶段还没有 scenarioId
+  const branchId = props.activeBranchId;
+  if (!branchId || branchId === 'trunk' || branchId === 'live') {
+    toast.warn('请先等待推演完成或切换到对应分支');
+    return;
+  }
+  // 已有同 nodeId 的面板 → 关闭重开（视为刷新位置）
+  const existed = explanationPanels.value.findIndex(p => p.nodeId === nodeId);
+  if (existed >= 0) {
+    explanationPanels.value.splice(existed, 1);
+  } else if (explanationPanels.value.length >= MAX_PANELS) {
+    explanationPanels.value.shift();
+  }
+  explanationPanels.value.push({
+    scenarioId: branchId,
+    nodeId,
+    nodeLabel: node.label || nodeId,
+    nodeType: node.type,
+    confidence: node.confidence,
+  });
+};
+
+const closePanel = (nodeId: string) => {
+  explanationPanels.value = explanationPanels.value.filter(p => p.nodeId !== nodeId);
+};
+
+// 切换分支时关闭所有解释面板（避免 nodeId 错位）
+watch(() => props.activeBranchId, () => {
+  explanationPanels.value = [];
+});
 </script>
 
 <template>
@@ -95,6 +140,7 @@ const onCloseInfo = () => {
         @edit-node="(id) => emit('edit-node', id)"
         @delete-node="(id) => emit('delete-node', id)"
         @delete-nodes="(ids) => emit('delete-nodes', ids)"
+        @explain-node="onExplainNode"
         @clear-diff="emit('clear-diff')"
       />
       <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
@@ -124,6 +170,19 @@ const onCloseInfo = () => {
       @seed-consumed="emit('seed-consumed')"
       @focus-node="(id) => emit('focus-node', id)"
       @abort-prediction="emit('abort-prediction')"
+    />
+
+    <!-- P1-7：浮动解释面板（可堆叠多个） -->
+    <ExplanationPanel
+      v-for="(p, idx) in explanationPanels"
+      :key="p.nodeId"
+      :scenario-id="p.scenarioId"
+      :node-id="p.nodeId"
+      :node-label="p.nodeLabel"
+      :node-type="p.nodeType"
+      :confidence="p.confidence"
+      :stack-index="idx"
+      @close="closePanel(p.nodeId)"
     />
   </div>
 </template>

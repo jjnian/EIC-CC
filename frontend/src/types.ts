@@ -58,8 +58,19 @@ export interface ChainStep {
 
 export interface Constraint {
   nodeId: string;
-  mode: 'force' | 'block';
+  mode: 'force' | 'block' | 'probability';
   note?: string;
+  // 仅 mode='probability' 时使用，0..1
+  probability?: number;
+}
+
+/** P1-7：预测节点的三段式解释缓存。 */
+export interface NodeExplanation {
+  evidence: string;
+  assumptions: string;
+  counterexamples: string;
+  generatedAt: number;
+  modelName?: string;
 }
 
 export interface PredictionDag {
@@ -68,6 +79,8 @@ export interface PredictionDag {
   edges: OntologyEdge[];
   chain: ChainStep[];
   constraints?: Constraint[];
+  // P1-7：按预测节点 id 缓存的解释
+  explanations?: Record<string, NodeExplanation>;
 }
 
 export interface Scenario {
@@ -81,6 +94,8 @@ export interface Scenario {
   prompt?: string;
   createdAt: number;
   dag?: PredictionDag;
+  // P1-8：本次推演完整 prompt 快照（按需通过 raw-prompt 端点获取，默认列表不带）
+  rawPrompt?: string;
   // legacy v0.5 flat snapshot fields:
   nodes?: OntologyNode[];
   edges?: OntologyEdge[];

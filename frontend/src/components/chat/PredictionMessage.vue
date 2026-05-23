@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, type PropType } from 'vue';
 import type { PredictionMsg } from '../../composables/useConversations';
+import RawPromptDialog from '../RawPromptDialog.vue';
 
 const props = defineProps({
   prediction: { type: Object as PropType<PredictionMsg>, required: true },
@@ -9,6 +10,7 @@ const props = defineProps({
 const emit = defineEmits<{
   (e: 'focus-node', id: string): void;
   (e: 'abort'): void;
+  (e: 'explain-node', nodeId: string): void;
 }>();
 
 const credFilter = ref(0); // 0..1
@@ -33,6 +35,12 @@ const intentLabel = computed(() =>
 
 const seedLabel = (s: { id: string; label: string }) => s.label || s.id;
 const confidencePct = (c?: number) => c == null ? '' : Math.round(c * 100) + '%';
+
+// P1-8：原始 prompt 查看
+const rawPromptOpen = ref(false);
+const canShowRawPrompt = computed(() =>
+  !!props.prediction.branchId && props.prediction.status !== 'running'
+);
 </script>
 
 <template>
@@ -41,6 +49,13 @@ const confidencePct = (c?: number) => c == null ? '' : Math.round(c * 100) + '%'
       <span class="pmsg-icon">⚡</span>
       <span class="pmsg-title">{{ intentLabel }}</span>
       <span class="pmsg-status">{{ statusLabel }}</span>
+      <button
+        v-if="canShowRawPrompt"
+        class="pmsg-rawprompt"
+        type="button"
+        @click="rawPromptOpen = true"
+        title="查看本次推演的原始 prompt"
+      >📜 prompt</button>
       <button
         v-if="prediction.status === 'running'"
         class="pmsg-stop"
@@ -119,6 +134,14 @@ const confidencePct = (c?: number) => c == null ? '' : Math.round(c * 100) + '%'
         <span class="pmsg-prune-reason">{{ d.reason }}</span>
       </div>
     </div>
+
+    <!-- P1-8：原始 prompt 弹窗 -->
+    <RawPromptDialog
+      v-if="prediction.branchId"
+      :open="rawPromptOpen"
+      :scenario-id="prediction.branchId"
+      @close="rawPromptOpen = false"
+    />
   </div>
 </template>
 
@@ -160,6 +183,14 @@ const confidencePct = (c?: number) => c == null ? '' : Math.round(c * 100) + '%'
   display: inline-flex; align-items: center; gap: 4px;
 }
 .pmsg-stop:hover { background: rgba(255,255,255,0.16); }
+/* P1-8：原始 prompt 按钮 */
+.pmsg-rawprompt {
+  background: rgba(99, 179, 237, 0.1); border: 1px solid rgba(99, 179, 237, 0.25);
+  color: #93c5fd; font-family: inherit; font-size: 10.5px;
+  padding: 2px 8px; border-radius: 6px; cursor: pointer;
+  margin-left: 6px;
+}
+.pmsg-rawprompt:hover { background: rgba(99, 179, 237, 0.2); }
 
 .pmsg-meta, .pmsg-prompt {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px;

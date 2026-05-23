@@ -26,6 +26,8 @@ const emit = defineEmits<{
   (e: 'delete-nodes', ids: string[]): void;
   (e: 'edit-node', id: string): void;
   (e: 'clear-diff'): void;
+  // P1-7：对预测节点请求详细解释
+  (e: 'explain-node', id: string): void;
 }>();
 
 const typeFilter = ref<string | null>(null);
@@ -129,6 +131,21 @@ const triggerEdit = () => {
     ctxMenu.value = null;
   }
 };
+
+// P1-7：对预测节点请求详细解释（依据/假设/反例）
+const triggerExplain = () => {
+  if (ctxMenu.value) {
+    emit('explain-node', ctxMenu.value.id);
+    ctxMenu.value = null;
+  }
+};
+
+/** 当前右键菜单作用的节点是否为推演节点（用于决定是否显示"为什么"项）。 */
+const ctxNodeIsPredicted = computed(() => {
+  if (!ctxMenu.value) return false;
+  const node = props.nodes.find(n => n.id === ctxMenu.value!.id);
+  return node?.source === 'predicted';
+});
 
 const triggerDelete = () => {
   if (ctxMenu.value) {
@@ -549,6 +566,12 @@ defineExpose({ fitView, focusNode });
         <span class="ctx-icon">⚡</span>
         <span>从此推演</span>
         <span class="ctx-hint">Forward</span>
+      </button>
+      <!-- P1-7：仅对推演节点显示"为什么" -->
+      <button v-if="ctxNodeIsPredicted" class="ctx-item" @click="triggerExplain">
+        <span class="ctx-icon">🔍</span>
+        <span>为什么会发生？</span>
+        <span class="ctx-hint">Explain</span>
       </button>
       <div class="ctx-sep"></div>
       <button class="ctx-item" @click="triggerEdit">

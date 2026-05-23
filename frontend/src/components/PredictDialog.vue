@@ -12,7 +12,9 @@ const props = defineProps<{
   modelId?: string;
 }>();
 
-type Constraint = { nodeId: string; mode: 'force' | 'block' };
+// P1-10：约束三态扩展。probability 模式下额外携带 probability 字段（0..1）。
+type ConstraintMode = 'force' | 'block' | 'probability';
+type Constraint = { nodeId: string; mode: ConstraintMode; probability?: number };
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -142,17 +144,37 @@ const constraintCandidates = computed(() => {
     .filter(n => (n.label || '').toLowerCase().includes(q) || (n.type || '').toLowerCase().includes(q) || (n.id || '').toLowerCase().includes(q))
     .slice(0, 20);
 });
-const addConstraint = (id: string, mode: 'force' | 'block' = 'block') => {
+const addConstraint = (id: string, mode: ConstraintMode = 'block') => {
   if (constraintNodeIds.value.has(id)) return;
-  constraints.value.push({ nodeId: id, mode });
+  // P1-10：probability 模式默认 0.5，由用户调整
+  const c: Constraint = { nodeId: id, mode };
+  if (mode === 'probability') c.probability = 0.5;
+  constraints.value.push(c);
   cSearch.value = '';
 };
 const removeConstraint = (id: string) => {
   constraints.value = constraints.value.filter(c => c.nodeId !== id);
 };
+// P1-10：循环切换 force → block → probability → force
 const toggleConstraint = (id: string) => {
   const c = constraints.value.find(x => x.nodeId === id);
-  if (c) c.mode = c.mode === 'force' ? 'block' : 'force';
+  if (!c) return;
+  if (c.mode === 'force') {
+    c.mode = 'block';
+    delete c.probability;
+  } else if (c.mode === 'block') {
+    c.mode = 'probability';
+    c.probability = 0.5;
+  } else {
+    c.mode = 'force';
+    delete c.probability;
+  }
+};
+// P1-10：约束节点是否为现有图谱节点（预测节点不能加概率约束）
+const isExistingGraphNode = (id: string) => {
+  if (!id) return false;
+  // 推演节点 id 形如 'p_*' / 'pe_*'；现有节点通常是 'n_*' 或导入时的其他 id
+  return !id.startsWith('p_') && !id.startsWith('pe_');
 };
 
 const addSeed = (id: string) => {
@@ -324,12 +346,28 @@ watch(intent, (newVal, oldVal) => {
               <div v-for="c in constraints" :key="c.nodeId" class="pd-constraint-row">
                 <button
                   class="pd-cmode"
-                  :class="{ 'pd-cmode-force': c.mode === 'force', 'pd-cmode-block': c.mode === 'block' }"
+                  :class="{
+                    'pd-cmode-force': c.mode === 'force',
+                    'pd-cmode-block': c.mode === 'block',
+                    'pd-cmode-prob': c.mode === 'probability',
+                  }"
                   @click="toggleConstraint(c.nodeId)"
                   type="button"
-                  :title="c.mode === 'force' ? '必然发生（点击切换为禁止）' : '不会发生（点击切换为必然）'"
-                >{{ c.mode === 'force' ? '必然' : '禁止' }}</button>
+                  :title="c.mode === 'force' ? '必然发生（点击切换为禁止）'
+                         : c.mode === 'block' ? '不会发生（点击切换为概率）'
+                         : '先验概率（点击切换为必然）'"
+                >{{ c.mode === 'force' ? '必然' : c.mode === 'block' ? '禁止' : '概率' }}</button>
                 <span class="pd-constraint-label">{{ nodeMap[c.nodeId]?.label || c.nodeId }}</span>
+                <!-- P1-10：probability 模式追加滑块 + 数值 -->
+                <template v-if="c.mode === 'probability'">
+                  <input
+                    type="range" min="0" max="1" step="0.05"
+                    class="pd-prob-slider"
+                    :value="c.probability ?? 0.5"
+                    @input="(e) => { c.probability = Number((e.target as HTMLInputElement).value); }"
+                  />
+                  <span class="pd-prob-val">{{ ((c.probability ?? 0.5) as number).toFixed(2) }}</span>
+                </template>
                 <button class="pd-constraint-x" @click="removeConstraint(c.nodeId)" type="button">×</button>
               </div>
             </div>
@@ -340,6 +378,13 @@ watch(intent, (newVal, oldVal) => {
                 <div class="pd-cand-actions">
                   <button class="pd-cand-add pd-cand-block" @click="addConstraint(n.id, 'block')" type="button">禁止</button>
                   <button class="pd-cand-add pd-cand-force" @click="addConstraint(n.id, 'force')" type="button">必然</button>
+                  <button
+                    class="pd-cand-add pd-cand-prob"
+                    :disabled="!isExistingGraphNode(n.id)"
+                    :title="isExistingGraphNode(n.id) ? '设置先验概率' : '概率约束仅适用于现有图谱节点'"
+                    @click="addConstraint(n.id, 'probability')"
+                    type="button"
+                  >概率</button>
                 </div>
               </div>
               <div v-if="!constraintCandidates.length" class="pd-empty pd-empty-inline">无匹配</div>
@@ -567,12 +612,20 @@ watch(intent, (newVal, oldVal) => {
   cursor: pointer;
   font-family: inherit;
   flex-shrink: 0;
-  width: 44px;
+  width: 56px;
   text-align: center;
 }
 .pd-cmode-block { background: rgba(255, 80, 80, 0.12); color: #ff8a8a; border-color: rgba(255, 80, 80, 0.35); }
 .pd-cmode-force { background: rgba(99, 179, 237, 0.12); color: #63b3ed; border-color: rgba(99, 179, 237, 0.35); }
+/* P1-10：概率模式紫色调，与 data 节点视觉同源 */
+.pd-cmode-prob { background: rgba(187, 119, 255, 0.12); color: #d4a8ff; border-color: rgba(187, 119, 255, 0.35); }
 .pd-constraint-label { flex: 1; font-size: 12px; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* P1-10：概率滑块 + 数值显示 */
+.pd-prob-slider { width: 80px; accent-color: #bb77ff; flex-shrink: 0; }
+.pd-prob-val {
+  font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  color: #d4a8ff; min-width: 32px; text-align: right; flex-shrink: 0;
+}
 .pd-constraint-x {
   background: none; border: none; color: var(--text-dim); cursor: pointer;
   padding: 2px 6px; font-size: 16px; line-height: 1; border-radius: 4px;
@@ -593,6 +646,10 @@ watch(intent, (newVal, oldVal) => {
 .pd-cand-block:hover { background: rgba(255, 80, 80, 0.2); }
 .pd-cand-force { background: rgba(99, 179, 237, 0.1); color: #63b3ed; border-color: rgba(99, 179, 237, 0.3); }
 .pd-cand-force:hover { background: rgba(99, 179, 237, 0.2); }
+/* P1-10：候选项的"概率"按钮 */
+.pd-cand-prob { background: rgba(187, 119, 255, 0.1); color: #d4a8ff; border-color: rgba(187, 119, 255, 0.3); }
+.pd-cand-prob:hover:not(:disabled) { background: rgba(187, 119, 255, 0.2); }
+.pd-cand-prob:disabled { opacity: 0.35; cursor: not-allowed; }
 .pd-cand { justify-content: space-between; }
 .pd-conflict-warnings {
   background: rgba(255, 80, 80, 0.08);
