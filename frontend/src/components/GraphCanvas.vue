@@ -224,15 +224,14 @@ const onScroll = () => {
 // 视口外扩裁剪边距，避免滚动时节点突然出现 / 消失造成视觉跳变
 const CULL_MARGIN = 200;
 
-// 只把 class 节点画到画布。attribute / constraint / relation_type 等 TBox 元素
-// 在 Schema 面板里展示,不占图上空间。预测节点 (source==='predicted') 永远保留,
-// 否则历史推演分支会一片空白。
-const ONTOLOGY_GRAPH_TYPES = new Set(['class']);
+// TBox: attribute 和 constraint 这两类只在 Schema 面板里展示,不上图。
+// 其它类型(class / 以及老数据里的 entity/process/event 等)统统当成"图上的节点"渲染,
+// 这样既能展示静态本体的类,也不会让用户已有的非 class 数据突然全部消失。
+const SCHEMA_ONLY_TYPES = new Set(['attribute', 'constraint']);
 const graphNodes = computed(() =>
-  props.nodes.filter(n => ONTOLOGY_GRAPH_TYPES.has(n.type) || n.source === 'predicted')
+  props.nodes.filter(n => !SCHEMA_ONLY_TYPES.has(n.type))
 );
-// Legend 只列出图上真正会出现的节点类型(默认只有 class;若分支里出现预测节点的其它类型,
-// 也一并列上,避免用户筛选不到)
+// Legend 只列出图上真正会出现的节点类型 (按出现频次,默认就是 class)
 const legendTypes = computed(() => {
   const present = new Set<string>();
   for (const n of graphNodes.value) present.add(n.type);
