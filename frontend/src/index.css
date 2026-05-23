@@ -297,6 +297,55 @@ body {
 .ni-val.green { color:var(--accent); }
 .ni-val.amber { color:#fbbf24; }
 
+/* ── NodeInfo 属性编辑 & 关系删除 ── */
+.ni-prop-list { display: flex; flex-direction: column; gap: 6px; }
+.ni-prop-row { display: flex; gap: 6px; align-items: center; }
+.ni-prop-key-input, .ni-prop-val-input {
+  flex: 1;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: #e2e8f0;
+  font-size: 12px;
+  outline: none;
+}
+.ni-prop-key-input { max-width: 100px; }
+.ni-prop-key-input:focus, .ni-prop-val-input:focus { border-color: #42b883; }
+.ni-prop-del, .ni-edge-del {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.3);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.ni-prop-del:hover, .ni-edge-del:hover { color: #ef4444; }
+.ni-prop-add {
+  background: transparent;
+  border: 1px dashed rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.5);
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 4px;
+}
+.ni-prop-add:hover { border-color: #42b883; color: #42b883; }
+.ni-prop-save {
+  background: #42b883;
+  border: none;
+  color: #fff;
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-top: 6px;
+  align-self: flex-end;
+}
+
 /* ── Divider ── */
 .resize-divider { width:8px; margin: 0 -4px; background:transparent; cursor:col-resize; flex-shrink:0; position:relative; z-index: 10; display:flex; align-items:center; justify-content:center; }
 .resize-divider::after { content:''; width:2px; height:100%; background:transparent; transition:background .15s; }

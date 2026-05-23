@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { NT } from '../constants';
 
 const props = defineProps<{
@@ -11,6 +11,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void;
+  (e: 'update-node-props', id: string, props: { key: string; value: any; source?: string }[]): void;
+  (e: 'delete-edge', edgeId: string): void;
 }>();
 
 const tab = ref(0);
@@ -22,6 +24,31 @@ const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])))
 
 const outgoing = computed(() => props.node ? props.edges.filter(e => e.from === props.node.id) : []);
 const incoming = computed(() => props.node ? props.edges.filter(e => e.to === props.node.id) : []);
+
+// 属性编辑状态
+const editableProps = ref<{ key: string; value: any; source?: string }[]>([]);
+
+watch(() => props.node, (n) => {
+  editableProps.value = n?.props ? n.props.map((p: any) => ({ ...p })) : [];
+}, { immediate: true });
+
+const propsChanged = computed(() => {
+  return JSON.stringify(editableProps.value) !== JSON.stringify(props.node?.props || []);
+});
+
+const addEditableProp = () => {
+  editableProps.value.push({ key: '', value: '' });
+};
+
+const removeEditableProp = (i: number) => {
+  editableProps.value.splice(i, 1);
+};
+
+const saveProps = () => {
+  if (!props.node) return;
+  const cleaned = editableProps.value.filter(p => p.key.trim());
+  emit('update-node-props', props.node.id, cleaned);
+};
 
 const startResize = (e: MouseEvent) => {
   e.preventDefault();
@@ -93,6 +120,7 @@ const startResize = (e: MouseEvent) => {
                         <span v-if="e.source === 'inferred'" style="font-size:10px; color:#bb77ff; margin-left:4px;">(AI推理)</span>
                         <span style="color:#253a52"> → </span>{{ nmap[e.to].label }}
                       </div>
+                      <button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button>
                     </div>
                   </div>
                   <div v-for="e in incoming" :key="e.id">
@@ -106,26 +134,25 @@ const startResize = (e: MouseEvent) => {
                         <span style="color:#ffaa22">{{ e.label }}</span>
                         <span v-if="e.source === 'inferred'" style="font-size:10px; color:#bb77ff; margin-left:4px;">(AI推理)</span>
                       </div>
+                      <button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button>
                     </div>
                   </div>
                   <div v-if="!outgoing.length && !incoming.length" style="color:#1e3348;font-size:11px;padding-top:4px">暂无关系</div>
                 </div>
               </template>
               <template v-if="tab === 2">
-                <div class="ni-section">
-                  <div class="ni-section-title" style="display:flex; justify-content:space-between; align-items:center;">
-                    <span>节点属性</span>
+                <!-- 属性 Tab 可编辑 -->
+                <div class="ni-prop-list">
+                  <div v-for="(p, i) in editableProps" :key="i" class="ni-prop-row">
+                    <input v-model="p.key" class="ni-prop-key-input" placeholder="键" />
+                    <input v-model="p.value" class="ni-prop-val-input" placeholder="值" />
+                    <button class="ni-prop-del" @click="removeEditableProp(i)" title="删除">✕</button>
                   </div>
-                  <div v-if="!node.props || node.props.length === 0" style="color:#1e3348;font-size:11px;padding-top:4px">无额外属性</div>
-                  <div v-for="(p, i) in node.props" :key="i" class="ni-row">
-                    <div class="ni-key">{{ p.key }}</div>
-                    <div class="ni-val" style="display:flex; justify-content:space-between; width:100%; align-items:center;">
-                      <span>{{ p.value }}</span>
-                      <span v-if="p.source === 'inferred'" style="color:#bb77ff; font-size:10px;">★ 推理</span>
-                      <span v-else-if="p.source === 'derived'" style="color:#22dd88; font-size:10px;">● 提取</span>
-                    </div>
+                  <div v-if="editableProps.length === 0" style="color: rgba(255,255,255,0.4); font-size: 12px; padding: 8px 0;">
+                    暂无属性
                   </div>
-                  <!-- TODO: 显示后端返回的 version / updatedAt 等真实属性 -->
+                  <button class="ni-prop-add" @click="addEditableProp">+ 新增属性</button>
+                  <button v-if="propsChanged" class="ni-prop-save" @click="saveProps">保存属性</button>
                 </div>
               </template>
               <template v-if="tab === 3">
