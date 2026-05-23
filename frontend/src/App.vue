@@ -640,6 +640,7 @@ const openPreview = () => {
       @toggle="sbExp = !sbExp"
       @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; }"
       @open-model="openModelById"
+      @delete-model="deleteOntologyModel"
     />
     <div class="main">
       <div class="topbar">
