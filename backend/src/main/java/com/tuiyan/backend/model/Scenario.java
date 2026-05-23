@@ -19,6 +19,8 @@ public class Scenario {
     private List<Map<String, Object>> chain;
     // v0.6 新增：仅保存预测增量
     private PredictionDag dag;
+    // P1-8：本次推演发送给 LLM 的完整 prompt 文本快照（system + user 拼接），便于事后审计与复盘
+    private String rawPrompt;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -46,4 +48,6 @@ public class Scenario {
     public void setIntent(String intent) { this.intent = intent; }
     public PredictionDag getDag() { return dag; }
     public void setDag(PredictionDag dag) { this.dag = dag; }
+    public String getRawPrompt() { return rawPrompt; }
+    public void setRawPrompt(String rawPrompt) { this.rawPrompt = rawPrompt; }
 }
