@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { chatStream, type ChatPayload, type ChatResult } from '../api/chat';
 import type { SseHandle } from '../api/http';
@@ -233,6 +233,35 @@ watch(() => props.livePrediction, (now, prev) => {
   }
 }, { deep: true });
 
+// ===== 上下文 token 预估 =====
+const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+
+const contextTokenEstimate = computed(() => {
+  let total = 0;
+  // 图谱上下文
+  if (props.nodes?.length) {
+    const nodesStr = JSON.stringify(props.nodes.map(n => ({ id: n.id, label: n.label, type: n.type })));
+    total += estimateTokens(nodesStr);
+  }
+  if (props.edges?.length) {
+    const edgesStr = JSON.stringify(props.edges.map(e => ({ id: e.id, from: e.from, to: e.to, label: e.label || '' })));
+    total += estimateTokens(edgesStr);
+  }
+  // 对话历史（最近40条）
+  const history = msgs.value
+    .filter(m => (m.role === 'u' || m.role === 'a') && m.text)
+    .slice(-40);
+  for (const m of history) {
+    total += estimateTokens(m.text);
+  }
+  return total;
+});
+
+const formatTokens = (n: number) => {
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
+};
+
 // ===== 发送 =====
 const send = async () => {
   if (!input.value.trim() && !atts.value.length) return;
@@ -428,6 +457,13 @@ const send = async () => {
     <AttachmentPreview :attachment="previewAtt" @close="previewAtt = null" />
     <AttachmentChips :attachments="atts" @remove="(i) => atts = atts.filter((_, j) => j !== i)" />
     <div class="ch-input-area">
+      <div class="ctx-token-bar" v-if="contextTokenEstimate > 0">
+        <span class="ctx-token-label">上下文</span>
+        <span class="ctx-token-count">~{{ formatTokens(contextTokenEstimate) }} tokens</span>
+        <span class="ctx-token-detail">
+          {{ props.nodes?.length || 0 }} 节点 · {{ props.edges?.length || 0 }} 关系 · {{ msgs.filter(m => (m.role === 'u' || m.role === 'a') && m.text).slice(-40).length }} 条消息
+        </span>
+      </div>
       <div class="input-box">
         <!-- @ mention dropdown -->
         <div class="mention-dropdown" v-if="mentionOpen && mentionItems.length > 0">
@@ -563,6 +599,24 @@ const send = async () => {
   align-items: center; justify-content: center;
 }
 .ch-input-area { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.06); }
+.ctx-token-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 8px;
+}
+.ctx-token-count {
+  color: rgba(255,255,255,0.5);
+  font-family: 'SF Mono', 'Consolas', monospace;
+}
+.ctx-token-detail {
+  margin-left: auto;
+  color: rgba(255,255,255,0.25);
+}
 .input-box {
   background: rgba(10, 16, 27, 0.6); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px; padding: 10px 14px; transition: border-color 0.2s;
