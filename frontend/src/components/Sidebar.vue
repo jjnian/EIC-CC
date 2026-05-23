@@ -12,6 +12,7 @@ const emit = defineEmits<{
   (e: 'toggle'): void;
   (e: 'nav', route: string): void;
   (e: 'open-model', id: string): void;
+  (e: 'delete-model', id: string): void;
 }>();
 
 const a = ref(0);
@@ -47,14 +48,20 @@ const isActiveModel = (id: string) => props.view === 'graph' && props.currentMod
     <div class="sb-history" v-if="expanded && historyModels.length">
       <div class="sb-section-label">历史对话</div>
       <div class="sb-history-list">
-        <button v-for="m in historyModels" :key="m.id"
-                :class="['sb-history-item', { active: isActiveModel(m.id) }]"
-                :title="m.title"
-                @click="emit('open-model', m.id)">
+        <div v-for="m in historyModels" :key="m.id"
+             :class="['sb-history-item', { active: isActiveModel(m.id) }]"
+             :title="m.title"
+             role="button"
+             tabindex="0"
+             @click="emit('open-model', m.id)"
+             @keydown.enter="emit('open-model', m.id)">
           <span class="sb-history-dot" />
           <span class="sb-history-title">{{ m.title }}</span>
           <span class="sb-history-time">{{ m.updated }}</span>
-        </button>
+          <button class="sb-history-del"
+                  :title="`删除 ${m.title}`"
+                  @click.stop="emit('delete-model', m.id)">×</button>
+        </div>
       </div>
     </div>
 
@@ -143,5 +150,31 @@ const isActiveModel = (id: string) => props.view === 'graph' && props.currentMod
 .sb-history-item.active .sb-history-time {
   color: rgba(66, 184, 131, 0.6);
 }
+.sb-history-del {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 14px;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: inherit;
+}
+.sb-history-item:hover .sb-history-del {
+  display: flex;
+}
+.sb-history-del:hover {
+  background: rgba(255, 102, 68, 0.2);
+  color: #ff8a6f;
+}
+/* 鼠标悬停时,× 替换掉时间标签,避免抢空间 */
+.sb-history-item:hover .sb-history-time { display: none; }
 </style>
 
