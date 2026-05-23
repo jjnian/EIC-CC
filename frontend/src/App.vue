@@ -20,6 +20,7 @@ import { usePrediction } from './composables/usePrediction';
 import { useOntologyModel } from './composables/useOntologyModel';
 import { useGraphActions } from './composables/useGraphActions';
 import { useGraphHistory } from './composables/useGraphHistory';
+import { NT } from './constants';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
@@ -381,6 +382,46 @@ const shareGraph = graphActions.shareGraph;
 const toggleLayoutDirection = graphActions.toggleLayoutDirection;
 const layoutDirection = graphActions.layoutDirection;
 
+// 节点编辑对话框状态
+const editingNode = ref<OntologyNode | null>(null);
+
+const openEditNode = (id: string) => {
+  const n = nodes.value.find(n => n.id === id);
+  if (n) editingNode.value = { ...n };
+};
+
+const saveEditNode = () => {
+  if (!editingNode.value) return;
+  const idx = nodes.value.findIndex(n => n.id === editingNode.value!.id);
+  if (idx === -1) return;
+  history.snapshot();
+  nodes.value[idx] = { ...nodes.value[idx], label: editingNode.value.label, type: editingNode.value.type };
+  editingNode.value = null;
+  persistCurrentModel();
+};
+
+const cancelEditNode = () => {
+  editingNode.value = null;
+};
+
+// 删除节点（含确认弹窗）
+const deleteNode = async (id: string) => {
+  const n = nodes.value.find(n => n.id === id);
+  if (!n) return;
+  const ok = await confirm({
+    title: '删除节点',
+    message: `确定删除节点「${n.label}」？相关的关系也会一并删除。`,
+    danger: true,
+    confirmLabel: '删除',
+  });
+  if (!ok) return;
+  history.snapshot();
+  nodes.value = nodes.value.filter(n => n.id !== id);
+  edges.value = edges.value.filter(e => e.from !== id && e.to !== id);
+  if (sel.value === id) sel.value = null;
+  persistCurrentModel();
+};
+
 const focusNodeInGraph = (id: string) => {
   sel.value = id;
   graphRef.value?.focusNode?.(id);
@@ -512,6 +553,8 @@ const openPreview = () => {
         @toggle-layout-direction="toggleLayoutDirection"
         @clear="clearCanvas"
         @predict-from="openPredictDialog"
+        @edit-node="openEditNode"
+        @delete-node="deleteNode"
         @switch-branch="switchBranch"
         @close-timeline="closeTimeline"
         @focus-node="focusNodeInGraph"
@@ -548,6 +591,25 @@ const openPreview = () => {
         @close="importDialogOpen = false"
         @commit="onImportCommit"
       />
+
+      <!-- 节点编辑对话框 -->
+      <div v-if="editingNode" class="modal-mask" @click.self="cancelEditNode">
+        <div class="edit-node-dialog">
+          <h3>编辑节点</h3>
+          <label>名称
+            <input v-model="editingNode.label" class="edit-input" @keydown.enter="saveEditNode" />
+          </label>
+          <label>类型
+            <select v-model="editingNode.type" class="edit-input">
+              <option v-for="(t, k) in NT" :key="k" :value="k">{{ t.label }}</option>
+            </select>
+          </label>
+          <div class="edit-actions">
+            <button class="edit-cancel" @click="cancelEditNode">取消</button>
+            <button class="edit-save" @click="saveEditNode">保存</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -649,5 +711,54 @@ const openPreview = () => {
 }
 .ml-time {
   margin-left: auto;
+}
+/* 节点编辑对话框 */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.edit-node-dialog {
+  background: #1a2332;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 20px;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.edit-node-dialog h3 { margin: 0; color: #e2e8f0; font-size: 16px; }
+.edit-node-dialog label { display: flex; flex-direction: column; gap: 4px; color: rgba(255,255,255,0.6); font-size: 13px; }
+.edit-input {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #e2e8f0;
+  font-size: 14px;
+  outline: none;
+}
+.edit-input:focus { border-color: #42b883; }
+.edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.edit-cancel {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.6);
+  border-radius: 6px;
+  padding: 6px 16px;
+  cursor: pointer;
+}
+.edit-save {
+  background: #42b883;
+  border: none;
+  color: #fff;
+  border-radius: 6px;
+  padding: 6px 16px;
+  cursor: pointer;
 }
 </style>

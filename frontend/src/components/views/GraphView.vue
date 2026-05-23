@@ -56,6 +56,8 @@ const emit = defineEmits<{
   (e: 'seed-consumed'): void;
   (e: 'start-divider', ev: MouseEvent): void;
   (e: 'graph-ref', el: any): void;
+  (e: 'edit-node', id: string): void;
+  (e: 'delete-node', id: string): void;
   (e: 'abort-prediction'): void;
 }>();
 
@@ -84,6 +86,8 @@ const onCloseInfo = () => {
         @toggle-layout-direction="emit('toggle-layout-direction')"
         @clear="emit('clear')"
         @predict-from="(id) => emit('predict-from', id)"
+        @edit-node="(id) => emit('edit-node', id)"
+        @delete-node="(id) => emit('delete-node', id)"
       />
       <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
         <span class="bb-icon">⚡</span>
