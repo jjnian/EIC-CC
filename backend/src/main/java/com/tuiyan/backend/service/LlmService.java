@@ -41,9 +41,11 @@ public class LlmService {
             .build();
 
     private final LlmProperties llmProperties;
+    private final LlmMetricsService metricsService;
 
-    public LlmService(LlmProperties llmProperties) {
+    public LlmService(LlmProperties llmProperties, LlmMetricsService metricsService) {
         this.llmProperties = llmProperties;
+        this.metricsService = metricsService;
     }
 
     private static final String ANTHROPIC_VERSION = "2023-06-01";
@@ -264,13 +266,19 @@ public class LlmService {
 
         long start = System.currentTimeMillis();
 
-        if (isAnthropic(baseUrl, modelName, protocol)) {
-            testAnthropicConnection(baseUrl, apiKey, modelName);
-        } else {
-            testOpenAIConnection(baseUrl, apiKey, modelName);
+        try {
+            if (isAnthropic(baseUrl, modelName, protocol)) {
+                testAnthropicConnection(baseUrl, apiKey, modelName);
+            } else {
+                testOpenAIConnection(baseUrl, apiKey, modelName);
+            }
+            long latency = System.currentTimeMillis() - start;
+            metricsService.recordCall(modelName, latency, true);
+            return latency;
+        } catch (Exception e) {
+            metricsService.recordCall(modelName, System.currentTimeMillis() - start, false);
+            throw e;
         }
-
-        return System.currentTimeMillis() - start;
     }
 
     /** 通过 OpenAI 兼容接口发送最小化请求测试连通性 */
@@ -528,29 +536,40 @@ public class LlmService {
         log.debug("[LLM-chat] 请求体大小: {} chars", requestBody.length());
         long startTime = System.currentTimeMillis();
 
-        HttpRequest request = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
-        HttpResponse<String> response = sendHttp(request, HttpResponse.BodyHandlers.ofString());
-        long elapsed = System.currentTimeMillis() - startTime;
+        try {
+            HttpRequest request = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
+            HttpResponse<String> response = sendHttp(request, HttpResponse.BodyHandlers.ofString());
+            long elapsed = System.currentTimeMillis() - startTime;
 
-        if (response.statusCode() != 200) {
-            log.error("[LLM-chat] 请求失败 status={} 耗时={}ms", response.statusCode(), elapsed);
-            logUpstreamError("chat", response.statusCode(), response.body());
-            throw new RuntimeException("LLM 调用失败 HTTP " + response.statusCode() + "（详情见服务器日志）");
+            if (response.statusCode() != 200) {
+                log.error("[LLM-chat] 请求失败 status={} 耗时={}ms", response.statusCode(), elapsed);
+                logUpstreamError("chat", response.statusCode(), response.body());
+                metricsService.recordCall(cfg.modelName(), elapsed, false);
+                throw new RuntimeException("LLM 调用失败 HTTP " + response.statusCode() + "（详情见服务器日志）");
+            }
+
+            log.info("[LLM-chat] 请求成功 status=200 耗时={}ms 响应大小={} chars", elapsed, response.body().length());
+            metricsService.recordCall(cfg.modelName(), elapsed, true);
+
+            JsonNode responseJson = objectMapper.readTree(response.body());
+            String content = extractContent(responseJson, anthropic);
+            content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
+            if (content.isEmpty()) content = "{}";
+            logLlmResponse("LLM-chat", cfg.modelName(), elapsed, content);
+            return objectMapper.readTree(content);
+        } catch (IOException e) {
+            long elapsed = System.currentTimeMillis() - startTime;
+            metricsService.recordCall(cfg.modelName(), elapsed, false);
+            throw e;
         }
-
-        log.info("[LLM-chat] 请求成功 status=200 耗时={}ms 响应大小={} chars", elapsed, response.body().length());
-
-        JsonNode responseJson = objectMapper.readTree(response.body());
-        String content = extractContent(responseJson, anthropic);
-        content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
-        if (content.isEmpty()) content = "{}";
-        logLlmResponse("LLM-chat", cfg.modelName(), elapsed, content);
-        return objectMapper.readTree(content);
     }
 
     public void chatStreaming(ChatRequest request, SseEmitter emitter) {
+        long streamStartMs = System.currentTimeMillis();
+        String streamModelName = "unknown";
         try {
             ResolvedConfig cfg = resolveConfig(request.getModelOverride(), request.getConfigId());
+            streamModelName = cfg.modelName();
             boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
             log.info("[LLM-stream] 开始流式请求 model={} url={} protocol={}", cfg.modelName(), cfg.baseURL(), anthropic ? "anthropic" : "openai");
@@ -565,13 +584,15 @@ public class LlmService {
                     : buildOpenAiBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, true);
 
             log.debug("[LLM-stream] 请求体大小: {} chars", requestBody.length());
-            long streamStart = System.currentTimeMillis();
 
             HttpRequest httpRequest = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
 
+            // 捕获模型名用于异步回调中记录统计
+            final String modelNameForMetrics = cfg.modelName();
+
             httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream())
                     .thenAccept(resp -> {
-                        long firstByteTime = System.currentTimeMillis() - streamStart;
+                        long firstByteTime = System.currentTimeMillis() - streamStartMs;
                         if (resp.statusCode() != 200) {
                             String errorBody;
                             try {
@@ -581,6 +602,7 @@ public class LlmService {
                             }
                             log.error("[LLM-stream] 请求失败 status={} 首字节耗时={}ms", resp.statusCode(), firstByteTime);
                             logUpstreamError("chatStreaming", resp.statusCode(), errorBody);
+                            metricsService.recordCall(modelNameForMetrics, firstByteTime, false);
                             try {
                                 emitter.send(SseEmitter.event().name("error").data(
                                         "LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）"));
@@ -599,13 +621,14 @@ public class LlmService {
                                     ? streamAnthropic(reader, emitter)
                                     : streamOpenAI(reader, emitter);
 
-                            long totalTime = System.currentTimeMillis() - streamStart;
+                            long totalTime = System.currentTimeMillis() - streamStartMs;
                             log.info("[LLM-stream] 流式完成 总耗时={}ms 响应长度={} chars", totalTime, fullContent.length());
+                            metricsService.recordCall(modelNameForMetrics, totalTime, true);
 
                             String content = fullContent.toString()
                                     .replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
                             if (content.isEmpty()) content = "{}";
-                            logLlmResponse("LLM-stream", cfg.modelName(), totalTime, content);
+                            logLlmResponse("LLM-stream", modelNameForMetrics, totalTime, content);
                             JsonNode result = objectMapper.readTree(content);
 
                             ObjectNode finalEvent = objectMapper.createObjectNode();
@@ -620,7 +643,9 @@ public class LlmService {
                             }
                             emitter.complete();
                         } catch (IOException e) {
+                            long totalTime = System.currentTimeMillis() - streamStartMs;
                             log.error("[LLM-stream] 响应解析失败: {}", e.getMessage());
+                            metricsService.recordCall(modelNameForMetrics, totalTime, false);
                             try {
                                 emitter.send(SseEmitter.event().name("error").data("Failed to parse response: " + e.getMessage()));
                             } catch (IOException ex) {
@@ -630,8 +655,9 @@ public class LlmService {
                         }
                     })
                     .exceptionally(ex -> {
-                        long totalTime = System.currentTimeMillis() - streamStart;
+                        long totalTime = System.currentTimeMillis() - streamStartMs;
                         log.error("[LLM-stream] 网络异常 耗时={}ms error={}", totalTime, ex.getMessage());
+                        metricsService.recordCall(modelNameForMetrics, totalTime, false);
                         try {
                             emitter.send(SseEmitter.event().name("error").data("Network error: " + ex.getMessage()));
                         } catch (IOException e) {
@@ -641,7 +667,9 @@ public class LlmService {
                         return null;
                     });
         } catch (Exception e) {
+            long elapsed = System.currentTimeMillis() - streamStartMs;
             log.error("[LLM-stream] 初始化失败: {}", e.getMessage());
+            metricsService.recordCall(streamModelName, elapsed, false);
             try {
                 emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
             } catch (IOException ioEx) {
@@ -787,24 +815,32 @@ public class LlmService {
         log.debug("[LLM-predict] 请求体大小: {} chars", requestBody.length());
         long startTime = System.currentTimeMillis();
 
-        HttpRequest httpReq = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
-        HttpResponse<String> resp = sendHttp(httpReq, HttpResponse.BodyHandlers.ofString());
-        long elapsed = System.currentTimeMillis() - startTime;
+        try {
+            HttpRequest httpReq = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
+            HttpResponse<String> resp = sendHttp(httpReq, HttpResponse.BodyHandlers.ofString());
+            long elapsed = System.currentTimeMillis() - startTime;
 
-        if (resp.statusCode() != 200) {
-            log.error("[LLM-predict] 请求失败 status={} 耗时={}ms", resp.statusCode(), elapsed);
-            logUpstreamError("predict", resp.statusCode(), resp.body());
-            throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
+            if (resp.statusCode() != 200) {
+                log.error("[LLM-predict] 请求失败 status={} 耗时={}ms", resp.statusCode(), elapsed);
+                logUpstreamError("predict", resp.statusCode(), resp.body());
+                metricsService.recordCall(cfg.modelName(), elapsed, false);
+                throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
+            }
+
+            log.info("[LLM-predict] 请求成功 status=200 耗时={}ms 响应大小={} chars", elapsed, resp.body().length());
+            metricsService.recordCall(cfg.modelName(), elapsed, true);
+
+            JsonNode root = objectMapper.readTree(resp.body());
+            String content = extractContent(root, anthropic);
+            content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
+            if (content.isEmpty()) content = "{}";
+            logLlmResponse("LLM-predict", cfg.modelName(), elapsed, content);
+            return objectMapper.readTree(content);
+        } catch (IOException e) {
+            long elapsed = System.currentTimeMillis() - startTime;
+            metricsService.recordCall(cfg.modelName(), elapsed, false);
+            throw e;
         }
-
-        log.info("[LLM-predict] 请求成功 status=200 耗时={}ms 响应大小={} chars", elapsed, resp.body().length());
-
-        JsonNode root = objectMapper.readTree(resp.body());
-        String content = extractContent(root, anthropic);
-        content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
-        if (content.isEmpty()) content = "{}";
-        logLlmResponse("LLM-predict", cfg.modelName(), elapsed, content);
-        return objectMapper.readTree(content);
     }
 
     private static final int EXTRACT_CHUNK_CHARS = 30_000;
