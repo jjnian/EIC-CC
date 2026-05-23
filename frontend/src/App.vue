@@ -391,6 +391,9 @@ const shareGraph = graphActions.shareGraph;
 const toggleLayoutDirection = graphActions.toggleLayoutDirection;
 const layoutDirection = graphActions.layoutDirection;
 
+// 导出菜单状态
+const showExportMenu = ref(false);
+
 // 节点编辑对话框状态
 const editingNode = ref<OntologyNode | null>(null);
 
@@ -659,7 +662,15 @@ const openPreview = () => {
           <button class="tb-btn" @click="openVersionHistory" title="查看和恢复历史版本" :disabled="!currentModelId">🕐 版本</button>
           <button class="tb-btn" @click="openTemplates" title="从模板创建新模型">📋 模板</button>
           <button class="tb-btn" @click="saveAsTemplate" title="将当前模型另存为模板" :disabled="!currentModelId">💾 存为模板</button>
-          <button class="tb-btn" @click="exportGraph" title="下载当前图谱为 JSON">导出</button>
+          <div class="export-menu-wrap">
+            <button class="tb-btn" @click="showExportMenu = !showExportMenu" title="导出">⬇ 导出</button>
+            <div v-if="showExportMenu" class="export-dropdown">
+              <button @click="graphActions.exportGraph(); showExportMenu = false">JSON 数据</button>
+              <button @click="graphActions.exportPng(); showExportMenu = false">PNG 图片</button>
+              <button @click="graphActions.exportMarkdown(); showExportMenu = false">Markdown 报告</button>
+              <button @click="graphActions.exportMermaid(); showExportMenu = false">Mermaid 语法</button>
+            </div>
+          </div>
           <button class="tb-btn hi" @click="shareGraph" title="复制图谱摘要到剪贴板">共享</button>
         </div>
         <div class="tb-tools" v-if="view === 'list'">
@@ -1016,4 +1027,36 @@ const openPreview = () => {
 .vp-item:hover { background: rgba(255,255,255,0.06); }
 .vp-time { color: #e2e8f0; font-size: 14px; }
 .vp-meta { color: rgba(255,255,255,0.4); font-size: 12px; margin-top: 4px; }
+
+/* 导出下拉菜单 */
+.export-menu-wrap {
+  position: relative;
+  display: inline-block;
+}
+.export-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  backdrop-filter: blur(8px);
+  z-index: 60;
+}
+.export-dropdown button {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.7);
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 13px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.export-dropdown button:hover { background: rgba(255,255,255,0.08); color: #fff; }
 </style>

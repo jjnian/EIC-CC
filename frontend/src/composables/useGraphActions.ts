@@ -286,5 +286,149 @@ export function useGraphActions(ctx: GraphActionsCtx) {
     }
   };
 
-  return { autoLayout, toggleLayoutDirection, layoutDirection, placeIncomingNodes, exportGraph, shareGraph };
+  /** 导出为 Mermaid 语法(.mmd 文件)。 */
+  const exportMermaid = () => {
+    const lines: string[] = ['graph LR'];
+    const sanitize = (s: string) => s.replace(/["\[\](){}]/g, '').replace(/\s+/g, '_');
+
+    for (const n of ctx.nodes.value) {
+      const shape = n.type === 'event' ? `((${n.label}))`
+        : n.type === 'process' ? `[/${n.label}/]`
+        : `[${n.label}]`;
+      lines.push(`  ${sanitize(n.id)}${shape}`);
+    }
+    for (const e of ctx.edges.value) {
+      const label = e.label ? `|${e.label}|` : '';
+      lines.push(`  ${sanitize(e.from)} -->${label} ${sanitize(e.to)}`);
+    }
+
+    const content = lines.join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'graph.mmd';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /** 导出为 Markdown 报告(.md 文件)。 */
+  const exportMarkdown = () => {
+    const lines: string[] = [];
+    lines.push('# 本体图谱报告\n');
+    lines.push(`> 导出时间: ${new Date().toLocaleString()}\n`);
+    lines.push(`## 概览\n`);
+    lines.push(`- 节点数: ${ctx.nodes.value.length}`);
+    lines.push(`- 关系数: ${ctx.edges.value.length}\n`);
+
+    // 按类型分组节点
+    const groups: Record<string, OntologyNode[]> = {};
+    for (const n of ctx.nodes.value) {
+      const t = n.type || 'unknown';
+      if (!groups[t]) groups[t] = [];
+      groups[t].push(n);
+    }
+
+    lines.push('## 节点列表\n');
+    for (const [type, groupNodes] of Object.entries(groups)) {
+      lines.push(`### ${type} (${groupNodes.length})\n`);
+      lines.push('| ID | 名称 | 来源 |');
+      lines.push('|---|---|---|');
+      for (const n of groupNodes) {
+        lines.push(`| ${n.id} | ${n.label} | ${n.source || '-'} |`);
+      }
+      lines.push('');
+    }
+
+    lines.push('## 关系列表\n');
+    lines.push('| 起点 | 关系 | 终点 | 规则驱动 |');
+    lines.push('|---|---|---|---|');
+    const nmap = Object.fromEntries(ctx.nodes.value.map(n => [n.id, n.label]));
+    for (const e of ctx.edges.value) {
+      lines.push(`| ${nmap[e.from] || e.from} | ${e.label || '-'} | ${nmap[e.to] || e.to} | ${e.rule_driven ? '是' : '-'} |`);
+    }
+
+    const content = lines.join('\n');
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'graph-report.md';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /** 导出为 PNG 截图(Canvas 2D 手绘简化版图谱)。 */
+  const exportPng = async () => {
+    const el = document.querySelector('.graph-canvas') as HTMLElement;
+    if (!el) return;
+
+    try {
+      // 使用 Canvas 2D 手绘简化版图谱
+      const canvas = document.createElement('canvas');
+      const padding = 40;
+      const nodeW = 160;
+      const nodeH = 52;
+      const minX = Math.min(...ctx.nodes.value.map(n => n.x || 0));
+      const minY = Math.min(...ctx.nodes.value.map(n => n.y || 0));
+      const maxX = Math.max(...ctx.nodes.value.map(n => (n.x || 0) + nodeW));
+      const maxY = Math.max(...ctx.nodes.value.map(n => (n.y || 0) + nodeH));
+
+      canvas.width = (maxX - minX) + padding * 2;
+      canvas.height = (maxY - minY) + padding * 2;
+      const c = canvas.getContext('2d')!;
+
+      // 背景
+      c.fillStyle = '#0f172a';
+      c.fillRect(0, 0, canvas.width, canvas.height);
+
+      const ox = -minX + padding;
+      const oy = -minY + padding;
+
+      // 画边
+      c.strokeStyle = 'rgba(255,255,255,0.3)';
+      c.lineWidth = 1.5;
+      const nodeMap = Object.fromEntries(ctx.nodes.value.map(n => [n.id, n]));
+      for (const e of ctx.edges.value) {
+        const fn = nodeMap[e.from];
+        const tn = nodeMap[e.to];
+        if (!fn || !tn) continue;
+        c.beginPath();
+        c.moveTo((fn.x || 0) + nodeW + ox, (fn.y || 0) + 26 + oy);
+        c.lineTo((tn.x || 0) + ox, (tn.y || 0) + 26 + oy);
+        c.stroke();
+      }
+
+      // 画节点
+      for (const n of ctx.nodes.value) {
+        const x = (n.x || 0) + ox;
+        const y = (n.y || 0) + oy;
+        c.fillStyle = '#1e293b';
+        c.strokeStyle = 'rgba(255,255,255,0.2)';
+        c.lineWidth = 1;
+        c.beginPath();
+        c.roundRect(x, y, nodeW, nodeH, 8);
+        c.fill();
+        c.stroke();
+        c.fillStyle = '#e2e8f0';
+        c.font = '13px sans-serif';
+        c.fillText(n.label || '', x + 12, y + 30, 136);
+      }
+
+      // 下载
+      canvas.toBlob(blob => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'graph.png';
+        a.click();
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    } catch (e) {
+      console.error('PNG export failed', e);
+    }
+  };
+
+  return { autoLayout, toggleLayoutDirection, layoutDirection, placeIncomingNodes, exportGraph, shareGraph, exportMermaid, exportMarkdown, exportPng };
 }
