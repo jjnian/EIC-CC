@@ -520,7 +520,7 @@ const onWheel = (e: WheelEvent) => {
   }
 };
 
-const getT = (n: any) => (NT as any)[n.type] || NT.entity;
+const getT = (n: any) => (NT as any)[n.type] || NT.class;
 
 /** 平滑滚动让指定节点居中显示，用于搜索跳转。 */
 const focusNode = (id: string) => {

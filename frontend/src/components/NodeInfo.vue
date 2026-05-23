@@ -19,7 +19,7 @@ const tab = ref(0);
 const height = ref(250);
 const dragging = ref(false);
 
-const t = computed(() => props.node ? (NT as any)[props.node.type] || NT.entity : null);
+const t = computed(() => props.node ? (NT as any)[props.node.type] || NT.class : null);
 const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])));
 
 const outgoing = computed(() => props.node ? props.edges.filter(e => e.from === props.node.id) : []);

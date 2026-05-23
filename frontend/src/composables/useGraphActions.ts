@@ -278,8 +278,9 @@ export function useGraphActions(ctx: GraphActionsCtx) {
     const sanitize = (s: string) => s.replace(/["\[\](){}]/g, '').replace(/\s+/g, '_');
 
     for (const n of ctx.nodes.value) {
-      const shape = n.type === 'event' ? `((${n.label}))`
-        : n.type === 'process' ? `[/${n.label}/]`
+      const shape = n.type === 'relation_type' ? `((${n.label}))`
+        : n.type === 'attribute' ? `[/${n.label}/]`
+        : n.type === 'constraint' ? `{{${n.label}}}`
         : `[${n.label}]`;
       lines.push(`  ${sanitize(n.id)}${shape}`);
     }

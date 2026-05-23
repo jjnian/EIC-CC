@@ -1,35 +1,35 @@
+// 静态本体层 (TBox / 世界的家具与规则)
+//   class         : 概念/类节点          —— 范畴层级 (坦克、国家、谈判)
+//   relation_type : 关系类型定义         —— 隶属/敌对/依赖的合法性声明 + 定义域/值域
+//   attribute     : 属性定义与值空间     —— 重量/士气/GDP 增速 + 取值范围
+//   constraint    : 约束                 —— 基数限制 / 互斥
 export const NT = {
-  entity:  {color:'#3d9bff',bg:'#071d3a',label:'实体'},
-  process: {color:'#ffaa22',bg:'#221500',label:'流程'},
-  event:   {color:'#22dd88',bg:'#002418',label:'事件'},
-  data:    {color:'#bb77ff',bg:'#170a2a',label:'数据源'},
-  external:{color:'#ff6644',bg:'#220800',label:'外部'},
-  rule:    {color:'#ff3399',bg:'#2a0515',label:'规则/条件'},
+  class:         {color:'#3d9bff',bg:'#071d3a',label:'概念/类'},
+  relation_type: {color:'#22dd88',bg:'#002418',label:'关系类型'},
+  attribute:     {color:'#ffaa22',bg:'#221500',label:'属性'},
+  constraint:    {color:'#ff3399',bg:'#2a0515',label:'约束'},
 };
 
 export const NW = 172;
 export const NH = 44;
 
 export const INIT_NODES = [
-  {id:'n1',label:'供应商',type:'entity',x:130,y:330},
-  {id:'n2',label:'原材料订单',type:'process',x:360,y:190},
-  {id:'n3',label:'工厂',type:'entity',x:360,y:400},
-  {id:'n4',label:'产品',type:'entity',x:610,y:280},
-  {id:'n5',label:'配送中心',type:'process',x:860,y:170},
-  {id:'n6',label:'客户',type:'entity',x:1090,y:260},
-  {id:'n7',label:'订单',type:'process',x:860,y:360},
-  {id:'n8',label:'仓库',type:'entity',x:610,y:470},
-  {id:'n9',label:'ERP系统',type:'external',x:130,y:490},
-  {id:'n10',label:'时序数据',type:'data',x:1090,y:450},
+  {id:'n1',label:'国家',type:'class',x:130,y:330},
+  {id:'n2',label:'坦克',type:'class',x:360,y:330},
+  {id:'n3',label:'谈判',type:'class',x:610,y:330},
+  {id:'n4',label:'敌对',type:'relation_type',x:360,y:170},
+  {id:'n5',label:'隶属',type:'relation_type',x:130,y:170},
+  {id:'n6',label:'GDP 增速',type:'attribute',x:130,y:490},
+  {id:'n7',label:'士气',type:'attribute',x:360,y:490},
+  {id:'n8',label:'互斥:结盟⊕交战',type:'constraint',x:610,y:170},
 ];
 
 export const INIT_EDGES = [
-  {id:'e1',from:'n1',to:'n2',label:'提供'},{id:'e2',from:'n2',to:'n3',label:'输入'},
-  {id:'e3',from:'n3',to:'n4',label:'生产'},{id:'e4',from:'n4',to:'n5',label:'发货'},
-  {id:'e5',from:'n5',to:'n6',label:'送达'},{id:'e6',from:'n6',to:'n7',label:'下单'},
-  {id:'e7',from:'n7',to:'n5',label:'触发'},{id:'e8',from:'n3',to:'n8',label:'入库'},
-  {id:'e9',from:'n8',to:'n5',label:'调拨'},{id:'e10',from:'n9',to:'n3',label:'驱动'},
-  {id:'e11',from:'n7',to:'n10',label:'记录'},
+  {id:'e1',from:'n5',to:'n1',label:'定义域'},
+  {id:'e2',from:'n4',to:'n1',label:'定义域/值域'},
+  {id:'e3',from:'n6',to:'n1',label:'属于'},
+  {id:'e4',from:'n7',to:'n2',label:'属于'},
+  {id:'e5',from:'n8',to:'n4',label:'约束'},
 ];
 
 export function getPath(fn: any, tn: any) {

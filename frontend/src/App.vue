@@ -4,7 +4,6 @@ import Sidebar from './components/Sidebar.vue';
 import SettingsView from './components/SettingsView.vue';
 import WelcomeChat from './components/WelcomeChat.vue';
 import PredictDialog from './components/PredictDialog.vue';
-import BranchPicker from './components/BranchPicker.vue';
 import BranchCompareDialog from './components/BranchCompareDialog.vue';
 import ImportDialog from './components/ImportDialog.vue';
 import GraphView from './components/views/GraphView.vue';
@@ -472,14 +471,13 @@ const focusNodeInGraph = (id: string) => {
   graphRef.value?.focusNode?.(id);
 };
 
-// 版本历史面板状态
-const showVersions = ref(false);
+// 版本历史下拉
+const showVersionMenu = ref(false);
 const versions = ref<{ timestamp: number; nodeCount: number; edgeCount: number; fileSize: number }[]>([]);
 const versionsLoading = ref(false);
 
-const openVersionHistory = async () => {
+const loadVersions = async () => {
   if (!currentModelId.value) return;
-  showVersions.value = true;
   versionsLoading.value = true;
   try {
     versions.value = await listVersions(currentModelId.value);
@@ -489,6 +487,12 @@ const openVersionHistory = async () => {
   } finally {
     versionsLoading.value = false;
   }
+};
+
+const toggleVersionMenu = async () => {
+  if (!currentModelId.value) return;
+  showVersionMenu.value = !showVersionMenu.value;
+  if (showVersionMenu.value) await loadVersions();
 };
 
 const doRestoreVersion = async (timestamp: number) => {
@@ -506,14 +510,12 @@ const doRestoreVersion = async (timestamp: number) => {
       edges.value = restored.graphData.edges || [];
       history.reset(nodes.value, edges.value);
     }
-    showVersions.value = false;
+    showVersionMenu.value = false;
     toast.success('已恢复到历史版本');
   } catch (e) {
     toast.error('恢复失败');
   }
 };
-
-const closeVersions = () => { showVersions.value = false; };
 
 // 模板库状态与方法
 const showTemplates = ref(false);
@@ -626,13 +628,6 @@ const openPreview = () => {
           <span class="bc-star">☆</span>
         </div>
         <div class="tb-tools" v-if="view === 'graph'">
-          <BranchPicker
-            :branches="branches"
-            :activeBranchId="activeBranchId"
-            @switch="switchBranch"
-            @delete="deleteBranch"
-            @migrate="migrateBranches"
-          />
           <button
             v-if="branches.length >= 2"
             class="tb-btn"
@@ -645,7 +640,24 @@ const openPreview = () => {
             title="从 PDF / 图片抽取本体导入"
           >📥 导入</button>
           <button class="tb-btn" @click="openPreview" title="在新标签页里以只读模式预览整张图谱" :disabled="!currentModelId">预览</button>
-          <button class="tb-btn" @click="openVersionHistory" title="查看和恢复历史版本" :disabled="!currentModelId">🕐 版本</button>
+          <div class="export-menu-wrap">
+            <button class="tb-btn" @click="toggleVersionMenu" title="查看和恢复历史版本" :disabled="!currentModelId">
+              🕐 版本
+              <svg viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="2" fill="none" style="margin-left:2px"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <div v-if="showVersionMenu" class="export-dropdown version-dropdown">
+              <div v-if="versionsLoading" class="vm-state">加载中…</div>
+              <div v-else-if="versions.length === 0" class="vm-state">暂无历史版本</div>
+              <template v-else>
+                <button v-for="v in versions" :key="v.timestamp"
+                        class="vm-item"
+                        @click="doRestoreVersion(v.timestamp); showVersionMenu = false">
+                  <div class="vm-time">{{ new Date(v.timestamp).toLocaleString() }}</div>
+                  <div class="vm-meta">{{ v.nodeCount }} 节点 · {{ v.edgeCount }} 关系 · {{ formatFileSize(v.fileSize) }}</div>
+                </button>
+              </template>
+            </div>
+          </div>
           <button class="tb-btn" @click="openTemplates" title="从模板创建新模型">📋 模板</button>
           <button class="tb-btn" @click="saveAsTemplate" title="将当前模型另存为模板" :disabled="!currentModelId">💾 存为模板</button>
           <div class="export-menu-wrap">
@@ -785,24 +797,6 @@ const openPreview = () => {
           <div class="edit-actions">
             <button class="edit-cancel" @click="cancelEditNode">取消</button>
             <button class="edit-save" @click="saveEditNode">保存</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 版本历史面板 -->
-      <div v-if="showVersions" class="modal-mask" @click.self="closeVersions">
-        <div class="version-panel">
-          <div class="vp-header">
-            <h3>版本历史</h3>
-            <button class="vp-close" @click="closeVersions">&#10005;</button>
-          </div>
-          <div v-if="versionsLoading" class="vp-loading">加载中…</div>
-          <div v-else-if="versions.length === 0" class="vp-empty">暂无历史版本</div>
-          <div v-else class="vp-list">
-            <div v-for="v in versions" :key="v.timestamp" class="vp-item" @click="doRestoreVersion(v.timestamp)">
-              <div class="vp-time">{{ new Date(v.timestamp).toLocaleString() }}</div>
-              <div class="vp-meta">{{ v.nodeCount }} 节点 · {{ v.edgeCount }} 关系 · {{ formatFileSize(v.fileSize) }}</div>
-            </div>
           </div>
         </div>
       </div>
@@ -1046,4 +1040,36 @@ const openPreview = () => {
   cursor: pointer;
 }
 .export-dropdown button:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+/* 版本下拉 (复用 export-dropdown 的浮层，但内容更密) */
+.version-dropdown {
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.vm-state {
+  padding: 14px 12px;
+  text-align: center;
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+}
+.vm-item {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: block;
+  width: 100%;
+}
+.vm-item:hover { background: rgba(255,255,255,0.08); }
+.vm-time { color: #e2e8f0; font-size: 13px; }
+.vm-meta {
+  color: rgba(255,255,255,0.45);
+  font-size: 11px;
+  margin-top: 2px;
+  font-family: 'JetBrains Mono', monospace;
+}
 </style>
