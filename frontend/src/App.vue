@@ -404,6 +404,24 @@ const cancelEditNode = () => {
   editingNode.value = null;
 };
 
+// 更新节点属性
+const updateNodeProps = (id: string, newProps: { key: string; value: any; source?: string }[]) => {
+  const n = nodes.value.find(n => n.id === id);
+  if (!n) return;
+  history.snapshot();
+  n.props = newProps;
+  persistCurrentModel();
+};
+
+// 删除单条关系
+const deleteEdge = (edgeId: string) => {
+  const idx = edges.value.findIndex(e => e.id === edgeId);
+  if (idx === -1) return;
+  history.snapshot();
+  edges.value.splice(idx, 1);
+  persistCurrentModel();
+};
+
 // 删除节点（含确认弹窗）
 const deleteNode = async (id: string) => {
   const n = nodes.value.find(n => n.id === id);
@@ -563,6 +581,8 @@ const openPreview = () => {
         @start-divider="startDivider"
         @graph-ref="(el) => graphRef = el"
         @abort-prediction="closeTimeline"
+        @update-node-props="updateNodeProps"
+        @delete-edge="deleteEdge"
       />
 
       <!-- Predict Dialog (modal) -->

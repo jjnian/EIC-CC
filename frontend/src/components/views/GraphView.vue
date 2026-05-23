@@ -59,6 +59,8 @@ const emit = defineEmits<{
   (e: 'edit-node', id: string): void;
   (e: 'delete-node', id: string): void;
   (e: 'abort-prediction'): void;
+  (e: 'update-node-props', id: string, props: { key: string; value: any; source?: string }[]): void;
+  (e: 'delete-edge', edgeId: string): void;
 }>();
 
 const selNode = computed(() => props.nodes.find(n => n.id === props.selectedId) || null);
@@ -100,6 +102,8 @@ const onCloseInfo = () => {
         :edges="edges"
         :isOpen="showSchema"
         @close="onCloseInfo"
+        @update-node-props="(id, props) => emit('update-node-props', id, props)"
+        @delete-edge="(edgeId) => emit('delete-edge', edgeId)"
       />
     </div>
     <div :class="['resize-divider', { dragging: divDragActive }]" @mousedown="emit('start-divider', $event)" />
