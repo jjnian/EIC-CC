@@ -160,6 +160,13 @@ body {
 .ctx-item:hover { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
 .ctx-icon { font-size: 14px; }
 .ctx-hint { margin-left: auto; font-size: 10px; color: rgba(255,255,255,0.3); font-family: 'JetBrains Mono', monospace; }
+.ctx-sep {
+  height: 1px;
+  background: rgba(255,255,255,0.1);
+  margin: 4px 0;
+}
+.ctx-danger { color: #ef4444; }
+.ctx-danger:hover { background: rgba(239, 68, 68, 0.15); }
 
 /* ── Zoom & Legend ── */
 .zoom-wrap { position:absolute; bottom:24px; left:24px; display:flex; flex-direction:column; gap:8px; z-index:5; }

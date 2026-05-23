@@ -20,6 +20,8 @@ const emit = defineEmits<{
   (e: 'toggle-layout-direction'): void;
   (e: 'clear'): void;
   (e: 'predict-from', id: string): void;
+  (e: 'delete-node', id: string): void;
+  (e: 'edit-node', id: string): void;
 }>();
 
 const typeFilter = ref<string | null>(null);
@@ -94,6 +96,20 @@ const closeCtx = () => { ctxMenu.value = null; };
 const triggerPredict = () => {
   if (ctxMenu.value) {
     emit('predict-from', ctxMenu.value.id);
+    ctxMenu.value = null;
+  }
+};
+
+const triggerEdit = () => {
+  if (ctxMenu.value) {
+    emit('edit-node', ctxMenu.value.id);
+    ctxMenu.value = null;
+  }
+};
+
+const triggerDelete = () => {
+  if (ctxMenu.value) {
+    emit('delete-node', ctxMenu.value.id);
     ctxMenu.value = null;
   }
 };
@@ -333,7 +349,7 @@ defineExpose({ fitView, focusNode });
                   borderBottomColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
                   boxShadow: (selId === n.id || (typeFilter && matchesFilter(n))) ? `0 0 0 1px ${getT(n).color}55,0 4px 24px ${getT(n).color}33` : '0 2px 8px rgba(0,0,0,0.4)'
                 }"
-                @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @click.stop>
+                @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @dblclick.stop="emit('edit-node', n.id)" @click.stop>
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
               <div class="node-label">{{ n.label }}</div>
               <div class="node-type">{{ getT(n).label }}</div>
@@ -352,6 +368,15 @@ defineExpose({ fitView, focusNode });
         <span class="ctx-icon">⚡</span>
         <span>从此推演</span>
         <span class="ctx-hint">Forward</span>
+      </button>
+      <div class="ctx-sep"></div>
+      <button class="ctx-item" @click="triggerEdit">
+        <span class="ctx-icon">✎</span>
+        <span>编辑节点</span>
+      </button>
+      <button class="ctx-item ctx-danger" @click="triggerDelete">
+        <span class="ctx-icon">✕</span>
+        <span>删除节点</span>
       </button>
     </div>
 
