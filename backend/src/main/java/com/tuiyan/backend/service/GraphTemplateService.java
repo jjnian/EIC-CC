@@ -13,8 +13,9 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 图谱模板服务：管理模板的增删查操作。
- * 模板与本体模型共用 OntologyModel 数据结构，但存储在独立的 templates/ 目录。
+ * 图谱模板服务：管理"图谱样板"的增删查操作。
+ * <p>模板与本体模型共用 {@link OntologyModel} 数据结构，但存储在独立的 {@code templates/} 子目录，
+ * 列表 / 引用逻辑互不干扰；用户可以把现有图谱另存为模板，下次从空白创建时一键填入。
  */
 @Service
 public class GraphTemplateService {
@@ -29,7 +30,7 @@ public class GraphTemplateService {
         if (!templatesDir.exists()) templatesDir.mkdirs();
     }
 
-    /** 获取所有模板列表，按更新时间倒序 */
+    /** 获取所有模板列表，按 updatedAt 倒序；损坏文件静默跳过。 */
     public List<OntologyModel> list() {
         File[] files = templatesDir.listFiles((d, n) -> n.endsWith(".json"));
         if (files == null) return List.of();
@@ -43,7 +44,7 @@ public class GraphTemplateService {
             .collect(Collectors.toList());
     }
 
-    /** 保存模板（新建或更新） */
+    /** 保存模板（新建或更新）。id 为空时生成 {@code tpl_<时间戳>}。 */
     public OntologyModel save(OntologyModel m) throws IOException {
         if (m.getId() == null || m.getId().isBlank()) {
             m.setId("tpl_" + System.currentTimeMillis());
@@ -56,7 +57,7 @@ public class GraphTemplateService {
         return m;
     }
 
-    /** 根据 ID 删除模板 */
+    /** 删除模板；不存在时显式抛 404 让前端给出明确错误（与 OntologyModelService 风格不同：模板个数少，更需要立即反馈）。 */
     public void delete(String id) {
         String safe = id.replaceAll("[^a-zA-Z0-9_\\-]", "_");
         File f = new File(templatesDir, safe + ".json");

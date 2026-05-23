@@ -21,8 +21,9 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * P1-7：对推演节点生成三段式解释（依据/假设/反例），缓存到 Scenario.dag.explanations。
- * 该服务通过 SSE 将三段内容分别推送给前端浮动面板。
+ * P1-7：对推演节点生成三段式解释（依据 / 假设 / 反例），缓存到 {@link Scenario#getDag()}.explanations。
+ * <p>三段分别通过 SSE 的 chunk 事件推送给前端浮动面板，避免用户等待完整 JSON 才看到内容。
+ * 缓存命中时仍然走分段推送，让前端逻辑可以统一处理。
  */
 @Service
 public class ScenarioExplanationService {
@@ -54,13 +55,13 @@ public class ScenarioExplanationService {
             if (scenario == null) {
                 throw new ResourceNotFoundException("Scenario not found: " + scenarioId);
             }
-            // 在 chain 中查找该节点
+            // 在 chain 中查找该节点；找不到说明 nodeId 不属于这条分支
             Map<String, Object> chainStep = findChainStep(scenario, nodeId);
             if (chainStep == null) {
                 throw new ResourceNotFoundException("Node not in scenario chain: " + nodeId);
             }
 
-            // 缓存命中且未强制重生 → 直接返回
+            // 缓存命中且未强制重生 → 直接走推送通道；带上 cached=true 标记给前端做区分（如 UI 上提示"已缓存"）
             if (!forceRegenerate && scenario.getDag() != null
                     && scenario.getDag().getExplanations() != null
                     && scenario.getDag().getExplanations().get(nodeId) != null) {
@@ -93,10 +94,10 @@ public class ScenarioExplanationService {
             explanation.setGeneratedAt(System.currentTimeMillis());
             explanation.setModelName(result.modelName());
 
-            // 分段推送（让前端能按字段渲染）
+            // 分段推送：先发完三段 chunk，再发 complete；让前端 UI 能按字段渐进渲染
             sendChunks(emitter, cancelled, explanation);
 
-            // 写回 Scenario 缓存
+            // 写回 Scenario 缓存；写盘失败不影响本次返回结果，仅记日志
             if (scenario.getDag() != null) {
                 Map<String, NodeExplanation> map = scenario.getDag().getExplanations();
                 if (map == null) {
@@ -117,6 +118,7 @@ public class ScenarioExplanationService {
                 emitter.complete();
             }
         } catch (ResourceNotFoundException nf) {
+            // 资源类异常给前端可读的 error 事件，正常 complete 关闭流
             SsePushUtils.safeSend(emitter, cancelled, "error", nf.getMessage());
             if (!cancelled.get()) emitter.complete();
         } catch (Exception ex) {
@@ -131,6 +133,7 @@ public class ScenarioExplanationService {
         }
     }
 
+    /** 在 dag.chain（新结构）或顶层 chain（v0.5 遗留）中查找指定 nodeId 的步骤。 */
     private Map<String, Object> findChainStep(Scenario scenario, String nodeId) {
         List<Map<String, Object>> chain = scenario.getDag() != null ? scenario.getDag().getChain() : scenario.getChain();
         if (chain == null) return null;
@@ -140,6 +143,11 @@ public class ScenarioExplanationService {
         return null;
     }
 
+    /**
+     * 构造 LLM 的 user prompt：把推演方向、当前步骤、上游节点、前置链路拼成结构化文本。
+     * <p>设计要点：把"该步骤的因果上下文"完整暴露给 LLM，让它能给出针对性的依据 / 假设 / 反例，
+     * 而不是空泛地分析节点本身。
+     */
     private String buildUserPrompt(Scenario scenario, Map<String, Object> step) {
         StringBuilder sb = new StringBuilder();
         String intent = scenario.getIntent() != null ? scenario.getIntent() : "forward";
@@ -173,7 +181,7 @@ public class ScenarioExplanationService {
             }
         }
 
-        // 前置链路：取本步之前的所有 step 简要列出
+        // 前置链路：本步 step 数之前的所有 step 简要列出，让 LLM 看到"从 seed 到当前"的完整因果路径
         List<Map<String, Object>> chain = scenario.getDag() != null
                 ? scenario.getDag().getChain() : scenario.getChain();
         if (chain != null) {
@@ -195,6 +203,7 @@ public class ScenarioExplanationService {
         return sb.toString();
     }
 
+    /** 从 dag.nodes 中按 id 查 label，用于上游引用的可读性增强（"id (label)"）。 */
     private String lookupLabel(Scenario scenario, String nodeId) {
         if (scenario.getDag() != null && scenario.getDag().getNodes() != null) {
             for (Map<String, Object> n : scenario.getDag().getNodes()) {
@@ -207,6 +216,7 @@ public class ScenarioExplanationService {
         return null;
     }
 
+    /** 把三段内容拆成 3 个 chunk 事件发送，让前端能渐进渲染。 */
     private void sendChunks(SseEmitter emitter, AtomicBoolean cancelled, NodeExplanation explanation) {
         sendField(emitter, cancelled, "evidence", explanation.getEvidence());
         sendField(emitter, cancelled, "assumptions", explanation.getAssumptions());

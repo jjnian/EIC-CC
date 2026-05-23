@@ -14,6 +14,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
+/**
+ * 推演假设模板服务：保存 / 列出 / 删除 / 标记最近使用。
+ * <p>模板按 modelId 过滤展示——不同图谱模型的节点 id 不通用，跨模型展示模板会让用户困惑。
+ * 列表按 lastUsedAt 倒序，让"最近用过"的模板出现在前面。
+ */
 @Service
 public class HypothesisTemplateService {
 
@@ -26,6 +31,10 @@ public class HypothesisTemplateService {
         this.appPaths = appPaths;
     }
 
+    /**
+     * 按 modelId 过滤列表；modelId 为空 / 空白时返回全部模板。
+     * <p>遍历目录读所有 JSON，损坏文件跳过；按 lastUsedAt 倒序排列。
+     */
     public List<HypothesisTemplate> listByModel(String modelId) {
         File d = appPaths.hypothesisTemplatesDir();
         File[] files = d.listFiles((f, n) -> n.endsWith(".json"));
@@ -45,10 +54,16 @@ public class HypothesisTemplateService {
         return out;
     }
 
+    /** 保存模板；调用方需自行确保 id 与 createdAt 已填好（与 ScenarioService 风格一致）。 */
     public void save(HypothesisTemplate t) throws IOException {
         JsonAtomic.write(objectMapper, fileFor(t.getId()), t);
     }
 
+    /**
+     * 标记模板最近被使用：把 lastUsedAt 更新为当前时间。
+     * <p>由 controller 在用户点击"使用此模板"时调用，让"最近常用"排序生效。
+     * 文件不存在时静默返回，不当成错误。
+     */
     public void touch(String id) throws IOException {
         File f = fileFor(id);
         if (!f.exists()) return;

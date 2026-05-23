@@ -3,13 +3,27 @@ package com.tuiyan.backend.model;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 推演分支（Scenario）：一次推演的完整记录，是用户能在分支列表上看到的最小单位。
+ * <p>持久化为 {@code ~/.tuiyan/scenarios/<id>.json}，每次推演完成后由
+ * {@link com.tuiyan.backend.service.PredictionOrchestrator#run} 写入。
+ * <p>字段分层：
+ * <ul>
+ *   <li><b>元信息</b>（id/modelId/parentBranchId/createdAt/name/intent/seeds/steps/prompt）；</li>
+ *   <li><b>v0.5 遗留</b>（nodes/edges/chain 顶层快照）：旧分支落盘时保存完整快照；新分支只填 dag；</li>
+ *   <li><b>v0.6+</b>（dag）：仅保存预测增量，加载时与 trunk 合并；</li>
+ *   <li><b>P1-8</b>（rawPrompt）：本次发送给 LLM 的完整 prompt 文本，便于事后审计。</li>
+ * </ul>
+ */
 public class Scenario {
     private String id;
     private String modelId;
+    // 父分支 id：null 表示从 trunk 创建；非空表示嵌套 fork
     private String parentBranchId;
     private String name;
     private long createdAt;
-    private String intent;                                 // forward | backward
+    // forward | backward
+    private String intent;
     private List<String> seeds;
     private int steps;
     private String prompt;

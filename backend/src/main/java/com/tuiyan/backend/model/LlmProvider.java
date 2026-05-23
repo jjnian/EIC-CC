@@ -3,9 +3,11 @@ package com.tuiyan.backend.model;
 import java.util.List;
 
 /**
- * 预定义的大模型提供商配置
- * 大部分提供商采用 OpenAI 兼容的 API 格式；
- * Anthropic (Claude) 使用原生 Messages API，由 LlmService 内做协议适配。
+ * 预定义的大模型提供商配置枚举。
+ * <p>大部分提供商采用 OpenAI 兼容的 API 格式；
+ * Anthropic (Claude) 使用原生 Messages API，由 {@link com.tuiyan.backend.service.LlmService} 内做协议适配。
+ * <p>本枚举仅提供"展示元信息"（baseUrl、默认模型、可选模型列表、对应环境变量名），
+ * 不直接持有 apiKey；真正的运行时配置在 {@link com.tuiyan.backend.config.LlmProperties} 中。
  */
 public enum LlmProvider {
     OPENAI(
@@ -93,6 +95,7 @@ public enum LlmProvider {
         List.of()
     );
 
+    // 枚举字段持有展示元信息；非 final 字段不安全，全部声明 final
     private final String code;
     private final String displayName;
     private final String baseUrl;
@@ -117,7 +120,9 @@ public enum LlmProvider {
     public List<String> getModels() { return models; }
 
     /**
-     * 根据 code 查找提供商
+     * 根据 code 查找提供商。
+     * <p>未匹配到时返回 {@link #CUSTOM} 而非 null，方便上层省去判空；
+     * code 为空 / null 默认返回 {@link #QWEN}（早期项目偏好通义千问）。
      */
     public static LlmProvider fromCode(String code) {
         if (code == null || code.isBlank()) {
@@ -132,7 +137,9 @@ public enum LlmProvider {
     }
 
     /**
-     * 通过 baseURL / modelName 判断是否走 Anthropic Messages API
+     * 通过 baseURL / modelName 判断是否走 Anthropic Messages API。
+     * <p>之所以双重判断：用户可能用自定义反代域名，但 modelName 仍以 claude- 开头；
+     * 也可能用 anthropic 官方 URL 调一个非 claude 模型（理论上不存在但兼容）。
      */
     public static boolean isAnthropicEndpoint(String baseURL, String modelName) {
         if (baseURL != null && baseURL.toLowerCase().contains("anthropic.com")) return true;

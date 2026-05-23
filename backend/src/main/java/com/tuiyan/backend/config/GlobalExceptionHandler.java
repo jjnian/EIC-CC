@@ -12,21 +12,24 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
- * 全局异常 → HTTP 状态码映射。
- * 让 controller 不再写 try/catch 业务分支。
- * 注意:SSE 路径已经建立 emitter 后无法走这里,需 controller 自行处理。
+ * 全局异常 → HTTP 状态码映射，统一返回 {@code {"error": "..."}} 形状。
+ * <p>让 controller 不再写 try/catch 业务分支。
+ * <p><b>注意：</b>SSE 路径在 emitter 建立后异常无法走这里（响应头已发出），
+ * 需要 controller 自行通过 {@link com.tuiyan.backend.support.SsePushUtils} 把错误事件写回流。
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    /** 资源未找到 → 404。由 service 主动抛出 {@link ResourceNotFoundException} 触发。 */
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(ResourceNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(Map.of("error", e.getMessage() == null ? "资源未找到" : e.getMessage()));
     }
 
+    /** 参数校验类异常统一映射到 400；包含 Spring 的缺失参数异常。 */
     @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class,
                        MissingServletRequestParameterException.class})
     public ResponseEntity<Map<String, Object>> handleBadRequest(Exception e) {
@@ -34,6 +37,7 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", e.getMessage() == null ? "请求参数错误" : e.getMessage()));
     }
 
+    /** 文件读写异常 → 500，并打印堆栈，方便排查磁盘 / 权限问题。 */
     @ExceptionHandler(IOException.class)
     public ResponseEntity<Map<String, Object>> handleIO(IOException e) {
         log.warn("IO 异常: {}", e.toString(), e);
@@ -41,6 +45,7 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", e.getMessage() == null ? "服务器 IO 异常" : e.getMessage()));
     }
 
+    /** 兜底：任何未匹配到上面规则的异常 → 500。 */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleOther(Exception e) {
         log.warn("未处理异常: {}", e.toString(), e);

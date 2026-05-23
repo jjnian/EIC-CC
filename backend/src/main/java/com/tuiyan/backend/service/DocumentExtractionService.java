@@ -20,21 +20,36 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 文档抽取编排:文件嗅探 + PDF/图像处理 + LLM 抽取 + idMap salt 重写。
+ * 文档抽取编排：文件嗅探 + PDF / DOCX / 图片处理 + LLM 抽取 + idMap salt 重写。
+ * <p>把"用户上传的混合文件" → "可合并到图谱的节点 / 边草稿"的全流程串起来：
+ * <ol>
+ *   <li>按文件签名 + 扩展名识别真实类型，避免被伪造扩展名绕过；</li>
+ *   <li>PDF 优先抽文本，文本稀疏时再渲染为图片（兼顾扫描件 / 截图为主的文档）；</li>
+ *   <li>DOCX 用 POI 抽段落和表格；图片直接 base64 编码挂为 attachment；</li>
+ *   <li>把累积文本 + 附件交给 LLM 做实体 / 关系抽取；</li>
+ *   <li>用时间戳 salt 给草稿节点 id 加前缀，防止同一文档反复导入产生冲突。</li>
+ * </ol>
  */
 @Service
 public class DocumentExtractionService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentExtractionService.class);
 
+    // PDF / DOCX 单文件抽取文本上限（按字符），超过会截断并打 truncated 标记
     private static final int PDF_TEXT_CHAR_BUDGET = 60_000;
     private static final int DOCX_TEXT_CHAR_BUDGET = 60_000;
+    // 单张图片字节上限：8 MB；超过则直接拒绝
     private static final long IMAGE_BYTE_LIMIT    = 8L * 1024 * 1024;
+    // 一次最多上传 8 个文件，防止 OOM
     private static final int  TOTAL_FILE_LIMIT    = 8;
+    // PDF 每页平均文本字符数下限：低于此阈值视为"扫描件 / 文本稀疏"，触发图片渲染兜底
     private static final int  MIN_TEXT_PER_PAGE   = 200;
+    // 渲染兜底时最多渲染前 8 页，分辨率 110 dpi（视觉清晰 + 体积可控）
     private static final int  RENDER_MAX_PAGES    = 8;
     private static final int  RENDER_DPI          = 110;
+    // 单次抽取允许的总图片数（PDF 渲染 + 用户直传图片合计）
     private static final int  TOTAL_IMAGE_BUDGET  = 12;
+    // 单个 PDF / DOCX 文件体积上限（12 MB）
     private static final long PDF_FILE_BYTES_LIMIT = 12L * 1024 * 1024;
     private static final long DOCX_FILE_BYTES_LIMIT = 12L * 1024 * 1024;
 
@@ -45,8 +60,9 @@ public class DocumentExtractionService {
     }
 
     /**
-     * 文件 → LLM 抽取 → salt 重写。返回 {nodes, edges, reply, sources, salt}。
-     * 入参不合法时抛 IllegalArgumentException。
+     * 入口：文件列表 → LLM 抽取 → salt 重写后的 {nodes, edges, reply, sources, salt}。
+     * <p>入参不合法（无文件 / 超数量 / 单文件超大 / 无可分析内容）时抛 {@link IllegalArgumentException}，
+     * 由 GlobalExceptionHandler 映射为 400。
      */
     public Map<String, Object> extract(List<MultipartFile> files, String modelOverride, String configId) throws Exception {
         if (files == null || files.isEmpty()) {
@@ -64,6 +80,7 @@ public class DocumentExtractionService {
             String safeName = FileSniffer.sanitizeFilename(f.getOriginalFilename());
             String contentType = f.getContentType();
             long size = f.getSize();
+            // 空文件直接跳过（不算错误，可能是用户误拖）
             if (size <= 0) continue;
 
             Map<String, Object> meta = new LinkedHashMap<>();
@@ -71,6 +88,7 @@ public class DocumentExtractionService {
             meta.put("contentType", contentType);
             meta.put("size", size);
 
+            // 嗅探文件头 + 扩展名 + content-type，三者综合判断真实类型
             byte[] head = FileSniffer.readHead(f, 12);
             boolean pdfMagic = FileSniffer.isPdfMagic(head);
             boolean imageMagic = FileSniffer.isImageMagic(head);
@@ -79,6 +97,7 @@ public class DocumentExtractionService {
             String lct = contentType == null ? "" : contentType.toLowerCase();
             boolean isPdf = (lct.contains("pdf") && pdfMagic)
                     || (lname.endsWith(".pdf") && pdfMagic);
+            // DOCX 是 ZIP 容器，必须 ZIP 签名 + 扩展名 / content-type 同时命中才认
             boolean isDocx = zipMagic && (
                     lname.endsWith(".docx")
                             || lct.contains("wordprocessingml")
@@ -92,6 +111,7 @@ public class DocumentExtractionService {
             } else if (isImage) {
                 handleImage(f, safeName, size, contentType, meta, imageAttachments);
             } else {
+                // 不识别的类型只标记，不抛错（其它文件可能仍可处理）
                 meta.put("type", "skipped");
                 meta.put("reason", "不支持的 content-type 或文件签名:" + contentType);
             }
@@ -105,6 +125,7 @@ public class DocumentExtractionService {
         JsonNode draft = llmService.extractOntologyFromSources(
                 combinedText.toString(), imageAttachments, modelOverride, configId);
 
+        // 用毫秒时间戳的 36 进制作 salt，加在每个节点 id 前面避免与已有图谱冲突
         String salt = Long.toString(System.currentTimeMillis(), 36);
         JsonNode rewritten = IdSaltRewriter.applyImportSalt(draft, salt);
 
@@ -113,10 +134,19 @@ public class DocumentExtractionService {
         out.put("edges", rewritten.path("edges"));
         out.put("reply", draft.path("reply").asText(""));
         out.put("sources", sourcesMeta);
+        // 把 salt 也回传给前端：后续如果用户取消导入，前端能用 salt 反过滤出本次新加的节点
         out.put("salt", salt);
         return out;
     }
 
+    /**
+     * PDF 处理：
+     * <ol>
+     *   <li>抽取全部文本；</li>
+     *   <li>若文本量 / 页数低于 {@link #MIN_TEXT_PER_PAGE}（很可能是扫描件），追加把每页渲染成图片；</li>
+     *   <li>超过 budget 时截断并打 truncated 标记。</li>
+     * </ol>
+     */
     private void handlePdf(MultipartFile f, String safeName, long size,
                            Map<String, Object> meta, StringBuilder combinedText,
                            List<Map<String, Object>> imageAttachments) throws IOException {
@@ -131,12 +161,14 @@ public class DocumentExtractionService {
             meta.put("pages", pageCount);
             text = PdfTextExtractor.extractText(doc);
 
+            // 文本稀疏判定：每页字符数 < MIN_TEXT_PER_PAGE 视为扫描件 / 文字稀少，启用图片兜底
             int rawLen = text == null ? 0 : text.trim().length();
             boolean textBare = pageCount > 0 && rawLen < pageCount * MIN_TEXT_PER_PAGE;
             if (textBare) {
                 int rendered = PdfTextExtractor.renderPages(doc, imageAttachments,
                         RENDER_MAX_PAGES, RENDER_DPI, IMAGE_BYTE_LIMIT, TOTAL_IMAGE_BUDGET);
                 meta.put("renderedPages", rendered);
+                // 稀疏文本还是有点价值（如页眉页脚），但保留太多会污染 prompt，截短到 4000 字符
                 if (text != null && text.length() > 4_000) {
                     text = text.substring(0, 4_000);
                 }
@@ -150,11 +182,13 @@ public class DocumentExtractionService {
         meta.put("type", "pdf");
         meta.put("chars", rawChars);
         if (text != null && !text.isBlank()) {
+            // 文本以 "# 文件 名称" 分段拼接，让 LLM 知道哪些段落来自哪个文件
             combinedText.append("# 文件 ").append(safeName).append("\n\n")
                         .append(text).append("\n\n");
         }
     }
 
+    /** DOCX 处理：用 {@link DocxTextExtractor} 抽段落 + 表格，超过 budget 截断。 */
     private void handleDocx(MultipartFile f, String safeName, long size,
                             Map<String, Object> meta, StringBuilder combinedText) throws IOException {
         if (size > DOCX_FILE_BYTES_LIMIT) {
@@ -181,6 +215,7 @@ public class DocumentExtractionService {
         }
     }
 
+    /** 图片处理：直接 base64 编码挂到 attachments 列表；超过单张大小或总额度则记原因后跳过。 */
     private void handleImage(MultipartFile f, String safeName, long size, String contentType,
                              Map<String, Object> meta,
                              List<Map<String, Object>> imageAttachments) throws IOException {
@@ -194,6 +229,7 @@ public class DocumentExtractionService {
             return;
         }
         String b64 = Base64.getEncoder().encodeToString(f.getBytes());
+        // contentType 缺失或非 image/* 时回退为 png，避免 LLM 拿到不合法的 media type
         String mediaType = (contentType != null && contentType.toLowerCase().startsWith("image/"))
                 ? contentType : "image/png";
         String dataUrl = "data:" + mediaType + ";base64," + b64;

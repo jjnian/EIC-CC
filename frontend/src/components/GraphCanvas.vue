@@ -1,4 +1,13 @@
 <script setup lang="ts">
+/**
+ * 图谱画布：负责节点/边的渲染、拖拽、平移、缩放、搜索、框选、右键菜单等所有交互。
+ * <p>性能要点：
+ * <ul>
+ *   <li>节点 ≥ 80 / 边 ≥ 100 时启用视口裁剪（viewport culling），仅渲染可视区附近的元素；</li>
+ *   <li>滚动事件用 requestAnimationFrame 节流；</li>
+ *   <li>拖拽 / 缩放都基于 zoom 反算，避免在缩放时累计漂移。</li>
+ * </ul>
+ */
 import { ref, computed, watch, reactive, onMounted, onUnmounted, nextTick } from 'vue';
 import { NT, NW, NH, getPath } from '../constants';
 import type { OntologyNode, OntologyEdge } from '../types';
@@ -8,7 +17,7 @@ const props = defineProps<{
   edges: OntologyEdge[];
   selId: string | null;
   layoutDirection?: 'LR' | 'TB';
-  /** 只读模式:禁用拖拽、禁用右键菜单、隐藏画布动作浮条与清空按钮(预览页用)。 */
+  /** 只读模式：禁用拖拽、禁用右键菜单、隐藏画布动作浮条与清空按钮（预览页用）。 */
   readonly?: boolean;
   /** 分支对比差异高亮数据 */
   diffHighlight?: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null;
@@ -30,11 +39,15 @@ const emit = defineEmits<{
   (e: 'explain-node', id: string): void;
 }>();
 
+/* ── 节点类型筛选（图例点击） ── */
+// 当前筛选的节点 type；null 表示不筛选，全部正常显示
 const typeFilter = ref<string | null>(null);
 const toggleTypeFilter = (k: string) => {
+  // 二次点击同一类型即取消筛选
   typeFilter.value = typeFilter.value === k ? null : k;
 };
 const matchesFilter = (n: any) => !typeFilter.value || n.type === typeFilter.value;
+// 边的可见性：只要两端任一端节点匹配筛选条件，就保留这条边的高亮
 const edgeMatchesFilter = (e: any) => {
   if (!typeFilter.value) return true;
   const fn = nmap.value[e.from];
@@ -45,11 +58,13 @@ const edgeMatchesFilter = (e: any) => {
 /* ── 搜索功能 ── */
 const searchRef = ref<HTMLInputElement | null>(null);
 const searchQuery = ref('');
+// 当前搜索结果在 searchMatches 中的索引（Enter 切下一个，循环）
 const searchIdx = ref(0);
 
 const searchMatches = computed(() => {
   const q = searchQuery.value.trim().toLowerCase();
   if (!q) return [];
+  // 同时匹配 label / type / id，以容忍用户记不清确切名称
   return props.nodes.filter(n =>
     n.label.toLowerCase().includes(q) ||
     n.type.toLowerCase().includes(q) ||
@@ -90,25 +105,28 @@ const isCurrentSearchTarget = (n: any) => {
   return searchMatches.value[searchIdx.value]?.id === n.id;
 };
 
+/* ── 热力图 / 差异着色 ── */
 const heatmapMode = ref(false);
 
+/** 热力图模式下，预测节点根据 effectiveProbability 在绿→黄→红之间渐变。 */
 const heatColor = (n: any) => {
   if (!heatmapMode.value || n.source !== 'predicted') return null;
   const p = n.effectiveProbability || n.confidence || 0;
-  // 绿(高概率) → 黄(中) → 红(低)
-  const h = p * 120; // 0=红, 60=黄, 120=绿
+  // HSL 色相：0=红，60=黄，120=绿；线性映射 p∈[0,1] → h∈[0,120]
+  const h = p * 120;
   return `hsl(${h}, 80%, 45%)`;
 };
 
-// 分支对比差异着色:蓝=A独有, 橙=B独有, 紫=共同
+/** 分支对比着色：蓝=A 独有，橙=B 独有，紫=共同；优先级高于热力图。 */
 const diffColor = (n: any) => {
   if (!props.diffHighlight) return null;
-  if (props.diffHighlight.uniqueAIds.includes(n.id)) return '#3b82f6'; // 蓝色 = A独有
-  if (props.diffHighlight.uniqueBIds.includes(n.id)) return '#f97316'; // 橙色 = B独有
+  if (props.diffHighlight.uniqueAIds.includes(n.id)) return '#3b82f6'; // 蓝色 = A 独有
+  if (props.diffHighlight.uniqueBIds.includes(n.id)) return '#f97316'; // 橙色 = B 独有
   if (props.diffHighlight.sharedIds.includes(n.id)) return '#a855f7';  // 紫色 = 共同
   return null;
 };
 
+/* ── 右键菜单 ── */
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
 const onNodeContext = (e: MouseEvent, id: string) => {
   e.preventDefault();
@@ -132,7 +150,7 @@ const triggerEdit = () => {
   }
 };
 
-// P1-7：对预测节点请求详细解释（依据/假设/反例）
+// P1-7：对预测节点请求详细解释（依据 / 假设 / 反例）
 const triggerExplain = () => {
   if (ctxMenu.value) {
     emit('explain-node', ctxMenu.value.id);
@@ -162,15 +180,20 @@ const triggerBatchDelete = () => {
   }
 };
 
-/* ── 多选状态 ── */
+/* ── 多选 / 框选 ── */
+// 多选集合：Ctrl+点击 或 Shift+框选 后聚集的节点 id
 const multiSel = reactive(new Set<string>());
-/* ── 框选状态 ── */
+// 框选状态：sx,sy 起点，cx,cy 当前点（画布坐标系，已除掉 zoom）
 const boxSel = ref<{ sx: number; sy: number; cx: number; cy: number } | null>(null);
 
+/* ── 视口与缩放 ── */
 const cvRef = ref<HTMLElement | null>(null);
 const zoom = ref(1);
+// 节点拖拽状态：含起始坐标、起始鼠标位置、是否触发批量等
 const drag = ref<any>(null);
+// 画布平移状态：滚动条位置 + 鼠标起点
 const pan = ref<any>(null);
+// 是否处于"自适应屏幕"模式：true 时窗口尺寸变化会自动 fitView
 const isAutoFit = ref(true);
 
 /* ── 视口裁剪（viewport culling）── */
@@ -183,6 +206,7 @@ const updateScroll = () => {
   scrollTop.value = cvRef.value.scrollTop;
 };
 
+// 用 rAF 节流滚动事件，避免高频滚动导致 visibleNodes 重算阻塞主线程
 let rafId = 0;
 const onScroll = () => {
   if (rafId) return;
@@ -192,11 +216,14 @@ const onScroll = () => {
   });
 };
 
-const CULL_MARGIN = 200; // 视口外扩展裁剪边距，避免滚动时突然出现/消失
+// 视口外扩裁剪边距，避免滚动时节点突然出现 / 消失造成视觉跳变
+const CULL_MARGIN = 200;
 
 const visibleNodes = computed(() => {
-  if (!cvRef.value || props.nodes.length < 80) return props.nodes; // 小图谱不裁剪
+  // 小图谱不做裁剪，省下计算开销 + 避免裁剪带来的复杂度
+  if (!cvRef.value || props.nodes.length < 80) return props.nodes;
 
+  // 视口换算到内容坐标系：除以 zoom 即可
   const z = zoom.value;
   const vl = scrollLeft.value / z;
   const vt = scrollTop.value / z;
@@ -205,6 +232,7 @@ const visibleNodes = computed(() => {
 
   const margin = CULL_MARGIN / z;
 
+  // 节点矩形与视口（含 margin）相交即保留
   return props.nodes.filter(n => {
     const nx = n.x || 0;
     const ny = n.y || 0;
@@ -218,13 +246,16 @@ const visibleNodeIds = computed(() => new Set(visibleNodes.value.map(n => n.id))
 const visibleEdges = computed(() => {
   if (!cvRef.value || props.edges.length < 100) return props.edges; // 小图谱不裁剪
 
+  // 边只要有一端在可见集合内就保留，避免边跨视口被错误裁掉
   return props.edges.filter(e => {
     return visibleNodeIds.value.has(e.from) || visibleNodeIds.value.has(e.to);
   });
 });
 
+// id → node 索引，给边查端点、菜单查类型用；改用 Object 而非 Map 是因为模板里直接 nmap[xxx] 更顺手
 const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])));
 
+/** 计算所有节点的包围盒，给 fitView 和外层容器尺寸用。 */
 const bounds = computed(() => {
   if (props.nodes.length === 0) return { minX: 0, w: 1000, minY: 0, h: 800 };
   let minX = Infinity, minY = Infinity;
@@ -244,12 +275,14 @@ const bounds = computed(() => {
   };
 });
 
+/** 自动缩放并居中显示所有节点。窗口 resize 时若处于 isAutoFit 状态会自动重新调用。 */
 const fitView = () => {
   if (!cvRef.value || props.nodes.length === 0) return;
   const cw = cvRef.value.clientWidth;
   const ch = cvRef.value.clientHeight;
   const b = bounds.value;
 
+  // 取宽高方向所需缩放比的较小者，并钳制到 [0.1, 2.0]
   const sX = (cw - 80) / Math.max(b.w, 1);
   const sY = (ch - 80) / Math.max(b.h, 1);
   const targetZoom = Math.max(0.1, Math.min(2.0, sX, sY));
@@ -260,6 +293,7 @@ const fitView = () => {
   const cx = b.minX + b.w / 2;
   const cy = b.minY + b.h / 2;
 
+  // 等 zoom 应用后再设置滚动位置，否则 scrollLeft 会被旧 size clamp
   nextTick(() => {
     if (cvRef.value) {
       cvRef.value.scrollLeft = Math.max(0, (cx * targetZoom) - cw / 2);
@@ -268,11 +302,12 @@ const fitView = () => {
   });
 };
 
+/* ── 拖拽 ── */
 const startDrag = (e: MouseEvent, id: string) => {
   e.stopPropagation();
 
   if (e.ctrlKey || e.metaKey) {
-    // Ctrl+点击：切换多选状态
+    // Ctrl + 点击：切换该节点在多选集合中的状态
     if (multiSel.has(id)) {
       multiSel.delete(id);
     } else {
@@ -282,7 +317,7 @@ const startDrag = (e: MouseEvent, id: string) => {
     return;
   }
 
-  // 非Ctrl点击：如果点的是多选集中的节点，保留多选准备批量拖拽
+  // 非 Ctrl 点击：如果点的是多选集中的节点，保留多选准备批量拖拽
   if (!multiSel.has(id)) {
     multiSel.clear(); // 点击未选中的节点，清空多选
   }
@@ -291,7 +326,7 @@ const startDrag = (e: MouseEvent, id: string) => {
   if (props.readonly) return;
   const n = nmap.value[id];
   if (n) {
-    // 如果拖拽的节点在多选集中且多选数量大于1，记录所有选中节点的初始位置
+    // 批量拖拽：当被拖节点在多选集合中且集合 >1，记录所有选中节点的初始坐标
     const batchOrigins = multiSel.has(id) && multiSel.size > 1
       ? Object.fromEntries([...multiSel].map(sid => [sid, { x: nmap.value[sid]?.x || 0, y: nmap.value[sid]?.y || 0 }]))
       : null;
@@ -299,21 +334,25 @@ const startDrag = (e: MouseEvent, id: string) => {
   }
 };
 
+/** 在画布空白处按下：进入平移或框选模式。 */
 const startPan = (e: MouseEvent) => {
+  // 点击落在节点 / 浮层上时不进入 pan，让对应控件优先响应
   if ((e.target as HTMLElement).closest('.node') || (e.target as HTMLElement).closest('.hud-overlay')) {
     return;
   }
   isAutoFit.value = false;
 
-  // Shift+拖拽：框选模式
+  // Shift + 拖拽：框选模式（只读时禁用）
   if (e.shiftKey && !props.readonly) {
     const rect = cvRef.value!.getBoundingClientRect();
+    // 把客户端坐标换算到内容坐标系（含滚动 + zoom）
     const x = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
     const y = (e.clientY - rect.top + cvRef.value!.scrollTop) / zoom.value;
     boxSel.value = { sx: x, sy: y, cx: x, cy: y };
     return;
   }
 
+  // 普通：记录滚动起点 + 鼠标起点，mousemove 阶段差值反向应用到 scroll
   pan.value = {
     sx: e.clientX,
     sy: e.clientY,
@@ -325,7 +364,7 @@ const startPan = (e: MouseEvent) => {
 let ro: ResizeObserver | null = null;
 
 const onWindowMouseMove = (e: MouseEvent) => {
-  // 框选拖拽中：更新框选的当前坐标
+  // 框选拖拽中：实时更新当前角点，模板用它绘制虚线矩形
   if (boxSel.value) {
     const rect = cvRef.value!.getBoundingClientRect();
     const x = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
@@ -337,15 +376,17 @@ const onWindowMouseMove = (e: MouseEvent) => {
 
   if (drag.value) {
     const { id, sx, sy, ox, oy, batchOrigins } = drag.value;
+    // 把屏幕位移换算到内容坐标系
     const dx = (e.clientX - sx) / zoom.value;
     const dy = (e.clientY - sy) / zoom.value;
 
+    // 超过 2px 才视为真正的拖拽，否则当成点击；避免选中态被微抖动覆盖
     if (!drag.value.moved && (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy)) > 2) {
       drag.value.moved = true;
       emit('drag-start', id);
     }
 
-    // 批量移动：对所有选中节点应用相同偏移
+    // 批量移动：所有被选节点应用相同位移；单选则只移动当前节点
     if (batchOrigins) {
       for (const [selId, origin] of Object.entries(batchOrigins) as [string, { x: number; y: number }][]) {
         emit('move', selId, Math.max(0, origin.x + dx), Math.max(0, origin.y + dy));
@@ -355,12 +396,13 @@ const onWindowMouseMove = (e: MouseEvent) => {
     }
     isAutoFit.value = false;
   } else if (pan.value && cvRef.value) {
+    // 平移：滚动条反向跟随鼠标位移
     cvRef.value.scrollLeft = pan.value.sl - (e.clientX - pan.value.sx);
     cvRef.value.scrollTop = pan.value.st - (e.clientY - pan.value.sy);
   }
 };
 const onWindowMouseUp = () => {
-  // 框选结束：计算框选范围内的节点
+  // 框选结束：把矩形内的节点全部加入 multiSel
   if (boxSel.value) {
     const { sx, sy, cx, cy } = boxSel.value;
     const left = Math.min(sx, cx);
@@ -370,7 +412,7 @@ const onWindowMouseUp = () => {
 
     multiSel.clear();
     for (const n of props.nodes) {
-      // 节点完全在框选区域内才选中
+      // 节点矩形完全落在选框内才算选中（部分相交不计），避免误选
       const nx = n.x ?? 0;
       const ny = n.y ?? 0;
       if (nx >= left && nx + NW <= right && ny >= top && ny + NH <= bottom) {
@@ -396,7 +438,7 @@ const onSearchKeydown = (e: KeyboardEvent) => {
 /* Delete 键批量删除选中节点 */
 const onDeleteKey = (e: KeyboardEvent) => {
   if (e.key === 'Delete' && multiSel.size > 0 && !props.readonly) {
-    // 避免在输入框内触发
+    // 避免在输入框内触发误删（用户正在编辑文本）
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     emit('delete-nodes', [...multiSel]);
@@ -405,12 +447,14 @@ const onDeleteKey = (e: KeyboardEvent) => {
 };
 
 onMounted(() => {
+  // 拖拽 / 平移用 window 级事件，保证鼠标移出画布外仍能跟踪
   window.addEventListener('mousemove', onWindowMouseMove);
   window.addEventListener('mouseup', onWindowMouseUp);
   window.addEventListener('keydown', onSearchKeydown);
   window.addEventListener('keydown', onDeleteKey);
   cvRef.value?.addEventListener('scroll', onScroll, { passive: true });
 
+  // 容器尺寸变化（如折叠侧栏）时若处于自适应模式自动重排
   ro = new ResizeObserver(() => {
     window.requestAnimationFrame(() => {
       if (isAutoFit.value) {
@@ -422,6 +466,7 @@ onMounted(() => {
     ro.observe(cvRef.value);
   }
 
+  // 等首帧布局完成再 fitView，确保 clientWidth 已可用
   setTimeout(fitView, 50);
 });
 
@@ -436,6 +481,7 @@ onUnmounted(() => {
   ro = null;
 });
 
+/** Ctrl + 滚轮缩放：以鼠标位置为中心，避免缩放后内容偏移。 */
 const onWheel = (e: WheelEvent) => {
   if (e.ctrlKey || e.metaKey) {
     e.preventDefault();
@@ -446,14 +492,17 @@ const onWheel = (e: WheelEvent) => {
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
+    // 缩放前先把鼠标处对应的内容坐标记录下来
     const contentX = (cvRef.value.scrollLeft + mouseX) / zoom.value;
     const contentY = (cvRef.value.scrollTop + mouseY) / zoom.value;
 
+    // 滚轮向上 deltaY<0 → 放大 1.12 倍；向下 → 0.9 倍；钳制到 [0.1, 3]
     const f = e.deltaY < 0 ? 1.12 : 0.9;
     const ns = Math.max(0.1, Math.min(3, zoom.value * f));
 
     zoom.value = ns;
 
+    // 用新的 zoom 反推滚动位置，使得鼠标处的内容坐标保持不变
     nextTick(() => {
       if (cvRef.value) {
         cvRef.value.scrollLeft = contentX * ns - mouseX;
@@ -461,12 +510,14 @@ const onWheel = (e: WheelEvent) => {
       }
     });
   } else {
+    // 普通滚轮（无 Ctrl）让浏览器原生滚动；只是关闭自适应标志
     isAutoFit.value = false;
   }
 };
 
 const getT = (n: any) => (NT as any)[n.type] || NT.entity;
 
+/** 平滑滚动让指定节点居中显示，用于搜索跳转。 */
 const focusNode = (id: string) => {
   const n = nmap.value[id];
   if (!n || !cvRef.value) return;
@@ -474,6 +525,7 @@ const focusNode = (id: string) => {
   const cw = cvRef.value.clientWidth;
   const ch = cvRef.value.clientHeight;
   const z = zoom.value;
+  // 节点中心点（已乘 zoom）→ 把它移到视口中心
   const cx = (n.x + NW / 2) * z;
   const cy = (n.y + 22) * z;
   cvRef.value.scrollTo({
@@ -483,6 +535,7 @@ const focusNode = (id: string) => {
   });
 };
 
+// 暴露给父组件：fitView 在推演完成等场景手动调用，focusNode 给节点定位用
 defineExpose({ fitView, focusNode });
 </script>
 

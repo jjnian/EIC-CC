@@ -7,6 +7,11 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 从 {@code application.yml} 中 {@code app.llm.*} 读取 LLM 模型配置列表。
+ * <p>每个 {@link ModelEntry} 描述一个可用模型（含 baseUrl / apiKey / 协议类型等），
+ * 由 {@link com.tuiyan.backend.service.LlmService} 在调用时按 id 选用。
+ */
 @Component
 @ConfigurationProperties(prefix = "app.llm")
 public class LlmProperties {
@@ -16,6 +21,11 @@ public class LlmProperties {
     public List<ModelEntry> getModels() { return models; }
     public void setModels(List<ModelEntry> models) { this.models = models; }
 
+    /**
+     * 单个模型配置。
+     * <p>{@code provider}/{@code protocol} 决定走哪个适配分支：openai 兼容 vs anthropic 原生。
+     * apiKey 在 JSON 序列化时通过 {@link JsonProperty.Access#WRITE_ONLY} 屏蔽，避免泄漏给前端。
+     */
     public static class ModelEntry {
         private String id;
         private String name;
@@ -40,6 +50,7 @@ public class LlmProperties {
         public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
         public String getModelName() { return modelName; }
         public void setModelName(String modelName) { this.modelName = modelName; }
+        // 反序列化（写入）时仍可接收，但响应给前端时不会被序列化输出，避免 apiKey 外泄
         @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
         public String getApiKey() { return apiKey; }
         public void setApiKey(String apiKey) { this.apiKey = apiKey; }

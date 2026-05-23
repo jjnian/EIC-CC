@@ -12,8 +12,10 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * 把 .docx 文件抽成纯文本:遍历段落 + 表格,跳过空段。
- * 表格按 "| 单元格 | 单元格 |" 的 markdown-ish 形式输出,保留二维结构。
+ * 把 .docx 文件抽成纯文本：遍历段落 + 表格，跳过空段。
+ * <p>表格按 {@code "| 单元格 | 单元格 |"} 的 markdown-ish 形式输出，保留二维结构，
+ * 让 LLM 能从拼接文本里识别出表格语义。
+ * <p>仅供 {@link com.tuiyan.backend.service.DocumentExtractionService} 内部使用。
  */
 public final class DocxTextExtractor {
 
@@ -21,6 +23,7 @@ public final class DocxTextExtractor {
 
     private DocxTextExtractor() {}
 
+    /** 抽取结果三元组：纯文本 + 段落数 + 表格数（后两个用于 metadata 展示）。 */
     public static class Result {
         public final String text;
         public final int paragraphs;
@@ -32,6 +35,11 @@ public final class DocxTextExtractor {
         }
     }
 
+    /**
+     * 从输入流中抽取 docx 内容。
+     * <p>段落与表格按文档顺序穿插写入也可以，但目前实现先输出全部段落再输出全部表格，
+     * 实际效果对 LLM 阅读影响不大。
+     */
     public static Result extract(InputStream in) throws IOException {
         StringBuilder sb = new StringBuilder();
         int paraCount = 0;
@@ -52,6 +60,7 @@ public final class DocxTextExtractor {
                     sb.append('|');
                     for (XWPFTableCell cell : row.getTableCells()) {
                         String cellText = cell.getText();
+                        // 单元格内的换行会破坏 "|...|" 的行结构，统一替换为空格
                         sb.append(' ')
                           .append(cellText == null ? "" : cellText.strip().replace('\n', ' '))
                           .append(" |");

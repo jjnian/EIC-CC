@@ -23,11 +23,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+/**
+ * 本体图谱模型服务：CRUD + 版本快照管理 + 默认种子数据。
+ * <p>核心特性：
+ * <ul>
+ *   <li>每次保存前自动把"当前文件"拷贝到 {@code versions/<modelId>/<时间戳>.json}，最多保留 {@link #MAX_VERSIONS} 份；</li>
+ *   <li>首次启动时（目录为空）自动播种 3 个示例图谱（供应链 / 财务 / 组织架构）让用户能立刻上手；</li>
+ *   <li>支持按时间戳恢复到任意历史版本，恢复前的当前版本也会被备份成新快照。</li>
+ * </ul>
+ */
 @Service
 public class OntologyModelService {
 
     private static final Logger log = LoggerFactory.getLogger(OntologyModelService.class);
-    // 版本快照最大保留数量
+    // 版本快照最大保留数量；超过后会删除最早的快照
     private static final int MAX_VERSIONS = 100;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -37,6 +46,7 @@ public class OntologyModelService {
         this.appPaths = appPaths;
     }
 
+    /** 启动时确保目录存在；目录为空（全新安装）时播种默认图谱。 */
     @PostConstruct
     public void init() throws IOException {
         File d = appPaths.ontologyModelsDir();
@@ -47,6 +57,7 @@ public class OntologyModelService {
         }
     }
 
+    /** 全量列表，按 updatedAt 倒序；损坏文件跳过。 */
     public List<OntologyModel> list() throws IOException {
         File d = appPaths.ontologyModelsDir();
         File[] files = d.listFiles((f, n) -> n.endsWith(".json"));
@@ -69,6 +80,11 @@ public class OntologyModelService {
         return objectMapper.readValue(f, OntologyModel.class);
     }
 
+    /**
+     * 保存（新建或更新）。
+     * <p>更新场景下会先把当前文件拷贝到 versions 目录作为快照，再覆盖写入新内容，
+     * 保证"任何一次保存"都有回溯点。
+     */
     public OntologyModel save(OntologyModel m) throws IOException {
         if (m.getId() == null || m.getId().isBlank()) {
             m.setId("om_" + System.currentTimeMillis());
@@ -92,7 +108,8 @@ public class OntologyModelService {
     }
 
     /**
-     * 获取指定模型的版本快照列表
+     * 获取指定模型的版本快照列表（不含内容，只返回时间戳 + 节点 / 边数概要 + 文件大小）。
+     * <p>用于设置页的"历史版本"列表渲染，按时间戳倒序。
      */
     public List<Map<String, Object>> listVersions(String modelId) {
         File versionsDir = new File(appPaths.ontologyModelsDir(),
@@ -109,7 +126,7 @@ public class OntologyModelService {
             String ts = f.getName().replace(".json", "");
             try {
                 long timestamp = Long.parseLong(ts);
-                // 读取文件获取节点/边数量摘要
+                // 读取文件获取节点/边数量摘要，让用户在恢复前能预览版本规模
                 OntologyModel snapshot = objectMapper.readValue(f, OntologyModel.class);
                 int nodeCount = snapshot.getGraphData() != null && snapshot.getGraphData().getNodes() != null
                         ? snapshot.getGraphData().getNodes().size() : 0;
@@ -129,7 +146,9 @@ public class OntologyModelService {
     }
 
     /**
-     * 恢复指定时间戳的版本快照
+     * 恢复指定时间戳的版本快照。
+     * <p>恢复过程调用 {@link #save}，所以当前版本会被自动备份为新的快照，
+     * 这意味着"恢复"操作本身也是可撤销的。
      */
     public OntologyModel restoreVersion(String modelId, long timestamp) throws IOException {
         File versionsDir = new File(appPaths.ontologyModelsDir(),
@@ -145,7 +164,8 @@ public class OntologyModelService {
     }
 
     /**
-     * 保存版本快照到 versions 子目录
+     * 把当前文件复制到 versions/<modelId>/<时间戳>.json，并清理超额快照。
+     * <p>快照失败仅记录警告，不阻断主保存流程——快照是辅助功能，不能因为它失败导致用户数据丢失。
      */
     private void saveVersionSnapshot(String modelId, File currentFile) {
         try {
@@ -158,7 +178,7 @@ public class OntologyModelService {
             File versionFile = new File(versionsDir, versionName);
             Files.copy(currentFile.toPath(), versionFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
-            // 清理超过 MAX_VERSIONS 的旧版本
+            // 清理超过 MAX_VERSIONS 的旧版本：按 lastModified 升序删最早的
             File[] versions = versionsDir.listFiles((dir, name) -> name.endsWith(".json"));
             if (versions != null && versions.length > MAX_VERSIONS) {
                 Arrays.sort(versions, Comparator.comparingLong(File::lastModified));
@@ -177,6 +197,7 @@ public class OntologyModelService {
         return new File(appPaths.ontologyModelsDir(), safe + ".json");
     }
 
+    /** 首次启动时播种 3 个示例图谱，让用户能立刻进行推演体验。 */
     private void seedDefaults() throws IOException {
         OntologyModel m1 = buildSeed("1", "供应链本体模型", "包含供应链核心实体与关系的推演模型",
                 supplyChainNodes(), supplyChainEdges());
@@ -204,6 +225,7 @@ public class OntologyModelService {
         return m;
     }
 
+    /** 供应链示例节点：10 个常见实体，已预排坐标可直接渲染。 */
     private List<Map<String, Object>> supplyChainNodes() {
         List<Map<String, Object>> out = new ArrayList<>();
         Object[][] seeds = {
@@ -227,6 +249,7 @@ public class OntologyModelService {
         return out;
     }
 
+    /** 供应链示例边：覆盖采购、生产、配送、入库等核心因果关系。 */
     private List<Map<String, Object>> supplyChainEdges() {
         List<Map<String, Object>> out = new ArrayList<>();
         String[][] seeds = {

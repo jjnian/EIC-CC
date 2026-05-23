@@ -1,8 +1,9 @@
 package com.tuiyan.backend.config;
 
 /**
- * 资源未找到 → HTTP 404。
- * 用于区分参数校验失败(IllegalArgumentException → 400)与目标资源不存在两种语义。
+ * 资源未找到 → 由 {@link GlobalExceptionHandler} 映射到 HTTP 404。
+ * <p>用于在 service 中区分"参数校验失败"（{@link IllegalArgumentException} → 400）
+ * 与"目标资源不存在"两种语义，避免前端误把缺资源当成参数错误。
  */
 public class ResourceNotFoundException extends RuntimeException {
     public ResourceNotFoundException(String message) {
