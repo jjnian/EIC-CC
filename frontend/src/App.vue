@@ -24,7 +24,6 @@ import { NT } from './constants';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
-const showSchema = ref(false);
 const graphRef = ref<any>(null);
 const { chatW, startDivider, isDragging } = useDivider(360, () => graphRef.value?.fitView());
 
@@ -259,7 +258,6 @@ const welcomeResetTick = ref(0);
 const goWelcome = () => {
   view.value = 'welcome';
   sel.value = null;
-  showSchema.value = false;
   welcomeResetTick.value++;
 };
 
@@ -387,7 +385,6 @@ const graphActions = useGraphActions({
 });
 const autoLayout = () => { history.snapshot(); graphActions.autoLayout(); };
 const exportGraph = graphActions.exportGraph;
-const shareGraph = graphActions.shareGraph;
 const toggleLayoutDirection = graphActions.toggleLayoutDirection;
 const layoutDirection = graphActions.layoutDirection;
 
@@ -647,9 +644,6 @@ const openPreview = () => {
             @click="importDialogOpen = true"
             title="从 PDF / 图片抽取本体导入"
           >📥 导入</button>
-          <span class="tb-badge ok">● {{ nodes.length }} 节点</span>
-          <span class="tb-badge">{{ edges.length }} 关系</span>
-          <button class="tb-btn" @click="showSchema = !showSchema">Schema</button>
           <button class="tb-btn" @click="openPreview" title="在新标签页里以只读模式预览整张图谱" :disabled="!currentModelId">预览</button>
           <button class="tb-btn" @click="openVersionHistory" title="查看和恢复历史版本" :disabled="!currentModelId">🕐 版本</button>
           <button class="tb-btn" @click="openTemplates" title="从模板创建新模型">📋 模板</button>
@@ -663,7 +657,6 @@ const openPreview = () => {
               <button @click="graphActions.exportMermaid(); showExportMenu = false">Mermaid 语法</button>
             </div>
           </div>
-          <button class="tb-btn hi" @click="shareGraph" title="复制图谱摘要到剪贴板">共享</button>
         </div>
         <div class="tb-tools" v-if="view === 'list'">
           <button class="tb-btn" @click="goWelcome">＋新对话</button>
@@ -705,7 +698,6 @@ const openPreview = () => {
         :nodes="nodes"
         :edges="edges"
         :selected-id="sel"
-        :show-schema="showSchema"
         :active-branch-id="activeBranchId"
         :live-active="liveActive"
         :live-loading="liveLoading"
@@ -728,7 +720,6 @@ const openPreview = () => {
         @undo="undoGraph"
         @redo="redoGraph"
         @update:selected-id="(id) => sel = id"
-        @update:show-schema="(v) => showSchema = v"
         @move="onMove"
         @drag-start="onDragStart"
         @auto-layout="autoLayout"
