@@ -11,7 +11,7 @@ import GraphView from './components/views/GraphView.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import { toast, mountToastRoot } from './composables/useToast';
 import { confirm } from './composables/useConfirm';
-import { updateOntology, listVersions, restoreVersion } from './api/ontology';
+import { updateOntology, listVersions, restoreVersion, listGraphTemplates, saveGraphTemplate, deleteGraphTemplate } from './api/ontology';
 import { ApiError } from './api/http';
 import { useDivider } from './composables/useDivider';
 import { useImportFlow } from './composables/useImportFlow';
@@ -515,6 +515,83 @@ const doRestoreVersion = async (timestamp: number) => {
 
 const closeVersions = () => { showVersions.value = false; };
 
+// 模板库状态与方法
+const showTemplates = ref(false);
+const templates = ref<any[]>([]);
+const templatesLoading = ref(false);
+
+const openTemplates = async () => {
+  showTemplates.value = true;
+  templatesLoading.value = true;
+  try {
+    templates.value = await listGraphTemplates();
+  } catch (e) {
+    console.error('Failed to load templates', e);
+    templates.value = [];
+  } finally {
+    templatesLoading.value = false;
+  }
+};
+
+const saveAsTemplate = async () => {
+  if (!currentModelId.value) return;
+  const model = findModel(currentModelId.value);
+  if (!model) return;
+  const tpl = {
+    title: (model.title || '未命名') + ' (模板)',
+    desc: model.desc || '',
+    graphData: { nodes: nodes.value, edges: edges.value },
+  };
+  try {
+    await saveGraphTemplate(tpl);
+    toast.success('已保存为模板');
+  } catch (e) {
+    toast.error('保存模板失败');
+  }
+};
+
+const createFromTemplate = async (tpl: any) => {
+  if (isCreating.value) return;
+  isCreating.value = true;
+  try {
+    const title = (tpl.title || '未命名').replace(/ \(模板\)$/, '');
+    const draft: OntologyModel = {
+      id: 'om_' + Date.now(),
+      title,
+      desc: tpl.desc || '',
+      graphData: tpl.graphData || { nodes: [], edges: [] },
+    };
+    const saved = await createOnBackend(draft);
+    models.value.unshift(saved);
+    showTemplates.value = false;
+    await openModel(saved);
+    toast.success('已从模板创建新模型');
+  } catch (e) {
+    toast.error('从模板创建失败');
+  } finally {
+    isCreating.value = false;
+  }
+};
+
+const removeTemplate = async (id: string) => {
+  const ok = await confirm({
+    title: '删除模板',
+    message: '确定删除此模板？',
+    danger: true,
+    confirmLabel: '删除',
+  });
+  if (!ok) return;
+  try {
+    await deleteGraphTemplate(id);
+    templates.value = templates.value.filter(t => t.id !== id);
+    toast.success('已删除');
+  } catch (e) {
+    toast.error('删除失败');
+  }
+};
+
+const closeTemplates = () => { showTemplates.value = false; };
+
 const formatFileSize = (bytes: number) => {
   if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
   if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -580,6 +657,8 @@ const openPreview = () => {
           <button class="tb-btn" @click="showSchema = !showSchema">Schema</button>
           <button class="tb-btn" @click="openPreview" title="在新标签页里以只读模式预览整张图谱" :disabled="!currentModelId">预览</button>
           <button class="tb-btn" @click="openVersionHistory" title="查看和恢复历史版本" :disabled="!currentModelId">🕐 版本</button>
+          <button class="tb-btn" @click="openTemplates" title="从模板创建新模型">📋 模板</button>
+          <button class="tb-btn" @click="saveAsTemplate" title="将当前模型另存为模板" :disabled="!currentModelId">💾 存为模板</button>
           <button class="tb-btn" @click="exportGraph" title="下载当前图谱为 JSON">导出</button>
           <button class="tb-btn hi" @click="shareGraph" title="复制图谱摘要到剪贴板">共享</button>
         </div>
@@ -725,6 +804,30 @@ const openPreview = () => {
             <div v-for="v in versions" :key="v.timestamp" class="vp-item" @click="doRestoreVersion(v.timestamp)">
               <div class="vp-time">{{ new Date(v.timestamp).toLocaleString() }}</div>
               <div class="vp-meta">{{ v.nodeCount }} 节点 · {{ v.edgeCount }} 关系 · {{ formatFileSize(v.fileSize) }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 模板库面板 -->
+      <div v-if="showTemplates" class="modal-mask" @click.self="closeTemplates">
+        <div class="version-panel">
+          <div class="vp-header">
+            <h3>模板库</h3>
+            <button class="vp-close" @click="closeTemplates">&#10005;</button>
+          </div>
+          <div v-if="templatesLoading" class="vp-loading">加载中…</div>
+          <div v-else-if="templates.length === 0" class="vp-empty">暂无模板，可在图谱视图中点击「存为模板」保存当前模型为模板</div>
+          <div v-else class="vp-list">
+            <div v-for="t in templates" :key="t.id" class="vp-item" style="display:flex;justify-content:space-between;align-items:center">
+              <div @click="createFromTemplate(t)" style="flex:1;cursor:pointer">
+                <div class="vp-time">{{ t.title || t.name || '未命名' }}</div>
+                <div class="vp-meta">
+                  {{ t.graphData?.nodes?.length || 0 }} 节点 · {{ t.graphData?.edges?.length || 0 }} 关系
+                  {{ t.desc ? ' · ' + t.desc : '' }}
+                </div>
+              </div>
+              <button class="ml-del" @click.stop="removeTemplate(t.id)" title="删除模板">×</button>
             </div>
           </div>
         </div>

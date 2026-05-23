@@ -54,3 +54,19 @@ export function listVersions(modelId: string) {
 export function restoreVersion(modelId: string, timestamp: number) {
   return request<any>(`/api/ontology-models/${modelId}/versions/${timestamp}/restore`, { method: 'POST' });
 }
+
+// 图谱模板库 API
+export function listGraphTemplates() {
+  return request<any[]>('/api/templates');
+}
+
+export function saveGraphTemplate(template: any) {
+  return request<any>('/api/templates', {
+    method: 'POST',
+    body: JSON.stringify(template),
+  });
+}
+
+export function deleteGraphTemplate(id: string) {
+  return request<void>(`/api/templates/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
