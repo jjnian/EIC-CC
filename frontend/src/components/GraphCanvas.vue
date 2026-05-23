@@ -243,12 +243,6 @@ const legendTypes = computed(() => {
   return out;
 });
 
-// 是否有任何带约束的类节点或关系边 → 图例里加一行 🔒 约束
-const hasConstraintBadges = computed(() => {
-  for (const n of props.nodes) if ((n.constraints?.length || 0) > 0) return true;
-  for (const e of props.edges) if ((e.constraints?.length || 0) > 0) return true;
-  return false;
-});
 
 const visibleNodes = computed(() => {
   // 小图谱不做裁剪，省下计算开销 + 避免裁剪带来的复杂度
@@ -601,11 +595,10 @@ defineExpose({ fitView, focusNode });
                         :marker-end="e.source === 'predicted' ? 'url(#arr-p)' : (e.rule_driven ? 'url(#arr-r)' : (selId === e.from || selId === e.to ? 'url(#arr-s)' : 'url(#arr)'))"/>
                   <path v-if="e.source !== 'predicted'" :class="selId === e.from || selId === e.to ? 'line-flow-fast' : 'line-flow'" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (selId === e.from || selId === e.to ? '#a7f3d0' : 'rgba(66, 184, 131, 0.6)')" :stroke-width="selId === e.from || selId === e.to ? 2.5 : 1.5"/>
                   <g v-if="e.label">
-                    <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 22" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="44" height="14" rx="3" fill="#0f172a" opacity="0.8"/>
+                    <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 20" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="40" height="14" rx="3" fill="#0f172a" opacity="0.8"/>
                     <text :x="getPath(nmap[e.from], nmap[e.to]).mx" :y="getPath(nmap[e.from], nmap[e.to]).my - 6" text-anchor="middle" :style="{fill: e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.7)')), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
-                      <tspan v-if="e.source === 'predicted'">◇</tspan><tspan v-else-if="e.rule_driven">⚡</tspan>{{ e.label }}<tspan v-if="(e.constraints?.length || 0) > 0" dx="2" style="font-size:10px">🔒</tspan>
+                      <tspan v-if="e.source === 'predicted'">◇</tspan><tspan v-else-if="e.rule_driven">⚡</tspan>{{ e.label }}
                     </text>
-                    <title v-if="(e.constraints?.length || 0) > 0">{{ (e.constraints || []).map((c: any) => c.note).join('\n') }}</title>
                   </g>
                 </g>
               </template>
@@ -626,12 +619,7 @@ defineExpose({ fitView, focusNode });
                 @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @dblclick.stop="emit('edit-node', n.id)" @click.stop>
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
               <div class="node-label">{{ n.label }}</div>
-              <div class="node-type">
-                {{ getT(n).label }}
-                <span v-if="(n.attributes?.length || 0) > 0" class="node-attr-chip" :title="'属性: ' + (n.attributes || []).map(a => a.name).join(', ')">{{ n.attributes.length }}属性</span>
-              </div>
-              <div v-if="(n.constraints?.length || 0) > 0" class="node-lock"
-                   :title="(n.constraints || []).map(c => c.note).join('\n')">🔒</div>
+              <div class="node-type">{{ getT(n).label }}</div>
               <div v-if="n.source === 'predicted'" class="node-pred-badge"
                    :title="'置信度: ' + Math.round((n.confidence || 0) * 100) + '% | 有效概率: ' + Math.round((n.effectiveProbability || 0) * 100) + '%'">
                 {{ Math.round((n.effectiveProbability || n.confidence || 0) * 100) }}%
@@ -751,16 +739,12 @@ defineExpose({ fitView, focusNode });
           <span>{{ (t as any).label }}</span>
         </div>
         <div class="legend-sep"></div>
-        <div class="legend-row legend-row-static" title="边 = 关系">
+        <div class="legend-row legend-row-static" title="边 = 关系。点击对象或关系在「详细」里查看约束">
           <svg class="legend-arrow" width="18" height="10" viewBox="0 0 18 10">
             <line x1="1" y1="5" x2="14" y2="5" stroke="#22dd88" stroke-width="1.6"/>
             <path d="M14,1 L17,5 L14,9 Z" fill="#22dd88"/>
           </svg>
           <span>关系</span>
-        </div>
-        <div v-if="hasConstraintBadges" class="legend-row legend-row-static" title="带🔒的类或关系挂有约束(详见 Schema 面板)">
-          <span class="legend-lock">🔒</span>
-          <span>约束</span>
         </div>
       </div>
     </div>

@@ -384,6 +384,41 @@ body {
   border-radius: 3px;
 }
 .ni-prop-del:hover, .ni-edge-del:hover { color: #ef4444; }
+.ni-constraint-pill {
+  margin-left: 8px;
+  background: rgba(255, 51, 153, 0.14);
+  border: 1px solid rgba(255, 51, 153, 0.32);
+  color: #ff7fbe;
+  border-radius: 100px;
+  padding: 1px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  vertical-align: middle;
+}
+.ni-constraint-pill:hover { background: rgba(255, 51, 153, 0.22); }
+.ni-constraint-list {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(255, 51, 153, 0.06);
+  border-left: 2px solid rgba(255, 51, 153, 0.45);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ni-constraint-item {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+}
+.ni-constraint-kind {
+  color: #ff7fbe;
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 48px;
+}
 .ni-prop-add {
   background: transparent;
   border: 1px dashed rgba(255,255,255,0.15);
