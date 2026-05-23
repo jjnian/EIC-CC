@@ -3,7 +3,8 @@ import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { chatStream, type ChatPayload, type ChatResult } from '../api/chat';
 import type { SseHandle } from '../api/http';
-import { useConversations, type ChatMsg, type ChatMsgAttachment } from '../composables/useConversations';
+import { useConversations, type ChatMsg, type ChatMsgAttachment, type PredictionMsg } from '../composables/useConversations';
+import type { ChainStep } from '../types';
 import { useAttachments } from '../composables/useAttachments';
 import { useMention } from '../composables/useMention';
 import { useChatModels } from '../composables/useChatModels';
@@ -17,12 +18,29 @@ const props = defineProps<{
   edges: OntologyEdge[];
   width: number;
   seed?: { text: string; files: File[] } | null;
+  /**
+   * 当前推演的实时状态(由 App.vue 从 usePrediction 透传下来)。
+   * status: 0 空闲 1 运行中 2 完成 3 错误 4 已停止
+   */
+  livePrediction?: {
+    status: 0 | 1 | 2 | 3 | 4;
+    intent: 'forward' | 'backward';
+    seeds: string[];
+    prompt: string;
+    name: string;
+    steps: ChainStep[];
+    pruneDetails: { nodeId: string; label: string; reason: string }[];
+    branchId: string;
+    error: string;
+  } | null;
 }>();
 
 const emit = defineEmits<{
   (e: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[]): void;
   (e: 'clear-graph'): void;
   (e: 'seed-consumed'): void;
+  (e: 'focus-node', id: string): void;
+  (e: 'abort-prediction'): void;
 }>();
 
 // ===== 消息/输入 状态 =====
@@ -161,6 +179,58 @@ onBeforeUnmount(() => abortChat());
 watch(msgs, () => {
   msgListRef.value?.scrollToBottom();
   persistCurrent();
+}, { deep: true });
+
+// ===== 推演消息同步 =====
+// 监听父级传下来的 livePrediction:
+//   - 检测到 status 从 0→1 时(运行开始),往 msgs 推一条 role='prediction' 消息
+//   - 后续 steps / status 变化时同步到这条消息上
+let currentPredictionMsg: ChatMsg | null = null;
+const seedLabel = (id: string) => props.nodes.find(n => n.id === id)?.label || id;
+const buildSeedPairs = (ids: string[]) => ids.map(id => ({ id, label: seedLabel(id) }));
+const statusToLabel = (s: 0 | 1 | 2 | 3 | 4): PredictionMsg['status'] =>
+  s === 1 ? 'running' : s === 2 ? 'done' : s === 3 ? 'error' : s === 4 ? 'aborted' : 'done';
+
+watch(() => props.livePrediction, (now, prev) => {
+  if (!now) return;
+  // 进入 running:新建一条推演消息(从非 running 跳到 running 视作新一轮)
+  const enteredRunning = now.status === 1 && (!prev || prev.status !== 1);
+  if (enteredRunning) {
+    const msg: ChatMsg = {
+      role: 'prediction',
+      text: '',
+      prediction: {
+        intent: now.intent,
+        seeds: buildSeedPairs(now.seeds),
+        prompt: now.prompt,
+        name: now.name,
+        status: 'running',
+        steps: [],
+        pruneDetails: [],
+      },
+    };
+    msgs.value.push(msg);
+    currentPredictionMsg = msg;
+  }
+  // 同步增量到当前消息
+  if (currentPredictionMsg && currentPredictionMsg.prediction) {
+    const p = currentPredictionMsg.prediction;
+    if (now.steps.length !== p.steps.length) {
+      p.steps = now.steps.map(s => ({
+        step: s.step, nodeId: s.nodeId, label: s.label, type: s.type,
+        triggeredBy: s.triggeredBy, ruleId: s.ruleId,
+        explanation: s.explanation, confidence: s.confidence,
+      }));
+    }
+    if (now.pruneDetails?.length && (p.pruneDetails?.length || 0) !== now.pruneDetails.length) {
+      p.pruneDetails = now.pruneDetails.slice();
+    }
+    p.status = statusToLabel(now.status);
+    if (now.branchId) p.branchId = now.branchId;
+    if (now.error) p.error = now.error;
+    // 终态后释放,下一轮会新建
+    if (p.status !== 'running') currentPredictionMsg = null;
+  }
 }, { deep: true });
 
 // ===== 发送 =====
@@ -347,7 +417,14 @@ const send = async () => {
       <div class="ch-head-l"><div class="ch-pulse" /><span>AI 推演助手</span></div>
       <div class="ch-stat">{{ nodes.length }}节点·{{ edges.length }}关系</div>
     </div>
-    <ChatMessageList ref="msgListRef" :messages="msgs" :loading="loading" @preview="(a) => previewAtt = a" />
+    <ChatMessageList
+      ref="msgListRef"
+      :messages="msgs"
+      :loading="loading"
+      @preview="(a) => previewAtt = a"
+      @focus-node="(id) => emit('focus-node', id)"
+      @abort-prediction="emit('abort-prediction')"
+    />
     <AttachmentPreview :attachment="previewAtt" @close="previewAtt = null" />
     <AttachmentChips :attachments="atts" @remove="(i) => atts = atts.filter((_, j) => j !== i)" />
     <div class="ch-input-area">

@@ -172,6 +172,12 @@ const liveLoading = prediction.liveLoading;
 const liveActive = prediction.liveActive;
 const liveIntent = prediction.liveIntent;
 const livePruneDetails = prediction.livePruneDetails;
+const liveSeeds = prediction.liveSeeds;
+const livePrompt = prediction.livePrompt;
+const liveName = prediction.liveName;
+const liveBranchId = prediction.liveBranchId;
+const liveError = prediction.liveError;
+const liveStatus = prediction.liveStatus;
 const openPredictDialog = prediction.openPredictDialog;
 const startPrediction = prediction.startPrediction;
 const closeTimeline = prediction.closeTimeline;
@@ -478,6 +484,12 @@ const focusNodeInGraph = (id: string) => {
         :live-steps="liveSteps"
         :live-intent="liveIntent"
         :live-prune-details="livePruneDetails"
+        :live-seeds="liveSeeds"
+        :live-prompt="livePrompt"
+        :live-name="liveName"
+        :live-branch-id="liveBranchId"
+        :live-error="liveError"
+        :live-status="liveStatus"
         :chat-w="chatW"
         :div-drag-active="isDragging"
         :pending-chat-seed="pendingChatSeed"
@@ -497,6 +509,7 @@ const focusNodeInGraph = (id: string) => {
         @seed-consumed="pendingChatSeed = null"
         @start-divider="startDivider"
         @graph-ref="(el) => graphRef = el"
+        @abort-prediction="closeTimeline"
       />
 
       <!-- Predict Dialog (modal) -->

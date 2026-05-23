@@ -24,10 +24,36 @@ export interface ChatMsgAttachment {
   storedTruncated?: boolean;
 }
 
+/** 推演消息(嵌在对话里展示一次推演的全过程与结果)。 */
+export interface PredictionMsg {
+  intent: 'forward' | 'backward';
+  /** 起点 / 目标节点(冗余存 label,便于历史回看时即使节点已删也能识别)。 */
+  seeds: { id: string; label: string }[];
+  prompt?: string;
+  name?: string;
+  status: 'running' | 'done' | 'error' | 'aborted';
+  /** 已收到的推演步,按时间顺序追加。 */
+  steps: {
+    step: number;
+    nodeId: string;
+    label: string;
+    type: string;
+    triggeredBy?: string[];
+    ruleId?: string | null;
+    explanation?: string;
+    confidence?: number;
+  }[];
+  pruneDetails?: { nodeId: string; label: string; reason: string }[];
+  /** 完成后生成的分支 id(供"跳到该分支"等回看入口用)。 */
+  branchId?: string;
+  error?: string;
+}
+
 export interface ChatMsg {
-  role: 'a' | 'u';
+  role: 'a' | 'u' | 'prediction';
   text: string;
   atts?: ChatMsgAttachment[];
+  prediction?: PredictionMsg;
 }
 
 export interface Conversation {
