@@ -156,6 +156,56 @@ const drag = ref<any>(null);
 const pan = ref<any>(null);
 const isAutoFit = ref(true);
 
+/* ── 视口裁剪（viewport culling）── */
+const scrollLeft = ref(0);
+const scrollTop = ref(0);
+
+const updateScroll = () => {
+  if (!cvRef.value) return;
+  scrollLeft.value = cvRef.value.scrollLeft;
+  scrollTop.value = cvRef.value.scrollTop;
+};
+
+let rafId = 0;
+const onScroll = () => {
+  if (rafId) return;
+  rafId = requestAnimationFrame(() => {
+    updateScroll();
+    rafId = 0;
+  });
+};
+
+const CULL_MARGIN = 200; // 视口外扩展裁剪边距，避免滚动时突然出现/消失
+
+const visibleNodes = computed(() => {
+  if (!cvRef.value || props.nodes.length < 80) return props.nodes; // 小图谱不裁剪
+
+  const z = zoom.value;
+  const vl = scrollLeft.value / z;
+  const vt = scrollTop.value / z;
+  const vr = vl + cvRef.value.clientWidth / z;
+  const vb = vt + cvRef.value.clientHeight / z;
+
+  const margin = CULL_MARGIN / z;
+
+  return props.nodes.filter(n => {
+    const nx = n.x || 0;
+    const ny = n.y || 0;
+    return nx + NW >= vl - margin && nx <= vr + margin &&
+           ny + 52 >= vt - margin && ny <= vb + margin;
+  });
+});
+
+const visibleNodeIds = computed(() => new Set(visibleNodes.value.map(n => n.id)));
+
+const visibleEdges = computed(() => {
+  if (!cvRef.value || props.edges.length < 100) return props.edges; // 小图谱不裁剪
+
+  return props.edges.filter(e => {
+    return visibleNodeIds.value.has(e.from) || visibleNodeIds.value.has(e.to);
+  });
+});
+
 const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])));
 
 const bounds = computed(() => {
@@ -342,6 +392,7 @@ onMounted(() => {
   window.addEventListener('mouseup', onWindowMouseUp);
   window.addEventListener('keydown', onSearchKeydown);
   window.addEventListener('keydown', onDeleteKey);
+  cvRef.value?.addEventListener('scroll', onScroll, { passive: true });
 
   ro = new ResizeObserver(() => {
     window.requestAnimationFrame(() => {
@@ -362,6 +413,8 @@ onUnmounted(() => {
   window.removeEventListener('mouseup', onWindowMouseUp);
   window.removeEventListener('keydown', onSearchKeydown);
   window.removeEventListener('keydown', onDeleteKey);
+  cvRef.value?.removeEventListener('scroll', onScroll);
+  if (rafId) cancelAnimationFrame(rafId);
   ro?.disconnect();
   ro = null;
 });
@@ -437,7 +490,7 @@ defineExpose({ fitView, focusNode });
               </marker>
             </defs>
             <g>
-              <template v-for="e in edges" :key="e.id">
+              <template v-for="e in visibleEdges" :key="e.id">
                 <g v-if="nmap[e.from] && nmap[e.to]" :style="{ opacity: edgeMatchesFilter(e) ? 1 : 0.15 }">
                   <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : '#42b883')" :stroke-width="8" opacity="0.1"/>
                   <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
@@ -458,7 +511,7 @@ defineExpose({ fitView, focusNode });
           </svg>
 
           <div class="graph-root" style="transform:none;">
-            <div v-for="n in nodes" :key="n.id"
+            <div v-for="n in visibleNodes" :key="n.id"
                 :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-multi-sel': multiSel.has(n.id), 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n) || (searchQuery && !isSearchMatch(n)), 'node-hl': typeFilter && matchesFilter(n), 'node-search-current': isCurrentSearchTarget(n) }]"
                 :style="{
                   left: n.x + 'px', top: n.y + 'px', width: NW + 'px',
@@ -552,6 +605,9 @@ defineExpose({ fitView, focusNode });
         <button @click="zoom = Math.min(3, zoom * 1.2); isAutoFit = false;">+</button>
         <button @click="zoom = Math.max(0.1, zoom * 0.85); isAutoFit = false;">−</button>
       </div>
+      <span v-if="props.nodes.length >= 80" class="perf-indicator">
+        {{ visibleNodes.length }}/{{ props.nodes.length }} 节点可见
+      </span>
 
       <div class="legend" style="position: absolute; top: 24px; right: 24px; pointer-events: auto;">
         <div v-for="(t, k) in NT" :key="k"
