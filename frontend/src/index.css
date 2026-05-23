@@ -178,6 +178,11 @@ body {
 .ca-btn { background:rgba(255,255,255,0.03); border:1px solid transparent; color:var(--text-dim); padding:6px 12px; font-size:12px; font-weight:500; border-radius:8px; display:flex; align-items:center; gap:6px; cursor:pointer; transition:all .15s; pointer-events: auto; }
 .ca-btn:hover { background:rgba(255,255,255,0.08); color:var(--text-main); }
 .ca-btn svg { opacity:0.8; }
+.ca-active {
+  background: rgba(66, 184, 131, 0.2) !important;
+  border-color: rgba(66, 184, 131, 0.5) !important;
+  color: #42b883 !important;
+}
 
 .legend { position:absolute; top:24px; right:24px; background:rgba(15,23,42,0.6); backdrop-filter:blur(10px); border:1px solid var(--glass-border); border-radius:16px; padding:12px 16px; display:flex; flex-direction:column; gap:4px; z-index:5; }
 .legend-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-main); font-weight:500; padding:4px 8px; margin:-4px -8px; border-radius:8px; cursor:pointer; transition:background .15s, opacity .15s, color .15s; user-select:none; }

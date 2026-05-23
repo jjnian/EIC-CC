@@ -84,6 +84,16 @@ const isCurrentSearchTarget = (n: any) => {
   return searchMatches.value[searchIdx.value]?.id === n.id;
 };
 
+const heatmapMode = ref(false);
+
+const heatColor = (n: any) => {
+  if (!heatmapMode.value || n.source !== 'predicted') return null;
+  const p = n.effectiveProbability || n.confidence || 0;
+  // 绿(高概率) → 黄(中) → 红(低)
+  const h = p * 120; // 0=红, 60=黄, 120=绿
+  return `hsl(${h}, 80%, 45%)`;
+};
+
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
 const onNodeContext = (e: MouseEvent, id: string) => {
   e.preventDefault();
@@ -343,7 +353,7 @@ defineExpose({ fitView, focusNode });
                 :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n) || (searchQuery && !isSearchMatch(n)), 'node-hl': typeFilter && matchesFilter(n), 'node-search-current': isCurrentSearchTarget(n) }]"
                 :style="{
                   left: n.x + 'px', top: n.y + 'px', width: NW + 'px',
-                  background: getT(n).bg, borderLeftColor: getT(n).color,
+                  background: heatColor(n) || getT(n).bg, borderLeftColor: getT(n).color,
                   borderTopColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
                   borderRightColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
                   borderBottomColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
@@ -353,8 +363,9 @@ defineExpose({ fitView, focusNode });
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
               <div class="node-label">{{ n.label }}</div>
               <div class="node-type">{{ getT(n).label }}</div>
-              <div v-if="n.source === 'predicted'" class="node-pred-badge" :title="'置信度: ' + Math.round((n.confidence || 0) * 100) + '%'">
-                预测{{ n.predictedStep ? ' ' + n.predictedStep : '' }}
+              <div v-if="n.source === 'predicted'" class="node-pred-badge"
+                   :title="'置信度: ' + Math.round((n.confidence || 0) * 100) + '% | 有效概率: ' + Math.round((n.effectiveProbability || 0) * 100) + '%'">
+                {{ Math.round((n.effectiveProbability || n.confidence || 0) * 100) }}%
               </div>
             </div>
           </div>
@@ -405,6 +416,9 @@ defineExpose({ fitView, focusNode });
           <svg v-if="layoutDirection === 'LR'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="20" y2="12"/><polyline points="14 6 20 12 14 18"/></svg>
           <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg>
           {{ layoutDirection === 'LR' ? '从左向右' : '从上到下' }}
+        </button>
+        <button class="ca-btn" :class="{ 'ca-active': heatmapMode }" @click="heatmapMode = !heatmapMode" title="热力图模式">
+          🌡
         </button>
         <button class="ca-btn" @click="emit('clear')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空画布</button>
       </div>
