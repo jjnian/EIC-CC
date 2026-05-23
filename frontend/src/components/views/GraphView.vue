@@ -29,6 +29,8 @@ const props = defineProps({
   pendingChatSeed: { type: Object as PropType<{ text: string; files: File[] } | null>, default: null },
   layoutDirection: { type: String as PropType<'LR' | 'TB'>, default: 'LR' },
   diffHighlight:   { type: Object as PropType<{ sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null>, default: null },
+  canUndo:         { type: Boolean, default: false },
+  canRedo:         { type: Boolean, default: false },
 });
 
 const livePrediction = computed(() => ({
@@ -66,6 +68,8 @@ const emit = defineEmits<{
   (e: 'update-node-props', id: string, props: { key: string; value: any; source?: string }[]): void;
   (e: 'delete-edge', edgeId: string): void;
   (e: 'clear-diff'): void;
+  (e: 'undo'): void;
+  (e: 'redo'): void;
 }>();
 
 const selNode = computed(() => props.nodes.find(n => n.id === props.selectedId) || null);
@@ -130,7 +134,11 @@ watch(() => props.activeBranchId, () => {
         :selId="selectedId"
         :layoutDirection="layoutDirection"
         :diffHighlight="diffHighlight"
+        :canUndo="canUndo"
+        :canRedo="canRedo"
         @move="(id, x, y) => emit('move', id, x, y)"
+        @undo="emit('undo')"
+        @redo="emit('redo')"
         @drag-start="(id) => emit('drag-start', id)"
         @select="onSelect"
         @auto-layout="emit('auto-layout')"

@@ -629,14 +629,6 @@ const openPreview = () => {
           <span class="bc-star">☆</span>
         </div>
         <div class="tb-tools" v-if="view === 'graph'">
-          <div class="tb-undo-group">
-            <button class="tb-btn tb-icon-btn" :disabled="!canUndo" @click="undoGraph" title="撤销 (Ctrl+Z)">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
-            </button>
-            <button class="tb-btn tb-icon-btn" :disabled="!canRedo" @click="redoGraph" title="重做 (Ctrl+Shift+Z)">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg>
-            </button>
-          </div>
           <BranchPicker
             :branches="branches"
             :activeBranchId="activeBranchId"
@@ -731,6 +723,10 @@ const openPreview = () => {
         :pending-chat-seed="pendingChatSeed"
         :layout-direction="layoutDirection"
         :diff-highlight="diffHighlight"
+        :can-undo="canUndo"
+        :can-redo="canRedo"
+        @undo="undoGraph"
+        @redo="redoGraph"
         @update:selected-id="(id) => sel = id"
         @update:show-schema="(v) => showSchema = v"
         @move="onMove"
