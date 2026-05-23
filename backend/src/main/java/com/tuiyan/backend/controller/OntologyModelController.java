@@ -51,6 +51,18 @@ public class OntologyModelController {
         return ResponseEntity.ok(Map.of("success", ok, "count", ok ? 1 : 0));
     }
 
+    // 获取指定模型的版本快照列表
+    @GetMapping("/{id}/versions")
+    public ResponseEntity<List<Map<String, Object>>> listVersions(@PathVariable String id) {
+        return ResponseEntity.ok(svc.listVersions(id));
+    }
+
+    // 恢复指定时间戳的版本快照
+    @PostMapping("/{id}/versions/{timestamp}/restore")
+    public ResponseEntity<OntologyModel> restoreVersion(@PathVariable String id, @PathVariable long timestamp) throws IOException {
+        return ResponseEntity.ok(svc.restoreVersion(id, timestamp));
+    }
+
     @PostMapping(value = "/extract", consumes = {"multipart/form-data"})
     public ResponseEntity<?> extract(
             @RequestParam("files") List<MultipartFile> files,

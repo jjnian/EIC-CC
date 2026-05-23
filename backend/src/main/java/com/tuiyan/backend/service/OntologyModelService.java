@@ -9,9 +9,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import com.tuiyan.backend.config.ResourceNotFoundException;
+
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,6 +27,8 @@ import java.util.Objects;
 public class OntologyModelService {
 
     private static final Logger log = LoggerFactory.getLogger(OntologyModelService.class);
+    // 版本快照最大保留数量
+    private static final int MAX_VERSIONS = 100;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AppPaths appPaths;
@@ -70,6 +77,11 @@ public class OntologyModelService {
         if (m.getCreatedAt() == 0L) m.setCreatedAt(now);
         m.setUpdatedAt(now);
         m.setUpdated("刚刚");
+        // 如果文件已存在（即是更新而非新建），保存旧版本快照
+        File modelFile = fileFor(m.getId());
+        if (modelFile.exists()) {
+            saveVersionSnapshot(m.getId(), modelFile);
+        }
         JsonAtomic.write(objectMapper, fileFor(m.getId()), m);
         return m;
     }
@@ -77,6 +89,87 @@ public class OntologyModelService {
     public boolean delete(String id) {
         File f = fileFor(id);
         return f.exists() && f.delete();
+    }
+
+    /**
+     * 获取指定模型的版本快照列表
+     */
+    public List<Map<String, Object>> listVersions(String modelId) {
+        File versionsDir = new File(appPaths.ontologyModelsDir(),
+                "versions" + File.separator + modelId.replaceAll("[^a-zA-Z0-9_\\-]", "_"));
+        if (!versionsDir.exists()) return List.of();
+
+        File[] files = versionsDir.listFiles((dir, name) -> name.endsWith(".json"));
+        if (files == null || files.length == 0) return List.of();
+
+        Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
+
+        List<Map<String, Object>> versions = new ArrayList<>();
+        for (File f : files) {
+            String ts = f.getName().replace(".json", "");
+            try {
+                long timestamp = Long.parseLong(ts);
+                // 读取文件获取节点/边数量摘要
+                OntologyModel snapshot = objectMapper.readValue(f, OntologyModel.class);
+                int nodeCount = snapshot.getGraphData() != null && snapshot.getGraphData().getNodes() != null
+                        ? snapshot.getGraphData().getNodes().size() : 0;
+                int edgeCount = snapshot.getGraphData() != null && snapshot.getGraphData().getEdges() != null
+                        ? snapshot.getGraphData().getEdges().size() : 0;
+                versions.add(Map.of(
+                        "timestamp", timestamp,
+                        "nodeCount", nodeCount,
+                        "edgeCount", edgeCount,
+                        "fileSize", f.length()
+                ));
+            } catch (Exception e) {
+                // 跳过损坏的版本文件
+            }
+        }
+        return versions;
+    }
+
+    /**
+     * 恢复指定时间戳的版本快照
+     */
+    public OntologyModel restoreVersion(String modelId, long timestamp) throws IOException {
+        File versionsDir = new File(appPaths.ontologyModelsDir(),
+                "versions" + File.separator + modelId.replaceAll("[^a-zA-Z0-9_\\-]", "_"));
+        File versionFile = new File(versionsDir, timestamp + ".json");
+        if (!versionFile.exists()) {
+            throw new ResourceNotFoundException("Version not found: " + timestamp);
+        }
+        OntologyModel snapshot = objectMapper.readValue(versionFile, OntologyModel.class);
+        snapshot.setId(modelId);
+        // save 会先保存当前版本为快照，再写入恢复的版本
+        return save(snapshot);
+    }
+
+    /**
+     * 保存版本快照到 versions 子目录
+     */
+    private void saveVersionSnapshot(String modelId, File currentFile) {
+        try {
+            File versionsDir = new File(appPaths.ontologyModelsDir(),
+                    "versions" + File.separator + modelId.replaceAll("[^a-zA-Z0-9_\\-]", "_"));
+            if (!versionsDir.exists()) versionsDir.mkdirs();
+
+            // 用时间戳命名版本文件
+            String versionName = System.currentTimeMillis() + ".json";
+            File versionFile = new File(versionsDir, versionName);
+            Files.copy(currentFile.toPath(), versionFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+            // 清理超过 MAX_VERSIONS 的旧版本
+            File[] versions = versionsDir.listFiles((dir, name) -> name.endsWith(".json"));
+            if (versions != null && versions.length > MAX_VERSIONS) {
+                Arrays.sort(versions, Comparator.comparingLong(File::lastModified));
+                for (int i = 0; i < versions.length - MAX_VERSIONS; i++) {
+                    versions[i].delete();
+                }
+            }
+        } catch (IOException e) {
+            // 版本快照保存失败不应阻断主流程
+            log.warn("Failed to save version snapshot for {}: {}", modelId, e.getMessage());
+        }
     }
 
     private File fileFor(String id) {
