@@ -14,6 +14,9 @@ const sp = useSettingsPrefs();
 
 const models = mc.models;
 const loading = mc.loading;
+const testResults = mc.testResults;
+const runTest = mc.runTest;
+const testAllModels = mc.testAllModels;
 const prefs = sp.prefs;
 const prefsSaved = sp.prefsSaved;
 
@@ -68,6 +71,7 @@ const toast = localToast;
               <h3>大模型管理</h3>
               <p>模型配置来自 application.yml，修改后重启生效。</p>
             </div>
+            <button class="test-all-btn" @click="testAllModels">🔌 全部测试</button>
           </div>
     <div class="model-list" v-if="!loading">
       <div v-for="m in models" :key="m.id" class="model-card" :class="{ disabled: !m.enabled }">
@@ -93,6 +97,18 @@ const toast = localToast;
             </div>
           </div>
           <div class="model-actions">
+            <button
+              v-if="m.enabled"
+              class="test-btn"
+              :class="testResults[m.id]?.status || 'idle'"
+              :disabled="testResults[m.id]?.status === 'testing'"
+              @click="runTest(m.id)"
+            >
+              <span v-if="!testResults[m.id] || testResults[m.id].status === 'idle'">测试连接</span>
+              <span v-else-if="testResults[m.id].status === 'testing'" class="test-spin">⟳</span>
+              <span v-else-if="testResults[m.id].status === 'ok'" class="test-ok">✓ {{ testResults[m.id].latencyMs }}ms</span>
+              <span v-else class="test-err" :title="testResults[m.id].error">✕ 失败</span>
+            </button>
             <span class="status-badge" :class="m.enabled ? 'enabled' : 'disabled'">
               {{ m.enabled ? '已启用' : '已禁用' }}
             </span>
@@ -922,5 +938,42 @@ const toast = localToast;
 
 .modal-btn.save:hover {
   background: #50caa3;
+}
+
+.test-all-btn {
+  background: rgba(66, 184, 131, 0.12);
+  border: 1px solid rgba(66, 184, 131, 0.4);
+  color: #42b883;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.test-all-btn:hover { background: rgba(66, 184, 131, 0.22); }
+
+.test-btn {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.7);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 80px;
+  text-align: center;
+}
+.test-btn:hover { background: rgba(255,255,255,0.1); }
+.test-btn:disabled { opacity: 0.7; cursor: not-allowed; }
+.test-btn.ok { border-color: rgba(66, 184, 131, 0.5); }
+.test-btn.error { border-color: rgba(239, 68, 68, 0.5); }
+
+.test-ok { color: #42b883; }
+.test-err { color: #ef4444; }
+.test-spin {
+  display: inline-block;
+  animation: spin 1s linear infinite;
 }
 </style>

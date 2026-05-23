@@ -1,5 +1,5 @@
-import { ref } from 'vue';
-import { listModels } from '../api/models';
+import { ref, reactive } from 'vue';
+import { listModels, testModel } from '../api/models';
 import { getConfig } from '../api/config';
 import type { ProviderInfo } from '../api/config';
 import type { ModelConfig } from '../types';
@@ -57,9 +57,33 @@ export function useModelConfigs(_ctx: ModelConfigsCtx) {
     }
   };
 
+  const testResults = reactive<Record<string, { status: 'idle' | 'testing' | 'ok' | 'error'; latencyMs?: number; error?: string }>>({});
+
+  const runTest = async (modelId: string) => {
+    testResults[modelId] = { status: 'testing' };
+    try {
+      const result = await testModel(modelId);
+      if (result.status === 'ok') {
+        testResults[modelId] = { status: 'ok', latencyMs: result.latencyMs };
+      } else {
+        testResults[modelId] = { status: 'error', error: result.error || '未知错误' };
+      }
+    } catch (e: any) {
+      testResults[modelId] = { status: 'error', error: e.message || '请求失败' };
+    }
+  };
+
+  const testAllModels = async () => {
+    const enabledModels = models.value.filter(m => m.enabled);
+    for (const m of enabledModels) {
+      await runTest(m.id);
+    }
+  };
+
   return {
     models, providers, loading,
     loadModelList, loadProviders,
     CAPABILITY_OPTIONS, CAPABILITY_LABELS, fmtTokens,
+    testResults, runTest, testAllModels,
   };
 }
