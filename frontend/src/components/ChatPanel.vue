@@ -455,7 +455,11 @@ const send = async () => {
       @abort-prediction="emit('abort-prediction')"
     />
     <AttachmentPreview :attachment="previewAtt" @close="previewAtt = null" />
-    <AttachmentChips :attachments="atts" @remove="(i) => atts = atts.filter((_, j) => j !== i)" />
+    <AttachmentChips
+      :attachments="atts"
+      @remove="(i) => atts = atts.filter((_, j) => j !== i)"
+      @preview="(a) => previewAtt = { name: a.name, type: a.type, kind: a.kind, size: a.size, content: a.content, error: a.error, truncated: a.truncated }"
+    />
     <div class="ch-input-area">
       <div class="ctx-token-bar" v-if="contextTokenEstimate > 0">
         <span class="ctx-token-label">上下文</span>

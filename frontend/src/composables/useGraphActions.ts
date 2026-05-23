@@ -30,7 +30,7 @@ const TB_LAYER_GAP = NODE_H + 80; // 行间
 const TB_INTRA_GAP = NODE_W + 40; // 同行内
 
 /**
- * 图谱顶栏的三个动作:auto-layout、exportGraph、shareGraph。
+ * 图谱顶栏的动作:auto-layout、exportGraph 等。
  */
 export function useGraphActions(ctx: GraphActionsCtx) {
   /** 当前布局方向:LR(左→右,默认)或 TB(上→下)。 */
@@ -272,20 +272,6 @@ export function useGraphActions(ctx: GraphActionsCtx) {
     URL.revokeObjectURL(a.href);
   };
 
-  /** 把当前图谱摘要复制到剪贴板。 */
-  const shareGraph = async () => {
-    const m = ctx.currentModel();
-    const top = ctx.nodes.value.slice(0, 10).map(n => `· ${n.label}(${n.type})`).join('\n');
-    const summary = `${m?.title || '本体模型'}\n节点 ${ctx.nodes.value.length} · 关系 ${ctx.edges.value.length}\n${top}`;
-    try {
-      await navigator.clipboard.writeText(summary);
-      toast.success('图谱摘要已复制到剪贴板');
-    } catch {
-      toast.warn('剪贴板不可用,已输出到控制台');
-      console.info('[shareGraph]\n' + summary);
-    }
-  };
-
   /** 导出为 Mermaid 语法(.mmd 文件)。 */
   const exportMermaid = () => {
     const lines: string[] = ['graph LR'];
@@ -430,5 +416,5 @@ export function useGraphActions(ctx: GraphActionsCtx) {
     }
   };
 
-  return { autoLayout, toggleLayoutDirection, layoutDirection, placeIncomingNodes, exportGraph, shareGraph, exportMermaid, exportMarkdown, exportPng };
+  return { autoLayout, toggleLayoutDirection, layoutDirection, placeIncomingNodes, exportGraph, exportMermaid, exportMarkdown, exportPng };
 }

@@ -11,7 +11,6 @@ const props = defineProps({
   nodes:           { type: Array as PropType<OntologyNode[]>, required: true },
   edges:           { type: Array as PropType<OntologyEdge[]>, required: true },
   selectedId:      { type: String as PropType<string | null>, default: null },
-  showSchema:      { type: Boolean, default: false },
   activeBranchId:  { type: String, required: true },
   liveActive:      { type: Boolean, required: true },
   liveLoading:     { type: Boolean, required: true },
@@ -29,6 +28,8 @@ const props = defineProps({
   pendingChatSeed: { type: Object as PropType<{ text: string; files: File[] } | null>, default: null },
   layoutDirection: { type: String as PropType<'LR' | 'TB'>, default: 'LR' },
   diffHighlight:   { type: Object as PropType<{ sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null>, default: null },
+  canUndo:         { type: Boolean, default: false },
+  canRedo:         { type: Boolean, default: false },
 });
 
 const livePrediction = computed(() => ({
@@ -45,7 +46,6 @@ const livePrediction = computed(() => ({
 
 const emit = defineEmits<{
   (e: 'update:selectedId', id: string | null): void;
-  (e: 'update:showSchema', value: boolean): void;
   (e: 'move', id: string, x: number, y: number): void;
   (e: 'drag-start', id: string): void;
   (e: 'auto-layout'): void;
@@ -66,6 +66,8 @@ const emit = defineEmits<{
   (e: 'update-node-props', id: string, props: { key: string; value: any; source?: string }[]): void;
   (e: 'delete-edge', edgeId: string): void;
   (e: 'clear-diff'): void;
+  (e: 'undo'): void;
+  (e: 'redo'): void;
 }>();
 
 const selNode = computed(() => props.nodes.find(n => n.id === props.selectedId) || null);
@@ -73,7 +75,6 @@ const selNode = computed(() => props.nodes.find(n => n.id === props.selectedId) 
 const onSelect = (id: string | null) => emit('update:selectedId', id);
 const onCloseInfo = () => {
   emit('update:selectedId', null);
-  emit('update:showSchema', false);
 };
 
 // P1-7：浮动解释面板栈。最多同时打开 3 个，按 nodeId 唯一。
@@ -130,7 +131,11 @@ watch(() => props.activeBranchId, () => {
         :selId="selectedId"
         :layoutDirection="layoutDirection"
         :diffHighlight="diffHighlight"
+        :canUndo="canUndo"
+        :canRedo="canRedo"
         @move="(id, x, y) => emit('move', id, x, y)"
+        @undo="emit('undo')"
+        @redo="emit('redo')"
         @drag-start="(id) => emit('drag-start', id)"
         @select="onSelect"
         @auto-layout="emit('auto-layout')"
@@ -152,7 +157,7 @@ watch(() => props.activeBranchId, () => {
         :node="selNode"
         :nodes="nodes"
         :edges="edges"
-        :isOpen="showSchema"
+        :isOpen="false"
         @close="onCloseInfo"
         @update-node-props="(id, props) => emit('update-node-props', id, props)"
         @delete-edge="(edgeId) => emit('delete-edge', edgeId)"

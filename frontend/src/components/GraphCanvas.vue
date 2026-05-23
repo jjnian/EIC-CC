@@ -21,6 +21,9 @@ const props = defineProps<{
   readonly?: boolean;
   /** 分支对比差异高亮数据 */
   diffHighlight?: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null;
+  /** 撤销/重做按钮的可用状态(由父级图谱历史栈决定) */
+  canUndo?: boolean;
+  canRedo?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -37,6 +40,8 @@ const emit = defineEmits<{
   (e: 'clear-diff'): void;
   // P1-7：对预测节点请求详细解释
   (e: 'explain-node', id: string): void;
+  (e: 'undo'): void;
+  (e: 'redo'): void;
 }>();
 
 /* ── 节点类型筛选（图例点击） ── */
@@ -668,13 +673,32 @@ defineExpose({ fitView, focusNode });
           <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg>
           {{ layoutDirection === 'LR' ? '从左向右' : '从上到下' }}
         </button>
-        <button class="ca-btn" :class="{ 'ca-active': heatmapMode }" @click="heatmapMode = !heatmapMode" title="热力图模式">
-          🌡
+        <button
+          class="ca-btn"
+          :class="{ 'ca-active': heatmapMode }"
+          @click="heatmapMode = !heatmapMode"
+          :title="heatmapMode
+            ? '已开启概率色阶:推演节点按置信度着色(绿 高 → 黄 中 → 红 低)。点击关闭。'
+            : '概率色阶:开启后将推演节点按置信度着色(绿 高 → 黄 中 → 红 低),方便快速识别可信度。'"
+        >
+          <svg class="ca-heat-icon" viewBox="0 0 24 24" width="22" height="10" fill="none" aria-hidden="true">
+            <circle cx="5"  cy="12" r="3.2" fill="#42b883"/>
+            <circle cx="12" cy="12" r="3.2" fill="#fbbf24"/>
+            <circle cx="19" cy="12" r="3.2" fill="#ef4444"/>
+          </svg>
+          概率色阶
         </button>
         <button v-if="diffHighlight" class="ca-btn ca-active" @click="emit('clear-diff')" title="清除对比高亮">
           ✕ 对比
         </button>
         <button class="ca-btn" @click="emit('clear')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空画布</button>
+        <span class="ca-sep" aria-hidden="true"></span>
+        <button class="ca-btn ca-icon" :disabled="!canUndo" @click="emit('undo')" title="撤销 (Ctrl+Z)">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
+        </button>
+        <button class="ca-btn ca-icon" :disabled="!canRedo" @click="emit('redo')" title="重做 (Ctrl+Shift+Z)">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg>
+        </button>
       </div>
 
       <div class="zoom-wrap" style="position: absolute; bottom: 24px; left: 24px; pointer-events: auto;">
