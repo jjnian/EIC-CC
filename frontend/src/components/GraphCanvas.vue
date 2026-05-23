@@ -620,8 +620,20 @@ defineExpose({ fitView, focusNode });
           <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg>
           {{ layoutDirection === 'LR' ? '从左向右' : '从上到下' }}
         </button>
-        <button class="ca-btn" :class="{ 'ca-active': heatmapMode }" @click="heatmapMode = !heatmapMode" title="热力图模式">
-          🌡
+        <button
+          class="ca-btn"
+          :class="{ 'ca-active': heatmapMode }"
+          @click="heatmapMode = !heatmapMode"
+          :title="heatmapMode
+            ? '已开启概率色阶:推演节点按置信度着色(绿 高 → 黄 中 → 红 低)。点击关闭。'
+            : '概率色阶:开启后将推演节点按置信度着色(绿 高 → 黄 中 → 红 低),方便快速识别可信度。'"
+        >
+          <svg class="ca-heat-icon" viewBox="0 0 24 24" width="22" height="10" fill="none" aria-hidden="true">
+            <circle cx="5"  cy="12" r="3.2" fill="#42b883"/>
+            <circle cx="12" cy="12" r="3.2" fill="#fbbf24"/>
+            <circle cx="19" cy="12" r="3.2" fill="#ef4444"/>
+          </svg>
+          概率色阶
         </button>
         <button v-if="diffHighlight" class="ca-btn ca-active" @click="emit('clear-diff')" title="清除对比高亮">
           ✕ 对比
