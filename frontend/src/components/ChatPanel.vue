@@ -102,6 +102,32 @@ const onInputKeydown = (e: KeyboardEvent) => {
   }
 };
 const onInputEvent = () => { nextTick(() => checkMention()); };
+/** 直接在输入框里粘贴图片(截图/复制图片)→ 当成附件加上。文本粘贴照常。 */
+const onInputPaste = (e: ClipboardEvent) => {
+  const data = e.clipboardData;
+  if (!data) return;
+  const items = data.items;
+  if (!items || items.length === 0) return;
+  const images: File[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (it.kind === 'file' && it.type.startsWith('image/')) {
+      const f = it.getAsFile();
+      if (f) {
+        // 截图常常没有文件名,补一个带时间戳的 .png
+        const named = f.name
+          ? f
+          : new File([f], `pasted-${Date.now()}.${(f.type.split('/')[1] || 'png').replace('+xml','')}`, { type: f.type });
+        images.push(named);
+      }
+    }
+  }
+  if (images.length > 0) {
+    e.preventDefault();
+    images.forEach(addFile);
+    toast.success(images.length === 1 ? '已粘贴图片' : `已粘贴 ${images.length} 张图片`);
+  }
+};
 const onInputClick = () => { nextTick(() => checkMention()); };
 
 // ===== 启动:加载模型 + 恢复/接收 seed =====
@@ -345,13 +371,13 @@ const send = async () => {
             <span class="mention-sub">{{ it.sub }}</span>
           </div>
         </div>
-        <textarea ref="inputRef" class="ch-input" v-model="input" placeholder="描述本体关系，输入 @ 可引用节点/关系，或附加文件…" @keydown="onInputKeydown" @input="onInputEvent" @click="onInputClick" rows="2" />
+        <textarea ref="inputRef" class="ch-input" v-model="input" placeholder="描述本体关系，输入 @ 可引用节点/关系，可粘贴图片或附加 DOCX/文件…" @keydown="onInputKeydown" @input="onInputEvent" @click="onInputClick" @paste="onInputPaste" rows="2" />
         <div class="input-footer">
           <div class="file-tools">
-            <button class="file-icon-btn attach-btn" type="button" title="上传文件 (图片/MD/TXT/JSON等)" @click="() => { if (fileRef) fileRef.click(); }">
+            <button class="file-icon-btn attach-btn" type="button" title="上传文件 (图片/DOCX/MD/TXT/JSON 等),也可在输入框直接粘贴图片" @click="() => { if (fileRef) fileRef.click(); }">
               <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </button>
-            <input ref="fileRef" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.csv,.tsv,.log,.xml,.yaml,.yml,.html,.htm,.js,.ts,.py,.java,.sql,.toml,.ini,.env,.vue,.css,text/*" style="display:none" @change="(e: any) => { Array.from(e.target.files || []).forEach((f: any) => addFile(f)); e.target.value = ''; }" />
+            <input ref="fileRef" type="file" multiple accept="image/*,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.json,.csv,.tsv,.log,.xml,.yaml,.yml,.html,.htm,.js,.ts,.py,.java,.sql,.toml,.ini,.env,.vue,.css,text/*" style="display:none" @change="(e: any) => { Array.from(e.target.files || []).forEach((f: any) => addFile(f)); e.target.value = ''; }" />
           </div>
           <button
             class="send-btn"

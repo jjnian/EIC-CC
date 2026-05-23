@@ -249,7 +249,8 @@ cd frontend && npm install && npm run dev
 
 | 类型 | 处理方式 |
 |---|---|
-| 图片（PNG / JPEG / WebP / GIF） | 编码为 `dataUrl`，作为多模态 attachment 发给模型 |
+| 图片（PNG / JPEG / WebP / GIF） | 编码为 `dataUrl`，作为多模态 attachment 发给模型；**可直接在输入框 `Ctrl/⌘+V` 粘贴**（包括截图） |
+| DOCX (.docx Word 文档) | 上传后调用 `POST /api/extract/docx-text`，后端用 Apache POI 抽出段落 + 表格文本，拼到 prompt 后部 |
 | 文本类（txt / md / json / csv / 源代码…） | 读取为字符串拼到 prompt 后部，超大文件自动截断并标注 |
 | PDF | 走「导入」流程预先抽取（见 §6.8） |
 
