@@ -234,6 +234,88 @@ public class LlmService {
         return llmProperties.getModels();
     }
 
+    // ========== 模型连接测试 ==========
+
+    /**
+     * 向指定模型发送最小化请求以验证连接可用性。
+     * 返回延迟(ms)；失败抛出异常。
+     */
+    public long testModelConnection(String modelId) throws Exception {
+        LlmProperties.ModelEntry entry = llmProperties.getModels().stream()
+            .filter(m -> m.getId().equals(modelId))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("Model not found: " + modelId));
+
+        if (!entry.isEnabled()) {
+            throw new IllegalStateException("Model is disabled: " + entry.getName());
+        }
+
+        String baseUrl = entry.getBaseUrl();
+        String apiKey = entry.getApiKey();
+        // 如果配置中没有 api-key，尝试从环境变量获取
+        if (apiKey == null || apiKey.isBlank()) {
+            apiKey = System.getenv("LLM_API_KEY");
+        }
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("Missing API key for model: " + entry.getName());
+        }
+        String modelName = entry.getModelName();
+        String protocol = entry.getProtocol();
+
+        long start = System.currentTimeMillis();
+
+        if (isAnthropic(baseUrl, modelName, protocol)) {
+            testAnthropicConnection(baseUrl, apiKey, modelName);
+        } else {
+            testOpenAIConnection(baseUrl, apiKey, modelName);
+        }
+
+        return System.currentTimeMillis() - start;
+    }
+
+    /** 通过 OpenAI 兼容接口发送最小化请求测试连通性 */
+    private void testOpenAIConnection(String baseUrl, String apiKey, String modelName) throws Exception {
+        String url = baseUrl.replaceAll("/+$", "") + "/chat/completions";
+        String body = "{\"model\":\"" + modelName + "\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1}";
+
+        HttpRequest req = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Content-Type", "application/json")
+            .header("Authorization", "Bearer " + apiKey)
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .timeout(java.time.Duration.ofSeconds(15))
+            .build();
+
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+
+        if (resp.statusCode() >= 400) {
+            String respBody = resp.body();
+            throw new RuntimeException("HTTP " + resp.statusCode() + ": " + respBody.substring(0, Math.min(200, respBody.length())));
+        }
+    }
+
+    /** 通过 Anthropic Messages API 发送最小化请求测试连通性 */
+    private void testAnthropicConnection(String baseUrl, String apiKey, String modelName) throws Exception {
+        String url = baseUrl.replaceAll("/+$", "") + "/messages";
+        String body = "{\"model\":\"" + modelName + "\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}";
+
+        HttpRequest req = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Content-Type", "application/json")
+            .header("x-api-key", apiKey)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .POST(HttpRequest.BodyPublishers.ofString(body))
+            .timeout(java.time.Duration.ofSeconds(15))
+            .build();
+
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+
+        if (resp.statusCode() >= 400) {
+            String respBody = resp.body();
+            throw new RuntimeException("HTTP " + resp.statusCode() + ": " + respBody.substring(0, Math.min(200, respBody.length())));
+        }
+    }
+
     // ========== 兼容旧接口 ==========
 
     public ConfigResponse getConfigResponse() {
