@@ -63,6 +63,8 @@ public class PredictionOrchestrator {
             String idSalt = isFork ? Long.toString(now, 36) : "";
 
             if (cancelled.get()) return;
+            // P1-8：先构造一份 prompt 文本快照，写入 Scenario，便于事后审计
+            com.tuiyan.backend.service.LlmService.PredictPromptArtifact promptArtifact = llmService.buildPredictPrompt(req);
             JsonNode result = llmService.predictChain(req);
             JsonNode chain = result.path("chain");
             if (!chain.isArray() || chain.isEmpty()) {
@@ -85,15 +87,26 @@ public class PredictionOrchestrator {
 
             // what-if block 约束
             Set<String> blockedIds = new HashSet<>();
+            // P1-10：probability 约束 → nodeId -> 先验值（0..1）
+            Map<String, Double> priorMap = new HashMap<>();
             if (req.getConstraints() != null) {
                 for (Constraint c : req.getConstraints()) {
                     if (c == null || c.getNodeId() == null) continue;
-                    if ("block".equalsIgnoreCase(c.getMode())) blockedIds.add(c.getNodeId());
+                    if ("block".equalsIgnoreCase(c.getMode())) {
+                        blockedIds.add(c.getNodeId());
+                    } else if ("probability".equalsIgnoreCase(c.getMode()) && c.getProbability() != null) {
+                        double p = Math.max(0.0, Math.min(1.0, c.getProbability()));
+                        priorMap.put(c.getNodeId(), p);
+                    }
                 }
             }
 
             Map<String, Double> effProb = new HashMap<>();
+            // P1-10：把用户先验作为现有节点的 effProb 入口初值，影响下游联合概率
+            effProb.putAll(priorMap);
             Map<String, Double> cumCredibility = new HashMap<>();
+            // 同步把先验也作为累积可信度入口，否则下游 cumCred 取 maxUpstream=1.0 会失真
+            cumCredibility.putAll(priorMap);
             List<Map<String, Object>> predictedNodes = new ArrayList<>();
             List<Map<String, Object>> predictedEdges = new ArrayList<>();
             List<Map<String, Object>> chainList = new ArrayList<>();
@@ -147,6 +160,9 @@ public class PredictionOrchestrator {
             if (cancelled.get()) return;
             Scenario s = buildScenario(req, intent, backward, now, scenarioId, chain.size(),
                     predictedNodes, predictedEdges, chainList);
+            // P1-8：把 system + user prompt 拼成可读快照写入 rawPrompt
+            s.setRawPrompt("=== SYSTEM ===\n" + promptArtifact.system()
+                    + "\n\n=== USER ===\n" + promptArtifact.user());
 
             if (prunedCount > 0) {
                 ObjectNode note = objectMapper.createObjectNode();

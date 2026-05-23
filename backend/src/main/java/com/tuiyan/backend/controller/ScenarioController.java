@@ -3,6 +3,7 @@ package com.tuiyan.backend.controller;
 import com.tuiyan.backend.model.PredictRequest;
 import com.tuiyan.backend.model.Scenario;
 import com.tuiyan.backend.service.PredictionOrchestrator;
+import com.tuiyan.backend.service.ScenarioExplanationService;
 import com.tuiyan.backend.service.ScenarioService;
 import com.tuiyan.backend.support.SsePushUtils;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -20,13 +21,16 @@ public class ScenarioController {
 
     private final ScenarioService scenarioService;
     private final PredictionOrchestrator predictionOrchestrator;
+    private final ScenarioExplanationService explanationService;
     private final TaskExecutor predictionExecutor;
 
     public ScenarioController(ScenarioService scenarioService,
                               PredictionOrchestrator predictionOrchestrator,
+                              ScenarioExplanationService explanationService,
                               @Qualifier("predictionExecutor") TaskExecutor predictionExecutor) {
         this.scenarioService = scenarioService;
         this.predictionOrchestrator = predictionOrchestrator;
+        this.explanationService = explanationService;
         this.predictionExecutor = predictionExecutor;
     }
 
@@ -39,6 +43,17 @@ public class ScenarioController {
     public ResponseEntity<?> getOne(@PathVariable String id) throws IOException {
         Scenario s = scenarioService.get(id);
         return s == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(s);
+    }
+
+    /**
+     * P1-8：按需返回该分支推演时使用的完整 prompt 文本快照。
+     * 拆成独立端点避免列表/详情接口都带回这个大字段。
+     */
+    @GetMapping("/{id}/raw-prompt")
+    public ResponseEntity<?> getRawPrompt(@PathVariable String id) throws IOException {
+        Scenario s = scenarioService.get(id);
+        if (s == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(Map.of("rawPrompt", s.getRawPrompt() == null ? "" : s.getRawPrompt()));
     }
 
     @DeleteMapping("/{id}")
@@ -57,5 +72,40 @@ public class ScenarioController {
         SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(180_000L);
         predictionExecutor.execute(() -> predictionOrchestrator.run(req, ce.emitter(), ce.cancelled()));
         return ce.emitter();
+    }
+
+    /**
+     * P1-7：对推演节点请求 LLM 给出三段式解释（依据/假设/反例），SSE 流推送。
+     * 缓存命中时不调 LLM，直接回放缓存内容。
+     */
+    @PostMapping("/{id}/explain")
+    public SseEmitter explain(@PathVariable String id, @RequestBody ExplainRequest body) {
+        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(120_000L);
+        predictionExecutor.execute(() -> explanationService.explain(
+                id,
+                body.getNodeId(),
+                body.getModelOverride(),
+                body.getConfigId(),
+                body.isForceRegenerate(),
+                ce.emitter(),
+                ce.cancelled()));
+        return ce.emitter();
+    }
+
+    /** P1-7 explain 端点的请求体。 */
+    public static class ExplainRequest {
+        private String nodeId;
+        private String modelOverride;
+        private String configId;
+        private boolean forceRegenerate;
+
+        public String getNodeId() { return nodeId; }
+        public void setNodeId(String nodeId) { this.nodeId = nodeId; }
+        public String getModelOverride() { return modelOverride; }
+        public void setModelOverride(String modelOverride) { this.modelOverride = modelOverride; }
+        public String getConfigId() { return configId; }
+        public void setConfigId(String configId) { this.configId = configId; }
+        public boolean isForceRegenerate() { return forceRegenerate; }
+        public void setForceRegenerate(boolean forceRegenerate) { this.forceRegenerate = forceRegenerate; }
     }
 }

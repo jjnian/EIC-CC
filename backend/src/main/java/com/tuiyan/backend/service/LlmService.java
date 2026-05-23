@@ -180,7 +180,31 @@ public class LlmService {
         SCHEMA:
         %s""".formatted(PREDICT_BACKWARD_SCHEMA);
 
+    private static final String EXPLAIN_SCHEMA = """
+        {
+          "evidence": "依据：因果链上有哪些证据/规则/节点支持这一步发生",
+          "assumptions": "假设：得出该结论的隐含前提",
+          "counterexamples": "反例：可能让该步骤不成立的反向证据或场景"
+        }
+        """;
+
+    private static final String EXPLAIN_SYSTEM = """
+        你是一个推演分析助手。在给定的因果链上下文中，请对指定预测步骤给出三段式解释。
+
+        要求：
+        1. evidence (依据)：列出图谱里支持该步骤的具体节点、规则、上下游路径（2-4 句中文）。
+        2. assumptions (假设)：列出得出该结论的隐含前提条件（2-4 句中文）。
+        3. counterexamples (反例)：列出可能推翻该步骤的反向证据或边界场景（2-3 句中文）。
+        4. 用简体中文。每段保持简洁，避免重复信息。
+        5. 只输出严格符合 schema 的 JSON，禁止 markdown 包裹。
+
+        SCHEMA:
+        %s""".formatted(EXPLAIN_SCHEMA);
+
     public record ResolvedConfig(String baseURL, String modelName, String apiKey, String protocol) {}
+
+    /** P1-8：推演 prompt 的结构化产物，供 orchestrator 写入 Scenario.rawPrompt 与 LLM 调用复用。 */
+    public record PredictPromptArtifact(String system, String user, boolean truncated, int droppedNodes, int droppedEdges) {}
 
     /** 单条文本日志最大字符数,超出后截断,避免日志被大段 base64 / JSON 撑爆。 */
     private static final int LOG_TEXT_MAX = 2000;
@@ -757,14 +781,13 @@ public class LlmService {
 
     // ========== 场景推演 ==========
 
-    public JsonNode predictChain(com.tuiyan.backend.model.PredictRequest req) throws IOException {
-        ResolvedConfig cfg = resolveConfig(req.getModelOverride(), req.getConfigId());
-        boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
-
+    /**
+     * P1-8：构造推演用的完整 prompt（system + user），抽出来便于 orchestrator 写入 rawPrompt。
+     * 该方法是纯函数，不发起网络调用。
+     */
+    public PredictPromptArtifact buildPredictPrompt(com.tuiyan.backend.model.PredictRequest req) {
         int steps = req.getSteps() == null ? 4 : Math.max(1, Math.min(10, req.getSteps()));
         boolean backward = "backward".equalsIgnoreCase(req.getIntent());
-
-        log.info("[LLM-predict] 开始推演 model={} url={} direction={} steps={}", cfg.modelName(), cfg.baseURL(), backward ? "backward" : "forward", steps);
 
         String systemPrompt = backward ? PREDICT_BACKWARD_SYSTEM : PREDICT_SYSTEM;
         String seedRole = backward ? "目标节点 (seeds，需要溯因的结果)" : "起点节点 (seeds)";
@@ -804,12 +827,34 @@ public class LlmService {
         }
         userPrompt.append("\n").append(taskWord).append(steps).append(taskUnit).append("，严格按 schema 输出 JSON。");
 
-        logConversation("LLM-predict", cfg.modelName(), systemPrompt, null, userPrompt.toString(), null);
+        return new PredictPromptArtifact(
+                systemPrompt,
+                userPrompt.toString(),
+                wasTruncated,
+                truncated.droppedNodes,
+                truncated.droppedEdges);
+    }
+
+    public JsonNode predictChain(com.tuiyan.backend.model.PredictRequest req) throws IOException {
+        ResolvedConfig cfg = resolveConfig(req.getModelOverride(), req.getConfigId());
+        boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
+
+        int steps = req.getSteps() == null ? 4 : Math.max(1, Math.min(10, req.getSteps()));
+        boolean backward = "backward".equalsIgnoreCase(req.getIntent());
+
+        log.info("[LLM-predict] 开始推演 model={} url={} direction={} steps={}", cfg.modelName(), cfg.baseURL(), backward ? "backward" : "forward", steps);
+
+        // 复用统一的 prompt 构造逻辑，确保与 Scenario.rawPrompt 一致
+        PredictPromptArtifact artifact = buildPredictPrompt(req);
+        String systemPrompt = artifact.system();
+        String userPromptStr = artifact.user();
+
+        logConversation("LLM-predict", cfg.modelName(), systemPrompt, null, userPromptStr, null);
 
         String requestBody = anthropic
-                ? buildAnthropicBody(cfg.modelName(), systemPrompt, userPrompt.toString(),
+                ? buildAnthropicBody(cfg.modelName(), systemPrompt, userPromptStr,
                         null, null, false, ANTHROPIC_MAX_TOKENS)
-                : buildOpenAiBody(cfg.modelName(), systemPrompt, userPrompt.toString(),
+                : buildOpenAiBody(cfg.modelName(), systemPrompt, userPromptStr,
                         null, null, false, true);
 
         log.debug("[LLM-predict] 请求体大小: {} chars", requestBody.length());
@@ -844,6 +889,49 @@ public class LlmService {
     }
 
     private static final int EXTRACT_CHUNK_CHARS = 30_000;
+
+    /**
+     * P1-7：调 LLM 对预测节点给出三段式解释，返回原始 JsonNode（含 evidence/assumptions/counterexamples）。
+     * 调用方负责构造 userPrompt（含因果链上下文）；该方法只做协议适配 + JSON 解析。
+     * @return 解析后的 JsonNode，以及实际使用的 modelName
+     */
+    public record ExplainResult(JsonNode json, String modelName) {}
+
+    public ExplainResult explainNode(String userPrompt, String modelOverride, String configId) throws IOException {
+        ResolvedConfig cfg = resolveConfig(modelOverride, configId);
+        boolean anthropic = isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
+
+        log.info("[LLM-explain] 开始 explain model={} url={}", cfg.modelName(), cfg.baseURL());
+        logConversation("LLM-explain", cfg.modelName(), EXPLAIN_SYSTEM, null, userPrompt, null);
+
+        String requestBody = anthropic
+                ? buildAnthropicBody(cfg.modelName(), EXPLAIN_SYSTEM, userPrompt, null, null, false, ANTHROPIC_MAX_TOKENS)
+                : buildOpenAiBody(cfg.modelName(), EXPLAIN_SYSTEM, userPrompt, null, null, false, true);
+
+        long startTime = System.currentTimeMillis();
+        try {
+            HttpRequest httpReq = buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
+            HttpResponse<String> resp = sendHttp(httpReq, HttpResponse.BodyHandlers.ofString());
+            long elapsed = System.currentTimeMillis() - startTime;
+            if (resp.statusCode() != 200) {
+                log.error("[LLM-explain] 请求失败 status={} 耗时={}ms", resp.statusCode(), elapsed);
+                logUpstreamError("explain", resp.statusCode(), resp.body());
+                metricsService.recordCall(cfg.modelName(), elapsed, false);
+                throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
+            }
+            metricsService.recordCall(cfg.modelName(), elapsed, true);
+            JsonNode root = objectMapper.readTree(resp.body());
+            String content = extractContent(root, anthropic);
+            content = content.replaceAll("(?i)^```json", "").replaceAll("```$", "").trim();
+            if (content.isEmpty()) content = "{}";
+            logLlmResponse("LLM-explain", cfg.modelName(), elapsed, content);
+            return new ExplainResult(objectMapper.readTree(content), cfg.modelName());
+        } catch (IOException e) {
+            long elapsed = System.currentTimeMillis() - startTime;
+            metricsService.recordCall(cfg.modelName(), elapsed, false);
+            throw e;
+        }
+    }
 
     public JsonNode extractOntologyFromSources(String combinedText,
                                                List<Map<String, Object>> imageAttachments,
@@ -1362,6 +1450,12 @@ public class LlmService {
             if ("block".equalsIgnoreCase(c.getMode())) {
                 sb.append("  - 禁止: ").append(label)
                   .append(" 不发生；预测中不得以其为 triggered_by / leads_to，也不得预测出等价节点。\n");
+            } else if ("probability".equalsIgnoreCase(c.getMode())) {
+                // P1-10：先验概率作为推演入口的初值，提示 LLM 做贝叶斯更新
+                double p = c.getProbability() == null ? 0.5 : Math.max(0.0, Math.min(1.0, c.getProbability()));
+                sb.append("  - 概率: ").append(label)
+                  .append(" 先验概率 = ").append(String.format("%.2f", p))
+                  .append("。请把先验作为初值，结合上下游证据用贝叶斯式更新；返回的 confidence 应反映综合后验。\n");
             } else {
                 sb.append("  - 强制: ").append(label)
                   .append(" 必然发生，可作为 step=1 的合法上游/下游连接点。\n");
