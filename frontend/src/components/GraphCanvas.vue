@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { NT, NW, getPath } from '../constants';
 import type { OntologyNode, OntologyEdge } from '../types';
 
@@ -32,6 +32,54 @@ const edgeMatchesFilter = (e: any) => {
   const fn = nmap.value[e.from];
   const tn = nmap.value[e.to];
   return (fn && fn.type === typeFilter.value) || (tn && tn.type === typeFilter.value);
+};
+
+/* ── 搜索功能 ── */
+const searchRef = ref<HTMLInputElement | null>(null);
+const searchQuery = ref('');
+const searchIdx = ref(0);
+
+const searchMatches = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return [];
+  return props.nodes.filter(n =>
+    n.label.toLowerCase().includes(q) ||
+    n.type.toLowerCase().includes(q) ||
+    (n.id && n.id.toLowerCase().includes(q))
+  );
+});
+
+watch(searchQuery, () => { searchIdx.value = 0; });
+
+const jumpToNext = () => {
+  if (!searchMatches.value.length) return;
+  searchIdx.value = (searchIdx.value + 1) % searchMatches.value.length;
+  const target = searchMatches.value[searchIdx.value];
+  emit('select', target.id);
+  focusNode(target.id);
+};
+
+const jumpToPrev = () => {
+  if (!searchMatches.value.length) return;
+  searchIdx.value = (searchIdx.value - 1 + searchMatches.value.length) % searchMatches.value.length;
+  const target = searchMatches.value[searchIdx.value];
+  emit('select', target.id);
+  focusNode(target.id);
+};
+
+const clearSearch = () => {
+  searchQuery.value = '';
+  searchIdx.value = 0;
+};
+
+const isSearchMatch = (n: any) => {
+  if (!searchQuery.value) return false;
+  return searchMatches.value.some(m => m.id === n.id);
+};
+
+const isCurrentSearchTarget = (n: any) => {
+  if (!searchMatches.value.length) return false;
+  return searchMatches.value[searchIdx.value]?.id === n.id;
 };
 
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
@@ -147,9 +195,19 @@ const onWindowMouseUp = () => {
   pan.value = null;
 };
 
+/* Ctrl+F 快捷键唤起搜索框 */
+const onSearchKeydown = (e: KeyboardEvent) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+    if (props.readonly) return;
+    e.preventDefault();
+    searchRef.value?.focus();
+  }
+};
+
 onMounted(() => {
   window.addEventListener('mousemove', onWindowMouseMove);
   window.addEventListener('mouseup', onWindowMouseUp);
+  window.addEventListener('keydown', onSearchKeydown);
 
   ro = new ResizeObserver(() => {
     window.requestAnimationFrame(() => {
@@ -168,6 +226,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('mousemove', onWindowMouseMove);
   window.removeEventListener('mouseup', onWindowMouseUp);
+  window.removeEventListener('keydown', onSearchKeydown);
   ro?.disconnect();
   ro = null;
 });
@@ -265,7 +324,7 @@ defineExpose({ fitView, focusNode });
 
           <div class="graph-root" style="transform:none;">
             <div v-for="n in nodes" :key="n.id"
-                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n), 'node-hl': typeFilter && matchesFilter(n) }]"
+                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n) || (searchQuery && !isSearchMatch(n)), 'node-hl': typeFilter && matchesFilter(n), 'node-search-current': isCurrentSearchTarget(n) }]"
                 :style="{
                   left: n.x + 'px', top: n.y + 'px', width: NW + 'px',
                   background: getT(n).bg, borderLeftColor: getT(n).color,
@@ -297,6 +356,23 @@ defineExpose({ fitView, focusNode });
     </div>
 
     <div class="hud-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">
+      <div class="search-bar" v-if="!readonly" style="pointer-events: auto;">
+        <input
+          ref="searchRef"
+          v-model="searchQuery"
+          class="search-input"
+          type="text"
+          placeholder="搜索节点名称或类型…"
+          @keydown.enter="jumpToNext"
+          @keydown.escape="clearSearch"
+        />
+        <span v-if="searchQuery && searchMatches.length" class="search-count">
+          {{ searchIdx + 1 }}/{{ searchMatches.length }}
+        </span>
+        <button v-if="searchQuery" class="search-btn" @click="jumpToNext" title="下一个 (Enter)">↓</button>
+        <button v-if="searchQuery" class="search-btn" @click="jumpToPrev" title="上一个">↑</button>
+        <button v-if="searchQuery" class="search-btn" @click="clearSearch" title="清除">✕</button>
+      </div>
       <div v-if="!readonly" class="canvas-actions" style="position: absolute; top: 24px; left: 50%; transform: translateX(-50%); pointer-events: auto; display: flex; gap: 8px; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); padding: 6px 8px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
         <button class="ca-btn" @click="fitView"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7 7"/></svg>适应屏幕</button>
         <button class="ca-btn" @click="emit('auto-layout')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3M21 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3M4 12h16"/></svg>自动布局</button>

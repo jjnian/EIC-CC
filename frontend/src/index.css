@@ -182,6 +182,52 @@ body {
 .node-dim { opacity:0.2; transition:opacity .2s; }
 .node-hl { transition:opacity .2s, box-shadow .2s; }
 
+/* ── Search Bar ── */
+.search-bar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 4px 8px;
+  z-index: 20;
+  backdrop-filter: blur(8px);
+}
+.search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e2e8f0;
+  font-size: 13px;
+  width: 180px;
+}
+.search-input::placeholder { color: rgba(255,255,255,0.35); }
+.search-count {
+  font-size: 11px;
+  color: rgba(255,255,255,0.5);
+  margin: 0 4px;
+  white-space: nowrap;
+}
+.search-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.6);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.search-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.node-search-current {
+  outline: 2px solid #fbbf24 !important;
+  outline-offset: 2px;
+  z-index: 10;
+}
+
 /* ── Flow Animation ── */
 @keyframes line-flow {
   from { stroke-dashoffset: 0; }
