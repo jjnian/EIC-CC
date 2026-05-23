@@ -11,7 +11,7 @@ import GraphView from './components/views/GraphView.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import { toast, mountToastRoot } from './composables/useToast';
 import { confirm } from './composables/useConfirm';
-import { updateOntology } from './api/ontology';
+import { updateOntology, listVersions, restoreVersion } from './api/ontology';
 import { ApiError } from './api/http';
 import { useDivider } from './composables/useDivider';
 import { useImportFlow } from './composables/useImportFlow';
@@ -445,6 +445,55 @@ const focusNodeInGraph = (id: string) => {
   graphRef.value?.focusNode?.(id);
 };
 
+// 版本历史面板状态
+const showVersions = ref(false);
+const versions = ref<{ timestamp: number; nodeCount: number; edgeCount: number; fileSize: number }[]>([]);
+const versionsLoading = ref(false);
+
+const openVersionHistory = async () => {
+  if (!currentModelId.value) return;
+  showVersions.value = true;
+  versionsLoading.value = true;
+  try {
+    versions.value = await listVersions(currentModelId.value);
+  } catch (e) {
+    console.error('Failed to load versions', e);
+    versions.value = [];
+  } finally {
+    versionsLoading.value = false;
+  }
+};
+
+const doRestoreVersion = async (timestamp: number) => {
+  if (!currentModelId.value) return;
+  const ok = await confirm({
+    title: '恢复版本',
+    message: `确定恢复到 ${new Date(timestamp).toLocaleString()} 的版本？当前版本会自动保存为快照。`,
+    confirmLabel: '恢复',
+  });
+  if (!ok) return;
+  try {
+    const restored = await restoreVersion(currentModelId.value, timestamp);
+    if (restored.graphData) {
+      nodes.value = restored.graphData.nodes || [];
+      edges.value = restored.graphData.edges || [];
+      history.reset(nodes.value, edges.value);
+    }
+    showVersions.value = false;
+    toast.success('已恢复到历史版本');
+  } catch (e) {
+    toast.error('恢复失败');
+  }
+};
+
+const closeVersions = () => { showVersions.value = false; };
+
+const formatFileSize = (bytes: number) => {
+  if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return bytes + ' B';
+};
+
 /** 在新标签页打开当前模型的只读预览页(走 ?preview=<id> 路径,main.ts 据此挂载 PreviewView)。 */
 const openPreview = () => {
   if (!currentModelId.value) return;
@@ -503,6 +552,7 @@ const openPreview = () => {
           <span class="tb-badge">{{ edges.length }} 关系</span>
           <button class="tb-btn" @click="showSchema = !showSchema">Schema</button>
           <button class="tb-btn" @click="openPreview" title="在新标签页里以只读模式预览整张图谱" :disabled="!currentModelId">预览</button>
+          <button class="tb-btn" @click="openVersionHistory" title="查看和恢复历史版本" :disabled="!currentModelId">🕐 版本</button>
           <button class="tb-btn" @click="exportGraph" title="下载当前图谱为 JSON">导出</button>
           <button class="tb-btn hi" @click="shareGraph" title="复制图谱摘要到剪贴板">共享</button>
         </div>
@@ -627,6 +677,24 @@ const openPreview = () => {
           <div class="edit-actions">
             <button class="edit-cancel" @click="cancelEditNode">取消</button>
             <button class="edit-save" @click="saveEditNode">保存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 版本历史面板 -->
+      <div v-if="showVersions" class="modal-mask" @click.self="closeVersions">
+        <div class="version-panel">
+          <div class="vp-header">
+            <h3>版本历史</h3>
+            <button class="vp-close" @click="closeVersions">&#10005;</button>
+          </div>
+          <div v-if="versionsLoading" class="vp-loading">加载中…</div>
+          <div v-else-if="versions.length === 0" class="vp-empty">暂无历史版本</div>
+          <div v-else class="vp-list">
+            <div v-for="v in versions" :key="v.timestamp" class="vp-item" @click="doRestoreVersion(v.timestamp)">
+              <div class="vp-time">{{ new Date(v.timestamp).toLocaleString() }}</div>
+              <div class="vp-meta">{{ v.nodeCount }} 节点 · {{ v.edgeCount }} 关系 · {{ formatFileSize(v.fileSize) }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -781,4 +849,37 @@ const openPreview = () => {
   padding: 6px 16px;
   cursor: pointer;
 }
+
+/* 版本历史面板 */
+.version-panel {
+  background: #1a2332;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  width: 400px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.vp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.vp-header h3 { margin: 0; color: #e2e8f0; font-size: 16px; }
+.vp-close { background: transparent; border: none; color: rgba(255,255,255,0.5); font-size: 18px; cursor: pointer; }
+.vp-close:hover { color: #fff; }
+.vp-loading, .vp-empty { padding: 32px; text-align: center; color: rgba(255,255,255,0.4); font-size: 14px; }
+.vp-list { overflow-y: auto; padding: 8px; }
+.vp-item {
+  padding: 12px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.vp-item:hover { background: rgba(255,255,255,0.06); }
+.vp-time { color: #e2e8f0; font-size: 14px; }
+.vp-meta { color: rgba(255,255,255,0.4); font-size: 12px; margin-top: 4px; }
 </style>

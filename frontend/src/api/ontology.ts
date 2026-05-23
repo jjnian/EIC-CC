@@ -43,3 +43,14 @@ export function extractFromFiles(files: File[], opts?: { modelOverride?: string;
   if (opts?.configId) fd.append('configId', opts.configId);
   return request<ExtractResult>('/api/ontology-models/extract', { method: 'POST', body: fd, signal: opts?.signal });
 }
+
+// 版本历史相关 API
+export function listVersions(modelId: string) {
+  return request<{ timestamp: number; nodeCount: number; edgeCount: number; fileSize: number }[]>(
+    `/api/ontology-models/${modelId}/versions`
+  );
+}
+
+export function restoreVersion(modelId: string, timestamp: number) {
+  return request<any>(`/api/ontology-models/${modelId}/versions/${timestamp}/restore`, { method: 'POST' });
+}
