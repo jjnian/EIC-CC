@@ -4,6 +4,7 @@ import GraphCanvas from '../GraphCanvas.vue';
 import NodeInfo from '../NodeInfo.vue';
 import ChatPanel from '../ChatPanel.vue';
 import ExplanationPanel from '../ExplanationPanel.vue';
+import SchemaPanel from '../SchemaPanel.vue';
 import { toast } from '../../composables/useToast';
 import type { OntologyNode, OntologyEdge, ChainStep } from '../../types';
 
@@ -30,6 +31,7 @@ const props = defineProps({
   diffHighlight:   { type: Object as PropType<{ sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null>, default: null },
   canUndo:         { type: Boolean, default: false },
   canRedo:         { type: Boolean, default: false },
+  schemaOpen:      { type: Boolean, default: false },
 });
 
 const livePrediction = computed(() => ({
@@ -68,6 +70,9 @@ const emit = defineEmits<{
   (e: 'clear-diff'): void;
   (e: 'undo'): void;
   (e: 'redo'): void;
+  (e: 'close-schema'): void;
+  (e: 'update-node-schema', id: string, patch: any): void;
+  (e: 'update-edge-schema', id: string, patch: any): void;
 }>();
 
 const selNode = computed(() => props.nodes.find(n => n.id === props.selectedId) || null);
@@ -163,6 +168,15 @@ watch(() => props.activeBranchId, () => {
         @delete-edge="(edgeId) => emit('delete-edge', edgeId)"
       />
     </div>
+    <SchemaPanel
+      :open="schemaOpen"
+      :nodes="nodes"
+      :edges="edges"
+      @close="emit('close-schema')"
+      @focus-node="(id) => emit('focus-node', id)"
+      @update-node="(id, patch) => emit('update-node-schema', id, patch)"
+      @update-edge="(id, patch) => emit('update-edge-schema', id, patch)"
+    />
     <div :class="['resize-divider', { dragging: divDragActive }]" @mousedown="emit('start-divider', $event)" />
     <ChatPanel
       :nodes="nodes"

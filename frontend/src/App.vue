@@ -390,6 +390,26 @@ const layoutDirection = graphActions.layoutDirection;
 // 导出菜单状态
 const showExportMenu = ref(false);
 
+// Schema 面板开关
+const schemaOpen = ref(false);
+const toggleSchema = () => { schemaOpen.value = !schemaOpen.value; };
+
+// Schema 面板里改属性/约束 → 落到 nodes/edges 上 + 入历史 + 防抖保存
+const updateNodeSchema = (id: string, patch: any) => {
+  const idx = nodes.value.findIndex(n => n.id === id);
+  if (idx === -1) return;
+  history.snapshot();
+  nodes.value[idx] = { ...nodes.value[idx], ...patch };
+  persistCurrentModel();
+};
+const updateEdgeSchema = (id: string, patch: any) => {
+  const idx = edges.value.findIndex(e => e.id === id);
+  if (idx === -1) return;
+  history.snapshot();
+  edges.value[idx] = { ...edges.value[idx], ...patch };
+  persistCurrentModel();
+};
+
 // 节点编辑对话框状态
 const editingNode = ref<OntologyNode | null>(null);
 
@@ -639,6 +659,12 @@ const openPreview = () => {
             @click="importDialogOpen = true"
             title="从 PDF / 图片抽取本体导入"
           >📥 导入</button>
+          <button
+            :class="['tb-btn', { 'hi': schemaOpen }]"
+            @click="toggleSchema"
+            title="查看 / 编辑静态本体 Schema (类 / 关系 / 属性 / 约束)"
+            :disabled="!currentModelId"
+          >⎔ Schema</button>
           <button class="tb-btn" @click="openPreview" title="在新标签页里以只读模式预览整张图谱" :disabled="!currentModelId">预览</button>
           <div class="export-menu-wrap">
             <button class="tb-btn" @click="toggleVersionMenu" title="查看和恢复历史版本" :disabled="!currentModelId">
@@ -729,6 +755,10 @@ const openPreview = () => {
         :diff-highlight="diffHighlight"
         :can-undo="canUndo"
         :can-redo="canRedo"
+        :schema-open="schemaOpen"
+        @close-schema="schemaOpen = false"
+        @update-node-schema="updateNodeSchema"
+        @update-edge-schema="updateEdgeSchema"
         @undo="undoGraph"
         @redo="redoGraph"
         @update:selected-id="(id) => sel = id"

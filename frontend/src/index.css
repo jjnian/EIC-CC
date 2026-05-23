@@ -128,6 +128,35 @@ body {
   pointer-events: none;
   box-shadow: 0 2px 6px rgba(251, 191, 36, 0.4);
 }
+/* TBox 约束标记: 有约束的类节点 / 关系边上挂一个小锁 */
+.node-lock {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  font-size: 11px;
+  line-height: 1;
+  background: rgba(255, 51, 153, 0.95);
+  color: #fff;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: help;
+  box-shadow: 0 2px 6px rgba(255, 51, 153, 0.45);
+  z-index: 2;
+}
+.node-attr-chip {
+  margin-left: 6px;
+  font-size: 9px;
+  background: rgba(255, 170, 34, 0.18);
+  color: #ffaa22;
+  padding: 1px 5px;
+  border-radius: 100px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 600;
+}
 
 /* ── Context menu (right-click) ── */
 .node-ctx-menu {
