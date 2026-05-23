@@ -231,16 +231,23 @@ const SCHEMA_ONLY_TYPES = new Set(['attribute', 'constraint']);
 const graphNodes = computed(() =>
   props.nodes.filter(n => !SCHEMA_ONLY_TYPES.has(n.type))
 );
-// Legend 只列出图上真正会出现的节点类型 (按出现频次,默认就是 class)
+// Legend 只列出图上真正会出现的节点类型 (按出现频次)。class 永远显示,
+// 即便整个图还没有任何节点,用户也能看到"这是类节点的颜色"这个语义。
 const legendTypes = computed(() => {
-  const present = new Set<string>();
+  const present = new Set<string>(['class']);
   for (const n of graphNodes.value) present.add(n.type);
-  if (present.size === 0) present.add('class');
   const out: Record<string, any> = {};
   for (const k of Object.keys(NT)) {
     if (present.has(k)) out[k] = (NT as any)[k];
   }
   return out;
+});
+
+// 是否有任何带约束的类节点或关系边 → 图例里加一行 🔒 约束
+const hasConstraintBadges = computed(() => {
+  for (const n of props.nodes) if ((n.constraints?.length || 0) > 0) return true;
+  for (const e of props.edges) if ((e.constraints?.length || 0) > 0) return true;
+  return false;
 });
 
 const visibleNodes = computed(() => {
@@ -735,13 +742,25 @@ defineExpose({ fitView, focusNode });
       </span>
 
       <div class="legend" style="position: absolute; top: 24px; right: 24px; pointer-events: auto;">
-        <!-- 只显示图上真正画出来的类别(默认就是 class)。attribute / constraint 在 Schema 面板里。 -->
+        <!-- 静态本体层图例: 类/关系/(约束)。类按 NT 里出现的类型分色,关系/约束是固定标识。 -->
         <div v-for="(t, k) in legendTypes" :key="k"
              :class="['legend-row', { 'legend-row-active': typeFilter === k, 'legend-row-inactive': typeFilter && typeFilter !== k }]"
              :title="typeFilter === k ? '点击取消筛选' : '点击仅显示' + (t as any).label"
              @click.stop="toggleTypeFilter(k as string)">
           <div class="legend-sq" :style="{ background: (t as any).color, boxShadow: typeFilter === k ? `0 0 0 2px ${(t as any).color}66` : 'none' }"/>
           <span>{{ (t as any).label }}</span>
+        </div>
+        <div class="legend-sep"></div>
+        <div class="legend-row legend-row-static" title="边 = 关系">
+          <svg class="legend-arrow" width="18" height="10" viewBox="0 0 18 10">
+            <line x1="1" y1="5" x2="14" y2="5" stroke="#22dd88" stroke-width="1.6"/>
+            <path d="M14,1 L17,5 L14,9 Z" fill="#22dd88"/>
+          </svg>
+          <span>关系</span>
+        </div>
+        <div v-if="hasConstraintBadges" class="legend-row legend-row-static" title="带🔒的类或关系挂有约束(详见 Schema 面板)">
+          <span class="legend-lock">🔒</span>
+          <span>约束</span>
         </div>
       </div>
     </div>
