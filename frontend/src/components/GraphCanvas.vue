@@ -12,6 +12,9 @@ const props = defineProps<{
   readonly?: boolean;
   /** 分支对比差异高亮数据 */
   diffHighlight?: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null;
+  /** 撤销/重做按钮的可用状态(由父级图谱历史栈决定) */
+  canUndo?: boolean;
+  canRedo?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -28,6 +31,8 @@ const emit = defineEmits<{
   (e: 'clear-diff'): void;
   // P1-7：对预测节点请求详细解释
   (e: 'explain-node', id: string): void;
+  (e: 'undo'): void;
+  (e: 'redo'): void;
 }>();
 
 const typeFilter = ref<string | null>(null);
@@ -622,6 +627,13 @@ defineExpose({ fitView, focusNode });
           ✕ 对比
         </button>
         <button class="ca-btn" @click="emit('clear')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>清空画布</button>
+        <span class="ca-sep" aria-hidden="true"></span>
+        <button class="ca-btn ca-icon" :disabled="!canUndo" @click="emit('undo')" title="撤销 (Ctrl+Z)">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg>
+        </button>
+        <button class="ca-btn ca-icon" :disabled="!canRedo" @click="emit('redo')" title="重做 (Ctrl+Shift+Z)">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg>
+        </button>
       </div>
 
       <div class="zoom-wrap" style="position: absolute; bottom: 24px; left: 24px; pointer-events: auto;">
