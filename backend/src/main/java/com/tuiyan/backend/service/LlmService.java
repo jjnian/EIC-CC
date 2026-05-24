@@ -64,8 +64,9 @@ public class LlmService {
 
     // Anthropic Messages API 强制要求 anthropic-version 头；本项目固定使用 2023-06-01（稳定版）
     private static final String ANTHROPIC_VERSION = "2023-06-01";
-    // Anthropic 必须显式给 max_tokens；8192 在常见 claude 模型中安全且足够覆盖业务输出
-    private static final int ANTHROPIC_MAX_TOKENS = 8192;
+    // 输出 token 上限默认值；本体抽取等长 JSON 任务 8192 容易被截断，调高到 32768。
+    // 单条模型可在 application.yml 用 max-output-tokens 字段覆盖。
+    private static final int DEFAULT_MAX_OUTPUT_TOKENS = 32768;
 
     private static final String SCHEMA_STRING = """
         {
@@ -83,13 +84,15 @@ public class LlmService {
                 {
                   "name": "The attribute name, e.g., 'weight', 'duration', 'status'",
                   "valueSpace": "The value type or range, e.g., 'number', 'string', '0..1', 'enum(high,medium,low)'",
-                  "description": "Optional brief description of this attribute"
+                  "description": "Optional brief description of this attribute",
+                  "source": "Must be one of: 'derived' or 'inferred'"
                 }
               ],
               "constraints": [
                 {
                   "kind": "Must be one of: 'cardinality', 'exclusive', 'symmetric', 'transitive', 'custom'",
-                  "note": "Human-readable description of the constraint, e.g., 'Each order must have exactly one customer'"
+                  "note": "Human-readable description of the constraint, e.g., 'Each order must have exactly one customer'",
+                  "source": "Must be one of: 'derived' or 'inferred'"
                 }
               ]
             }
@@ -105,7 +108,8 @@ public class LlmService {
               "constraints": [
                 {
                   "kind": "Must be one of: 'cardinality', 'exclusive', 'symmetric', 'transitive', 'custom'",
-                  "note": "Human-readable constraint on this relationship, e.g., '1:N — one supplier supplies many parts', 'symmetric — A partners with B implies B partners with A'"
+                  "note": "Human-readable constraint on this relationship, e.g., '1:N — one supplier supplies many parts', 'symmetric — A partners with B implies B partners with A'",
+                  "source": "Must be one of: 'derived' or 'inferred'"
                 }
               ]
             }
@@ -303,8 +307,8 @@ public class LlmService {
         SCHEMA:
         %s""".formatted(EXPLAIN_SCHEMA);
 
-    /** 解析后的模型连接配置：包含 endpoint、模型名、API key、协议类型。 */
-    public record ResolvedConfig(String baseURL, String modelName, String apiKey, String protocol) {}
+    /** 解析后的模型连接配置：包含 endpoint、模型名、API key、协议类型、输出 token 上限。 */
+    public record ResolvedConfig(String baseURL, String modelName, String apiKey, String protocol, int maxOutputTokens) {}
 
     /** P1-8：推演 prompt 的结构化产物，供 orchestrator 写入 Scenario.rawPrompt 与 LLM 调用复用。 */
     public record PredictPromptArtifact(String system, String user, boolean truncated, int droppedNodes, int droppedEdges) {}
@@ -525,6 +529,7 @@ public class LlmService {
         String modelName;
         String apiKey;
         String protocol = null;
+        Integer maxOutputTokens = null;
 
         if (configId != null && !configId.isBlank()) {
             LlmProperties.ModelEntry selected = null;
@@ -544,6 +549,7 @@ public class LlmService {
             modelName = selected.getModelName();
             apiKey = selected.getApiKey();
             protocol = selected.getProtocol();
+            maxOutputTokens = selected.getMaxOutputTokens();
         } else {
             List<LlmProperties.ModelEntry> models = llmProperties.getModels();
             if (!models.isEmpty()) {
@@ -552,6 +558,7 @@ public class LlmService {
                 modelName = first.getModelName();
                 apiKey = first.getApiKey();
                 protocol = first.getProtocol();
+                maxOutputTokens = first.getMaxOutputTokens();
             } else {
                 LlmProvider provider = LlmProvider.QWEN;
                 baseURL = provider.getBaseUrl();
@@ -578,7 +585,9 @@ public class LlmService {
             throw new IllegalStateException("Missing API key. Please configure api-key in application.yml or set environment variable: LLM_API_KEY");
         }
 
-        return new ResolvedConfig(baseURL, modelName, apiKey, protocol);
+        int resolvedMax = (maxOutputTokens != null && maxOutputTokens > 0)
+                ? maxOutputTokens : DEFAULT_MAX_OUTPUT_TOKENS;
+        return new ResolvedConfig(baseURL, modelName, apiKey, protocol, resolvedMax);
     }
 
     /**
@@ -600,10 +609,13 @@ public class LlmService {
     private String buildOpenAiBody(String modelName, String systemPrompt, String userText,
                                    List<Map<String, Object>> history,
                                    List<Map<String, Object>> attachments,
-                                   boolean stream, boolean jsonMode) throws IOException {
+                                   boolean stream, boolean jsonMode, int maxTokens) throws IOException {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", modelName);
         root.put("stream", stream);
+        if (maxTokens > 0) {
+            root.put("max_tokens", maxTokens);
+        }
 
         ArrayNode messages = objectMapper.createArrayNode();
 
@@ -690,8 +702,8 @@ public class LlmService {
         logConversation("LLM-chat", cfg.modelName(), SYSTEM_INSTRUCTION, history, prompt, attachments);
 
         String requestBody = anthropic
-                ? buildAnthropicBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, history, attachments, false, ANTHROPIC_MAX_TOKENS)
-                : buildOpenAiBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, history, attachments, false, true);
+                ? buildAnthropicBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, history, attachments, false, cfg.maxOutputTokens())
+                : buildOpenAiBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, history, attachments, false, true, cfg.maxOutputTokens());
 
         log.debug("[LLM-chat] 请求体大小: {} chars", requestBody.length());
         long startTime = System.currentTimeMillis();
@@ -746,8 +758,8 @@ public class LlmService {
                     request.getHistory(), prompt, request.getAttachments());
 
             String requestBody = anthropic
-                    ? buildAnthropicBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, ANTHROPIC_MAX_TOKENS)
-                    : buildOpenAiBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, true);
+                    ? buildAnthropicBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, cfg.maxOutputTokens())
+                    : buildOpenAiBody(cfg.modelName(), SYSTEM_INSTRUCTION, prompt, request.getHistory(), request.getAttachments(), true, true, cfg.maxOutputTokens());
 
             log.debug("[LLM-stream] 请求体大小: {} chars", requestBody.length());
 
@@ -1010,9 +1022,9 @@ public class LlmService {
 
         String requestBody = anthropic
                 ? buildAnthropicBody(cfg.modelName(), systemPrompt, userPromptStr,
-                        null, null, false, ANTHROPIC_MAX_TOKENS)
+                        null, null, false, cfg.maxOutputTokens())
                 : buildOpenAiBody(cfg.modelName(), systemPrompt, userPromptStr,
-                        null, null, false, true);
+                        null, null, false, true, cfg.maxOutputTokens());
 
         log.debug("[LLM-predict] 请求体大小: {} chars", requestBody.length());
         long startTime = System.currentTimeMillis();
@@ -1063,8 +1075,8 @@ public class LlmService {
         logConversation("LLM-explain", cfg.modelName(), EXPLAIN_SYSTEM, null, userPrompt, null);
 
         String requestBody = anthropic
-                ? buildAnthropicBody(cfg.modelName(), EXPLAIN_SYSTEM, userPrompt, null, null, false, ANTHROPIC_MAX_TOKENS)
-                : buildOpenAiBody(cfg.modelName(), EXPLAIN_SYSTEM, userPrompt, null, null, false, true);
+                ? buildAnthropicBody(cfg.modelName(), EXPLAIN_SYSTEM, userPrompt, null, null, false, cfg.maxOutputTokens())
+                : buildOpenAiBody(cfg.modelName(), EXPLAIN_SYSTEM, userPrompt, null, null, false, true, cfg.maxOutputTokens());
 
         long startTime = System.currentTimeMillis();
         try {
@@ -1125,7 +1137,7 @@ public class LlmService {
                       + " 段；语义相同的概念请保持 label 一致，便于跨段合并。）\n\n"
                     : "";
             JsonNode part = callExtractOnce(preface + chunks.get(i), imgs,
-                    cfg.modelName(), cfg.baseURL(), cfg.apiKey(), anthropic);
+                    cfg.modelName(), cfg.baseURL(), cfg.apiKey(), anthropic, cfg.maxOutputTokens());
             if (chunks.size() > 1) part = prefixChunkIds(part, "c" + i + "_");
             merged = (merged == null) ? part : mergeExtractionByLabel(merged, part);
         }
@@ -1135,7 +1147,8 @@ public class LlmService {
     /** 单次 chunk 调用 LLM 抽取节点 / 边。文本与图片同时挂上，让 LLM 能跨模态理解文档。 */
     private JsonNode callExtractOnce(String userText,
                                      List<Map<String, Object>> imageAttachments,
-                                     String modelName, String baseURL, String apiKey, boolean anthropic) throws IOException {
+                                     String modelName, String baseURL, String apiKey, boolean anthropic,
+                                     int maxTokens) throws IOException {
         boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
         StringBuilder userPrompt = new StringBuilder();
         if (userText != null && !userText.isBlank()) {
@@ -1154,9 +1167,9 @@ public class LlmService {
 
         String requestBody = anthropic
                 ? buildAnthropicBody(modelName, EXTRACT_SYSTEM, userPrompt.toString(),
-                        null, imageAttachments, false, ANTHROPIC_MAX_TOKENS)
+                        null, imageAttachments, false, maxTokens)
                 : buildOpenAiBody(modelName, EXTRACT_SYSTEM, userPrompt.toString(),
-                        null, imageAttachments, false, true);
+                        null, imageAttachments, false, true, maxTokens);
 
         HttpRequest httpReq = buildHttpRequest(baseURL, apiKey, anthropic, requestBody);
         long startTime = System.currentTimeMillis();

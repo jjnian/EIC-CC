@@ -60,7 +60,7 @@ const allConstraints = computed(() => {
 
 // ---- 类:增删属性 / 约束 ----
 const addAttribute = (n: OntologyNode) => {
-  const next = [...(n.attributes || []), { name: '新属性', valueSpace: 'string' }];
+  const next = [...(n.attributes || []), { name: '新属性', valueSpace: 'string', source: 'manual' as const }];
   emit('update-node', n.id, { attributes: next });
 };
 const removeAttribute = (n: OntologyNode, idx: number) => {
@@ -73,7 +73,7 @@ const updateAttribute = (n: OntologyNode, idx: number, patch: Partial<OntologyAt
 };
 
 const addNodeConstraint = (n: OntologyNode) => {
-  const next = [...(n.constraints || []), { kind: 'custom' as const, note: '新约束' }];
+  const next = [...(n.constraints || []), { kind: 'custom' as const, note: '新约束', source: 'manual' as const }];
   emit('update-node', n.id, { constraints: next });
 };
 const removeNodeConstraint = (n: OntologyNode, idx: number) => {
@@ -87,7 +87,7 @@ const updateNodeConstraint = (n: OntologyNode, idx: number, patch: Partial<Ontol
 
 // ---- 关系:增删约束 ----
 const addEdgeConstraint = (e: OntologyEdge) => {
-  const next = [...(e.constraints || []), { kind: 'custom' as const, note: '新约束' }];
+  const next = [...(e.constraints || []), { kind: 'custom' as const, note: '新约束', source: 'manual' as const }];
   emit('update-edge', e.id, { constraints: next });
 };
 const removeEdgeConstraint = (e: OntologyEdge, idx: number) => {
@@ -107,6 +107,13 @@ const kindLabel = (k?: string) => ({
   transitive:  '传递',
   custom:      '自定义',
 } as Record<string, string>)[k || 'custom'] || k || '自定义';
+
+const sourceBadge = (s?: string) => {
+  if (s === 'inferred') return { text: 'AI推理', color: '#bb77ff', bg: 'rgba(187,119,255,0.12)' };
+  if (s === 'derived')  return { text: '文本提取', color: '#22dd88', bg: 'rgba(34,221,136,0.12)' };
+  if (s === 'manual')   return { text: '手动', color: '#3d9bff', bg: 'rgba(61,155,255,0.12)' };
+  return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
+};
 </script>
 
 <template>
@@ -150,6 +157,7 @@ const kindLabel = (k?: string) => ({
             <input class="sp-in sp-in-name" :value="a.name" @input="updateAttribute(n, i, { name: ($event.target as HTMLInputElement).value })" placeholder="属性名"/>
             <span class="sp-colon">:</span>
             <input class="sp-in sp-in-val" :value="a.valueSpace || ''" @input="updateAttribute(n, i, { valueSpace: ($event.target as HTMLInputElement).value })" placeholder="取值范围 (如 number / 0..1 / string)"/>
+            <span class="sp-src" :style="{color: sourceBadge(a.source).color, background: sourceBadge(a.source).bg}">{{ sourceBadge(a.source).text }}</span>
             <button class="sp-del" @click="removeAttribute(n, i)" title="删除">×</button>
           </div>
           <button class="sp-add" @click="addAttribute(n)">+ 添加属性</button>
@@ -160,6 +168,7 @@ const kindLabel = (k?: string) => ({
               <option v-for="k in CONSTRAINT_KINDS" :key="k" :value="k">{{ kindLabel(k) }}</option>
             </select>
             <input class="sp-in sp-in-note" :value="c.note" @input="updateNodeConstraint(n, i, { note: ($event.target as HTMLInputElement).value })" placeholder="约束说明"/>
+            <span class="sp-src" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
             <button class="sp-del" @click="removeNodeConstraint(n, i)" title="删除">×</button>
           </div>
           <button class="sp-add" @click="addNodeConstraint(n)">+ 添加约束</button>
@@ -186,6 +195,7 @@ const kindLabel = (k?: string) => ({
               <option v-for="k in CONSTRAINT_KINDS" :key="k" :value="k">{{ kindLabel(k) }}</option>
             </select>
             <input class="sp-in sp-in-note" :value="c.note" @input="updateEdgeConstraint(e, i, { note: ($event.target as HTMLInputElement).value })" placeholder="约束说明"/>
+            <span class="sp-src" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
             <button class="sp-del" @click="removeEdgeConstraint(e, i)" title="删除">×</button>
           </div>
           <button class="sp-add" @click="addEdgeConstraint(e)">+ 添加约束</button>
@@ -200,6 +210,7 @@ const kindLabel = (k?: string) => ({
           <span class="sp-flat-dot">·</span>
           <span class="sp-flat-name">{{ row.attr.name }}</span>
           <span class="sp-flat-val">{{ row.attr.valueSpace || '—' }}</span>
+          <span class="sp-src sp-src-flat" :style="{color: sourceBadge(row.attr.source).color, background: sourceBadge(row.attr.source).bg}">{{ sourceBadge(row.attr.source).text }}</span>
         </div>
       </div>
 
@@ -212,6 +223,7 @@ const kindLabel = (k?: string) => ({
           <span class="sp-flat-dot">·</span>
           <span class="sp-flat-name">{{ kindLabel(row.c.kind) }}</span>
           <span class="sp-flat-val">{{ row.c.note }}</span>
+          <span class="sp-src sp-src-flat" :style="{color: sourceBadge(row.c.source).color, background: sourceBadge(row.c.source).bg}">{{ sourceBadge(row.c.source).text }}</span>
         </div>
       </div>
     </div>
@@ -360,4 +372,13 @@ const kindLabel = (k?: string) => ({
 }
 .sp-flat-kind-class    { background: rgba(61,155,255,0.18); color: #3d9bff; }
 .sp-flat-kind-relation { background: rgba(34,221,136,0.18); color: #22dd88; }
+
+.sp-src {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.sp-src-flat { margin-left: auto; }
 </style>

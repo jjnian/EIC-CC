@@ -25,7 +25,7 @@ app:
         protocol: openai
         enabled: true
         context-window: 64000
-        max-output-tokens: 8192
+        max-output-tokens: 16384
         capabilities:
           - streaming
           - json

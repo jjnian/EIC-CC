@@ -1,6 +1,6 @@
 // Core domain types shared by App.vue and components.
 
-export type NodeSource = 'predicted' | 'derived' | 'inferred' | 'preset' | string;
+export type NodeSource = 'predicted' | 'derived' | 'inferred' | 'preset' | 'manual' | string;
 
 export interface OntologyNode {
   id: string;
@@ -42,12 +42,14 @@ export interface OntologyAttribute {
   name: string;
   valueSpace?: string;
   description?: string;
+  source?: NodeSource;
 }
 
 /** TBox 约束: 基数限制 / 互斥 / 对称 / 传递 … */
 export interface OntologyConstraint {
   kind?: 'cardinality' | 'exclusive' | 'symmetric' | 'transitive' | 'custom';
   note: string;
+  source?: NodeSource;
 }
 
 export interface OntologyModel {
