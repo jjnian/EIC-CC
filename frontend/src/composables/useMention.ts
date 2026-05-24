@@ -92,17 +92,33 @@ export function useMention(ctx: MentionCtx) {
     });
   };
 
+  const mentionListRef = ref<HTMLElement | null>(null);
+
+  const scrollActiveIntoView = () => {
+    nextTick(() => {
+      const list = mentionListRef.value;
+      if (!list) return;
+      const items = list.querySelectorAll('.mention-item');
+      const active = items[mentionIndex.value] as HTMLElement | undefined;
+      if (active) {
+        active.scrollIntoView({ block: 'nearest' });
+      }
+    });
+  };
+
   /** 键盘事件:处理 ↑↓Enter/Tab/Esc,返回 true 表示已消费(调用方不再处理 Enter 发送)。 */
   const handleKeydown = (e: KeyboardEvent): boolean => {
     if (!mentionOpen.value || mentionItems.value.length === 0) return false;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       mentionIndex.value = (mentionIndex.value + 1) % mentionItems.value.length;
+      scrollActiveIntoView();
       return true;
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
       mentionIndex.value = (mentionIndex.value - 1 + mentionItems.value.length) % mentionItems.value.length;
+      scrollActiveIntoView();
       return true;
     }
     if (e.key === 'Enter' || e.key === 'Tab') {
@@ -126,6 +142,7 @@ export function useMention(ctx: MentionCtx) {
     mentionQuery,
     mentionIndex,
     mentionItems,
+    mentionListRef,
     checkMention,
     selectMention,
     handleKeydown,
