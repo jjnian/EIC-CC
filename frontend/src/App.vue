@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import SettingsView from './components/SettingsView.vue';
 import WelcomeChat from './components/WelcomeChat.vue';
@@ -411,23 +411,82 @@ const updateEdgeSchema = (id: string, patch: any) => {
 };
 
 // 在画布空白处右键添加节点
-const addNodeAtPosition = (type: string, x: number, y: number) => {
+const addNodeAtPosition = (payload: { label: string; type: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }) => {
   history.snapshot();
-  const id = 'n_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
-  const label = type === 'class' ? '新对象' : '新关系类型';
-  const newNode: OntologyNode = { id, label, type, x, y, source: 'manual' };
+  const nodeId = 'n_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+  const newNode: OntologyNode = { id: nodeId, label: payload.label, type: payload.type, x: payload.x, y: payload.y, source: 'manual' };
   nodes.value.push(newNode);
-  sel.value = id;
-  editingNode.value = { ...newNode };
+  for (const inp of payload.inputs) {
+    edges.value.push({
+      id: 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      from: inp.nodeId,
+      to: nodeId,
+      label: inp.edgeLabel || undefined,
+      source: 'manual',
+    });
+  }
+  for (const out of payload.outputs) {
+    edges.value.push({
+      id: 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+      from: nodeId,
+      to: out.nodeId,
+      label: out.edgeLabel || undefined,
+      source: 'manual',
+    });
+  }
+  sel.value = nodeId;
   persistCurrentModel();
 };
 
 // 节点编辑对话框状态
 const editingNode = ref<OntologyNode | null>(null);
+const editNodeInputs = ref<string[]>([]);
+const editNodeOutputs = ref<string[]>([]);
+const editInputLabels = ref<Record<string, string>>({});
+const editOutputLabels = ref<Record<string, string>>({});
+
+const SCHEMA_ONLY_TYPES = new Set(['attribute', 'constraint']);
+const editableGraphNodes = computed(() => {
+  if (!editingNode.value) return [];
+  return nodes.value.filter(n =>
+    n.id !== editingNode.value!.id && !SCHEMA_ONLY_TYPES.has(n.type)
+  );
+});
 
 const openEditNode = (id: string) => {
   const n = nodes.value.find(n => n.id === id);
-  if (n) editingNode.value = { ...n };
+  if (!n) return;
+  editingNode.value = { ...n };
+  editNodeInputs.value = edges.value.filter(e => e.to === id).map(e => e.from);
+  editNodeOutputs.value = edges.value.filter(e => e.from === id).map(e => e.to);
+  editInputLabels.value = {};
+  editOutputLabels.value = {};
+  for (const e of edges.value) {
+    if (e.to === id) editInputLabels.value[e.from] = e.label || '';
+    if (e.from === id) editOutputLabels.value[e.to] = e.label || '';
+  }
+};
+
+const toggleEditInput = (nodeId: string) => {
+  const idx = editNodeInputs.value.indexOf(nodeId);
+  if (idx >= 0) {
+    editNodeInputs.value.splice(idx, 1);
+    delete editInputLabels.value[nodeId];
+  } else {
+    editNodeInputs.value.push(nodeId);
+    editInputLabels.value[nodeId] = '';
+  }
+};
+
+const toggleEditOutput = (nodeId: string) => {
+  const idx = editNodeOutputs.value.indexOf(nodeId);
+  if (idx >= 0) {
+    editNodeOutputs.value.splice(idx, 1);
+    delete editOutputLabels.value[nodeId];
+  } else {
+    editNodeOutputs.value.push(nodeId);
+    editOutputLabels.value[nodeId] = '';
+  }
 };
 
 const saveEditNode = () => {
@@ -435,7 +494,50 @@ const saveEditNode = () => {
   const idx = nodes.value.findIndex(n => n.id === editingNode.value!.id);
   if (idx === -1) return;
   history.snapshot();
+  const nodeId = editingNode.value.id;
   nodes.value[idx] = { ...nodes.value[idx], label: editingNode.value.label, type: editingNode.value.type };
+
+  // Remove edges no longer selected
+  edges.value = edges.value.filter(e => {
+    if (e.to === nodeId && !editNodeInputs.value.includes(e.from)) return false;
+    if (e.from === nodeId && !editNodeOutputs.value.includes(e.to)) return false;
+    return true;
+  });
+
+  // Update labels on existing edges
+  for (const e of edges.value) {
+    if (e.to === nodeId && editInputLabels.value[e.from] !== undefined) {
+      e.label = editInputLabels.value[e.from] || undefined;
+    }
+    if (e.from === nodeId && editOutputLabels.value[e.to] !== undefined) {
+      e.label = editOutputLabels.value[e.to] || undefined;
+    }
+  }
+
+  // Add new input edges
+  for (const fromId of editNodeInputs.value) {
+    if (!edges.value.some(e => e.from === fromId && e.to === nodeId)) {
+      edges.value.push({
+        id: 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+        from: fromId, to: nodeId,
+        label: editInputLabels.value[fromId] || undefined,
+        source: 'manual',
+      });
+    }
+  }
+
+  // Add new output edges
+  for (const toId of editNodeOutputs.value) {
+    if (!edges.value.some(e => e.from === nodeId && e.to === toId)) {
+      edges.value.push({
+        id: 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+        from: nodeId, to: toId,
+        label: editOutputLabels.value[toId] || undefined,
+        source: 'manual',
+      });
+    }
+  }
+
   editingNode.value = null;
   persistCurrentModel();
 };
@@ -828,16 +930,46 @@ const openPreview = () => {
 
       <!-- 节点编辑对话框 -->
       <div v-if="editingNode" class="modal-mask" @click.self="cancelEditNode">
-        <div class="edit-node-dialog">
+        <div class="add-node-dialog">
           <h3>编辑节点</h3>
-          <label>名称
+          <label class="anp-label">名称
             <input v-model="editingNode.label" class="edit-input" @keydown.enter="saveEditNode" />
           </label>
-          <label>类型
+          <label class="anp-label">类型
             <select v-model="editingNode.type" class="edit-input">
               <option v-for="(t, k) in NT" :key="k" :value="k">{{ t.label }}</option>
             </select>
           </label>
+          <div v-if="editableGraphNodes.length > 0" class="anp-section">
+            <div class="anp-section-title">输入连接 <span class="anp-hint">（从哪些节点连入）</span></div>
+            <div class="anp-node-list">
+              <div v-for="n in editableGraphNodes" :key="'ein-'+n.id" class="anp-node-option">
+                <label class="anp-check-label" @click.prevent="toggleEditInput(n.id)">
+                  <span :class="['anp-checkbox', { checked: editNodeInputs.includes(n.id) }]">
+                    <span v-if="editNodeInputs.includes(n.id)" class="anp-check-mark">✓</span>
+                  </span>
+                  <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
+                  <span class="anp-node-name">{{ n.label }}</span>
+                </label>
+                <input v-if="editNodeInputs.includes(n.id)" v-model="editInputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
+              </div>
+            </div>
+          </div>
+          <div v-if="editableGraphNodes.length > 0" class="anp-section">
+            <div class="anp-section-title">输出连接 <span class="anp-hint">（连向哪些节点）</span></div>
+            <div class="anp-node-list">
+              <div v-for="n in editableGraphNodes" :key="'eout-'+n.id" class="anp-node-option">
+                <label class="anp-check-label" @click.prevent="toggleEditOutput(n.id)">
+                  <span :class="['anp-checkbox', { checked: editNodeOutputs.includes(n.id) }]">
+                    <span v-if="editNodeOutputs.includes(n.id)" class="anp-check-mark">✓</span>
+                  </span>
+                  <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
+                  <span class="anp-node-name">{{ n.label }}</span>
+                </label>
+                <input v-if="editNodeOutputs.includes(n.id)" v-model="editOutputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
+              </div>
+            </div>
+          </div>
           <div class="edit-actions">
             <button class="edit-cancel" @click="cancelEditNode">取消</button>
             <button class="edit-save" @click="saveEditNode">保存</button>

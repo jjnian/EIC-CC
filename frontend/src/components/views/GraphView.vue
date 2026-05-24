@@ -73,7 +73,7 @@ const emit = defineEmits<{
   (e: 'close-schema'): void;
   (e: 'update-node-schema', id: string, patch: any): void;
   (e: 'update-edge-schema', id: string, patch: any): void;
-  (e: 'add-node', type: string, x: number, y: number): void;
+  (e: 'add-node', payload: { label: string; type: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }): void;
 }>();
 
 const selNode = computed(() => props.nodes.find(n => n.id === props.selectedId) || null);
@@ -153,7 +153,7 @@ watch(() => props.activeBranchId, () => {
         @delete-nodes="(ids) => emit('delete-nodes', ids)"
         @explain-node="onExplainNode"
         @clear-diff="emit('clear-diff')"
-        @add-node="(type, x, y) => emit('add-node', type, x, y)"
+        @add-node="(payload) => emit('add-node', payload)"
       />
       <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
         <span class="bb-icon">⚡</span>

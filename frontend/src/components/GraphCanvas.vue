@@ -42,7 +42,7 @@ const emit = defineEmits<{
   (e: 'explain-node', id: string): void;
   (e: 'undo'): void;
   (e: 'redo'): void;
-  (e: 'add-node', type: string, x: number, y: number): void;
+  (e: 'add-node', payload: { label: string; type: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }): void;
 }>();
 
 /* ── 节点类型筛选（图例点击） ── */
@@ -138,15 +138,38 @@ const diffColor = (n: any) => {
   return null;
 };
 
+/* ── 节点端口计算(输入/输出) ── */
+const nodeInCount = computed(() => {
+  const m: Record<string, number> = {};
+  for (const e of props.edges) m[e.to] = (m[e.to] || 0) + 1;
+  return m;
+});
+const nodeOutCount = computed(() => {
+  const m: Record<string, number> = {};
+  for (const e of props.edges) m[e.from] = (m[e.from] || 0) + 1;
+  return m;
+});
+
 /* ── 右键菜单 ── */
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
-const canvasCtxMenu = ref<{ x: number; y: number; canvasX: number; canvasY: number } | null>(null);
+/* ── 添加节点表单 ── */
+const addNodeForm = ref<{
+  canvasX: number;
+  canvasY: number;
+  label: string;
+  type: string;
+  inputs: string[];
+  outputs: string[];
+  inputLabels: Record<string, string>;
+  outputLabels: Record<string, string>;
+} | null>(null);
+const addNodeInputRef = ref<HTMLInputElement | null>(null);
 const onNodeContext = (e: MouseEvent, id: string) => {
   e.preventDefault();
   e.stopPropagation();
   if (props.readonly) return;
   emit('select', id);
-  canvasCtxMenu.value = null;
+  addNodeForm.value = null;
   ctxMenu.value = { x: e.clientX, y: e.clientY, id };
 };
 const onCanvasContext = (e: MouseEvent) => {
@@ -158,9 +181,18 @@ const onCanvasContext = (e: MouseEvent) => {
   const rect = cvRef.value!.getBoundingClientRect();
   const canvasX = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
   const canvasY = (e.clientY - rect.top + cvRef.value!.scrollTop) / zoom.value;
-  canvasCtxMenu.value = { x: e.clientX, y: e.clientY, canvasX, canvasY };
+  addNodeForm.value = {
+    canvasX, canvasY,
+    label: '',
+    type: 'class',
+    inputs: [],
+    outputs: [],
+    inputLabels: {},
+    outputLabels: {},
+  };
+  nextTick(() => addNodeInputRef.value?.focus());
 };
-const closeCtx = () => { ctxMenu.value = null; canvasCtxMenu.value = null; };
+const closeCtx = () => { ctxMenu.value = null; addNodeForm.value = null; };
 const triggerPredict = () => {
   if (ctxMenu.value) {
     emit('predict-from', ctxMenu.value.id);
@@ -205,10 +237,41 @@ const triggerBatchDelete = () => {
   }
 };
 
-const triggerAddNode = (type: string) => {
-  if (canvasCtxMenu.value) {
-    emit('add-node', type, canvasCtxMenu.value.canvasX, canvasCtxMenu.value.canvasY);
-    canvasCtxMenu.value = null;
+const submitAddNode = () => {
+  if (!addNodeForm.value || !addNodeForm.value.label.trim()) return;
+  const f = addNodeForm.value;
+  emit('add-node', {
+    label: f.label.trim(),
+    type: f.type,
+    x: f.canvasX,
+    y: f.canvasY,
+    inputs: f.inputs.map(id => ({ nodeId: id, edgeLabel: f.inputLabels[id] || '' })),
+    outputs: f.outputs.map(id => ({ nodeId: id, edgeLabel: f.outputLabels[id] || '' })),
+  });
+  addNodeForm.value = null;
+};
+
+const toggleAddNodeInput = (nodeId: string) => {
+  if (!addNodeForm.value) return;
+  const idx = addNodeForm.value.inputs.indexOf(nodeId);
+  if (idx >= 0) {
+    addNodeForm.value.inputs.splice(idx, 1);
+    delete addNodeForm.value.inputLabels[nodeId];
+  } else {
+    addNodeForm.value.inputs.push(nodeId);
+    addNodeForm.value.inputLabels[nodeId] = '';
+  }
+};
+
+const toggleAddNodeOutput = (nodeId: string) => {
+  if (!addNodeForm.value) return;
+  const idx = addNodeForm.value.outputs.indexOf(nodeId);
+  if (idx >= 0) {
+    addNodeForm.value.outputs.splice(idx, 1);
+    delete addNodeForm.value.outputLabels[nodeId];
+  } else {
+    addNodeForm.value.outputs.push(nodeId);
+    addNodeForm.value.outputLabels[nodeId] = '';
   }
 };
 
@@ -655,6 +718,14 @@ defineExpose({ fitView, focusNode });
                   boxShadow: (selId === n.id || (typeFilter && matchesFilter(n))) ? `0 0 0 1px ${getT(n).color}55,0 4px 24px ${getT(n).color}33` : (neighborIds && neighborIds.has(n.id) && selId !== n.id) ? `0 0 0 1px ${getT(n).color}44,0 2px 12px ${getT(n).color}22` : '0 2px 8px rgba(0,0,0,0.4)'
                 }"
                 @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @dblclick.stop="emit('edit-node', n.id)" @click.stop>
+              <div class="node-ports-left" v-if="(nodeInCount[n.id] || 0) > 0">
+                <div v-for="i in Math.min(nodeInCount[n.id] || 0, 5)" :key="'pi'+i" class="node-port" :style="{ background: getT(n).color + '66', borderColor: getT(n).color + '99' }" :title="'输入 ' + (nodeInCount[n.id] || 0)"/>
+                <span v-if="(nodeInCount[n.id] || 0) > 5" class="port-overflow">+{{ (nodeInCount[n.id] || 0) - 5 }}</span>
+              </div>
+              <div class="node-ports-right" v-if="(nodeOutCount[n.id] || 0) > 0">
+                <div v-for="i in Math.min(nodeOutCount[n.id] || 0, 5)" :key="'po'+i" class="node-port" :style="{ background: getT(n).color + '66', borderColor: getT(n).color + '99' }" :title="'输出 ' + (nodeOutCount[n.id] || 0)"/>
+                <span v-if="(nodeOutCount[n.id] || 0) > 5" class="port-overflow">+{{ (nodeOutCount[n.id] || 0) - 5 }}</span>
+              </div>
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
               <div class="node-label">{{ n.label }}</div>
               <div class="node-type">{{ getT(n).label }}</div>
@@ -706,16 +777,54 @@ defineExpose({ fitView, focusNode });
       </button>
     </div>
 
-    <!-- Canvas right-click context menu (blank area) -->
-    <div v-if="canvasCtxMenu" class="node-ctx-menu" :style="{ left: canvasCtxMenu.x + 'px', top: canvasCtxMenu.y + 'px' }" @click.stop>
-      <button class="ctx-item" @click="triggerAddNode('class')">
-        <span class="ctx-icon" :style="{ color: NT.class.color }">■</span>
-        <span>添加对象节点</span>
-      </button>
-      <button class="ctx-item" @click="triggerAddNode('relation_type')">
-        <span class="ctx-icon" :style="{ color: NT.relation_type.color }">◆</span>
-        <span>添加关系类型节点</span>
-      </button>
+    <!-- 添加节点表单 (画布空白处右键) -->
+    <div v-if="addNodeForm" class="modal-mask" @click.self="addNodeForm = null">
+      <div class="add-node-dialog" @click.stop>
+        <h3>添加节点</h3>
+        <label class="anp-label">名称
+          <input ref="addNodeInputRef" v-model="addNodeForm.label" class="edit-input" placeholder="输入节点名称…" @keydown.enter="submitAddNode" @keydown.escape="addNodeForm = null" />
+        </label>
+        <label class="anp-label">类型
+          <select v-model="addNodeForm.type" class="edit-input">
+            <option value="class">对象</option>
+            <option value="relation_type">关系类型</option>
+          </select>
+        </label>
+        <div v-if="graphNodes.length > 0" class="anp-section">
+          <div class="anp-section-title">输入连接 <span class="anp-hint">（从哪些节点连入）</span></div>
+          <div class="anp-node-list">
+            <div v-for="n in graphNodes" :key="'in-'+n.id" class="anp-node-option">
+              <label class="anp-check-label" @click.prevent="toggleAddNodeInput(n.id)">
+                <span :class="['anp-checkbox', { checked: addNodeForm.inputs.includes(n.id) }]">
+                  <span v-if="addNodeForm.inputs.includes(n.id)" class="anp-check-mark">✓</span>
+                </span>
+                <span class="anp-node-dot" :style="{ background: getT(n).color }"></span>
+                <span class="anp-node-name">{{ n.label }}</span>
+              </label>
+              <input v-if="addNodeForm.inputs.includes(n.id)" v-model="addNodeForm.inputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
+            </div>
+          </div>
+        </div>
+        <div v-if="graphNodes.length > 0" class="anp-section">
+          <div class="anp-section-title">输出连接 <span class="anp-hint">（连向哪些节点）</span></div>
+          <div class="anp-node-list">
+            <div v-for="n in graphNodes" :key="'out-'+n.id" class="anp-node-option">
+              <label class="anp-check-label" @click.prevent="toggleAddNodeOutput(n.id)">
+                <span :class="['anp-checkbox', { checked: addNodeForm.outputs.includes(n.id) }]">
+                  <span v-if="addNodeForm.outputs.includes(n.id)" class="anp-check-mark">✓</span>
+                </span>
+                <span class="anp-node-dot" :style="{ background: getT(n).color }"></span>
+                <span class="anp-node-name">{{ n.label }}</span>
+              </label>
+              <input v-if="addNodeForm.outputs.includes(n.id)" v-model="addNodeForm.outputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
+            </div>
+          </div>
+        </div>
+        <div class="edit-actions">
+          <button class="edit-cancel" @click="addNodeForm = null">取消</button>
+          <button class="edit-save" @click="submitAddNode" :disabled="!addNodeForm.label.trim()">添加</button>
+        </div>
+      </div>
     </div>
 
     <div class="hud-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">
