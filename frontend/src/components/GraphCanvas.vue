@@ -706,8 +706,7 @@ defineExpose({ fitView, focusNode });
                   <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
                         :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.3)'))"
                         :stroke-width="selId === e.from || selId === e.to ? 2 : 1.4"
-                        :stroke-dasharray="e.source === 'predicted' ? '6 4' : null"
-                        :marker-end="e.source === 'predicted' ? 'url(#arr-p)' : (e.rule_driven ? 'url(#arr-r)' : (selId === e.from || selId === e.to ? 'url(#arr-s)' : 'url(#arr)'))"/>
+                        :stroke-dasharray="e.source === 'predicted' ? '6 4' : null"/>
                   <path v-if="e.source !== 'predicted'" :class="selId === e.from || selId === e.to ? 'line-flow-fast' : 'line-flow'" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (selId === e.from || selId === e.to ? '#a7f3d0' : 'rgba(66, 184, 131, 0.6)')" :stroke-width="selId === e.from || selId === e.to ? 2.5 : 1.5"/>
                   <g v-if="e.label">
                     <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 20" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="40" height="14" rx="3" fill="#0f172a" opacity="0.8"/>
