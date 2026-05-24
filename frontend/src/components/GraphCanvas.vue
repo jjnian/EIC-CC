@@ -231,17 +231,18 @@ const SCHEMA_ONLY_TYPES = new Set(['attribute', 'constraint']);
 const graphNodes = computed(() =>
   props.nodes.filter(n => !SCHEMA_ONLY_TYPES.has(n.type))
 );
-// Legend 只列出图上真正会出现的节点类型 (按出现频次,默认就是 class)
+// Legend 只列出图上真正会出现的节点类型 (按出现频次)。class 永远显示,
+// 即便整个图还没有任何节点,用户也能看到"这是类节点的颜色"这个语义。
 const legendTypes = computed(() => {
-  const present = new Set<string>();
+  const present = new Set<string>(['class']);
   for (const n of graphNodes.value) present.add(n.type);
-  if (present.size === 0) present.add('class');
   const out: Record<string, any> = {};
   for (const k of Object.keys(NT)) {
     if (present.has(k)) out[k] = (NT as any)[k];
   }
   return out;
 });
+
 
 const visibleNodes = computed(() => {
   // 小图谱不做裁剪，省下计算开销 + 避免裁剪带来的复杂度
@@ -594,11 +595,10 @@ defineExpose({ fitView, focusNode });
                         :marker-end="e.source === 'predicted' ? 'url(#arr-p)' : (e.rule_driven ? 'url(#arr-r)' : (selId === e.from || selId === e.to ? 'url(#arr-s)' : 'url(#arr)'))"/>
                   <path v-if="e.source !== 'predicted'" :class="selId === e.from || selId === e.to ? 'line-flow-fast' : 'line-flow'" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (selId === e.from || selId === e.to ? '#a7f3d0' : 'rgba(66, 184, 131, 0.6)')" :stroke-width="selId === e.from || selId === e.to ? 2.5 : 1.5"/>
                   <g v-if="e.label">
-                    <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 22" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="44" height="14" rx="3" fill="#0f172a" opacity="0.8"/>
+                    <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 20" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="40" height="14" rx="3" fill="#0f172a" opacity="0.8"/>
                     <text :x="getPath(nmap[e.from], nmap[e.to]).mx" :y="getPath(nmap[e.from], nmap[e.to]).my - 6" text-anchor="middle" :style="{fill: e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.7)')), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
-                      <tspan v-if="e.source === 'predicted'">◇</tspan><tspan v-else-if="e.rule_driven">⚡</tspan>{{ e.label }}<tspan v-if="(e.constraints?.length || 0) > 0" dx="2" style="font-size:10px">🔒</tspan>
+                      <tspan v-if="e.source === 'predicted'">◇</tspan><tspan v-else-if="e.rule_driven">⚡</tspan>{{ e.label }}
                     </text>
-                    <title v-if="(e.constraints?.length || 0) > 0">{{ (e.constraints || []).map((c: any) => c.note).join('\n') }}</title>
                   </g>
                 </g>
               </template>
@@ -619,12 +619,7 @@ defineExpose({ fitView, focusNode });
                 @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @dblclick.stop="emit('edit-node', n.id)" @click.stop>
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
               <div class="node-label">{{ n.label }}</div>
-              <div class="node-type">
-                {{ getT(n).label }}
-                <span v-if="(n.attributes?.length || 0) > 0" class="node-attr-chip" :title="'属性: ' + (n.attributes || []).map(a => a.name).join(', ')">{{ n.attributes.length }}属性</span>
-              </div>
-              <div v-if="(n.constraints?.length || 0) > 0" class="node-lock"
-                   :title="(n.constraints || []).map(c => c.note).join('\n')">🔒</div>
+              <div class="node-type">{{ getT(n).label }}</div>
               <div v-if="n.source === 'predicted'" class="node-pred-badge"
                    :title="'置信度: ' + Math.round((n.confidence || 0) * 100) + '% | 有效概率: ' + Math.round((n.effectiveProbability || 0) * 100) + '%'">
                 {{ Math.round((n.effectiveProbability || n.confidence || 0) * 100) }}%
@@ -735,13 +730,21 @@ defineExpose({ fitView, focusNode });
       </span>
 
       <div class="legend" style="position: absolute; top: 24px; right: 24px; pointer-events: auto;">
-        <!-- 只显示图上真正画出来的类别(默认就是 class)。attribute / constraint 在 Schema 面板里。 -->
+        <!-- 静态本体层图例: 类/关系/(约束)。类按 NT 里出现的类型分色,关系/约束是固定标识。 -->
         <div v-for="(t, k) in legendTypes" :key="k"
              :class="['legend-row', { 'legend-row-active': typeFilter === k, 'legend-row-inactive': typeFilter && typeFilter !== k }]"
              :title="typeFilter === k ? '点击取消筛选' : '点击仅显示' + (t as any).label"
              @click.stop="toggleTypeFilter(k as string)">
           <div class="legend-sq" :style="{ background: (t as any).color, boxShadow: typeFilter === k ? `0 0 0 2px ${(t as any).color}66` : 'none' }"/>
           <span>{{ (t as any).label }}</span>
+        </div>
+        <div class="legend-sep"></div>
+        <div class="legend-row legend-row-static" title="边 = 关系。点击对象或关系在「详细」里查看约束">
+          <svg class="legend-arrow" width="18" height="10" viewBox="0 0 18 10">
+            <line x1="1" y1="5" x2="14" y2="5" stroke="#22dd88" stroke-width="1.6"/>
+            <path d="M14,1 L17,5 L14,9 Z" fill="#22dd88"/>
+          </svg>
+          <span>关系</span>
         </div>
       </div>
     </div>

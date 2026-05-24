@@ -226,6 +226,11 @@ body {
 .legend-row-active { background:rgba(255,255,255,0.1); color:#fff; }
 .legend-row-inactive { opacity:0.45; }
 .legend-sq { width:10px; height:10px; border-radius:3px; flex-shrink:0; transition:box-shadow .15s; }
+.legend-sep { height:1px; background:rgba(255,255,255,0.08); margin:6px -8px; }
+.legend-row-static { cursor:default; opacity:0.85; }
+.legend-row-static:hover { background:transparent; opacity:1; }
+.legend-arrow { flex-shrink:0; }
+.legend-lock { font-size:11px; width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; background:rgba(255,51,153,0.18); color:#ff7fbe; border-radius:50%; flex-shrink:0; }
 
 .node-dim { opacity:0.2; transition:opacity .2s; }
 .node-hl { transition:opacity .2s, box-shadow .2s; }
@@ -379,6 +384,41 @@ body {
   border-radius: 3px;
 }
 .ni-prop-del:hover, .ni-edge-del:hover { color: #ef4444; }
+.ni-constraint-pill {
+  margin-left: 8px;
+  background: rgba(255, 51, 153, 0.14);
+  border: 1px solid rgba(255, 51, 153, 0.32);
+  color: #ff7fbe;
+  border-radius: 100px;
+  padding: 1px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  vertical-align: middle;
+}
+.ni-constraint-pill:hover { background: rgba(255, 51, 153, 0.22); }
+.ni-constraint-list {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(255, 51, 153, 0.06);
+  border-left: 2px solid rgba(255, 51, 153, 0.45);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ni-constraint-item {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+}
+.ni-constraint-kind {
+  color: #ff7fbe;
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 48px;
+}
 .ni-prop-add {
   background: transparent;
   border: 1px dashed rgba(255,255,255,0.15);

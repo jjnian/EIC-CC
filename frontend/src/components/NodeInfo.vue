@@ -25,6 +25,42 @@ const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])))
 const outgoing = computed(() => props.node ? props.edges.filter(e => e.from === props.node.id) : []);
 const incoming = computed(() => props.node ? props.edges.filter(e => e.to === props.node.id) : []);
 
+// 关系上的约束: 当前选中节点参与的所有边里,把带约束的提出来,概览页直接展示一遍,
+// 这样"点对象"也能看到关联关系的约束,不必再切到关系 Tab。
+const relatedEdgeConstraints = computed(() => {
+  const out: { c: any; relLabel: string }[] = [];
+  if (!props.node) return out;
+  const nm = nmap.value;
+  for (const e of props.edges) {
+    if (e.from !== props.node.id && e.to !== props.node.id) continue;
+    for (const c of (e.constraints || [])) {
+      const fromL = nm[e.from]?.label || e.from;
+      const toL = nm[e.to]?.label || e.to;
+      out.push({ c, relLabel: `${fromL} —${e.label || ''}→ ${toL}` });
+    }
+  }
+  return out;
+});
+
+// 关系约束的"展开/收起"状态: 同一节点可以展开多条关系
+const expandedEdges = ref(new Set<string>());
+const toggleEdgeExpand = (id: string) => {
+  const s = new Set(expandedEdges.value);
+  s.has(id) ? s.delete(id) : s.add(id);
+  expandedEdges.value = s;
+};
+
+// 切换选中节点时,折叠掉之前展开的关系约束
+watch(() => props.node?.id, () => { expandedEdges.value = new Set(); });
+
+const kindLabel = (k?: string) => ({
+  cardinality: '基数',
+  exclusive:   '互斥',
+  symmetric:   '对称',
+  transitive:  '传递',
+  custom:      '自定义',
+} as Record<string, string>)[k || 'custom'] || k || '约束';
+
 // 属性编辑状态
 const editableProps = ref<{ key: string; value: any; source?: string }[]>([]);
 
@@ -105,6 +141,36 @@ const startResize = (e: MouseEvent) => {
                   </div>
                   <div class="ni-row"><div class="ni-key">状态</div><div class="ni-val green">● 已激活</div></div>
                 </div>
+
+                <!-- TBox 属性: 这个类节点上挂的属性定义 -->
+                <div class="ni-section" v-if="(node.attributes?.length || 0) > 0">
+                  <div class="ni-section-title">属性 ({{ node.attributes.length }})</div>
+                  <div v-for="(a, i) in node.attributes" :key="'a'+i" class="ni-row">
+                    <div class="ni-key" style="color:#ffaa22">{{ a.name }}</div>
+                    <div class="ni-val" style="font-family:'JetBrains Mono',monospace; font-size:12px;">{{ a.valueSpace || '—' }}</div>
+                  </div>
+                </div>
+
+                <!-- TBox 约束: 类节点上的约束 (互斥/基数/对称…) -->
+                <div class="ni-section" v-if="(node.constraints?.length || 0) > 0">
+                  <div class="ni-section-title">约束 ({{ node.constraints.length }})</div>
+                  <div v-for="(c, i) in node.constraints" :key="'c'+i" class="ni-row">
+                    <div class="ni-key" style="color:#ff7fbe">{{ kindLabel(c.kind) }}</div>
+                    <div class="ni-val">{{ c.note }}</div>
+                  </div>
+                </div>
+
+                <!-- 这个类参与的关系上的约束 — 关系的约束也在选中"对象"时展示 -->
+                <div class="ni-section" v-if="relatedEdgeConstraints.length > 0">
+                  <div class="ni-section-title">所在关系的约束 ({{ relatedEdgeConstraints.length }})</div>
+                  <div v-for="(row, i) in relatedEdgeConstraints" :key="'rec'+i" class="ni-row">
+                    <div class="ni-key" style="color:#ff7fbe">{{ kindLabel(row.c.kind) }}</div>
+                    <div class="ni-val">
+                      <span style="color:rgba(255,255,255,0.55); font-size:11px">{{ row.relLabel }}</span>
+                      <span style="display:block">{{ row.c.note }}</span>
+                    </div>
+                  </div>
+                </div>
               </template>
               <template v-if="tab === 1">
                 <div class="ni-section" style="flex:1">
@@ -119,6 +185,16 @@ const startResize = (e: MouseEvent) => {
                         <span style="color:#ffaa22">{{ e.label }}</span>
                         <span v-if="e.source === 'inferred'" style="font-size:10px; color:#bb77ff; margin-left:4px;">(AI推理)</span>
                         <span style="color:#253a52"> → </span>{{ nmap[e.to].label }}
+                        <button v-if="(e.constraints?.length || 0) > 0"
+                                class="ni-constraint-pill"
+                                :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')"
+                                @click="toggleEdgeExpand(e.id)">🔒 {{ e.constraints.length }}</button>
+                        <div v-if="(e.constraints?.length || 0) > 0 && expandedEdges.has(e.id)" class="ni-constraint-list">
+                          <div v-for="(c, i) in e.constraints" :key="'oc'+i" class="ni-constraint-item">
+                            <span class="ni-constraint-kind">{{ kindLabel(c.kind) }}</span>
+                            <span>{{ c.note }}</span>
+                          </div>
+                        </div>
                       </div>
                       <button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button>
                     </div>
@@ -133,6 +209,16 @@ const startResize = (e: MouseEvent) => {
                         {{ nmap[e.from].label }}<span style="color:#253a52"> → </span>
                         <span style="color:#ffaa22">{{ e.label }}</span>
                         <span v-if="e.source === 'inferred'" style="font-size:10px; color:#bb77ff; margin-left:4px;">(AI推理)</span>
+                        <button v-if="(e.constraints?.length || 0) > 0"
+                                class="ni-constraint-pill"
+                                :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')"
+                                @click="toggleEdgeExpand(e.id)">🔒 {{ e.constraints.length }}</button>
+                        <div v-if="(e.constraints?.length || 0) > 0 && expandedEdges.has(e.id)" class="ni-constraint-list">
+                          <div v-for="(c, i) in e.constraints" :key="'ic'+i" class="ni-constraint-item">
+                            <span class="ni-constraint-kind">{{ kindLabel(c.kind) }}</span>
+                            <span>{{ c.note }}</span>
+                          </div>
+                        </div>
                       </div>
                       <button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button>
                     </div>
