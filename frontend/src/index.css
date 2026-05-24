@@ -245,7 +245,39 @@ body {
   pointer-events: none;
 }
 
-/* ── Add Node Dialog ── */
+/* ── Add Node / Relation Dialog ── */
+.anp-mode-tabs {
+  display: flex;
+  gap: 0;
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+  padding: 2px;
+  margin-bottom: 2px;
+}
+.anp-mode-tab {
+  flex: 1;
+  padding: 7px 0;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.anp-mode-tab:hover { color: rgba(255,255,255,0.8); }
+.anp-mode-tab.active {
+  background: rgba(66, 184, 131, 0.2);
+  color: #42b883;
+}
+.anp-empty-hint {
+  text-align: center;
+  color: rgba(255,255,255,0.3);
+  font-size: 13px;
+  padding: 16px 0;
+}
 .add-node-dialog {
   background: #1a2332;
   border: 1px solid rgba(255,255,255,0.12);

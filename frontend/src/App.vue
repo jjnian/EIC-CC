@@ -411,30 +411,35 @@ const updateEdgeSchema = (id: string, patch: any) => {
 };
 
 // 在画布空白处右键添加节点
-const addNodeAtPosition = (payload: { label: string; type: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }) => {
+const genId = (prefix: string) => prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+
+// 在画布空白处右键添加对象节点
+const addNodeAtPosition = (payload: { mode: 'object'; label: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }) => {
   history.snapshot();
-  const nodeId = 'n_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
-  const newNode: OntologyNode = { id: nodeId, label: payload.label, type: payload.type, x: payload.x, y: payload.y, source: 'manual' };
+  const nodeId = genId('n');
+  const newNode: OntologyNode = { id: nodeId, label: payload.label, type: 'class', x: payload.x, y: payload.y, source: 'manual' };
   nodes.value.push(newNode);
   for (const inp of payload.inputs) {
-    edges.value.push({
-      id: 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
-      from: inp.nodeId,
-      to: nodeId,
-      label: inp.edgeLabel || undefined,
-      source: 'manual',
-    });
+    edges.value.push({ id: genId('e'), from: inp.nodeId, to: nodeId, label: inp.edgeLabel || undefined, source: 'manual' });
   }
   for (const out of payload.outputs) {
-    edges.value.push({
-      id: 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
-      from: nodeId,
-      to: out.nodeId,
-      label: out.edgeLabel || undefined,
-      source: 'manual',
-    });
+    edges.value.push({ id: genId('e'), from: nodeId, to: out.nodeId, label: out.edgeLabel || undefined, source: 'manual' });
   }
   sel.value = nodeId;
+  persistCurrentModel();
+};
+
+// 在画布上批量添加关系（边）
+const addEdgesBatch = (payload: { label: string; inputs: string[]; outputs: string[] }) => {
+  history.snapshot();
+  for (const fromId of payload.inputs) {
+    for (const toId of payload.outputs) {
+      const exists = edges.value.some(e => e.from === fromId && e.to === toId && e.label === (payload.label || undefined));
+      if (!exists) {
+        edges.value.push({ id: genId('e'), from: fromId, to: toId, label: payload.label || undefined, source: 'manual' });
+      }
+    }
+  }
   persistCurrentModel();
 };
 
@@ -898,6 +903,7 @@ const openPreview = () => {
         @delete-edge="deleteEdge"
         @clear-diff="clearDiffHighlight"
         @add-node="addNodeAtPosition"
+        @add-edges="addEdgesBatch"
       />
 
       <!-- Predict Dialog (modal) -->
