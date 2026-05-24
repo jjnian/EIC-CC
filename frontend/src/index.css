@@ -209,6 +209,147 @@ body {
 .ctx-danger { color: #ef4444; }
 .ctx-danger:hover { background: rgba(239, 68, 68, 0.15); }
 
+/* ── Node Ports (input/output indicators) ── */
+.node-ports-left, .node-ports-right {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  z-index: 2;
+  pointer-events: none;
+}
+.node-ports-left { left: -5px; }
+.node-ports-right { right: -5px; }
+.node-port {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid;
+  transition: all 0.2s;
+  box-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
+.node:hover .node-port {
+  transform: scale(1.3);
+}
+.node-sel .node-port {
+  transform: scale(1.4);
+  box-shadow: 0 0 6px rgba(255,255,255,0.2);
+}
+.port-overflow {
+  font-size: 7px;
+  color: rgba(255,255,255,0.4);
+  line-height: 1;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* ── Add Node Dialog ── */
+.add-node-dialog {
+  background: #1a2332;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 20px;
+  width: 380px;
+  max-height: 80vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.add-node-dialog h3 { margin: 0; color: #e2e8f0; font-size: 16px; }
+.anp-label { display: flex; flex-direction: column; gap: 4px; color: rgba(255,255,255,0.6); font-size: 13px; }
+.anp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.anp-section-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.7);
+}
+.anp-hint {
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  font-weight: 400;
+}
+.anp-node-list {
+  max-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(0,0,0,0.15);
+  border-radius: 8px;
+  padding: 6px;
+}
+.anp-node-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.anp-check-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+  user-select: none;
+}
+.anp-check-label:hover { background: rgba(255,255,255,0.06); }
+.anp-checkbox {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid rgba(255,255,255,0.25);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.anp-checkbox.checked {
+  background: #42b883;
+  border-color: #42b883;
+}
+.anp-check-mark {
+  font-size: 11px;
+  color: #fff;
+  font-weight: 700;
+  line-height: 1;
+}
+.anp-node-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.anp-node-name {
+  font-size: 13px;
+  color: #e2e8f0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.anp-edge-label {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: #e2e8f0;
+  font-size: 12px;
+  outline: none;
+  margin-left: 32px;
+  margin-bottom: 2px;
+}
+.anp-edge-label:focus { border-color: #42b883; }
+.anp-edge-label::placeholder { color: rgba(255,255,255,0.25); }
+
 /* ── Zoom & Legend ── */
 .zoom-wrap { position:absolute; bottom:24px; left:24px; display:flex; flex-direction:column; gap:8px; z-index:5; }
 .zoom-wrap button { width:36px; height:32px; background:rgba(255,255,255,0.1); backdrop-filter:blur(10px); border:1px solid var(--glass-border); color:var(--text-main); font-size:16px; cursor:pointer; border-radius:8px; display:flex; align-items:center; justify-content:center; transition:all .15s; }
