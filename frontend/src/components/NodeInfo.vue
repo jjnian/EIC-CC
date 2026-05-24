@@ -61,6 +61,14 @@ const kindLabel = (k?: string) => ({
   custom:      '自定义',
 } as Record<string, string>)[k || 'custom'] || k || '约束';
 
+// 来源徽章: AI 推理 / 文本提取 / 手动 / 系统预置
+const sourceBadge = (s?: string) => {
+  if (s === 'inferred') return { text: 'AI推理', color: '#bb77ff', bg: 'rgba(187,119,255,0.12)' };
+  if (s === 'derived')  return { text: '文本提取', color: '#22dd88', bg: 'rgba(34,221,136,0.12)' };
+  if (s === 'manual')   return { text: '手动', color: '#3d9bff', bg: 'rgba(61,155,255,0.12)' };
+  return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
+};
+
 // 属性编辑状态
 const editableProps = ref<{ key: string; value: any; source?: string }[]>([]);
 
@@ -73,7 +81,7 @@ const propsChanged = computed(() => {
 });
 
 const addEditableProp = () => {
-  editableProps.value.push({ key: '', value: '' });
+  editableProps.value.push({ key: '', value: '', source: 'manual' });
 };
 
 const removeEditableProp = (i: number) => {
@@ -110,78 +118,81 @@ const startResize = (e: MouseEvent) => {
     <template v-if="isOpen || node">
       <div class="ni-drag-handle" @mousedown="startResize" />
       <div class="ni-inner">
-        <!-- Removed ni-list completely as requested -->
-        <div class="ni-right" style="flex: 1; display: flex; flex-direction: column;">
-          <div class="ni-header" style="display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--glass-border); flex-shrink: 0; background: rgba(255,255,255,0.02)">
-            <div class="ni-tabs" style="border: none; padding: 8px 0;">
-              <button v-for="(lb, i) in ['概览', '属性', '关系', '约束']" :key="i" :class="['ni-tab', { on: tab === i }]" @click="tab = i">{{ lb }}</button>
+        <div class="ni-right">
+          <div class="ni-header">
+            <div class="ni-header-l">
+              <div class="ni-tabs">
+                <button v-for="(lb, i) in ['概览', '属性', '关系', '约束']" :key="i" :class="['ni-tab', { on: tab === i }]" @click="tab = i">{{ lb }}</button>
+              </div>
             </div>
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <span v-if="node" class="ni-list-title" style="font-size: 13px; color: var(--accent);">当前选中: {{ node.label }}</span>
-              <span v-else class="ni-list-title" style="font-size: 13px; color: var(--accent);">当前视图: 全局模型</span>
-              <button class="ni-list-close" @click="emit('close')" style="background:transparent; border:none; color:var(--text-main); cursor:pointer; font-size:18px;">×</button>
+            <div class="ni-header-r">
+              <span v-if="node" class="ni-current">
+                <span class="ni-current-dot" :style="t ? { background: t.color || '#42b883' } : {}" />
+                <span class="ni-current-lb">{{ node.label }}</span>
+              </span>
+              <span v-else class="ni-current ni-current-global">
+                <span class="ni-current-dot" />
+                <span class="ni-current-lb">全局模型</span>
+              </span>
+              <button class="ni-list-close" @click="emit('close')" title="关闭">×</button>
             </div>
           </div>
 
-          <div class="ni-body" style="padding: 16px; flex: 1; overflow-y: auto;">
+          <div class="ni-body">
             <!-- Node Context -->
             <template v-if="node">
               <template v-if="tab === 0">
-                <div class="ni-section">
-                  <div class="ni-section-title">节点详情</div>
-                  <div class="ni-row"><div class="ni-key">ID</div><div class="ni-val">{{ node.id }}</div></div>
-                  <div class="ni-row"><div class="ni-key">名称</div><div class="ni-val">{{ node.label }}</div></div>
-                  <div class="ni-row"><div class="ni-key">类型</div><div class="ni-val">{{ t?.label || '—' }}</div></div>
-                  <div class="ni-row"><div class="ni-key">来源</div>
-                    <div class="ni-val">
-                      <span v-if="node.source === 'inferred'" style="color:#bb77ff; background:rgba(187,119,255,0.1); padding:2px 6px; border-radius:4px; font-size:11px;">AI 推理展开</span>
-                      <span v-else-if="node.source === 'derived'" style="color:#22dd88; background:rgba(34,221,136,0.1); padding:2px 6px; border-radius:4px; font-size:11px;">文本提取</span>
-                      <span v-else>系统预置</span>
+                <div class="ni-card">
+                  <div class="ni-card-title">节点详情</div>
+                  <div class="ni-grid">
+                    <div class="ni-cell"><div class="ni-cell-k">ID</div><div class="ni-cell-v mono">{{ node.id }}</div></div>
+                    <div class="ni-cell"><div class="ni-cell-k">名称</div><div class="ni-cell-v strong">{{ node.label }}</div></div>
+                    <div class="ni-cell"><div class="ni-cell-k">类型</div><div class="ni-cell-v"><span class="ni-chip">{{ t?.label || '—' }}</span></div></div>
+                    <div class="ni-cell"><div class="ni-cell-k">来源</div>
+                      <div class="ni-cell-v">
+                        <span class="ni-badge" :style="{color: sourceBadge(node.source).color, background: sourceBadge(node.source).bg}">{{ sourceBadge(node.source).text }}</span>
+                      </div>
                     </div>
-                  </div>
-                  <div class="ni-row"><div class="ni-key">状态</div><div class="ni-val green">● 已激活</div></div>
-                </div>
-
-                <!-- TBox 属性: 这个类节点上挂的属性定义 -->
-                <div class="ni-section" v-if="(node.attributes?.length || 0) > 0">
-                  <div class="ni-section-title">属性 ({{ node.attributes.length }})</div>
-                  <div v-for="(a, i) in node.attributes" :key="'a'+i" class="ni-row">
-                    <div class="ni-key" style="color:#ffaa22">{{ a.name }}</div>
-                    <div class="ni-val" style="font-family:'JetBrains Mono',monospace; font-size:12px;">{{ a.valueSpace || '—' }}</div>
-                  </div>
-                </div>
-
-                <!-- 概览中简要显示约束数量，详细内容在约束 Tab -->
-                <div class="ni-section" v-if="(node.constraints?.length || 0) > 0 || relatedEdgeConstraints.length > 0">
-                  <div class="ni-section-title">约束</div>
-                  <div class="ni-row">
-                    <div class="ni-key">约束总计</div>
-                    <div class="ni-val" style="color:#ff7fbe">
-                      🔒 {{ (node.constraints?.length || 0) + relatedEdgeConstraints.length }} 条
-                      <span style="color:rgba(255,255,255,0.4); font-size:11px; margin-left:8px">详见「约束」标签页</span>
-                    </div>
+                    <div class="ni-cell"><div class="ni-cell-k">状态</div><div class="ni-cell-v"><span class="ni-chip ok">● 已激活</span></div></div>
                   </div>
                 </div>
               </template>
               <template v-if="tab === 1">
-                <!-- 属性 Tab 可编辑 -->
-                <div class="ni-prop-list">
-                  <div class="ni-section-title">自定义属性 ({{ editableProps.length }})</div>
-                  <div v-for="(p, i) in editableProps" :key="i" class="ni-prop-row">
-                    <input v-model="p.key" class="ni-prop-key-input" placeholder="键" />
-                    <input v-model="p.value" class="ni-prop-val-input" placeholder="值" />
-                    <button class="ni-prop-del" @click="removeEditableProp(i)" title="删除">✕</button>
+                <!-- TBox 属性: 类节点上的属性定义（来自本体抽取，含来源标识） -->
+                <div v-if="(node.attributes?.length || 0) > 0" class="ni-card">
+                  <div class="ni-card-title">本体属性 <span class="ni-card-count">{{ node.attributes.length }}</span></div>
+                  <div class="ni-attr-list">
+                    <div v-for="(a, i) in node.attributes" :key="'tba'+i" class="ni-attr-item">
+                      <div class="ni-attr-name">
+                        <span>{{ a.name }}</span>
+                        <span class="ni-badge" :style="{color: sourceBadge(a.source).color, background: sourceBadge(a.source).bg}">{{ sourceBadge(a.source).text }}</span>
+                      </div>
+                      <div class="ni-attr-val mono">{{ a.valueSpace || '—' }}</div>
+                    </div>
                   </div>
-                  <div v-if="editableProps.length === 0" style="color: rgba(255,255,255,0.4); font-size: 12px; padding: 8px 0;">
-                    暂无属性
+                </div>
+
+                <!-- 自定义 K-V 属性: 用户在此处编辑 -->
+                <div class="ni-card">
+                  <div class="ni-card-title">自定义属性 <span class="ni-card-count">{{ editableProps.length }}</span></div>
+                  <div class="ni-prop-list">
+                    <div v-for="(p, i) in editableProps" :key="i" class="ni-prop-row">
+                      <input v-model="p.key" class="ni-prop-key-input" placeholder="键" />
+                      <input v-model="p.value" class="ni-prop-val-input" placeholder="值" />
+                      <span class="ni-badge" :style="{color: sourceBadge(p.source).color, background: sourceBadge(p.source).bg}">{{ sourceBadge(p.source).text }}</span>
+                      <button class="ni-prop-del" @click="removeEditableProp(i)" title="删除">✕</button>
+                    </div>
+                    <div v-if="editableProps.length === 0" class="ni-empty">暂无自定义属性</div>
+                    <div class="ni-prop-actions">
+                      <button class="ni-prop-add" @click="addEditableProp">+ 新增属性</button>
+                      <button v-if="propsChanged" class="ni-prop-save" @click="saveProps">保存属性</button>
+                    </div>
                   </div>
-                  <button class="ni-prop-add" @click="addEditableProp">+ 新增属性</button>
-                  <button v-if="propsChanged" class="ni-prop-save" @click="saveProps">保存属性</button>
                 </div>
               </template>
               <template v-if="tab === 2">
-                <div class="ni-section" style="flex:1">
-                  <div class="ni-section-title">节点关系 ({{ outgoing.length + incoming.length }})</div>
+                <div class="ni-card">
+                  <div class="ni-card-title">节点关系 <span class="ni-card-count">{{ outgoing.length + incoming.length }}</span></div>
                   <table v-if="outgoing.length || incoming.length" class="ni-rel-table">
                     <thead>
                       <tr>
@@ -196,15 +207,15 @@ const startResize = (e: MouseEvent) => {
                       <template v-for="e in outgoing" :key="e.id">
                         <tr v-if="nmap[e.to]" class="ni-tr">
                           <td class="ni-td">
-                            <span style="color:#3d9bff">→ 输出</span>
-                            <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399; margin-left:4px">⚡</span>
+                            <span class="ni-dir out">→ 输出</span>
+                            <span v-if="e.rule_driven" class="ni-rule-icon" title="规则驱动">⚡</span>
                             <span v-if="(e.constraints?.length || 0) > 0" class="ni-lock-inline" :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')">🔒</span>
                           </td>
-                          <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
+                          <td class="ni-td amber">{{ e.label || '(未命名)' }}</td>
                           <td class="ni-td">
-                            <span v-if="e.source === 'inferred'" style="color:#bb77ff; font-size:11px">AI推理</span>
-                            <span v-else-if="e.source === 'derived'" style="color:#22dd88; font-size:11px">文本提取</span>
-                            <span v-else style="color:rgba(255,255,255,0.4); font-size:11px">预置</span>
+                            <span v-if="e.source === 'inferred'" class="ni-src purple">AI推理</span>
+                            <span v-else-if="e.source === 'derived'" class="ni-src green">文本提取</span>
+                            <span v-else class="ni-src dim">预置</span>
                           </td>
                           <td class="ni-td">{{ nmap[e.to].label }}</td>
                           <td class="ni-td"><button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button></td>
@@ -213,15 +224,15 @@ const startResize = (e: MouseEvent) => {
                       <template v-for="e in incoming" :key="e.id">
                         <tr v-if="nmap[e.from]" class="ni-tr">
                           <td class="ni-td">
-                            <span style="color:#22dd88">← 输入</span>
-                            <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399; margin-left:4px">⚡</span>
+                            <span class="ni-dir in">← 输入</span>
+                            <span v-if="e.rule_driven" class="ni-rule-icon" title="规则驱动">⚡</span>
                             <span v-if="(e.constraints?.length || 0) > 0" class="ni-lock-inline" :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')">🔒</span>
                           </td>
-                          <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
+                          <td class="ni-td amber">{{ e.label || '(未命名)' }}</td>
                           <td class="ni-td">
-                            <span v-if="e.source === 'inferred'" style="color:#bb77ff; font-size:11px">AI推理</span>
-                            <span v-else-if="e.source === 'derived'" style="color:#22dd88; font-size:11px">文本提取</span>
-                            <span v-else style="color:rgba(255,255,255,0.4); font-size:11px">预置</span>
+                            <span v-if="e.source === 'inferred'" class="ni-src purple">AI推理</span>
+                            <span v-else-if="e.source === 'derived'" class="ni-src green">文本提取</span>
+                            <span v-else class="ni-src dim">预置</span>
                           </td>
                           <td class="ni-td">{{ nmap[e.from].label }}</td>
                           <td class="ni-td"><button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button></td>
@@ -229,26 +240,34 @@ const startResize = (e: MouseEvent) => {
                       </template>
                     </tbody>
                   </table>
-                  <div v-if="!outgoing.length && !incoming.length" style="color:rgba(255,255,255,0.35);font-size:12px;padding-top:8px">暂无关系</div>
+                  <div v-if="!outgoing.length && !incoming.length" class="ni-empty">暂无关系</div>
                 </div>
               </template>
               <template v-if="tab === 3">
-                <div class="ni-section" style="flex:1">
-                  <div class="ni-section-title">节点约束 ({{ (node.constraints || []).length }})</div>
-                  <div v-for="(c, i) in (node.constraints || [])" :key="'c'+i" class="ni-row">
-                    <div class="ni-key" style="color:#ff7fbe">{{ kindLabel(c.kind) }}</div>
-                    <div class="ni-val">{{ c.note }}</div>
-                  </div>
-                  <div v-if="!(node.constraints?.length)" style="color:rgba(255,255,255,0.35); font-size:12px; padding:8px 0;">暂无约束</div>
-
-                  <div v-if="relatedEdgeConstraints.length > 0" style="margin-top:16px">
-                    <div class="ni-section-title">所在关系的约束 ({{ relatedEdgeConstraints.length }})</div>
-                    <div v-for="(row, i) in relatedEdgeConstraints" :key="'rec'+i" class="ni-row">
-                      <div class="ni-key" style="color:#ff7fbe">{{ kindLabel(row.c.kind) }}</div>
-                      <div class="ni-val">
-                        <span style="color:rgba(255,255,255,0.55); font-size:11px">{{ row.relLabel }}</span>
-                        <span style="display:block">{{ row.c.note }}</span>
+                <div class="ni-card">
+                  <div class="ni-card-title">节点约束 <span class="ni-card-count">{{ (node.constraints || []).length }}</span></div>
+                  <div v-if="(node.constraints?.length || 0) > 0" class="ni-cons-list">
+                    <div v-for="(c, i) in (node.constraints || [])" :key="'c'+i" class="ni-cons-item">
+                      <div class="ni-cons-head">
+                        <span class="ni-cons-kind">{{ kindLabel(c.kind) }}</span>
+                        <span class="ni-badge" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
                       </div>
+                      <div class="ni-cons-note">{{ c.note }}</div>
+                    </div>
+                  </div>
+                  <div v-else class="ni-empty">暂无节点约束</div>
+                </div>
+
+                <div v-if="relatedEdgeConstraints.length > 0" class="ni-card">
+                  <div class="ni-card-title">所在关系的约束 <span class="ni-card-count">{{ relatedEdgeConstraints.length }}</span></div>
+                  <div class="ni-cons-list">
+                    <div v-for="(row, i) in relatedEdgeConstraints" :key="'rec'+i" class="ni-cons-item">
+                      <div class="ni-cons-head">
+                        <span class="ni-cons-kind">{{ kindLabel(row.c.kind) }}</span>
+                        <span class="ni-badge" :style="{color: sourceBadge(row.c.source).color, background: sourceBadge(row.c.source).bg}">{{ sourceBadge(row.c.source).text }}</span>
+                        <span class="ni-cons-rel">{{ row.relLabel }}</span>
+                      </div>
+                      <div class="ni-cons-note">{{ row.c.note }}</div>
                     </div>
                   </div>
                 </div>
@@ -258,23 +277,27 @@ const startResize = (e: MouseEvent) => {
             <!-- Global Context -->
             <template v-else>
               <template v-if="tab === 0">
-                <div class="ni-section">
-                  <div class="ni-section-title">全局模型概览</div>
-                  <div class="ni-row"><div class="ni-key">总节点数</div><div class="ni-val">{{ nodes.length }} 实体</div></div>
-                  <div class="ni-row"><div class="ni-key">总关系数</div><div class="ni-val">{{ edges.length }} 流向</div></div>
-                  <div class="ni-row"><div class="ni-key">推演引擎</div><div class="ni-val green">● 实时就绪</div></div>
+                <div class="ni-card">
+                  <div class="ni-card-title">全局模型概览</div>
+                  <div class="ni-grid">
+                    <div class="ni-cell"><div class="ni-cell-k">总节点数</div><div class="ni-cell-v strong">{{ nodes.length }} <span class="ni-unit">实体</span></div></div>
+                    <div class="ni-cell"><div class="ni-cell-k">总关系数</div><div class="ni-cell-v strong">{{ edges.length }} <span class="ni-unit">流向</span></div></div>
+                    <div class="ni-cell"><div class="ni-cell-k">推演引擎</div><div class="ni-cell-v"><span class="ni-chip ok">● 实时就绪</span></div></div>
+                  </div>
                 </div>
               </template>
               <template v-if="tab === 1">
-                <div class="ni-section">
-                  <div class="ni-section-title">模型属性概要</div>
-                  <div class="ni-row"><div class="ni-key">节点总数</div><div class="ni-val">{{ nodes.length }}</div></div>
-                  <div class="ni-row"><div class="ni-key">关系总数</div><div class="ni-val">{{ edges.length }}</div></div>
+                <div class="ni-card">
+                  <div class="ni-card-title">模型属性概要</div>
+                  <div class="ni-grid">
+                    <div class="ni-cell"><div class="ni-cell-k">节点总数</div><div class="ni-cell-v strong">{{ nodes.length }}</div></div>
+                    <div class="ni-cell"><div class="ni-cell-k">关系总数</div><div class="ni-cell-v strong">{{ edges.length }}</div></div>
+                  </div>
                 </div>
               </template>
               <template v-if="tab === 2">
-                <div class="ni-section" style="flex:1">
-                  <div class="ni-section-title">全局拓扑关系表 ({{ edges.length }})</div>
+                <div class="ni-card">
+                  <div class="ni-card-title">全局拓扑关系表 <span class="ni-card-count">{{ edges.length }}</span></div>
                   <table v-if="edges.length" class="ni-rel-table">
                     <thead>
                       <tr>
@@ -286,21 +309,23 @@ const startResize = (e: MouseEvent) => {
                     <tbody>
                       <template v-for="e in edges" :key="e.id">
                         <tr v-if="nmap[e.from] && nmap[e.to]" class="ni-tr">
-                          <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
+                          <td class="ni-td amber">{{ e.label || '(未命名)' }}</td>
                           <td class="ni-td">{{ nmap[e.from].label }}</td>
                           <td class="ni-td">{{ nmap[e.to].label }}</td>
                         </tr>
                       </template>
                     </tbody>
                   </table>
-                  <div v-if="!edges.length" style="color:rgba(255,255,255,0.35);font-size:12px;padding-top:8px">暂无全局关系</div>
+                  <div v-if="!edges.length" class="ni-empty">暂无全局关系</div>
                 </div>
               </template>
               <template v-if="tab === 3">
-                <div class="ni-section">
-                  <div class="ni-section-title">全局约束概要</div>
-                  <div class="ni-row"><div class="ni-key">带约束的节点</div><div class="ni-val">{{ nodes.filter(n => (n.constraints?.length || 0) > 0).length }} 个</div></div>
-                  <div class="ni-row"><div class="ni-key">带约束的关系</div><div class="ni-val">{{ edges.filter(e => (e.constraints?.length || 0) > 0).length }} 条</div></div>
+                <div class="ni-card">
+                  <div class="ni-card-title">全局约束概要</div>
+                  <div class="ni-grid">
+                    <div class="ni-cell"><div class="ni-cell-k">带约束的节点</div><div class="ni-cell-v strong">{{ nodes.filter(n => (n.constraints?.length || 0) > 0).length }} <span class="ni-unit">个</span></div></div>
+                    <div class="ni-cell"><div class="ni-cell-k">带约束的关系</div><div class="ni-cell-v strong">{{ edges.filter(e => (e.constraints?.length || 0) > 0).length }} <span class="ni-unit">条</span></div></div>
+                  </div>
                 </div>
               </template>
             </template>
