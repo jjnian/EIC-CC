@@ -246,8 +246,10 @@ body {
 .legend-arrow { flex-shrink:0; }
 .legend-lock { font-size:11px; width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; background:rgba(255,51,153,0.18); color:#ff7fbe; border-radius:50%; flex-shrink:0; }
 
-.node-dim { opacity:0.2; transition:opacity .2s; }
+.node-dim { opacity:0.35; transition:opacity .2s; }
 .node-hl { transition:opacity .2s, box-shadow .2s; }
+.node-neighbor-dim { opacity:0.3; transition:opacity .2s; }
+.node-neighbor-hl { z-index:9; transition:opacity .2s, box-shadow .2s; }
 
 /* ── Search Bar ── */
 .search-bar {
