@@ -1,12 +1,12 @@
 // 静态本体层 (TBox / 世界的家具与规则)
-//   class         : 概念/类节点  —— 图上的方块
+//   class         : 对象节点  —— 图上的方块
 //   relation_type : 关系类型     —— 图上的边(label = 关系名)
 //   attribute     : 属性定义     —— 不在图上,Schema 面板里
 //   constraint    : 约束         —— 不在图上,Schema 面板里;有约束的类/边上挂 🔒
 //
 // NT 仍然保留 4 个类别供 Schema 面板分类着色;但 GraphCanvas 只把 `class` 节点画到画布上。
 export const NT = {
-  class:         {color:'#3d9bff',bg:'#071d3a',label:'概念/类'},
+  class:         {color:'#3d9bff',bg:'#071d3a',label:'对象'},
   relation_type: {color:'#22dd88',bg:'#002418',label:'关系类型'},
   attribute:     {color:'#ffaa22',bg:'#221500',label:'属性'},
   constraint:    {color:'#ff3399',bg:'#2a0515',label:'约束'},

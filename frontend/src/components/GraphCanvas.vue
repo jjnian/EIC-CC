@@ -45,16 +45,22 @@ const emit = defineEmits<{
 }>();
 
 /* ── 节点类型筛选（图例点击） ── */
-// 当前筛选的节点 type；null 表示不筛选，全部正常显示
+// 当前筛选的节点 type；null 表示不筛选，'_edge_' 表示筛选关系（边）
 const typeFilter = ref<string | null>(null);
 const toggleTypeFilter = (k: string) => {
-  // 二次点击同一类型即取消筛选
   typeFilter.value = typeFilter.value === k ? null : k;
 };
-const matchesFilter = (n: any) => !typeFilter.value || n.type === typeFilter.value;
-// 边的可见性：只要两端任一端节点匹配筛选条件，就保留这条边的高亮
+const toggleEdgeFilter = () => {
+  typeFilter.value = typeFilter.value === '_edge_' ? null : '_edge_';
+};
+const matchesFilter = (n: any) => {
+  if (!typeFilter.value) return true;
+  if (typeFilter.value === '_edge_') return false;
+  return n.type === typeFilter.value;
+};
 const edgeMatchesFilter = (e: any) => {
   if (!typeFilter.value) return true;
+  if (typeFilter.value === '_edge_') return true;
   const fn = nmap.value[e.from];
   const tn = nmap.value[e.to];
   return (fn && fn.type === typeFilter.value) || (tn && tn.type === typeFilter.value);
@@ -740,7 +746,9 @@ defineExpose({ fitView, focusNode });
           <span>{{ (t as any).label }}</span>
         </div>
         <div class="legend-sep"></div>
-        <div class="legend-row legend-row-static" title="边 = 关系。点击对象或关系在「详细」里查看约束">
+        <div :class="['legend-row', { 'legend-row-active': typeFilter === '_edge_', 'legend-row-inactive': typeFilter && typeFilter !== '_edge_' }]"
+             :title="typeFilter === '_edge_' ? '点击取消筛选' : '点击仅显示关系'"
+             @click.stop="toggleEdgeFilter">
           <svg class="legend-arrow" width="18" height="10" viewBox="0 0 18 10">
             <line x1="1" y1="5" x2="14" y2="5" stroke="#22dd88" stroke-width="1.6"/>
             <path d="M14,1 L17,5 L14,9 Z" fill="#22dd88"/>
