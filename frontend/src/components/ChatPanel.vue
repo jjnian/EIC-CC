@@ -100,6 +100,7 @@ const {
   mentionQuery,
   mentionIndex,
   mentionItems,
+  mentionListRef,
   checkMention,
   selectMention,
   handleKeydown: handleMentionKeydown,
@@ -470,7 +471,7 @@ const send = async () => {
       </div>
       <div class="input-box">
         <!-- @ mention dropdown -->
-        <div class="mention-dropdown" v-if="mentionOpen && mentionItems.length > 0">
+        <div ref="mentionListRef" class="mention-dropdown" v-if="mentionOpen && mentionItems.length > 0">
           <div class="mention-header">
             <span>引用 {{ mentionQuery ? `"${mentionQuery}"` : '本体节点 / 关系' }}</span>
             <span class="mention-hint">↑↓ 选择 · Enter 确认 · Esc 取消</span>
