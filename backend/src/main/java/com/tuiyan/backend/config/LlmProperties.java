@@ -10,7 +10,7 @@ import java.util.List;
 /**
  * 从 {@code application.yml} 中 {@code app.llm.*} 读取 LLM 模型配置列表。
  * <p>每个 {@link ModelEntry} 描述一个可用模型（含 baseUrl / apiKey / 协议类型等），
- * 由 {@link com.tuiyan.backend.service.LlmService} 在调用时按 id 选用。
+ * 由 {@link com.tuiyan.backend.service.llm.LlmHttpClient} 在调用时按 id 选用。
  */
 @Component
 @ConfigurationProperties(prefix = "app.llm")

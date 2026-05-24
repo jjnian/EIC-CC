@@ -7,6 +7,7 @@ import com.tuiyan.backend.model.Constraint;
 import com.tuiyan.backend.model.PredictRequest;
 import com.tuiyan.backend.model.PredictionDag;
 import com.tuiyan.backend.model.Scenario;
+import com.tuiyan.backend.service.llm.GraphPromptBuilder;
 import com.tuiyan.backend.support.IdSaltRewriter;
 import com.tuiyan.backend.support.PredictionMath;
 import com.tuiyan.backend.support.SsePushUtils;
@@ -30,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 推演编排服务：负责整条推演流程的串联。
  * <p>主要职责：
  * <ul>
- *   <li>调用 {@link LlmService} 让大模型产出推演链（chain）；</li>
+ *   <li>调用 {@link PredictLlmService} 让大模型产出推演链（chain）；</li>
  *   <li>按链上每一步构造图谱节点 / 边，并计算 effectiveProbability、cumulativeCredibility 等指标；</li>
  *   <li>通过 SSE（Server-Sent Events）以 step 事件分步推送给前端，实现"逐步生长"的可视化效果；</li>
  *   <li>把最终结果包装为 {@link Scenario} 持久化到本地文件。</li>
@@ -48,12 +49,12 @@ public class PredictionOrchestrator {
     // 每推送一个 step 事件后强制 sleep，制造"逐步生长"的视觉节奏；前端无需额外节流
     private static final long STEP_DELAY_MS = 220;
 
-    private final LlmService llmService;
+    private final PredictLlmService predictLlmService;
     private final ScenarioService scenarioService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public PredictionOrchestrator(LlmService llmService, ScenarioService scenarioService) {
-        this.llmService = llmService;
+    public PredictionOrchestrator(PredictLlmService predictLlmService, ScenarioService scenarioService) {
+        this.predictLlmService = predictLlmService;
         this.scenarioService = scenarioService;
     }
 
@@ -88,8 +89,8 @@ public class PredictionOrchestrator {
 
             if (cancelled.get()) return;
             // P1-8：构造 prompt 快照，写入 Scenario.rawPrompt，便于事后审计 LLM 实际看到了什么
-            com.tuiyan.backend.service.LlmService.PredictPromptArtifact promptArtifact = llmService.buildPredictPrompt(req);
-            JsonNode result = llmService.predictChain(req);
+            GraphPromptBuilder.PredictPromptArtifact promptArtifact = predictLlmService.buildPredictPrompt(req);
+            JsonNode result = predictLlmService.predictChain(req);
             JsonNode chain = result.path("chain");
             if (!chain.isArray() || chain.isEmpty()) {
                 SsePushUtils.safeSend(emitter, cancelled, "error", "LLM 未返回有效推演链");

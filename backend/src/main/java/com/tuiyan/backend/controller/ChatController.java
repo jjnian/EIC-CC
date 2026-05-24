@@ -2,7 +2,7 @@ package com.tuiyan.backend.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tuiyan.backend.model.ChatRequest;
-import com.tuiyan.backend.service.LlmService;
+import com.tuiyan.backend.service.ChatLlmService;
 import com.tuiyan.backend.support.SsePushUtils;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -10,26 +10,32 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 
+/**
+ * 聊天接口：同步 JSON 与 SSE 流式拆成两个独立端点，避免 controller 里做 Accept 头分流。
+ */
 @RestController
 @RequestMapping("/api/chat")
 public class ChatController {
 
-    private final LlmService llmService;
+    private final ChatLlmService chatLlmService;
 
-    public ChatController(LlmService llmService) {
-        this.llmService = llmService;
+    public ChatController(ChatLlmService chatLlmService) {
+        this.chatLlmService = chatLlmService;
     }
 
     @PostMapping
-    public Object chat(@RequestBody ChatRequest request,
-                       @RequestHeader(value = "Accept", defaultValue = "application/json") String accept) throws Exception {
-        if (accept.contains("text/event-stream")) {
-            SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(180_000L);
-            llmService.chatStreaming(request, ce.emitter());
-            return ce.emitter();
-        }
-        JsonNode result = llmService.chat(request.getNodes(), request.getEdges(), request.getMessage(),
-                request.getModelOverride(), request.getConfigId(), request.getHistory(), request.getAttachments());
+    public ResponseEntity<JsonNode> chat(@RequestBody ChatRequest request) throws IOException {
+        JsonNode result = chatLlmService.chat(
+                request.getNodes(), request.getEdges(), request.getMessage(),
+                request.getModelOverride(), request.getConfigId(),
+                request.getHistory(), request.getAttachments());
         return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/stream")
+    public SseEmitter chatStream(@RequestBody ChatRequest request) {
+        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(180_000L);
+        chatLlmService.chatStreaming(request, ce.emitter());
+        return ce.emitter();
     }
 }

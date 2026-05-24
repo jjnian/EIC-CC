@@ -54,9 +54,21 @@ public class HypothesisTemplateService {
         return out;
     }
 
-    /** 保存模板；调用方需自行确保 id 与 createdAt 已填好（与 ScenarioService 风格一致）。 */
-    public void save(HypothesisTemplate t) throws IOException {
+    /**
+     * 保存模板（新建或更新）。
+     * <p>缺失的 id / createdAt / lastUsedAt 在此自动补齐，让 controller 层只做 IO 转发。
+     * @return 保存后的模板（已带上自动补齐的字段）
+     */
+    public HypothesisTemplate save(HypothesisTemplate t) throws IOException {
+        if (t.getId() == null || t.getId().isBlank()) {
+            t.setId("ht_" + System.currentTimeMillis());
+        }
+        if (t.getCreatedAt() == 0) {
+            t.setCreatedAt(System.currentTimeMillis());
+        }
+        t.setLastUsedAt(System.currentTimeMillis());
         JsonAtomic.write(objectMapper, fileFor(t.getId()), t);
+        return t;
     }
 
     /**

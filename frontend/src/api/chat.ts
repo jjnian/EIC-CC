@@ -31,7 +31,7 @@ export interface ChatStreamHandlers {
 }
 
 export function chatStream(payload: ChatPayload, handlers: ChatStreamHandlers): SseHandle {
-  return sse('/api/chat', payload, {
+  return sse('/api/chat/stream', payload, {
     onEvent: (event, data) => {
       switch (event) {
         case 'text':     handlers.onText?.(data); break;

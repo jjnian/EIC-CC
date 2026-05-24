@@ -24,7 +24,7 @@ public class LlmMetricsService {
 
     /**
      * 记录一次 LLM 调用结果。
-     * <p>由 {@link LlmService} 在每次 HTTP 调用结束（成功或失败）后调用一次。
+     * <p>由 {@link com.tuiyan.backend.service.llm.LlmHttpClient} 在每次 HTTP 调用结束（成功或失败）后调用一次。
      * @param modelName 模型名称（来自 ModelEntry.modelName）
      * @param latencyMs 调用耗时（毫秒）
      * @param success 是否成功；失败时同时累加 totalErrors 与按模型分组的错误数

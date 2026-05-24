@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.config.ResourceNotFoundException;
 import com.tuiyan.backend.model.NodeExplanation;
 import com.tuiyan.backend.model.Scenario;
+import com.tuiyan.backend.service.ExplainLlmService;
 import com.tuiyan.backend.support.SsePushUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,12 +32,12 @@ public class ScenarioExplanationService {
     private static final Logger log = LoggerFactory.getLogger(ScenarioExplanationService.class);
 
     private final ScenarioService scenarioService;
-    private final LlmService llmService;
+    private final ExplainLlmService explainLlmService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public ScenarioExplanationService(ScenarioService scenarioService, LlmService llmService) {
+    public ScenarioExplanationService(ScenarioService scenarioService, ExplainLlmService explainLlmService) {
         this.scenarioService = scenarioService;
-        this.llmService = llmService;
+        this.explainLlmService = explainLlmService;
     }
 
     /**
@@ -77,7 +78,7 @@ public class ScenarioExplanationService {
             String userPrompt = buildUserPrompt(scenario, chainStep);
 
             if (cancelled.get()) return;
-            LlmService.ExplainResult result = llmService.explainNode(userPrompt, modelOverride, configId);
+            ExplainLlmService.ExplainResult result = explainLlmService.explainNode(userPrompt, modelOverride, configId);
             JsonNode root = result.json();
             String evidence = root.path("evidence").asText("").trim();
             String assumptions = root.path("assumptions").asText("").trim();

@@ -2,6 +2,9 @@ package com.tuiyan.backend.controller;
 
 import com.tuiyan.backend.model.PredictRequest;
 import com.tuiyan.backend.model.Scenario;
+import com.tuiyan.backend.model.dto.ExplainRequest;
+import com.tuiyan.backend.model.dto.RawPromptResponse;
+import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.service.PredictionOrchestrator;
 import com.tuiyan.backend.service.ScenarioExplanationService;
 import com.tuiyan.backend.service.ScenarioService;
@@ -13,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -35,12 +39,12 @@ public class ScenarioController {
     }
 
     @GetMapping
-    public ResponseEntity<?> list(@RequestParam(required = false) String modelId) throws IOException {
+    public ResponseEntity<List<Scenario>> list(@RequestParam(required = false) String modelId) throws IOException {
         return ResponseEntity.ok(scenarioService.listByModel(modelId));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> getOne(@PathVariable String id) throws IOException {
+    public ResponseEntity<Scenario> getOne(@PathVariable String id) throws IOException {
         Scenario s = scenarioService.get(id);
         return s == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(s);
     }
@@ -50,20 +54,20 @@ public class ScenarioController {
      * 拆成独立端点避免列表/详情接口都带回这个大字段。
      */
     @GetMapping("/{id}/raw-prompt")
-    public ResponseEntity<?> getRawPrompt(@PathVariable String id) throws IOException {
+    public ResponseEntity<RawPromptResponse> getRawPrompt(@PathVariable String id) throws IOException {
         Scenario s = scenarioService.get(id);
         if (s == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(Map.of("rawPrompt", s.getRawPrompt() == null ? "" : s.getRawPrompt()));
+        return ResponseEntity.ok(new RawPromptResponse(s.getRawPrompt() == null ? "" : s.getRawPrompt()));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(@PathVariable String id) {
+    public ResponseEntity<SuccessCountResponse> delete(@PathVariable String id) {
         int n = scenarioService.delete(id);
-        return ResponseEntity.ok(Map.of("success", n > 0, "count", n));
+        return ResponseEntity.ok(SuccessCountResponse.of(n));
     }
 
     @PostMapping("/migrate")
-    public ResponseEntity<?> migrate() throws IOException {
+    public ResponseEntity<Map<String, Integer>> migrate() throws IOException {
         return ResponseEntity.ok(scenarioService.migrateAll());
     }
 
@@ -90,22 +94,5 @@ public class ScenarioController {
                 ce.emitter(),
                 ce.cancelled()));
         return ce.emitter();
-    }
-
-    /** P1-7 explain 端点的请求体。 */
-    public static class ExplainRequest {
-        private String nodeId;
-        private String modelOverride;
-        private String configId;
-        private boolean forceRegenerate;
-
-        public String getNodeId() { return nodeId; }
-        public void setNodeId(String nodeId) { this.nodeId = nodeId; }
-        public String getModelOverride() { return modelOverride; }
-        public void setModelOverride(String modelOverride) { this.modelOverride = modelOverride; }
-        public String getConfigId() { return configId; }
-        public void setConfigId(String configId) { this.configId = configId; }
-        public boolean isForceRegenerate() { return forceRegenerate; }
-        public void setForceRegenerate(boolean forceRegenerate) { this.forceRegenerate = forceRegenerate; }
     }
 }

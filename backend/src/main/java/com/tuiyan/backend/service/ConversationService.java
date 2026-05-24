@@ -75,6 +75,12 @@ public class ConversationService {
         return c;
     }
 
+    /** 按指定 id 更新；id 强制覆写，避免 controller 在路径上拿到的 id 与 body 中的不一致。 */
+    public Conversation update(String id, Conversation c) throws IOException {
+        c.setId(id);
+        return save(c);
+    }
+
     /** 删除指定对话；不存在返回 false 不报错。 */
     public boolean delete(String id) {
         File f = fileFor(id);

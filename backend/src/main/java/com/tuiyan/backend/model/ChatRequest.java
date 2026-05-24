@@ -6,8 +6,8 @@ import java.util.Map;
 /**
  * 聊天请求 DTO（前端 → 后端）。
  * <p>由 {@code /api/chat} 接收。携带当前对话上下文（消息、历史、图谱快照、附件）
- * 与模型选择信息（id 或运行时覆写），交由 {@link com.tuiyan.backend.service.LlmService} 处理。
- * <p>本类仅是数据容器，不对字段做校验，业务规则在 LlmService 中实现。
+ * 与模型选择信息（id 或运行时覆写），交由 {@link com.tuiyan.backend.service.ChatLlmService} 处理。
+ * <p>本类仅是数据容器，不对字段做校验，业务规则在 service 中实现。
  */
 public class ChatRequest {
     // 用户本次输入文本

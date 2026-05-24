@@ -60,12 +60,12 @@ public class DocumentExtractionService {
     // 一次抽取最多接受 5 个 URL，避免对外网批量打洞
     private static final int  URL_LIMIT             = 5;
 
-    private final LlmService llmService;
+    private final ExtractionLlmService extractionLlmService;
     private final Executor urlFetchExecutor;
 
-    public DocumentExtractionService(LlmService llmService,
+    public DocumentExtractionService(ExtractionLlmService extractionLlmService,
                                      @Qualifier("predictionExecutor") ThreadPoolTaskExecutor predictionExecutor) {
-        this.llmService = llmService;
+        this.extractionLlmService = extractionLlmService;
         this.urlFetchExecutor = predictionExecutor;
     }
 
@@ -106,7 +106,7 @@ public class DocumentExtractionService {
             throw new IllegalArgumentException("未能从上传文件或网址中抽出任何可分析的文本或图片");
         }
 
-        JsonNode draft = llmService.extractOntologyFromSources(
+        JsonNode draft = extractionLlmService.extractOntologyFromSources(
                 combinedText.toString(), imageAttachments, modelOverride, configId);
 
         // 用毫秒时间戳的 36 进制作 salt，加在每个节点 id 前面避免与已有图谱冲突

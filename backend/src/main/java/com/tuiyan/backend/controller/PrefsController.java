@@ -1,5 +1,6 @@
 package com.tuiyan.backend.controller;
 
+import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.service.PrefsService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,18 +19,17 @@ public class PrefsController {
     }
 
     @GetMapping
-    public ResponseEntity<?> get() throws IOException {
+    public ResponseEntity<Map<String, Object>> get() throws IOException {
         return ResponseEntity.ok(prefsService.read());
     }
 
     @PutMapping
-    public ResponseEntity<?> save(@RequestBody Map<String, Object> body) throws IOException {
+    public ResponseEntity<Map<String, Object>> save(@RequestBody Map<String, Object> body) throws IOException {
         return ResponseEntity.ok(prefsService.save(body));
     }
 
     @DeleteMapping("/scenarios")
-    public ResponseEntity<?> clearAllScenarios() {
-        int n = prefsService.clearAllScenarios();
-        return ResponseEntity.ok(Map.of("success", n > 0, "count", n));
+    public ResponseEntity<SuccessCountResponse> clearAllScenarios() {
+        return ResponseEntity.ok(SuccessCountResponse.of(prefsService.clearAllScenarios()));
     }
 }

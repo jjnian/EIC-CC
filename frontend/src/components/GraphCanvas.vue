@@ -11,6 +11,7 @@
 import { ref, computed, watch, reactive, onMounted, onUnmounted, nextTick } from 'vue';
 import { NT, NW, NH, getPath } from '../constants';
 import type { OntologyNode, OntologyEdge } from '../types';
+import { useGraphSearch } from '../composables/useGraphSearch';
 
 const props = defineProps<{
   nodes: OntologyNode[];
@@ -71,54 +72,21 @@ const edgeMatchesFilter = (e: any) => {
 };
 
 /* ── 搜索功能 ── */
-const searchRef = ref<HTMLInputElement | null>(null);
-const searchQuery = ref('');
-// 当前搜索结果在 searchMatches 中的索引（Enter 切下一个，循环）
-const searchIdx = ref(0);
-
-const searchMatches = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase();
-  if (!q) return [];
-  // 同时匹配 label / type / id，以容忍用户记不清确切名称
-  return props.nodes.filter(n =>
-    n.label.toLowerCase().includes(q) ||
-    n.type.toLowerCase().includes(q) ||
-    (n.id && n.id.toLowerCase().includes(q))
-  );
+/* ── 搜索（抽到 useGraphSearch composable） ── */
+const search = useGraphSearch({
+  nodes: () => props.nodes,
+  selectNode: (id) => emit('select', id),
+  focusNode: (id) => focusNode(id),
 });
-
-watch(searchQuery, () => { searchIdx.value = 0; });
-
-const jumpToNext = () => {
-  if (!searchMatches.value.length) return;
-  searchIdx.value = (searchIdx.value + 1) % searchMatches.value.length;
-  const target = searchMatches.value[searchIdx.value];
-  emit('select', target.id);
-  focusNode(target.id);
-};
-
-const jumpToPrev = () => {
-  if (!searchMatches.value.length) return;
-  searchIdx.value = (searchIdx.value - 1 + searchMatches.value.length) % searchMatches.value.length;
-  const target = searchMatches.value[searchIdx.value];
-  emit('select', target.id);
-  focusNode(target.id);
-};
-
-const clearSearch = () => {
-  searchQuery.value = '';
-  searchIdx.value = 0;
-};
-
-const isSearchMatch = (n: any) => {
-  if (!searchQuery.value) return false;
-  return searchMatches.value.some(m => m.id === n.id);
-};
-
-const isCurrentSearchTarget = (n: any) => {
-  if (!searchMatches.value.length) return false;
-  return searchMatches.value[searchIdx.value]?.id === n.id;
-};
+const searchRef = search.searchRef;
+const searchQuery = search.searchQuery;
+const searchIdx = search.searchIdx;
+const searchMatches = search.searchMatches;
+const jumpToNext = search.jumpToNext;
+const jumpToPrev = search.jumpToPrev;
+const clearSearch = search.clearSearch;
+const isSearchMatch = search.isSearchMatch;
+const isCurrentSearchTarget = search.isCurrentSearchTarget;
 
 /* ── 热力图 / 差异着色 ── */
 const heatmapMode = ref(false);

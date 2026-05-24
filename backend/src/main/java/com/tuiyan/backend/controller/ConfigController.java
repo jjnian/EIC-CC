@@ -1,7 +1,7 @@
 package com.tuiyan.backend.controller;
 
 import com.tuiyan.backend.model.ConfigResponse;
-import com.tuiyan.backend.service.LlmService;
+import com.tuiyan.backend.service.ModelInfoService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -9,14 +9,14 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/config")
 public class ConfigController {
 
-    private final LlmService llmService;
+    private final ModelInfoService modelInfoService;
 
-    public ConfigController(LlmService llmService) {
-        this.llmService = llmService;
+    public ConfigController(ModelInfoService modelInfoService) {
+        this.modelInfoService = modelInfoService;
     }
 
     @GetMapping
     public ResponseEntity<ConfigResponse> getConfig() {
-        return ResponseEntity.ok(llmService.getConfigResponse());
+        return ResponseEntity.ok(modelInfoService.getConfigResponse());
     }
 }

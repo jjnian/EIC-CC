@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * 预定义的大模型提供商配置枚举。
  * <p>大部分提供商采用 OpenAI 兼容的 API 格式；
- * Anthropic (Claude) 使用原生 Messages API，由 {@link com.tuiyan.backend.service.LlmService} 内做协议适配。
+ * Anthropic (Claude) 使用原生 Messages API，由 {@link com.tuiyan.backend.service.llm.LlmHttpClient} 做协议适配。
  * <p>本枚举仅提供"展示元信息"（baseUrl、默认模型、可选模型列表、对应环境变量名），
  * 不直接持有 apiKey；真正的运行时配置在 {@link com.tuiyan.backend.config.LlmProperties} 中。
  */

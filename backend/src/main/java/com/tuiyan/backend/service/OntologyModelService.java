@@ -102,6 +102,12 @@ public class OntologyModelService {
         return m;
     }
 
+    /** 按指定 id 更新；id 强制覆写，保证路径与 body 里 id 一致。 */
+    public OntologyModel update(String id, OntologyModel m) throws IOException {
+        m.setId(id);
+        return save(m);
+    }
+
     public boolean delete(String id) {
         File f = fileFor(id);
         return f.exists() && f.delete();

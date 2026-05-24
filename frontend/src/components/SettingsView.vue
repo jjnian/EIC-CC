@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { useModelConfigs, CAPABILITY_LABELS, fmtTokens } from '../composables/useModelConfigs';
+import { useModelConfigs } from '../composables/useModelConfigs';
 import { useSettingsPrefs } from '../composables/useSettingsPrefs';
 import { request } from '../api/http';
+import ModelsTab from './settings/ModelsTab.vue';
+import PredictTab from './settings/PredictTab.vue';
+import AppearanceTab from './settings/AppearanceTab.vue';
+import DataTab from './settings/DataTab.vue';
+import MonitorTab from './settings/MonitorTab.vue';
+import AboutTab from './settings/AboutTab.vue';
 
 const localToast = ref<{ msg: string; kind: 'success' | 'error' } | null>(null);
 const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
@@ -13,21 +19,13 @@ const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
 const mc = useModelConfigs({ showToast });
 const sp = useSettingsPrefs();
 
-const models = mc.models;
-const loading = mc.loading;
-const testResults = mc.testResults;
-const runTest = mc.runTest;
-const testAllModels = mc.testAllModels;
-const prefs = sp.prefs;
-const prefsSaved = sp.prefsSaved;
-
 const TABS = [
-  { id: 'models',   label: '模型管理', icon: '◈' },
-  { id: 'predict',  label: '推演偏好', icon: '⚡' },
+  { id: 'models',     label: '模型管理', icon: '◈' },
+  { id: 'predict',    label: '推演偏好', icon: '⚡' },
   { id: 'appearance', label: '图谱外观', icon: '✦' },
-  { id: 'data',     label: '数据管理', icon: '◐' },
-  { id: 'monitor',  label: '系统监控', icon: '📊' },
-  { id: 'about',    label: '关于',     icon: 'ⓘ' }
+  { id: 'data',       label: '数据管理', icon: '◐' },
+  { id: 'monitor',    label: '系统监控', icon: '📊' },
+  { id: 'about',      label: '关于',     icon: 'ⓘ' }
 ];
 const activeTab = ref('models');
 const APP_VERSION = '0.5.0';
@@ -37,11 +35,6 @@ onMounted(() => {
   mc.loadProviders();
   sp.loadPrefs();
 });
-
-const savePrefs = sp.savePrefs;
-const clearAllScenarios = sp.clearAllScenarios;
-
-const toast = localToast;
 
 // 系统监控数据
 const healthData = ref<any>(null);
@@ -68,11 +61,10 @@ watch(activeTab, (tab) => {
         <h2>平台设置</h2>
         <p>统一管理大模型、推演参数、画布外观与数据。</p>
       </div>
-      <span v-if="prefsSaved" class="prefs-saved">已自动保存</span>
+      <span v-if="sp.prefsSaved.value" class="prefs-saved">已自动保存</span>
     </div>
 
     <div class="sv-layout">
-      <!-- 左侧 Tab 导航 -->
       <nav class="sv-tabs">
         <button v-for="t in TABS" :key="t.id"
                 :class="['sv-tab', { active: activeTab === t.id }]"
@@ -83,298 +75,45 @@ watch(activeTab, (tab) => {
       </nav>
 
       <div class="sv-pane">
-        <!-- ================ Tab: 模型管理 ================ -->
-        <section v-if="activeTab === 'models'">
-          <div class="sv-section-head">
-            <div>
-              <h3>大模型管理</h3>
-              <p>模型配置来自 application.yml，修改后重启生效。</p>
-            </div>
-            <button class="test-all-btn" @click="testAllModels">🔌 全部测试</button>
-          </div>
-    <div class="model-list" v-if="!loading">
-      <div v-for="m in models" :key="m.id" class="model-card" :class="{ disabled: !m.enabled }">
-        <div class="model-card-header">
-          <div class="model-card-info">
-            <div class="mc-title-row">
-              <h4>{{ m.name }}</h4>
-              <span v-if="m.provider" class="mc-prov-chip" :class="'prov-' + m.provider">{{ m.provider }}</span>
-              <span v-if="m.protocol === 'anthropic'" class="mc-proto-chip">Messages API</span>
-            </div>
-            <span class="model-meta">{{ m.baseUrl }} · {{ m.modelName }}</span>
-            <p v-if="m.description" class="mc-desc">{{ m.description }}</p>
-            <div v-if="m.contextWindow || m.capabilities?.length" class="mc-stats">
-              <span v-if="m.contextWindow" class="mc-stat">
-                <span class="mc-stat-key">上下文</span>
-                <span class="mc-stat-val">{{ fmtTokens(m.contextWindow) }}</span>
-              </span>
-              <span v-if="m.maxOutputTokens" class="mc-stat">
-                <span class="mc-stat-key">输出上限</span>
-                <span class="mc-stat-val">{{ fmtTokens(m.maxOutputTokens) }}</span>
-              </span>
-              <span v-for="c in (m.capabilities || [])" :key="c" class="mc-cap">{{ CAPABILITY_LABELS[c] || c }}</span>
-            </div>
-          </div>
-          <div class="model-actions">
-            <button
-              v-if="m.enabled"
-              class="test-btn"
-              :class="testResults[m.id]?.status || 'idle'"
-              :disabled="testResults[m.id]?.status === 'testing'"
-              @click="runTest(m.id)"
-            >
-              <span v-if="!testResults[m.id] || testResults[m.id].status === 'idle'">测试连接</span>
-              <span v-else-if="testResults[m.id].status === 'testing'" class="test-spin">⟳</span>
-              <span v-else-if="testResults[m.id].status === 'ok'" class="test-ok">✓ {{ testResults[m.id].latencyMs }}ms</span>
-              <span v-else class="test-err" :title="testResults[m.id].error">✕ 失败</span>
-            </button>
-            <span class="status-badge" :class="m.enabled ? 'enabled' : 'disabled'">
-              {{ m.enabled ? '已启用' : '已禁用' }}
-            </span>
-          </div>
-        </div>
-      </div>
+        <ModelsTab v-if="activeTab === 'models'"
+                   :models="mc.models.value"
+                   :loading="mc.loading.value"
+                   :test-results="mc.testResults"
+                   @run-test="mc.runTest"
+                   @test-all="mc.testAllModels" />
 
-      <div v-if="models.length === 0" class="empty-state">
-        <p>暂无模型配置，请在 application.yml 的 app.llm.models 中添加。</p>
-      </div>
-    </div>
-        </section>
+        <PredictTab v-else-if="activeTab === 'predict'"
+                    :prefs="sp.prefs"
+                    :models="mc.models.value"
+                    @save="sp.savePrefs" />
 
-        <!-- ================ Tab: 推演偏好 ================ -->
-        <section v-if="activeTab === 'predict'">
-          <div class="sv-section-head">
-            <div>
-              <h3>推演偏好</h3>
-              <p>设置场景推演（Forward Simulation）的默认参数。</p>
-            </div>
-          </div>
+        <AppearanceTab v-else-if="activeTab === 'appearance'"
+                       :prefs="sp.prefs"
+                       @save="sp.savePrefs" />
 
-          <div class="pref-card">
-            <div class="pref-row">
-              <div class="pref-label">
-                <div class="pref-name">默认推演步数</div>
-                <div class="pref-desc">右键节点 → 从此推演 时弹窗的默认值</div>
-              </div>
-              <div class="pref-control">
-                <input type="range" min="1" max="8" step="1" v-model.number="prefs.predictDefaultSteps" @input="savePrefs" class="pref-slider" />
-                <span class="pref-val">{{ prefs.predictDefaultSteps }} 步</span>
-              </div>
-            </div>
+        <DataTab v-else-if="activeTab === 'data'"
+                 :prefs="sp.prefs"
+                 @clear-scenarios="sp.clearAllScenarios" />
 
-            <div class="pref-row">
-              <div class="pref-label">
-                <div class="pref-name">最低置信度阈值</div>
-                <div class="pref-desc">小于此置信度的预测节点将以更低透明度显示</div>
-              </div>
-              <div class="pref-control">
-                <input type="range" min="0" max="1" step="0.05" v-model.number="prefs.predictMinConfidence" @input="savePrefs" class="pref-slider" />
-                <span class="pref-val">{{ Math.round(prefs.predictMinConfidence * 100) }}%</span>
-              </div>
-            </div>
+        <MonitorTab v-else-if="activeTab === 'monitor'"
+                    :health-data="healthData"
+                    :metrics-data="metricsData"
+                    @refresh="loadMonitor" />
 
-            <div class="pref-row">
-              <div class="pref-label">
-                <div class="pref-name">分步动画延迟</div>
-                <div class="pref-desc">每个推演节点在画布上淡入的间隔（毫秒）</div>
-              </div>
-              <div class="pref-control">
-                <input type="range" min="0" max="800" step="20" v-model.number="prefs.predictStepDelayMs" @input="savePrefs" class="pref-slider" />
-                <span class="pref-val">{{ prefs.predictStepDelayMs }} ms</span>
-              </div>
-            </div>
-
-            <div class="pref-row">
-              <div class="pref-label">
-                <div class="pref-name">默认推演模型</div>
-                <div class="pref-desc">不指定时使用此模型驱动推演与聊天</div>
-              </div>
-              <div class="pref-control">
-                <select class="preset-select" v-model="prefs.defaultModelConfigId" @change="savePrefs">
-                  <option value="">— 使用系统默认 —</option>
-                  <option v-for="m in models.filter(x => x.enabled)" :key="m.id" :value="m.id">{{ m.name }}</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- ================ Tab: 图谱外观 ================ -->
-        <section v-if="activeTab === 'appearance'">
-          <div class="sv-section-head">
-            <div>
-              <h3>图谱外观</h3>
-              <p>调整画布渲染细节。</p>
-            </div>
-          </div>
-
-          <div class="pref-card">
-            <div class="pref-row">
-              <div class="pref-label">
-                <div class="pref-name">显示边标签</div>
-                <div class="pref-desc">关闭后画布更清爽，悬停仍可看关系名</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" v-model="prefs.showEdgeLabels" @change="savePrefs" />
-                <span class="switch-slider" />
-              </label>
-            </div>
-
-            <div class="pref-row">
-              <div class="pref-label">
-                <div class="pref-name">打开模型时自动适应屏幕</div>
-                <div class="pref-desc">切换模型/分支后自动 fitView</div>
-              </div>
-              <label class="switch">
-                <input type="checkbox" v-model="prefs.autoFit" @change="savePrefs" />
-                <span class="switch-slider" />
-              </label>
-            </div>
-
-            <div class="pref-row">
-              <div class="pref-label">
-                <div class="pref-name">节点字号</div>
-                <div class="pref-desc">画布上节点标签的字体大小</div>
-              </div>
-              <div class="pref-control">
-                <input type="range" min="10" max="18" step="1" v-model.number="prefs.graphFontSize" @input="savePrefs" class="pref-slider" />
-                <span class="pref-val">{{ prefs.graphFontSize }} px</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- ================ Tab: 数据管理 ================ -->
-        <section v-if="activeTab === 'data'">
-          <div class="sv-section-head">
-            <div>
-              <h3>数据管理</h3>
-              <p>清理本地存储的推演分支与缓存。</p>
-            </div>
-          </div>
-
-          <div class="pref-card">
-            <div class="pref-row">
-              <div class="pref-label">
-                <div class="pref-name">清空所有推演分支</div>
-                <div class="pref-desc">删除 backend/src/main/resources/scenarios/ 下所有快照文件。仅影响推演结果，不影响原始本体模型。</div>
-              </div>
-              <button class="danger-btn" @click="clearAllScenarios">清空</button>
-            </div>
-
-            <div class="pref-row">
-              <div class="pref-label">
-                <div class="pref-name">导出全部偏好设置</div>
-                <div class="pref-desc">把当前偏好（含推演参数、外观）下载为 JSON 文件</div>
-              </div>
-              <button class="action-btn" @click="() => {
-                const blob = new Blob([JSON.stringify(prefs, null, 2)], { type: 'application/json' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = 'tuiyan-prefs.json';
-                a.click();
-              }">下载 JSON</button>
-            </div>
-          </div>
-        </section>
-
-        <!-- ================ Tab: 系统监控 ================ -->
-        <section v-if="activeTab === 'monitor'">
-          <div class="sv-section-head">
-            <div>
-              <h3>系统监控</h3>
-              <p>实时查看系统健康状态和 LLM 调用统计。</p>
-            </div>
-            <button class="test-all-btn" @click="loadMonitor">🔄 刷新</button>
-          </div>
-
-          <div v-if="healthData" class="pref-card" style="margin-bottom:16px">
-            <div class="pref-row">
-              <div style="display:flex;gap:24px;flex-wrap:wrap;width:100%">
-                <div>
-                  <span style="color:rgba(255,255,255,0.5);font-size:12px">状态</span><br/>
-                  <span :style="{ color: healthData.status === 'UP' ? '#42b883' : '#ef4444' }">{{ healthData.status }}</span>
-                </div>
-                <div>
-                  <span style="color:rgba(255,255,255,0.5);font-size:12px">内存</span><br/>
-                  <span>{{ healthData.freeMemoryMb }}MB / {{ healthData.totalMemoryMb }}MB</span>
-                </div>
-                <div>
-                  <span style="color:rgba(255,255,255,0.5);font-size:12px">数据目录</span><br/>
-                  <span :style="{ color: healthData.dataDir ? '#42b883' : '#ef4444' }">{{ healthData.dataDir ? '正常' : '异常' }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="metricsData" class="pref-card">
-            <div class="pref-row" style="flex-direction:column;align-items:flex-start">
-              <h4 style="margin:0 0 12px;font-size:14px;color:var(--text-main)">LLM 调用统计</h4>
-              <div style="display:flex;gap:24px;flex-wrap:wrap">
-                <div>
-                  <span style="color:rgba(255,255,255,0.5);font-size:12px">总调用</span><br/>
-                  <span style="font-size:20px;font-weight:600">{{ metricsData.totalCalls }}</span>
-                </div>
-                <div>
-                  <span style="color:rgba(255,255,255,0.5);font-size:12px">总错误</span><br/>
-                  <span style="font-size:20px;font-weight:600;color:#ef4444">{{ metricsData.totalErrors }}</span>
-                </div>
-                <div>
-                  <span style="color:rgba(255,255,255,0.5);font-size:12px">平均延迟</span><br/>
-                  <span style="font-size:20px;font-weight:600">{{ metricsData.avgLatencyMs }}ms</span>
-                </div>
-              </div>
-              <div v-if="metricsData.byModel && metricsData.byModel.length" style="margin-top:16px;width:100%">
-                <h5 style="margin:0 0 8px;color:rgba(255,255,255,0.6);font-size:13px">按模型统计</h5>
-                <div v-for="m in metricsData.byModel" :key="m.model" style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-                  <span>{{ m.model }}</span>
-                  <span style="color:rgba(255,255,255,0.5)">{{ m.calls }} 次调用 · {{ m.errors }} 错误</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="!healthData && !metricsData" class="empty-state">
-            <p>加载中...</p>
-          </div>
-        </section>
-
-        <!-- ================ Tab: 关于 ================ -->
-        <section v-if="activeTab === 'about'">
-          <div class="sv-section-head">
-            <div>
-              <h3>关于</h3>
-              <p>推演平台 (Forward Simulation Platform)</p>
-            </div>
-          </div>
-
-          <div class="about-card">
-            <div class="about-logo">推</div>
-            <div class="about-info">
-              <h4>推演平台</h4>
-              <div class="about-version">v{{ APP_VERSION }}</div>
-              <p>本体抽取 + 因果链前向推演工具。支持 Claude / GPT / DeepSeek / 通义千问 / Kimi / GLM 等主流大模型。</p>
-              <div class="about-stack">
-                <span class="stack-chip">Vue 3</span>
-                <span class="stack-chip">Spring Boot</span>
-                <span class="stack-chip">SSE 流式</span>
-                <span class="stack-chip">OpenAI / Anthropic 双协议</span>
-              </div>
-            </div>
-          </div>
-        </section>
+        <AboutTab v-else-if="activeTab === 'about'" :version="APP_VERSION" />
       </div>
     </div>
 
-    <!-- Top-level toast -->
-    <div v-if="toast" class="sv-toast" :class="'sv-toast-' + toast.kind">
-      <span class="sv-toast-icon">{{ toast.kind === 'success' ? '✓' : '✗' }}</span>
-      <span>{{ toast.msg }}</span>
+    <div v-if="localToast" class="sv-toast" :class="'sv-toast-' + localToast.kind">
+      <span class="sv-toast-icon">{{ localToast.kind === 'success' ? '✓' : '✗' }}</span>
+      <span>{{ localToast.msg }}</span>
     </div>
   </div>
 </template>
 
-<style scoped>
+<style>
+/* 注意：这里改为非 scoped 因为子组件 (ModelsTab/PredictTab/...) 复用这些样式类。
+   类名都带 sv-/pref-/mc-/test- 等前缀，全局污染面很小。 */
 .settings-view {
   flex: 1;
   padding: 28px 32px;

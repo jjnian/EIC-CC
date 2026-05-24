@@ -1,48 +1,31 @@
 package com.tuiyan.backend.controller;
 
 import com.tuiyan.backend.config.LlmProperties;
-import com.tuiyan.backend.service.LlmService;
+import com.tuiyan.backend.model.dto.ModelTestResponse;
+import com.tuiyan.backend.service.ModelInfoService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/models")
 public class ModelController {
 
-    private final LlmService llmService;
+    private final ModelInfoService modelInfoService;
 
-    public ModelController(LlmService llmService) {
-        this.llmService = llmService;
+    public ModelController(ModelInfoService modelInfoService) {
+        this.modelInfoService = modelInfoService;
     }
 
     @GetMapping
     public ResponseEntity<List<LlmProperties.ModelEntry>> getAllModels() {
-        return ResponseEntity.ok(llmService.getAllModelConfigs());
+        return ResponseEntity.ok(modelInfoService.getAllModelConfigs());
     }
 
-    /** 测试指定模型的连通性，返回延迟(ms)或错误信息 */
+    /** 测试指定模型连通性；service 内已包装异常为 ModelTestResponse，controller 直接 200 返回。 */
     @PostMapping("/{id}/test")
-    public ResponseEntity<Map<String, Object>> testModel(@PathVariable String id) {
-        try {
-            long latencyMs = llmService.testModelConnection(id);
-            return ResponseEntity.ok(Map.of(
-                "status", "ok",
-                "latencyMs", latencyMs
-            ));
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                "status", "error",
-                "error", e.getMessage()
-            ));
-        } catch (Exception e) {
-            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-            return ResponseEntity.ok(Map.of(
-                "status", "error",
-                "error", msg
-            ));
-        }
+    public ResponseEntity<ModelTestResponse> testModel(@PathVariable String id) {
+        return ResponseEntity.ok(modelInfoService.testModel(id));
     }
 }

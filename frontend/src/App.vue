@@ -9,8 +9,7 @@ import ImportDialog from './components/ImportDialog.vue';
 import GraphView from './components/views/GraphView.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import { toast, mountToastRoot } from './composables/useToast';
-import { confirm } from './composables/useConfirm';
-import { updateOntology, listVersions, restoreVersion, listGraphTemplates, saveGraphTemplate, deleteGraphTemplate } from './api/ontology';
+import { updateOntology } from './api/ontology';
 import { ApiError } from './api/http';
 import { useDivider } from './composables/useDivider';
 import { useImportFlow } from './composables/useImportFlow';
@@ -19,6 +18,9 @@ import { usePrediction } from './composables/usePrediction';
 import { useOntologyModel } from './composables/useOntologyModel';
 import { useGraphActions } from './composables/useGraphActions';
 import { useGraphHistory } from './composables/useGraphHistory';
+import { useImportMerge } from './composables/useImportMerge';
+import { useGraphEditor } from './composables/useGraphEditor';
+import { useVersionTemplates } from './composables/useVersionTemplates';
 import { NT } from './constants';
 
 const sel = ref<string | null>(null);
@@ -57,10 +59,7 @@ const deleteOntologyModel = ontology.deleteOntologyModel;
 const nodes = ref<OntologyNode[]>([]);
 const edges = ref<OntologyEdge[]>([]);
 
-// Scenarios 与 Prediction 通过 getter 解耦循环依赖:
-//   scenarios 需要 prediction.abortLiveStream / resetLiveState
-//   prediction 需要 scenarios.activeBranchId / trunkSnapshot / branches / switchBranch
-// prediction 通过 getter 访问 scenarios,避免初始化顺序问题。
+// Scenarios 与 Prediction 通过 getter 解耦循环依赖
 let scenarios: ReturnType<typeof useScenarios>;
 const prediction = usePrediction({
   currentModelId,
@@ -86,7 +85,6 @@ scenarios = useScenarios({
 
 const branches = scenarios.branches;
 const activeBranchId = scenarios.activeBranchId;
-const trunkSnapshot = scenarios.trunkSnapshot;
 
 // 防抖保存:图谱编辑后 1.2 秒无操作 → PUT 到后端
 let saveTimer: number | null = null;
@@ -125,7 +123,6 @@ const redoGraph = () => { if (history.redo()) { sel.value = null; nextTick(() =>
 
 const onGlobalKeydown = (e: KeyboardEvent) => {
   if (view.value !== 'graph') return;
-  // 输入框里别抢快捷键
   const t = e.target as HTMLElement | null;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
   const mod = e.ctrlKey || e.metaKey;
@@ -150,6 +147,62 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown);
 });
 
+const graphActions = useGraphActions({
+  nodes,
+  edges,
+  currentModel: () => findModel(currentModelId.value),
+  currentTitle: () => currentModelTitle.value,
+  fitView: () => graphRef.value?.fitView(),
+  persist: persistCurrentModel,
+});
+const autoLayout = () => { history.snapshot(); graphActions.autoLayout(); };
+const toggleLayoutDirection = graphActions.toggleLayoutDirection;
+const layoutDirection = graphActions.layoutDirection;
+
+const merger = useImportMerge({
+  nodes, edges,
+  snapshotHistory: () => history.snapshot(),
+  placeIncomingNodes: graphActions.placeIncomingNodes,
+  autoLayout: graphActions.autoLayout,
+  persist: persistCurrentModel,
+});
+const onUpdate = merger.onUpdate;
+
+const editor = useGraphEditor({
+  nodes, edges, sel,
+  snapshotHistory: () => history.snapshot(),
+  persist: persistCurrentModel,
+});
+const addNodeAtPosition = editor.addNodeAtPosition;
+const addEdgesBatch = editor.addEdgesBatch;
+const editingRelation = editor.editingRelation;
+const openEditRelation = editor.openEditRelation;
+const toggleRelInput = editor.toggleRelInput;
+const toggleRelOutput = editor.toggleRelOutput;
+const saveEditRelation = editor.saveEditRelation;
+const cancelEditRelation = editor.cancelEditRelation;
+const deleteEditingRelation = editor.deleteEditingRelation;
+const editRelGraphNodes = editor.editRelGraphNodes;
+const editingNode = editor.editingNode;
+const editNodeInputs = editor.editNodeInputs;
+const editNodeOutputs = editor.editNodeOutputs;
+const editInputLabels = editor.editInputLabels;
+const editOutputLabels = editor.editOutputLabels;
+const editableGraphNodes = editor.editableGraphNodes;
+const openEditNode = editor.openEditNode;
+const toggleEditInput = editor.toggleEditInput;
+const toggleEditOutput = editor.toggleEditOutput;
+const saveEditNode = editor.saveEditNode;
+const cancelEditNode = editor.cancelEditNode;
+const updateNodeProps = editor.updateNodeProps;
+const updateNodeSchema = editor.updateNodeSchema;
+const updateEdgeSchema = editor.updateEdgeSchema;
+const deleteEdge = editor.deleteEdge;
+const deleteRelation = editor.deleteRelation;
+const deleteNode = editor.deleteNode;
+const deleteNodes = editor.deleteNodes;
+const clearCanvas = editor.clearCanvas;
+
 const openModel = async (m: OntologyModel) => {
   if (currentModelId.value && currentModelId.value !== m.id) {
     persistCurrentModel(true);
@@ -167,12 +220,36 @@ const openModel = async (m: OntologyModel) => {
   await scenarios.loadBranches(m.id);
 };
 
-// 暴露给模板的别名(过渡期内,模板还在用这些名字)
+const versionTpl = useVersionTemplates({
+  currentModelId,
+  nodes,
+  edges,
+  models,
+  isCreating,
+  findModel,
+  resetHistory: (n, e) => history.reset(n, e),
+  createOnBackend,
+  openModel,
+  persistImmediate: () => persistCurrentModel(true),
+});
+const showVersionMenu = versionTpl.showVersionMenu;
+const versions = versionTpl.versions;
+const versionsLoading = versionTpl.versionsLoading;
+const toggleVersionMenu = versionTpl.toggleVersionMenu;
+const doRestoreVersion = versionTpl.doRestoreVersion;
+const showTemplates = versionTpl.showTemplates;
+const templates = versionTpl.templates;
+const templatesLoading = versionTpl.templatesLoading;
+const openTemplates = versionTpl.openTemplates;
+const saveAsTemplate = versionTpl.saveAsTemplate;
+const createFromTemplate = versionTpl.createFromTemplate;
+const removeTemplate = versionTpl.removeTemplate;
+const closeTemplates = versionTpl.closeTemplates;
+const openPreview = versionTpl.openPreview;
+
+// 模板别名（保留向下兼容）
 const loadBranches = scenarios.loadBranches;
 const switchBranch = scenarios.switchBranch;
-const migrateBranches = scenarios.migrateBranches;
-const deleteBranch = scenarios.deleteBranch;
-const collectAncestorChain = scenarios.collectAncestorChain;
 const predictDialogOpen = prediction.predictDialogOpen;
 const predictSeeds = prediction.predictSeeds;
 const liveSteps = prediction.liveSteps;
@@ -266,7 +343,6 @@ const openModelById = (id: string) => {
 };
 
 const onDragStart = (_id: string) => {
-  // 一次拖拽只快照一次:落点前的"原状态"先入栈,然后才开始连续 move。
   history.snapshot();
 };
 
@@ -279,114 +355,6 @@ const onMove = (id: string, x: number, y: number) => {
   }
 };
 
-/**
- * 把 LLM 返回的新增节点/关系合并到现有图,做两层去重:
- *   1. id 命中(同一节点重复回写) → 丢弃
- *   2. label+type 命中现有节点 → 把新节点视作"已存在",并在 edges 里把对它的引用重写到旧 id
- * edges 同样做 id 去重 + (from,to,label) 去重。
- */
-const dedupeIncoming = (addNodes: OntologyNode[], addEdges: OntologyEdge[]) => {
-  const norm = (s?: string) => (s || '').trim().toLowerCase();
-  const byId = new Map(nodes.value.map(n => [n.id, n]));
-  const byKey = new Map<string, OntologyNode>();
-  nodes.value.forEach(n => byKey.set(norm(n.label) + '|' + norm(n.type), n));
-
-  const idRemap: Record<string, string> = {};
-  const acceptedNodes: OntologyNode[] = [];
-  for (const n of addNodes) {
-    if (!n || !n.id) continue;
-    if (byId.has(n.id)) { idRemap[n.id] = n.id; continue; }
-    const k = norm(n.label) + '|' + norm(n.type);
-    const hit = byKey.get(k);
-    if (hit) { idRemap[n.id] = hit.id; continue; }
-    acceptedNodes.push(n);
-    byId.set(n.id, n);
-    byKey.set(k, n);
-  }
-
-  const edgeKey = new Set(edges.value.map(e => e.from + '→' + e.to + '|' + norm(e.label)));
-  const edgeIdSet = new Set(edges.value.map(e => e.id));
-  const acceptedEdges: OntologyEdge[] = [];
-  for (const e of addEdges) {
-    if (!e) continue;
-    const from = idRemap[e.from] || e.from;
-    const to = idRemap[e.to] || e.to;
-    if (!byId.has(from) || !byId.has(to)) continue; // 引用的节点不在图里,丢弃
-    const k = from + '→' + to + '|' + norm(e.label);
-    if (edgeKey.has(k)) continue;
-    let id = e.id;
-    if (!id || edgeIdSet.has(id)) id = 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
-    acceptedEdges.push({ ...e, id, from, to });
-    edgeKey.add(k);
-    edgeIdSet.add(id);
-  }
-
-  return { nodes: acceptedNodes, edges: acceptedEdges, skipped: {
-    nodes: addNodes.length - acceptedNodes.length,
-    edges: addEdges.length - acceptedEdges.length,
-  }};
-};
-
-const onUpdate = (addNodes: OntologyNode[], addEdges: OntologyEdge[]) => {
-  const { nodes: newNodes, edges: newEdges, skipped } = dedupeIncoming(addNodes, addEdges);
-  if (newNodes.length === 0 && newEdges.length === 0) {
-    if (skipped.nodes || skipped.edges) {
-      toast.info(`已忽略 ${skipped.nodes} 个重复节点 / ${skipped.edges} 条重复关系`);
-    }
-    return;
-  }
-
-  history.snapshot();
-
-  const existingIds = new Set(nodes.value.map(n => n.id));
-  const connectsToExisting = newEdges.some(e => existingIds.has(e.from) || existingIds.has(e.to));
-
-  // 用 placeIncomingNodes 给新节点选一个不和现有图冲突的初始位置(右侧暂存区)。
-  graphActions.placeIncomingNodes(newNodes);
-
-  nodes.value.push(...newNodes.map(n => ({...n, isNew: true})));
-  edges.value.push(...newEdges);
-  setTimeout(() => {
-    nodes.value.forEach(n => n.isNew = false);
-  }, 800);
-  persistCurrentModel();
-
-  if (skipped.nodes || skipped.edges) {
-    toast.info(`已合并:+${newNodes.length} 节点 / +${newEdges.length} 关系,跳过 ${skipped.nodes}/${skipped.edges} 个重复项`);
-  }
-
-  // 新节点接上了现有血缘 / 或图本身还很小时,自动跑一次分层布局,让因果链一目了然。
-  const shouldAutoLayout =
-    newNodes.length > 0 && (connectsToExisting || nodes.value.length <= 12);
-  if (shouldAutoLayout) {
-    nextTick(() => graphActions.autoLayout());
-  }
-};
-
-const clearCanvas = () => {
-  if (nodes.value.length === 0 && edges.value.length === 0) return;
-  history.snapshot();
-  // Flush any pending debounced save with previous state first to keep history honest.
-  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-  nodes.value = [];
-  edges.value = [];
-  sel.value = null;
-  persistCurrentModel(true);
-};
-
-const graphActions = useGraphActions({
-  nodes,
-  edges,
-  currentModel: () => findModel(currentModelId.value),
-  currentTitle: () => currentModelTitle.value,
-  fitView: () => graphRef.value?.fitView(),
-  persist: persistCurrentModel,
-});
-const autoLayout = () => { history.snapshot(); graphActions.autoLayout(); };
-const exportGraph = graphActions.exportGraph;
-const toggleLayoutDirection = graphActions.toggleLayoutDirection;
-const layoutDirection = graphActions.layoutDirection;
-
 // 导出菜单状态
 const showExportMenu = ref(false);
 
@@ -394,489 +362,17 @@ const showExportMenu = ref(false);
 const schemaOpen = ref(false);
 const toggleSchema = () => { schemaOpen.value = !schemaOpen.value; };
 
-// Schema 面板里改属性/约束 → 落到 nodes/edges 上 + 入历史 + 防抖保存
-const updateNodeSchema = (id: string, patch: any) => {
-  const idx = nodes.value.findIndex(n => n.id === id);
-  if (idx === -1) return;
-  history.snapshot();
-  nodes.value[idx] = { ...nodes.value[idx], ...patch };
-  persistCurrentModel();
-};
-const updateEdgeSchema = (id: string, patch: any) => {
-  const idx = edges.value.findIndex(e => e.id === id);
-  if (idx === -1) return;
-  history.snapshot();
-  edges.value[idx] = { ...edges.value[idx], ...patch };
-  persistCurrentModel();
-};
-
-// 在画布空白处右键添加节点
-const genId = (prefix: string) => prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
-
-// 在画布空白处右键添加对象节点
-const addNodeAtPosition = (payload: { mode: 'object'; label: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }) => {
-  history.snapshot();
-  const nodeId = genId('n');
-  const newNode: OntologyNode = { id: nodeId, label: payload.label, type: 'class', x: payload.x, y: payload.y, source: 'manual' };
-  nodes.value.push(newNode);
-  for (const inp of payload.inputs) {
-    edges.value.push({ id: genId('e'), from: inp.nodeId, to: nodeId, label: inp.edgeLabel || undefined, source: 'manual' });
-  }
-  for (const out of payload.outputs) {
-    edges.value.push({ id: genId('e'), from: nodeId, to: out.nodeId, label: out.edgeLabel || undefined, source: 'manual' });
-  }
-  sel.value = nodeId;
-  persistCurrentModel();
-};
-
-// 在画布上批量添加关系（边）
-const addEdgesBatch = (payload: { label: string; inputs: string[]; outputs: string[] }) => {
-  history.snapshot();
-  for (const fromId of payload.inputs) {
-    for (const toId of payload.outputs) {
-      const exists = edges.value.some(e => e.from === fromId && e.to === toId && e.label === (payload.label || undefined));
-      if (!exists) {
-        edges.value.push({ id: genId('e'), from: fromId, to: toId, label: payload.label || undefined, source: 'manual' });
-      }
-    }
-  }
-  persistCurrentModel();
-};
-
-// 关系编辑对话框状态
-const editingRelation = ref<{
-  label: string;
-  originalLabel: string;
-  inputs: string[];
-  outputs: string[];
-} | null>(null);
-
-const openEditRelation = (edgeId: string) => {
-  const edge = edges.value.find(e => e.id === edgeId);
-  if (!edge) return;
-  const lbl = edge.label || '';
-  if (lbl) {
-    const related = edges.value.filter(e => e.label === lbl);
-    const inputs = [...new Set(related.map(e => e.from))];
-    const outputs = [...new Set(related.map(e => e.to))];
-    editingRelation.value = { label: lbl, originalLabel: lbl, inputs, outputs };
-  } else {
-    editingRelation.value = { label: '', originalLabel: '', inputs: [edge.from], outputs: [edge.to] };
-  }
-};
-
-const toggleRelInput = (nodeId: string) => {
-  if (!editingRelation.value) return;
-  const idx = editingRelation.value.inputs.indexOf(nodeId);
-  if (idx >= 0) {
-    editingRelation.value.inputs.splice(idx, 1);
-  } else {
-    editingRelation.value.inputs.push(nodeId);
-    const oi = editingRelation.value.outputs.indexOf(nodeId);
-    if (oi >= 0) editingRelation.value.outputs.splice(oi, 1);
-  }
-};
-
-const toggleRelOutput = (nodeId: string) => {
-  if (!editingRelation.value) return;
-  const idx = editingRelation.value.outputs.indexOf(nodeId);
-  if (idx >= 0) {
-    editingRelation.value.outputs.splice(idx, 1);
-  } else {
-    editingRelation.value.outputs.push(nodeId);
-    const ii = editingRelation.value.inputs.indexOf(nodeId);
-    if (ii >= 0) editingRelation.value.inputs.splice(ii, 1);
-  }
-};
-
-const saveEditRelation = () => {
-  if (!editingRelation.value) return;
-  history.snapshot();
-  const { label, originalLabel, inputs, outputs } = editingRelation.value;
-  const newLabel = label.trim() || undefined;
-
-  // Remove old edges that match the original label
-  if (originalLabel) {
-    edges.value = edges.value.filter(e => e.label !== originalLabel);
-  } else {
-    // unlabeled edge: remove edges between old from/to pairs only
-    edges.value = edges.value.filter(e => {
-      if (e.label) return true;
-      return !(editingRelation.value!.inputs.includes(e.from) && editingRelation.value!.outputs.includes(e.to));
-    });
-  }
-
-  // Create new edges for all input×output combinations
-  for (const fromId of inputs) {
-    for (const toId of outputs) {
-      edges.value.push({ id: genId('e'), from: fromId, to: toId, label: newLabel, source: 'manual' });
-    }
-  }
-
-  editingRelation.value = null;
-  persistCurrentModel();
-};
-
-const cancelEditRelation = () => {
-  editingRelation.value = null;
-};
-
-// 删除整组关系：按当前编辑中的 originalLabel 清空所有同名边；
-// 没有 label 的则按 inputs×outputs 命中范围删除。
-const deleteEditingRelation = async () => {
-  if (!editingRelation.value) return;
-  const { originalLabel, inputs, outputs } = editingRelation.value;
-  const displayName = originalLabel || '(未命名关系)';
-  const ok = await confirm({
-    title: '删除关系',
-    message: `确定删除关系「${displayName}」？相关的所有边都会一并删除。`,
-    danger: true,
-    confirmLabel: '删除',
-  });
-  if (!ok) return;
-  history.snapshot();
-  if (originalLabel) {
-    edges.value = edges.value.filter(e => e.label !== originalLabel);
-  } else {
-    edges.value = edges.value.filter(e => {
-      if (e.label) return true;
-      return !(inputs.includes(e.from) && outputs.includes(e.to));
-    });
-  }
-  editingRelation.value = null;
-  persistCurrentModel();
-};
-
-const editRelGraphNodes = computed(() => {
-  return nodes.value.filter(n => n.type !== 'attribute' && n.type !== 'constraint');
-});
-
-// 节点编辑对话框状态
-const editingNode = ref<OntologyNode | null>(null);
-const editNodeInputs = ref<string[]>([]);
-const editNodeOutputs = ref<string[]>([]);
-const editInputLabels = ref<Record<string, string>>({});
-const editOutputLabels = ref<Record<string, string>>({});
-
-const SCHEMA_ONLY_TYPES = new Set(['attribute', 'constraint']);
-const editableGraphNodes = computed(() => {
-  if (!editingNode.value) return [];
-  return nodes.value.filter(n =>
-    n.id !== editingNode.value!.id && !SCHEMA_ONLY_TYPES.has(n.type)
-  );
-});
-
-const openEditNode = (id: string) => {
-  const n = nodes.value.find(n => n.id === id);
-  if (!n) return;
-  editingNode.value = { ...n };
-  editNodeInputs.value = edges.value.filter(e => e.to === id).map(e => e.from);
-  editNodeOutputs.value = edges.value.filter(e => e.from === id).map(e => e.to);
-  editInputLabels.value = {};
-  editOutputLabels.value = {};
-  for (const e of edges.value) {
-    if (e.to === id) editInputLabels.value[e.from] = e.label || '';
-    if (e.from === id) editOutputLabels.value[e.to] = e.label || '';
-  }
-};
-
-const toggleEditInput = (nodeId: string) => {
-  const idx = editNodeInputs.value.indexOf(nodeId);
-  if (idx >= 0) {
-    editNodeInputs.value.splice(idx, 1);
-    delete editInputLabels.value[nodeId];
-  } else {
-    editNodeInputs.value.push(nodeId);
-    editInputLabels.value[nodeId] = '';
-  }
-};
-
-const toggleEditOutput = (nodeId: string) => {
-  const idx = editNodeOutputs.value.indexOf(nodeId);
-  if (idx >= 0) {
-    editNodeOutputs.value.splice(idx, 1);
-    delete editOutputLabels.value[nodeId];
-  } else {
-    editNodeOutputs.value.push(nodeId);
-    editOutputLabels.value[nodeId] = '';
-  }
-};
-
-const saveEditNode = () => {
-  if (!editingNode.value) return;
-  const idx = nodes.value.findIndex(n => n.id === editingNode.value!.id);
-  if (idx === -1) return;
-  history.snapshot();
-  const nodeId = editingNode.value.id;
-  nodes.value[idx] = { ...nodes.value[idx], label: editingNode.value.label, type: editingNode.value.type };
-
-  // Remove edges no longer selected
-  edges.value = edges.value.filter(e => {
-    if (e.to === nodeId && !editNodeInputs.value.includes(e.from)) return false;
-    if (e.from === nodeId && !editNodeOutputs.value.includes(e.to)) return false;
-    return true;
-  });
-
-  // Update labels on existing edges
-  for (const e of edges.value) {
-    if (e.to === nodeId && editInputLabels.value[e.from] !== undefined) {
-      e.label = editInputLabels.value[e.from] || undefined;
-    }
-    if (e.from === nodeId && editOutputLabels.value[e.to] !== undefined) {
-      e.label = editOutputLabels.value[e.to] || undefined;
-    }
-  }
-
-  // Add new input edges
-  for (const fromId of editNodeInputs.value) {
-    if (!edges.value.some(e => e.from === fromId && e.to === nodeId)) {
-      edges.value.push({
-        id: 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
-        from: fromId, to: nodeId,
-        label: editInputLabels.value[fromId] || undefined,
-        source: 'manual',
-      });
-    }
-  }
-
-  // Add new output edges
-  for (const toId of editNodeOutputs.value) {
-    if (!edges.value.some(e => e.from === nodeId && e.to === toId)) {
-      edges.value.push({
-        id: 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
-        from: nodeId, to: toId,
-        label: editOutputLabels.value[toId] || undefined,
-        source: 'manual',
-      });
-    }
-  }
-
-  editingNode.value = null;
-  persistCurrentModel();
-};
-
-const cancelEditNode = () => {
-  editingNode.value = null;
-};
-
-// 更新节点属性
-const updateNodeProps = (id: string, newProps: { key: string; value: any; source?: string }[]) => {
-  const n = nodes.value.find(n => n.id === id);
-  if (!n) return;
-  history.snapshot();
-  n.props = newProps;
-  persistCurrentModel();
-};
-
-// 删除单条关系
-const deleteEdge = (edgeId: string) => {
-  const idx = edges.value.findIndex(e => e.id === edgeId);
-  if (idx === -1) return;
-  history.snapshot();
-  edges.value.splice(idx, 1);
-  persistCurrentModel();
-};
-
-// 删除整组同名关系（从 EdgeInfo 抽屉触发）
-const deleteRelation = async (edgeId: string) => {
-  const edge = edges.value.find(e => e.id === edgeId);
-  if (!edge) return;
-  const lbl = edge.label || '';
-  const targets = lbl ? edges.value.filter(e => e.label === lbl) : [edge];
-  const displayName = lbl || '(未命名关系)';
-  const ok = await confirm({
-    title: '删除关系',
-    message: `确定删除关系「${displayName}」？共有 ${targets.length} 条边会被一并删除。`,
-    danger: true,
-    confirmLabel: '删除',
-  });
-  if (!ok) return;
-  history.snapshot();
-  const ids = new Set(targets.map(e => e.id));
-  edges.value = edges.value.filter(e => !ids.has(e.id));
-  persistCurrentModel();
-};
-
-// 删除节点（含确认弹窗）
-const deleteNode = async (id: string) => {
-  const n = nodes.value.find(n => n.id === id);
-  if (!n) return;
-  const ok = await confirm({
-    title: '删除节点',
-    message: `确定删除节点「${n.label}」？相关的关系也会一并删除。`,
-    danger: true,
-    confirmLabel: '删除',
-  });
-  if (!ok) return;
-  history.snapshot();
-  nodes.value = nodes.value.filter(n => n.id !== id);
-  edges.value = edges.value.filter(e => e.from !== id && e.to !== id);
-  if (sel.value === id) sel.value = null;
-  persistCurrentModel();
-};
-
-// 批量删除节点（含确认弹窗）
-const deleteNodes = async (ids: string[]) => {
-  if (!ids.length) return;
-  const ok = await confirm({
-    title: '批量删除',
-    message: `确定删除选中的 ${ids.length} 个节点？相关关系也会一并删除。`,
-    danger: true,
-    confirmLabel: '删除',
-  });
-  if (!ok) return;
-  history.snapshot();
-  const idSet = new Set(ids);
-  nodes.value = nodes.value.filter(n => !idSet.has(n.id));
-  edges.value = edges.value.filter(e => !idSet.has(e.from) && !idSet.has(e.to));
-  if (sel.value && idSet.has(sel.value)) sel.value = null;
-  persistCurrentModel();
-};
-
 const focusNodeInGraph = (id: string) => {
   sel.value = id;
   graphRef.value?.focusNode?.(id);
 };
-
-// 版本历史下拉
-const showVersionMenu = ref(false);
-const versions = ref<{ timestamp: number; nodeCount: number; edgeCount: number; fileSize: number }[]>([]);
-const versionsLoading = ref(false);
-
-const loadVersions = async () => {
-  if (!currentModelId.value) return;
-  versionsLoading.value = true;
-  try {
-    versions.value = await listVersions(currentModelId.value);
-  } catch (e) {
-    console.error('Failed to load versions', e);
-    versions.value = [];
-  } finally {
-    versionsLoading.value = false;
-  }
-};
-
-const toggleVersionMenu = async () => {
-  if (!currentModelId.value) return;
-  showVersionMenu.value = !showVersionMenu.value;
-  if (showVersionMenu.value) await loadVersions();
-};
-
-const doRestoreVersion = async (timestamp: number) => {
-  if (!currentModelId.value) return;
-  const ok = await confirm({
-    title: '恢复版本',
-    message: `确定恢复到 ${new Date(timestamp).toLocaleString()} 的版本？当前版本会自动保存为快照。`,
-    confirmLabel: '恢复',
-  });
-  if (!ok) return;
-  try {
-    const restored = await restoreVersion(currentModelId.value, timestamp);
-    if (restored.graphData) {
-      nodes.value = restored.graphData.nodes || [];
-      edges.value = restored.graphData.edges || [];
-      history.reset(nodes.value, edges.value);
-    }
-    showVersionMenu.value = false;
-    toast.success('已恢复到历史版本');
-  } catch (e) {
-    toast.error('恢复失败');
-  }
-};
-
-// 模板库状态与方法
-const showTemplates = ref(false);
-const templates = ref<any[]>([]);
-const templatesLoading = ref(false);
-
-const openTemplates = async () => {
-  showTemplates.value = true;
-  templatesLoading.value = true;
-  try {
-    templates.value = await listGraphTemplates();
-  } catch (e) {
-    console.error('Failed to load templates', e);
-    templates.value = [];
-  } finally {
-    templatesLoading.value = false;
-  }
-};
-
-const saveAsTemplate = async () => {
-  if (!currentModelId.value) return;
-  const model = findModel(currentModelId.value);
-  if (!model) return;
-  const tpl = {
-    title: (model.title || '未命名') + ' (模板)',
-    desc: model.desc || '',
-    graphData: { nodes: nodes.value, edges: edges.value },
-  };
-  try {
-    await saveGraphTemplate(tpl);
-    toast.success('已保存为模板');
-  } catch (e) {
-    toast.error('保存模板失败');
-  }
-};
-
-const createFromTemplate = async (tpl: any) => {
-  if (isCreating.value) return;
-  isCreating.value = true;
-  try {
-    const title = (tpl.title || '未命名').replace(/ \(模板\)$/, '');
-    const draft: OntologyModel = {
-      id: 'om_' + Date.now(),
-      title,
-      desc: tpl.desc || '',
-      graphData: tpl.graphData || { nodes: [], edges: [] },
-    };
-    const saved = await createOnBackend(draft);
-    models.value.unshift(saved);
-    showTemplates.value = false;
-    await openModel(saved);
-    toast.success('已从模板创建新模型');
-  } catch (e) {
-    toast.error('从模板创建失败');
-  } finally {
-    isCreating.value = false;
-  }
-};
-
-const removeTemplate = async (id: string) => {
-  const ok = await confirm({
-    title: '删除模板',
-    message: '确定删除此模板？',
-    danger: true,
-    confirmLabel: '删除',
-  });
-  if (!ok) return;
-  try {
-    await deleteGraphTemplate(id);
-    templates.value = templates.value.filter(t => t.id !== id);
-    toast.success('已删除');
-  } catch (e) {
-    toast.error('删除失败');
-  }
-};
-
-const closeTemplates = () => { showTemplates.value = false; };
 
 const formatFileSize = (bytes: number) => {
   if (bytes >= 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
   if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return bytes + ' B';
 };
-
-/** 在新标签页打开当前模型的只读预览页(走 ?preview=<id> 路径,main.ts 据此挂载 PreviewView)。 */
-const openPreview = () => {
-  if (!currentModelId.value) return;
-  // 先把当前的修改 flush 一下,避免新 tab 加载到旧数据
-  persistCurrentModel(true);
-  const url = `${location.origin}${location.pathname}?preview=${encodeURIComponent(currentModelId.value)}`;
-  window.open(url, '_blank', 'noopener');
-};
 </script>
-
 <template>
   <div class="app">
     <Sidebar

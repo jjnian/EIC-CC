@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
-import type { OntologyNode, OntologyEdge } from '../types';
-import { chatStream, type ChatPayload, type ChatResult } from '../api/chat';
-import type { SseHandle } from '../api/http';
-import { useConversations, type ChatMsg, type ChatMsgAttachment, type PredictionMsg } from '../composables/useConversations';
-import type { ChainStep } from '../types';
+import type { OntologyNode, OntologyEdge, ChainStep } from '../types';
+import { useConversations, type ChatMsg, type ChatMsgAttachment } from '../composables/useConversations';
 import { useAttachments } from '../composables/useAttachments';
 import { useMention } from '../composables/useMention';
 import { useChatModels } from '../composables/useChatModels';
+import { useChatSend } from '../composables/useChatSend';
+import { usePredictionSync, type LivePrediction } from '../composables/usePredictionSync';
 import { toast } from '../composables/useToast';
 import ChatMessageList from './chat/ChatMessageList.vue';
 import AttachmentChips from './chat/AttachmentChips.vue';
@@ -22,17 +21,7 @@ const props = defineProps<{
    * 当前推演的实时状态(由 App.vue 从 usePrediction 透传下来)。
    * status: 0 空闲 1 运行中 2 完成 3 错误 4 已停止
    */
-  livePrediction?: {
-    status: 0 | 1 | 2 | 3 | 4;
-    intent: 'forward' | 'backward';
-    seeds: string[];
-    prompt: string;
-    name: string;
-    steps: ChainStep[];
-    pruneDetails: { nodeId: string; label: string; reason: string }[];
-    branchId: string;
-    error: string;
-  } | null;
+  livePrediction?: LivePrediction | null;
 }>();
 
 const emit = defineEmits<{
@@ -54,39 +43,6 @@ const msgListRef = ref<InstanceType<typeof ChatMessageList> | null>(null);
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const previewAtt = ref<ChatMsgAttachment | null>(null);
 
-// ===== SSE 流控制 =====
-let chatHandle: SseHandle | null = null;
-let currentResolveStream: (() => void) | null = null;
-let currentAiMsg: ChatMsg | null = null;
-const abortChat = () => {
-  if (chatHandle) { try { chatHandle.abort(); } catch { /* noop */ } chatHandle = null; }
-  // 中断后 SSE 不会再回调 onClose,这里手动收尾,避免 loading 卡住。
-  if (currentResolveStream) {
-    if (currentAiMsg && currentAiMsg.text === '正在分析对话内容并构建图谱…') {
-      currentAiMsg.text = '已停止生成。';
-    }
-    const r = currentResolveStream;
-    currentResolveStream = null;
-    currentAiMsg = null;
-    r();
-  }
-};
-
-// ===== composables 接线 =====
-const conv = useConversations({
-  msgs,
-  abortChat,
-  clearGraph: () => emit('clear-graph'),
-});
-const {
-  conversationTitle,
-  autoTitle,
-  persistCurrent,
-  initConversation,
-  newConversation,
-  restoreLatestOrNew,
-} = conv;
-
 const { atts, addFile } = useAttachments();
 
 const mention = useMention({
@@ -107,10 +63,45 @@ const {
 } = mention;
 
 const models = useChatModels();
+const { currentModel, loadModels } = models;
+
+// ===== Conversation 历史管理（先建好，sender 反向引用其 title）=====
+const conv = useConversations({
+  msgs,
+  abortChat: () => sender.abortChat(),
+  clearGraph: () => emit('clear-graph'),
+});
 const {
+  conversationTitle,
+  autoTitle,
+  persistCurrent,
+  initConversation,
+  restoreLatestOrNew,
+} = conv;
+
+// ===== Chat 发送 + SSE 流式 =====
+const sender = useChatSend({
+  msgs,
+  input,
+  atts,
+  loading,
+  nodes: () => props.nodes || [],
+  edges: () => props.edges || [],
+  conversationTitle: () => conversationTitle.value,
+  setConversationTitle: (t) => { conversationTitle.value = t; },
+  autoTitle,
   currentModel,
-  loadModels,
-} = models;
+  emit: (event, addNodes, addEdges) => emit(event, addNodes, addEdges),
+  closeMention: () => mention.closeMention(),
+});
+const { send, abortChat } = sender;
+
+// ===== 推演消息同步 =====
+usePredictionSync({
+  msgs,
+  livePrediction: () => props.livePrediction ?? null,
+  nodes: () => props.nodes || [],
+});
 
 // ===== 输入框键盘 / 事件 =====
 const onInputKeydown = (e: KeyboardEvent) => {
@@ -263,182 +254,6 @@ const formatTokens = (n: number) => {
   return String(n);
 };
 
-// ===== 发送 =====
-const send = async () => {
-  if (!input.value.trim() && !atts.value.length) return;
-  mention.closeMention();
-
-  // 等待所有附件读取完成
-  if (atts.value.some(a => a.loading)) {
-    loading.value = true;
-    while (atts.value.some(a => a.loading)) {
-      await new Promise(r => setTimeout(r, 80));
-    }
-    loading.value = false;
-  }
-
-  const validAtts = atts.value.filter(a => !a.error);
-  const failed = atts.value.filter(a => a.error);
-
-  const txt = input.value;
-  // 把内容随消息一起存,后续在历史里可以重新预览。体积阈值控制持久化大小。
-  const PERSIST_TEXT_MAX = 100_000;   // ~100KB per text attachment
-  const PERSIST_IMG_MAX  = 2_000_000; // ~2MB per image dataUrl
-  const uaDisplay: ChatMsgAttachment[] = atts.value.map(a => {
-    const out: ChatMsgAttachment = {
-      name: a.name, type: a.type, kind: a.kind, size: a.size, error: a.error,
-      truncated: a.truncated,
-    };
-    if (!a.error && a.content) {
-      const len = a.content.length;
-      if (a.kind === 'image' && len <= PERSIST_IMG_MAX) {
-        out.content = a.content;
-      } else if (a.kind === 'text' && len <= PERSIST_TEXT_MAX) {
-        out.content = a.content;
-      } else if (a.kind === 'text') {
-        out.content = a.content.slice(0, PERSIST_TEXT_MAX);
-        out.storedTruncated = true;
-      } else if (a.kind === 'image') {
-        // 太大的图就不持久化 dataUrl 了,只留预览失败提示
-        out.storedTruncated = true;
-      }
-    }
-    return out;
-  });
-  msgs.value.push({ role: 'u', text: txt, atts: uaDisplay });
-  input.value = '';
-  const requestAtts = [...validAtts];
-  atts.value = [];
-  loading.value = true;
-
-  if (failed.length) {
-    msgs.value.push({ role: 'a', text: '⚠ 部分文件未能加入:\n' + failed.map(a => `· ${a.name}: ${a.error}`).join('\n') });
-  }
-
-  // 首次发消息自动更新标题
-  if (conversationTitle.value === '新对话') {
-    conversationTitle.value = autoTitle(msgs.value);
-  }
-
-  // 创建 AI 消息占位(流式期间显示"分析中",complete 后替换为 parsed.reply)
-  const aiMsg: ChatMsg = { role: 'a', text: '正在分析对话内容并构建图谱…' };
-  msgs.value.push(aiMsg);
-  // LLM 返回的是 JSON,流式 chunk 不要直接灌入气泡(会让用户看到一坨原始 JSON)。
-  let rawJsonBuf = '';
-
-  try {
-    const history = msgs.value
-      .filter(m => m !== aiMsg && (m.role === 'u' || m.role === 'a') && m.text)
-      .slice(-40)
-      .map(m => ({ role: m.role === 'u' ? 'user' : 'assistant', content: m.text }));
-
-    // 文本附件拼入正文,图片作为独立 attachment
-    let composedMessage = txt;
-    const textAtts = requestAtts.filter(a => a.kind === 'text' && a.content);
-    if (textAtts.length) {
-      const docs = textAtts.map(a =>
-        `=== 文件: ${a.name}${a.truncated ? ' (已截断)' : ''} ===\n${a.content}`
-      ).join('\n\n');
-      composedMessage = (txt ? txt + '\n\n' : '') + '附加文档内容:\n' + docs;
-    }
-
-    const imageAtts = requestAtts
-      .filter(a => a.kind === 'image' && a.content)
-      .map(a => ({ name: a.name, type: 'image', dataUrl: a.content }));
-
-    const body: ChatPayload = { message: composedMessage, history };
-    // 把当前画布的节点/关系一并发给后端,让模型避免重复实体并基于已有图谱增量扩展
-    if (props.nodes?.length) {
-      body.nodes = props.nodes.map(n => ({ id: n.id, label: n.label, type: n.type }));
-    }
-    if (props.edges?.length) {
-      body.edges = props.edges.map(e => ({ id: e.id, from: e.from, to: e.to, label: e.label || '' }));
-    }
-    if (imageAtts.length) body.attachments = imageAtts;
-    if (currentModel.value?.configId) {
-      body.configId = currentModel.value.configId;
-    } else if (currentModel.value?.type === 'preset') {
-      body.modelOverride = currentModel.value.id;
-    }
-
-    abortChat();
-
-    await new Promise<void>((resolveStream) => {
-      currentResolveStream = resolveStream;
-      currentAiMsg = aiMsg;
-      chatHandle = chatStream(body, {
-        onText: (chunk: string) => {
-          rawJsonBuf += chunk;
-        },
-        onComplete: (parsed: ChatResult) => {
-          try {
-            const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
-            const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
-            const reply = (parsed.reply || '').trim();
-            if (reply) {
-              aiMsg.text = reply;
-            } else if (addNodes.length || addEdges.length) {
-              aiMsg.text = `已从对话内容提取 ${addNodes.length} 个节点 / ${addEdges.length} 条关系,已加入图谱。`;
-            } else {
-              aiMsg.text = '未识别到可加入图谱的实体或关系,请补充更具体的描述。';
-            }
-
-            // 位置交给 App.vue 的 placeIncomingNodes + autoLayout 统一摆,
-            // 这里只透传节点本身,避免圆形堆叠盖在已有图上。
-            emit('update', addNodes.map(n => ({ ...n })), addEdges);
-
-            if (addNodes.length || addEdges.length) {
-              toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
-            }
-          } catch (parseErr) {
-            console.error('Failed to handle complete event:', parseErr);
-            if (!aiMsg.text || aiMsg.text === '正在分析对话内容并构建图谱…') {
-              aiMsg.text = '解析失败,模型返回内容非合法 JSON。';
-            }
-          }
-        },
-        onError: (msg: string) => {
-          aiMsg.text = `错误: ${msg}`;
-          resolveStream();
-        },
-        onClose: () => {
-          if (aiMsg.text === '正在分析对话内容并构建图谱…') {
-            // 兜底:complete 没触发但有累计的原始 JSON,尝试解析一次。
-            const fallback = rawJsonBuf.trim().replace(/^```json/i, '').replace(/```$/, '').trim();
-            if (fallback) {
-              try {
-                const parsed = JSON.parse(fallback) as ChatResult;
-                const reply = (parsed.reply || '').trim();
-                aiMsg.text = reply || '已收到回复,但未识别到图谱更新。';
-                const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
-                const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
-                if (addNodes.length || addEdges.length) {
-                  emit('update', addNodes.map(n => ({ ...n })), addEdges);
-                  toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
-                }
-              } catch {
-                aiMsg.text = '未收到有效回复';
-              }
-            } else {
-              aiMsg.text = '未收到有效回复';
-            }
-          }
-          resolveStream();
-        },
-      });
-    });
-  } catch (error: any) {
-    const lastAi = [...msgs.value].reverse().find(m => m.role === 'a');
-    if (lastAi && !lastAi.text) {
-      lastAi.text = `网络或解析错误: ${error.message}`;
-    }
-  } finally {
-    chatHandle = null;
-    currentResolveStream = null;
-    currentAiMsg = null;
-    loading.value = false;
-  }
-};
 </script>
 
 <template>
