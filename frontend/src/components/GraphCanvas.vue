@@ -42,7 +42,9 @@ const emit = defineEmits<{
   (e: 'explain-node', id: string): void;
   (e: 'undo'): void;
   (e: 'redo'): void;
-  (e: 'add-node', payload: { label: string; type: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }): void;
+  (e: 'add-node', payload: { mode: 'object'; label: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }): void;
+  (e: 'add-edges', payload: { label: string; inputs: string[]; outputs: string[] }): void;
+  (e: 'edit-edge-relation', edgeId: string): void;
 }>();
 
 /* ── 节点类型筛选（图例点击） ── */
@@ -152,12 +154,12 @@ const nodeOutCount = computed(() => {
 
 /* ── 右键菜单 ── */
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
-/* ── 添加节点表单 ── */
+/* ── 添加节点/关系表单 ── */
 const addNodeForm = ref<{
+  mode: 'object' | 'relation';
   canvasX: number;
   canvasY: number;
   label: string;
-  type: string;
   inputs: string[];
   outputs: string[];
   inputLabels: Record<string, string>;
@@ -182,9 +184,9 @@ const onCanvasContext = (e: MouseEvent) => {
   const canvasX = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
   const canvasY = (e.clientY - rect.top + cvRef.value!.scrollTop) / zoom.value;
   addNodeForm.value = {
+    mode: 'object',
     canvasX, canvasY,
     label: '',
-    type: 'class',
     inputs: [],
     outputs: [],
     inputLabels: {},
@@ -238,16 +240,26 @@ const triggerBatchDelete = () => {
 };
 
 const submitAddNode = () => {
-  if (!addNodeForm.value || !addNodeForm.value.label.trim()) return;
+  if (!addNodeForm.value) return;
   const f = addNodeForm.value;
-  emit('add-node', {
-    label: f.label.trim(),
-    type: f.type,
-    x: f.canvasX,
-    y: f.canvasY,
-    inputs: f.inputs.map(id => ({ nodeId: id, edgeLabel: f.inputLabels[id] || '' })),
-    outputs: f.outputs.map(id => ({ nodeId: id, edgeLabel: f.outputLabels[id] || '' })),
-  });
+  if (f.mode === 'object') {
+    if (!f.label.trim()) return;
+    emit('add-node', {
+      mode: 'object',
+      label: f.label.trim(),
+      x: f.canvasX,
+      y: f.canvasY,
+      inputs: f.inputs.map(id => ({ nodeId: id, edgeLabel: f.inputLabels[id] || '' })),
+      outputs: f.outputs.map(id => ({ nodeId: id, edgeLabel: f.outputLabels[id] || '' })),
+    });
+  } else {
+    if (f.inputs.length === 0 || f.outputs.length === 0) return;
+    emit('add-edges', {
+      label: f.label.trim(),
+      inputs: f.inputs,
+      outputs: f.outputs,
+    });
+  }
   addNodeForm.value = null;
 };
 
@@ -688,6 +700,8 @@ defineExpose({ fitView, focusNode });
             <g>
               <template v-for="e in visibleEdges" :key="e.id">
                 <g v-if="nmap[e.from] && nmap[e.to]" :style="{ opacity: !edgeMatchesFilter(e) ? 0.15 : (selId && selId !== e.from && selId !== e.to ? 0.25 : 1), transition: 'opacity .2s' }">
+                  <!-- 不可见点击热区 -->
+                  <path v-if="!readonly" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" @click.stop="emit('edit-edge-relation', e.id)" />
                   <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : '#42b883')" :stroke-width="8" opacity="0.1"/>
                   <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
                         :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.3)'))"
@@ -777,53 +791,95 @@ defineExpose({ fitView, focusNode });
       </button>
     </div>
 
-    <!-- 添加节点表单 (画布空白处右键) -->
+    <!-- 添加对象/关系表单 (画布空白处右键) -->
     <div v-if="addNodeForm" class="modal-mask" @click.self="addNodeForm = null">
       <div class="add-node-dialog" @click.stop>
-        <h3>添加节点</h3>
-        <label class="anp-label">名称
-          <input ref="addNodeInputRef" v-model="addNodeForm.label" class="edit-input" placeholder="输入节点名称…" @keydown.enter="submitAddNode" @keydown.escape="addNodeForm = null" />
-        </label>
-        <label class="anp-label">类型
-          <select v-model="addNodeForm.type" class="edit-input">
-            <option value="class">对象</option>
-            <option value="relation_type">关系类型</option>
-          </select>
-        </label>
-        <div v-if="graphNodes.length > 0" class="anp-section">
-          <div class="anp-section-title">输入连接 <span class="anp-hint">（从哪些节点连入）</span></div>
-          <div class="anp-node-list">
-            <div v-for="n in graphNodes" :key="'in-'+n.id" class="anp-node-option">
-              <label class="anp-check-label" @click.prevent="toggleAddNodeInput(n.id)">
-                <span :class="['anp-checkbox', { checked: addNodeForm.inputs.includes(n.id) }]">
-                  <span v-if="addNodeForm.inputs.includes(n.id)" class="anp-check-mark">✓</span>
-                </span>
-                <span class="anp-node-dot" :style="{ background: getT(n).color }"></span>
-                <span class="anp-node-name">{{ n.label }}</span>
-              </label>
-              <input v-if="addNodeForm.inputs.includes(n.id)" v-model="addNodeForm.inputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
+        <!-- 模式切换 -->
+        <div class="anp-mode-tabs">
+          <button :class="['anp-mode-tab', { active: addNodeForm.mode === 'object' }]" @click="addNodeForm.mode = 'object'">添加对象</button>
+          <button :class="['anp-mode-tab', { active: addNodeForm.mode === 'relation' }]" @click="addNodeForm.mode = 'relation'">添加关系</button>
+        </div>
+
+        <!-- 对象模式 -->
+        <template v-if="addNodeForm.mode === 'object'">
+          <label class="anp-label">名称
+            <input ref="addNodeInputRef" v-model="addNodeForm.label" class="edit-input" placeholder="输入对象名称…" @keydown.enter="submitAddNode" @keydown.escape="addNodeForm = null" />
+          </label>
+          <div v-if="graphNodes.length > 0" class="anp-section">
+            <div class="anp-section-title">输入连接 <span class="anp-hint">（从哪些节点连入）</span></div>
+            <div class="anp-node-list">
+              <div v-for="n in graphNodes" :key="'in-'+n.id" class="anp-node-option">
+                <label class="anp-check-label" @click.prevent="toggleAddNodeInput(n.id)">
+                  <span :class="['anp-checkbox', { checked: addNodeForm.inputs.includes(n.id) }]">
+                    <span v-if="addNodeForm.inputs.includes(n.id)" class="anp-check-mark">✓</span>
+                  </span>
+                  <span class="anp-node-dot" :style="{ background: getT(n).color }"></span>
+                  <span class="anp-node-name">{{ n.label }}</span>
+                </label>
+                <input v-if="addNodeForm.inputs.includes(n.id)" v-model="addNodeForm.inputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
+              </div>
             </div>
           </div>
-        </div>
-        <div v-if="graphNodes.length > 0" class="anp-section">
-          <div class="anp-section-title">输出连接 <span class="anp-hint">（连向哪些节点）</span></div>
-          <div class="anp-node-list">
-            <div v-for="n in graphNodes" :key="'out-'+n.id" class="anp-node-option">
-              <label class="anp-check-label" @click.prevent="toggleAddNodeOutput(n.id)">
-                <span :class="['anp-checkbox', { checked: addNodeForm.outputs.includes(n.id) }]">
-                  <span v-if="addNodeForm.outputs.includes(n.id)" class="anp-check-mark">✓</span>
-                </span>
-                <span class="anp-node-dot" :style="{ background: getT(n).color }"></span>
-                <span class="anp-node-name">{{ n.label }}</span>
-              </label>
-              <input v-if="addNodeForm.outputs.includes(n.id)" v-model="addNodeForm.outputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
+          <div v-if="graphNodes.length > 0" class="anp-section">
+            <div class="anp-section-title">输出连接 <span class="anp-hint">（连向哪些节点）</span></div>
+            <div class="anp-node-list">
+              <div v-for="n in graphNodes" :key="'out-'+n.id" class="anp-node-option">
+                <label class="anp-check-label" @click.prevent="toggleAddNodeOutput(n.id)">
+                  <span :class="['anp-checkbox', { checked: addNodeForm.outputs.includes(n.id) }]">
+                    <span v-if="addNodeForm.outputs.includes(n.id)" class="anp-check-mark">✓</span>
+                  </span>
+                  <span class="anp-node-dot" :style="{ background: getT(n).color }"></span>
+                  <span class="anp-node-name">{{ n.label }}</span>
+                </label>
+                <input v-if="addNodeForm.outputs.includes(n.id)" v-model="addNodeForm.outputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
+              </div>
             </div>
           </div>
-        </div>
-        <div class="edit-actions">
-          <button class="edit-cancel" @click="addNodeForm = null">取消</button>
-          <button class="edit-save" @click="submitAddNode" :disabled="!addNodeForm.label.trim()">添加</button>
-        </div>
+          <div class="edit-actions">
+            <button class="edit-cancel" @click="addNodeForm = null">取消</button>
+            <button class="edit-save" @click="submitAddNode" :disabled="!addNodeForm.label.trim()">添加</button>
+          </div>
+        </template>
+
+        <!-- 关系模式 -->
+        <template v-else>
+          <label class="anp-label">关系名称
+            <input ref="addNodeInputRef" v-model="addNodeForm.label" class="edit-input" placeholder="输入关系名称（如：拥有、影响）…" @keydown.enter="submitAddNode" @keydown.escape="addNodeForm = null" />
+          </label>
+          <div v-if="graphNodes.length > 0" class="anp-section">
+            <div class="anp-section-title">输入节点 <span class="anp-hint">（关系的起始节点，可多选）</span></div>
+            <div class="anp-node-list">
+              <div v-for="n in graphNodes" :key="'rin-'+n.id" class="anp-node-option">
+                <label class="anp-check-label" @click.prevent="toggleAddNodeInput(n.id)">
+                  <span :class="['anp-checkbox', { checked: addNodeForm.inputs.includes(n.id) }]">
+                    <span v-if="addNodeForm.inputs.includes(n.id)" class="anp-check-mark">✓</span>
+                  </span>
+                  <span class="anp-node-dot" :style="{ background: getT(n).color }"></span>
+                  <span class="anp-node-name">{{ n.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div v-if="graphNodes.length > 0" class="anp-section">
+            <div class="anp-section-title">输出节点 <span class="anp-hint">（关系的目标节点，可多选）</span></div>
+            <div class="anp-node-list">
+              <div v-for="n in graphNodes" :key="'rout-'+n.id" class="anp-node-option">
+                <label class="anp-check-label" @click.prevent="toggleAddNodeOutput(n.id)">
+                  <span :class="['anp-checkbox', { checked: addNodeForm.outputs.includes(n.id) }]">
+                    <span v-if="addNodeForm.outputs.includes(n.id)" class="anp-check-mark">✓</span>
+                  </span>
+                  <span class="anp-node-dot" :style="{ background: getT(n).color }"></span>
+                  <span class="anp-node-name">{{ n.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div v-if="graphNodes.length === 0" class="anp-empty-hint">请先添加对象节点后再创建关系</div>
+          <div class="edit-actions">
+            <button class="edit-cancel" @click="addNodeForm = null">取消</button>
+            <button class="edit-save" @click="submitAddNode" :disabled="addNodeForm.inputs.length === 0 || addNodeForm.outputs.length === 0">添加</button>
+          </div>
+        </template>
       </div>
     </div>
 
