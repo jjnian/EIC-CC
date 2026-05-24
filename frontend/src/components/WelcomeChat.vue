@@ -92,7 +92,7 @@ const onInputKeydown = (e: KeyboardEvent) => {
             </svg>
             <span>添加文件</span>
           </button>
-          <input ref="fileRef" type="file" multiple accept="image/*,.txt,.md,.markdown,.json,.csv,.tsv,.log,.xml,.yaml,.yml,.html,.htm,.js,.ts,.py,.java,.sql,.toml,.ini,.env,.vue,.css,text/*" style="display:none" @change="(e: any) => { addFiles(e.target.files); e.target.value = ''; }" />
+          <input ref="fileRef" type="file" multiple accept="image/*,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.json,.csv,.tsv,.log,.xml,.yaml,.yml,.html,.htm,.js,.ts,.py,.java,.sql,.toml,.ini,.env,.vue,.css,text/*" style="display:none" @change="(e: any) => { addFiles(e.target.files); e.target.value = ''; }" />
           <div class="welcome-spacer" />
           <span class="welcome-hint">Enter 发送 · Shift+Enter 换行</span>
           <button class="welcome-send" :disabled="!input.trim() && !atts.length" @click="handleSubmit" title="构建本体图">
