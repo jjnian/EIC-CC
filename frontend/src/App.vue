@@ -443,6 +443,78 @@ const addEdgesBatch = (payload: { label: string; inputs: string[]; outputs: stri
   persistCurrentModel();
 };
 
+// 关系编辑对话框状态
+const editingRelation = ref<{
+  label: string;
+  originalLabel: string;
+  inputs: string[];
+  outputs: string[];
+} | null>(null);
+
+const openEditRelation = (edgeId: string) => {
+  const edge = edges.value.find(e => e.id === edgeId);
+  if (!edge) return;
+  const lbl = edge.label || '';
+  if (lbl) {
+    const related = edges.value.filter(e => e.label === lbl);
+    const inputs = [...new Set(related.map(e => e.from))];
+    const outputs = [...new Set(related.map(e => e.to))];
+    editingRelation.value = { label: lbl, originalLabel: lbl, inputs, outputs };
+  } else {
+    editingRelation.value = { label: '', originalLabel: '', inputs: [edge.from], outputs: [edge.to] };
+  }
+};
+
+const toggleRelInput = (nodeId: string) => {
+  if (!editingRelation.value) return;
+  const idx = editingRelation.value.inputs.indexOf(nodeId);
+  if (idx >= 0) editingRelation.value.inputs.splice(idx, 1);
+  else editingRelation.value.inputs.push(nodeId);
+};
+
+const toggleRelOutput = (nodeId: string) => {
+  if (!editingRelation.value) return;
+  const idx = editingRelation.value.outputs.indexOf(nodeId);
+  if (idx >= 0) editingRelation.value.outputs.splice(idx, 1);
+  else editingRelation.value.outputs.push(nodeId);
+};
+
+const saveEditRelation = () => {
+  if (!editingRelation.value) return;
+  history.snapshot();
+  const { label, originalLabel, inputs, outputs } = editingRelation.value;
+  const newLabel = label.trim() || undefined;
+
+  // Remove old edges that match the original label
+  if (originalLabel) {
+    edges.value = edges.value.filter(e => e.label !== originalLabel);
+  } else {
+    // unlabeled edge: remove edges between old from/to pairs only
+    edges.value = edges.value.filter(e => {
+      if (e.label) return true;
+      return !(editingRelation.value!.inputs.includes(e.from) && editingRelation.value!.outputs.includes(e.to));
+    });
+  }
+
+  // Create new edges for all input×output combinations
+  for (const fromId of inputs) {
+    for (const toId of outputs) {
+      edges.value.push({ id: genId('e'), from: fromId, to: toId, label: newLabel, source: 'manual' });
+    }
+  }
+
+  editingRelation.value = null;
+  persistCurrentModel();
+};
+
+const cancelEditRelation = () => {
+  editingRelation.value = null;
+};
+
+const editRelGraphNodes = computed(() => {
+  return nodes.value.filter(n => n.type !== 'attribute' && n.type !== 'constraint');
+});
+
 // 节点编辑对话框状态
 const editingNode = ref<OntologyNode | null>(null);
 const editNodeInputs = ref<string[]>([]);
@@ -904,6 +976,7 @@ const openPreview = () => {
         @clear-diff="clearDiffHighlight"
         @add-node="addNodeAtPosition"
         @add-edges="addEdgesBatch"
+        @edit-edge-relation="openEditRelation"
       />
 
       <!-- Predict Dialog (modal) -->
@@ -979,6 +1052,48 @@ const openPreview = () => {
           <div class="edit-actions">
             <button class="edit-cancel" @click="cancelEditNode">取消</button>
             <button class="edit-save" @click="saveEditNode">保存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 关系编辑对话框 -->
+      <div v-if="editingRelation" class="modal-mask" @click.self="cancelEditRelation">
+        <div class="add-node-dialog" @click.stop>
+          <h3>编辑关系</h3>
+          <label class="anp-label">关系名称
+            <input v-model="editingRelation.label" class="edit-input" placeholder="输入关系名称…" @keydown.escape="cancelEditRelation" />
+          </label>
+          <div v-if="editRelGraphNodes.length > 0" class="anp-section">
+            <div class="anp-section-title">输入节点 <span class="anp-hint">（关系的起始节点，可多选）</span></div>
+            <div class="anp-node-list">
+              <div v-for="n in editRelGraphNodes" :key="'ri-'+n.id" class="anp-node-option">
+                <label class="anp-check-label" @click.prevent="toggleRelInput(n.id)">
+                  <span :class="['anp-checkbox', { checked: editingRelation.inputs.includes(n.id) }]">
+                    <span v-if="editingRelation.inputs.includes(n.id)" class="anp-check-mark">✓</span>
+                  </span>
+                  <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
+                  <span class="anp-node-name">{{ n.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div v-if="editRelGraphNodes.length > 0" class="anp-section">
+            <div class="anp-section-title">输出节点 <span class="anp-hint">（关系的目标节点，可多选）</span></div>
+            <div class="anp-node-list">
+              <div v-for="n in editRelGraphNodes" :key="'ro-'+n.id" class="anp-node-option">
+                <label class="anp-check-label" @click.prevent="toggleRelOutput(n.id)">
+                  <span :class="['anp-checkbox', { checked: editingRelation.outputs.includes(n.id) }]">
+                    <span v-if="editingRelation.outputs.includes(n.id)" class="anp-check-mark">✓</span>
+                  </span>
+                  <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
+                  <span class="anp-node-name">{{ n.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="edit-actions">
+            <button class="edit-cancel" @click="cancelEditRelation">取消</button>
+            <button class="edit-save" @click="saveEditRelation" :disabled="editingRelation.inputs.length === 0 || editingRelation.outputs.length === 0">保存</button>
           </div>
         </div>
       </div>

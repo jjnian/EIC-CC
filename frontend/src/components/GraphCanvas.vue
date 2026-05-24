@@ -44,6 +44,7 @@ const emit = defineEmits<{
   (e: 'redo'): void;
   (e: 'add-node', payload: { mode: 'object'; label: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }): void;
   (e: 'add-edges', payload: { label: string; inputs: string[]; outputs: string[] }): void;
+  (e: 'edit-edge-relation', edgeId: string): void;
 }>();
 
 /* ── 节点类型筛选（图例点击） ── */
@@ -699,6 +700,8 @@ defineExpose({ fitView, focusNode });
             <g>
               <template v-for="e in visibleEdges" :key="e.id">
                 <g v-if="nmap[e.from] && nmap[e.to]" :style="{ opacity: !edgeMatchesFilter(e) ? 0.15 : (selId && selId !== e.from && selId !== e.to ? 0.25 : 1), transition: 'opacity .2s' }">
+                  <!-- 不可见点击热区 -->
+                  <path v-if="!readonly" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" @click.stop="emit('edit-edge-relation', e.id)" />
                   <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : '#42b883')" :stroke-width="8" opacity="0.1"/>
                   <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
                         :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.3)'))"
