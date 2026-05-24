@@ -128,6 +128,18 @@ body {
   pointer-events: none;
   box-shadow: 0 2px 6px rgba(251, 191, 36, 0.4);
 }
+.node-lock-badge {
+  position: absolute;
+  top: -8px;
+  left: -6px;
+  font-size: 10px;
+  background: rgba(255, 51, 153, 0.2);
+  padding: 2px 5px;
+  border-radius: 100px;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(255, 51, 153, 0.25);
+  line-height: 1;
+}
 /* TBox 约束标记: 有约束的类节点 / 关系边上挂一个小锁 */
 .node-lock {
   position: absolute;
@@ -442,6 +454,12 @@ body {
   margin-top: 6px;
   align-self: flex-end;
 }
+.ni-rel-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ni-th { text-align: left; padding: 6px 8px; color: rgba(255,255,255,0.45); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(255,255,255,0.08); white-space: nowrap; }
+.ni-tr { transition: background .1s; }
+.ni-tr:hover { background: rgba(255,255,255,0.03); }
+.ni-td { padding: 7px 8px; color: var(--text-main); border-bottom: 1px solid rgba(255,255,255,0.04); vertical-align: middle; white-space: nowrap; }
+.ni-lock-inline { font-size: 11px; margin-left: 4px; cursor: help; }
 
 /* ── Divider ── */
 .resize-divider { width:8px; margin: 0 -4px; background:transparent; cursor:col-resize; flex-shrink:0; position:relative; z-index: 10; display:flex; align-items:center; justify-content:center; }
