@@ -14,6 +14,8 @@ const emit = defineEmits<{
   (e: 'update-node-props', id: string, props: { key: string; value: any; source?: string }[]): void;
   (e: 'delete-edge', edgeId: string): void;
   (e: 'update-node-schema', id: string, patch: any): void;
+  (e: 'edit-edge-relation', edgeId: string): void;
+  (e: 'update-edge-schema', id: string, patch: any): void;
 }>();
 
 const tab = ref(0);
@@ -28,20 +30,31 @@ const incoming = computed(() => props.node ? props.edges.filter(e => e.to === pr
 
 // 关系上的约束: 当前选中节点参与的所有边里,把带约束的提出来,概览页直接展示一遍,
 // 这样"点对象"也能看到关联关系的约束,不必再切到关系 Tab。
+// 同时记录 edgeId 和该约束在 edge.constraints 数组里的下标，方便就地删除。
 const relatedEdgeConstraints = computed(() => {
-  const out: { c: any; relLabel: string }[] = [];
+  const out: { c: any; relLabel: string; edgeId: string; index: number }[] = [];
   if (!props.node) return out;
   const nm = nmap.value;
   for (const e of props.edges) {
     if (e.from !== props.node.id && e.to !== props.node.id) continue;
-    for (const c of (e.constraints || [])) {
+    const cons = e.constraints || [];
+    for (let i = 0; i < cons.length; i++) {
+      const c = cons[i];
       const fromL = nm[e.from]?.label || e.from;
       const toL = nm[e.to]?.label || e.to;
-      out.push({ c, relLabel: `${fromL} —${e.label || ''}→ ${toL}` });
+      out.push({ c, relLabel: `${fromL} —${e.label || ''}→ ${toL}`, edgeId: e.id, index: i });
     }
   }
   return out;
 });
+
+const removeRelatedEdgeConstraint = (edgeId: string, index: number) => {
+  const edge = props.edges.find(e => e.id === edgeId);
+  if (!edge) return;
+  const cons = [...(edge.constraints || [])];
+  cons.splice(index, 1);
+  emit('update-edge-schema', edgeId, { constraints: cons });
+};
 
 // 关系约束的"展开/收起"状态: 同一节点可以展开多条关系
 const expandedEdges = ref(new Set<string>());
@@ -248,7 +261,7 @@ const startResize = (e: MouseEvent) => {
                         <th class="ni-th">关系名称</th>
                         <th class="ni-th">来源</th>
                         <th class="ni-th">目标节点</th>
-                        <th class="ni-th" style="width:32px"></th>
+                        <th class="ni-th" style="width:64px"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -266,7 +279,10 @@ const startResize = (e: MouseEvent) => {
                             <span v-else class="ni-src dim">预置</span>
                           </td>
                           <td class="ni-td">{{ nmap[e.to].label }}</td>
-                          <td class="ni-td"><button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button></td>
+                          <td class="ni-td ni-td-actions">
+                            <button class="ni-edge-edit" @click="emit('edit-edge-relation', e.id)" title="编辑关系">✎</button>
+                            <button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button>
+                          </td>
                         </tr>
                       </template>
                       <template v-for="e in incoming" :key="e.id">
@@ -283,7 +299,10 @@ const startResize = (e: MouseEvent) => {
                             <span v-else class="ni-src dim">预置</span>
                           </td>
                           <td class="ni-td">{{ nmap[e.from].label }}</td>
-                          <td class="ni-td"><button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button></td>
+                          <td class="ni-td ni-td-actions">
+                            <button class="ni-edge-edit" @click="emit('edit-edge-relation', e.id)" title="编辑关系">✎</button>
+                            <button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button>
+                          </td>
                         </tr>
                       </template>
                     </tbody>
@@ -324,6 +343,7 @@ const startResize = (e: MouseEvent) => {
                         <span class="ni-cons-kind">{{ kindLabel(row.c.kind) }}</span>
                         <span class="ni-badge" :style="{color: sourceBadge(row.c.source).color, background: sourceBadge(row.c.source).bg}">{{ sourceBadge(row.c.source).text }}</span>
                         <span class="ni-cons-rel">{{ row.relLabel }}</span>
+                        <button class="ni-prop-del" style="margin-left:auto" @click="removeRelatedEdgeConstraint(row.edgeId, row.index)" title="删除该约束">✕</button>
                       </div>
                       <div class="ni-cons-note">{{ row.c.note }}</div>
                     </div>

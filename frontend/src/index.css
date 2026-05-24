@@ -209,42 +209,6 @@ body {
 .ctx-danger { color: #ef4444; }
 .ctx-danger:hover { background: rgba(239, 68, 68, 0.15); }
 
-/* ── Node Ports (input/output indicators) ── */
-.node-ports-left, .node-ports-right {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  z-index: 2;
-  pointer-events: none;
-}
-.node-ports-left { left: -5px; }
-.node-ports-right { right: -5px; }
-.node-port {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1.5px solid;
-  transition: all 0.2s;
-  box-shadow: 0 0 4px rgba(0,0,0,0.3);
-}
-.node:hover .node-port {
-  transform: scale(1.3);
-}
-.node-sel .node-port {
-  transform: scale(1.4);
-  box-shadow: 0 0 6px rgba(255,255,255,0.2);
-}
-.port-overflow {
-  font-size: 7px;
-  color: rgba(255,255,255,0.4);
-  line-height: 1;
-  text-align: center;
-  pointer-events: none;
-}
-
 /* ── Add Node / Relation Dialog ── */
 .anp-mode-tabs {
   display: flex;
@@ -749,6 +713,18 @@ body {
   transition: color .15s, background .15s;
 }
 .ni-prop-del:hover, .ni-edge-del:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+.ni-edge-edit {
+  background: transparent;
+  border: none;
+  color: rgba(255,255,255,0.35);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: color .15s, background .15s;
+}
+.ni-edge-edit:hover { color: #fbbf24; background: rgba(251, 191, 36, 0.1); }
+.ni-td-actions { display: flex; gap: 2px; justify-content: flex-end; }
 .ni-prop-actions { display: flex; gap: 8px; margin-top: 4px; }
 .ni-prop-add {
   flex: 1;

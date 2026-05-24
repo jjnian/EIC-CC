@@ -468,15 +468,25 @@ const openEditRelation = (edgeId: string) => {
 const toggleRelInput = (nodeId: string) => {
   if (!editingRelation.value) return;
   const idx = editingRelation.value.inputs.indexOf(nodeId);
-  if (idx >= 0) editingRelation.value.inputs.splice(idx, 1);
-  else editingRelation.value.inputs.push(nodeId);
+  if (idx >= 0) {
+    editingRelation.value.inputs.splice(idx, 1);
+  } else {
+    editingRelation.value.inputs.push(nodeId);
+    const oi = editingRelation.value.outputs.indexOf(nodeId);
+    if (oi >= 0) editingRelation.value.outputs.splice(oi, 1);
+  }
 };
 
 const toggleRelOutput = (nodeId: string) => {
   if (!editingRelation.value) return;
   const idx = editingRelation.value.outputs.indexOf(nodeId);
-  if (idx >= 0) editingRelation.value.outputs.splice(idx, 1);
-  else editingRelation.value.outputs.push(nodeId);
+  if (idx >= 0) {
+    editingRelation.value.outputs.splice(idx, 1);
+  } else {
+    editingRelation.value.outputs.push(nodeId);
+    const ii = editingRelation.value.inputs.indexOf(nodeId);
+    if (ii >= 0) editingRelation.value.inputs.splice(ii, 1);
+  }
 };
 
 const saveEditRelation = () => {
@@ -509,6 +519,32 @@ const saveEditRelation = () => {
 
 const cancelEditRelation = () => {
   editingRelation.value = null;
+};
+
+// 删除整组关系：按当前编辑中的 originalLabel 清空所有同名边；
+// 没有 label 的则按 inputs×outputs 命中范围删除。
+const deleteEditingRelation = async () => {
+  if (!editingRelation.value) return;
+  const { originalLabel, inputs, outputs } = editingRelation.value;
+  const displayName = originalLabel || '(未命名关系)';
+  const ok = await confirm({
+    title: '删除关系',
+    message: `确定删除关系「${displayName}」？相关的所有边都会一并删除。`,
+    danger: true,
+    confirmLabel: '删除',
+  });
+  if (!ok) return;
+  history.snapshot();
+  if (originalLabel) {
+    edges.value = edges.value.filter(e => e.label !== originalLabel);
+  } else {
+    edges.value = edges.value.filter(e => {
+      if (e.label) return true;
+      return !(inputs.includes(e.from) && outputs.includes(e.to));
+    });
+  }
+  editingRelation.value = null;
+  persistCurrentModel();
 };
 
 const editRelGraphNodes = computed(() => {
@@ -638,6 +674,26 @@ const deleteEdge = (edgeId: string) => {
   if (idx === -1) return;
   history.snapshot();
   edges.value.splice(idx, 1);
+  persistCurrentModel();
+};
+
+// 删除整组同名关系（从 EdgeInfo 抽屉触发）
+const deleteRelation = async (edgeId: string) => {
+  const edge = edges.value.find(e => e.id === edgeId);
+  if (!edge) return;
+  const lbl = edge.label || '';
+  const targets = lbl ? edges.value.filter(e => e.label === lbl) : [edge];
+  const displayName = lbl || '(未命名关系)';
+  const ok = await confirm({
+    title: '删除关系',
+    message: `确定删除关系「${displayName}」？共有 ${targets.length} 条边会被一并删除。`,
+    danger: true,
+    confirmLabel: '删除',
+  });
+  if (!ok) return;
+  history.snapshot();
+  const ids = new Set(targets.map(e => e.id));
+  edges.value = edges.value.filter(e => !ids.has(e.id));
   persistCurrentModel();
 };
 
@@ -977,6 +1033,7 @@ const openPreview = () => {
         @add-node="addNodeAtPosition"
         @add-edges="addEdgesBatch"
         @edit-edge-relation="openEditRelation"
+        @delete-relation="deleteRelation"
       />
 
       <!-- Predict Dialog (modal) -->
@@ -1066,7 +1123,7 @@ const openPreview = () => {
           <div v-if="editRelGraphNodes.length > 0" class="anp-section">
             <div class="anp-section-title">输入节点 <span class="anp-hint">（关系的起始节点，可多选）</span></div>
             <div class="anp-node-list">
-              <div v-for="n in editRelGraphNodes" :key="'ri-'+n.id" class="anp-node-option">
+              <div v-for="n in editRelGraphNodes.filter(x => !editingRelation!.outputs.includes(x.id))" :key="'ri-'+n.id" class="anp-node-option">
                 <label class="anp-check-label" @click.prevent="toggleRelInput(n.id)">
                   <span :class="['anp-checkbox', { checked: editingRelation.inputs.includes(n.id) }]">
                     <span v-if="editingRelation.inputs.includes(n.id)" class="anp-check-mark">✓</span>
@@ -1080,7 +1137,7 @@ const openPreview = () => {
           <div v-if="editRelGraphNodes.length > 0" class="anp-section">
             <div class="anp-section-title">输出节点 <span class="anp-hint">（关系的目标节点，可多选）</span></div>
             <div class="anp-node-list">
-              <div v-for="n in editRelGraphNodes" :key="'ro-'+n.id" class="anp-node-option">
+              <div v-for="n in editRelGraphNodes.filter(x => !editingRelation!.inputs.includes(x.id))" :key="'ro-'+n.id" class="anp-node-option">
                 <label class="anp-check-label" @click.prevent="toggleRelOutput(n.id)">
                   <span :class="['anp-checkbox', { checked: editingRelation.outputs.includes(n.id) }]">
                     <span v-if="editingRelation.outputs.includes(n.id)" class="anp-check-mark">✓</span>
@@ -1092,6 +1149,7 @@ const openPreview = () => {
             </div>
           </div>
           <div class="edit-actions">
+            <button class="edit-delete" @click="deleteEditingRelation">删除关系</button>
             <button class="edit-cancel" @click="cancelEditRelation">取消</button>
             <button class="edit-save" @click="saveEditRelation" :disabled="editingRelation.inputs.length === 0 || editingRelation.outputs.length === 0">保存</button>
           </div>
@@ -1272,6 +1330,18 @@ const openPreview = () => {
   padding: 6px 16px;
   cursor: pointer;
 }
+.edit-delete {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+  border-radius: 6px;
+  padding: 6px 16px;
+  cursor: pointer;
+  margin-right: auto;
+  font-family: inherit;
+  transition: background-color .15s;
+}
+.edit-delete:hover { background: rgba(239, 68, 68, 0.12); }
 
 /* 版本历史面板 */
 .version-panel {

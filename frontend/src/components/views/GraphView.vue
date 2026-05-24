@@ -2,6 +2,7 @@
 import { computed, ref, watch, type PropType } from 'vue';
 import GraphCanvas from '../GraphCanvas.vue';
 import NodeInfo from '../NodeInfo.vue';
+import EdgeInfo from '../EdgeInfo.vue';
 import ChatPanel from '../ChatPanel.vue';
 import ExplanationPanel from '../ExplanationPanel.vue';
 import SchemaPanel from '../SchemaPanel.vue';
@@ -76,14 +77,35 @@ const emit = defineEmits<{
   (e: 'add-node', payload: { mode: 'object'; label: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }): void;
   (e: 'add-edges', payload: { label: string; inputs: string[]; outputs: string[] }): void;
   (e: 'edit-edge-relation', edgeId: string): void;
+  (e: 'delete-relation', edgeId: string): void;
 }>();
 
 const selNode = computed(() => props.nodes.find(n => n.id === props.selectedId) || null);
 
-const onSelect = (id: string | null) => emit('update:selectedId', id);
+// 当前在底部抽屉里展示的关系（边）id；与节点选择互斥
+const selectedEdgeId = ref<string | null>(null);
+const selEdge = computed(() => props.edges.find(e => e.id === selectedEdgeId.value) || null);
+
+const onSelect = (id: string | null) => {
+  selectedEdgeId.value = null;
+  emit('update:selectedId', id);
+};
+const onSelectEdge = (id: string) => {
+  // 选边时清掉节点选择，避免两个抽屉同时弹
+  if (props.selectedId) emit('update:selectedId', null);
+  selectedEdgeId.value = id;
+};
+const onCloseEdgeInfo = () => { selectedEdgeId.value = null; };
 const onCloseInfo = () => {
   emit('update:selectedId', null);
 };
+
+// 边被删除或不再存在时，自动收起边抽屉
+watch(() => props.edges, (list) => {
+  if (selectedEdgeId.value && !list.some(e => e.id === selectedEdgeId.value)) {
+    selectedEdgeId.value = null;
+  }
+});
 
 // P1-7：浮动解释面板栈。最多同时打开 3 个，按 nodeId 唯一。
 const MAX_PANELS = 3;
@@ -158,6 +180,7 @@ watch(() => props.activeBranchId, () => {
         @add-node="(payload) => emit('add-node', payload)"
         @add-edges="(payload) => emit('add-edges', payload)"
         @edit-edge-relation="(id) => emit('edit-edge-relation', id)"
+        @select-edge="onSelectEdge"
       />
       <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
         <span class="bb-icon">⚡</span>
@@ -173,6 +196,19 @@ watch(() => props.activeBranchId, () => {
         @update-node-props="(id, props) => emit('update-node-props', id, props)"
         @delete-edge="(edgeId) => emit('delete-edge', edgeId)"
         @update-node-schema="(id, patch) => emit('update-node-schema', id, patch)"
+        @edit-edge-relation="(id) => emit('edit-edge-relation', id)"
+        @update-edge-schema="(id, patch) => emit('update-edge-schema', id, patch)"
+      />
+      <EdgeInfo
+        :edge="selEdge"
+        :nodes="nodes"
+        :edges="edges"
+        @close="onCloseEdgeInfo"
+        @edit-relation="(id) => emit('edit-edge-relation', id)"
+        @delete-edge="(edgeId) => emit('delete-edge', edgeId)"
+        @add-edges="(payload) => emit('add-edges', payload)"
+        @delete-relation="(id) => emit('delete-relation', id)"
+        @update-edge-schema="(id, patch) => emit('update-edge-schema', id, patch)"
       />
     </div>
     <SchemaPanel

@@ -45,6 +45,7 @@ const emit = defineEmits<{
   (e: 'add-node', payload: { mode: 'object'; label: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }): void;
   (e: 'add-edges', payload: { label: string; inputs: string[]; outputs: string[] }): void;
   (e: 'edit-edge-relation', edgeId: string): void;
+  (e: 'select-edge', edgeId: string): void;
 }>();
 
 /* ── 节点类型筛选（图例点击） ── */
@@ -139,18 +140,6 @@ const diffColor = (n: any) => {
   if (props.diffHighlight.sharedIds.includes(n.id)) return '#a855f7';  // 紫色 = 共同
   return null;
 };
-
-/* ── 节点端口计算(输入/输出) ── */
-const nodeInCount = computed(() => {
-  const m: Record<string, number> = {};
-  for (const e of props.edges) m[e.to] = (m[e.to] || 0) + 1;
-  return m;
-});
-const nodeOutCount = computed(() => {
-  const m: Record<string, number> = {};
-  for (const e of props.edges) m[e.from] = (m[e.from] || 0) + 1;
-  return m;
-});
 
 /* ── 右键菜单 ── */
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
@@ -700,8 +689,8 @@ defineExpose({ fitView, focusNode });
             <g>
               <template v-for="e in visibleEdges" :key="e.id">
                 <g v-if="nmap[e.from] && nmap[e.to]" :style="{ opacity: !edgeMatchesFilter(e) ? 0.15 : (selId && selId !== e.from && selId !== e.to ? 0.25 : 1), transition: 'opacity .2s' }">
-                  <!-- 不可见点击热区 -->
-                  <path v-if="!readonly" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" @click.stop="emit('edit-edge-relation', e.id)" />
+                  <!-- 不可见点击热区：左键查看抽屉，右键编辑输入输出 -->
+                  <path v-if="!readonly" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" @click.stop="emit('select-edge', e.id)" @contextmenu.prevent.stop="emit('edit-edge-relation', e.id)" />
                   <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : '#42b883')" :stroke-width="8" opacity="0.1"/>
                   <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
                         :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.3)'))"
@@ -731,14 +720,6 @@ defineExpose({ fitView, focusNode });
                   boxShadow: (selId === n.id || (typeFilter && matchesFilter(n))) ? `0 0 0 1px ${getT(n).color}55,0 4px 24px ${getT(n).color}33` : (neighborIds && neighborIds.has(n.id) && selId !== n.id) ? `0 0 0 1px ${getT(n).color}44,0 2px 12px ${getT(n).color}22` : '0 2px 8px rgba(0,0,0,0.4)'
                 }"
                 @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @dblclick.stop="emit('edit-node', n.id)" @click.stop>
-              <div class="node-ports-left" v-if="(nodeInCount[n.id] || 0) > 0">
-                <div v-for="i in Math.min(nodeInCount[n.id] || 0, 5)" :key="'pi'+i" class="node-port" :style="{ background: getT(n).color + '66', borderColor: getT(n).color + '99' }" :title="'输入 ' + (nodeInCount[n.id] || 0)"/>
-                <span v-if="(nodeInCount[n.id] || 0) > 5" class="port-overflow">+{{ (nodeInCount[n.id] || 0) - 5 }}</span>
-              </div>
-              <div class="node-ports-right" v-if="(nodeOutCount[n.id] || 0) > 0">
-                <div v-for="i in Math.min(nodeOutCount[n.id] || 0, 5)" :key="'po'+i" class="node-port" :style="{ background: getT(n).color + '66', borderColor: getT(n).color + '99' }" :title="'输出 ' + (nodeOutCount[n.id] || 0)"/>
-                <span v-if="(nodeOutCount[n.id] || 0) > 5" class="port-overflow">+{{ (nodeOutCount[n.id] || 0) - 5 }}</span>
-              </div>
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
               <div class="node-label">{{ n.label }}</div>
               <div class="node-type">{{ getT(n).label }}</div>
