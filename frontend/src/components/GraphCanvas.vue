@@ -624,6 +624,7 @@ defineExpose({ fitView, focusNode });
                    :title="'置信度: ' + Math.round((n.confidence || 0) * 100) + '% | 有效概率: ' + Math.round((n.effectiveProbability || 0) * 100) + '%'">
                 {{ Math.round((n.effectiveProbability || n.confidence || 0) * 100) }}%
               </div>
+              <div v-if="(n.constraints?.length || 0) > 0" class="node-lock-badge" :title="n.constraints.map((c: any) => (c.kind || '约束') + ': ' + c.note).join('\n')">🔒</div>
             </div>
           </div>
 

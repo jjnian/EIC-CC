@@ -114,7 +114,7 @@ const startResize = (e: MouseEvent) => {
         <div class="ni-right" style="flex: 1; display: flex; flex-direction: column;">
           <div class="ni-header" style="display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--glass-border); flex-shrink: 0; background: rgba(255,255,255,0.02)">
             <div class="ni-tabs" style="border: none; padding: 8px 0;">
-              <button v-for="(lb, i) in ['概览', '关系', '属性', 'Schema']" :key="i" :class="['ni-tab', { on: tab === i }]" @click="tab = i">{{ lb }}</button>
+              <button v-for="(lb, i) in ['概览', '属性', '关系', '约束']" :key="i" :class="['ni-tab', { on: tab === i }]" @click="tab = i">{{ lb }}</button>
             </div>
             <div style="display: flex; align-items: center; gap: 12px;">
               <span v-if="node" class="ni-list-title" style="font-size: 13px; color: var(--accent);">当前选中: {{ node.label }}</span>
@@ -151,84 +151,22 @@ const startResize = (e: MouseEvent) => {
                   </div>
                 </div>
 
-                <!-- TBox 约束: 类节点上的约束 (互斥/基数/对称…) -->
-                <div class="ni-section" v-if="(node.constraints?.length || 0) > 0">
-                  <div class="ni-section-title">约束 ({{ node.constraints.length }})</div>
-                  <div v-for="(c, i) in node.constraints" :key="'c'+i" class="ni-row">
-                    <div class="ni-key" style="color:#ff7fbe">{{ kindLabel(c.kind) }}</div>
-                    <div class="ni-val">{{ c.note }}</div>
-                  </div>
-                </div>
-
-                <!-- 这个类参与的关系上的约束 — 关系的约束也在选中"对象"时展示 -->
-                <div class="ni-section" v-if="relatedEdgeConstraints.length > 0">
-                  <div class="ni-section-title">所在关系的约束 ({{ relatedEdgeConstraints.length }})</div>
-                  <div v-for="(row, i) in relatedEdgeConstraints" :key="'rec'+i" class="ni-row">
-                    <div class="ni-key" style="color:#ff7fbe">{{ kindLabel(row.c.kind) }}</div>
-                    <div class="ni-val">
-                      <span style="color:rgba(255,255,255,0.55); font-size:11px">{{ row.relLabel }}</span>
-                      <span style="display:block">{{ row.c.note }}</span>
+                <!-- 概览中简要显示约束数量，详细内容在约束 Tab -->
+                <div class="ni-section" v-if="(node.constraints?.length || 0) > 0 || relatedEdgeConstraints.length > 0">
+                  <div class="ni-section-title">约束</div>
+                  <div class="ni-row">
+                    <div class="ni-key">约束总计</div>
+                    <div class="ni-val" style="color:#ff7fbe">
+                      🔒 {{ (node.constraints?.length || 0) + relatedEdgeConstraints.length }} 条
+                      <span style="color:rgba(255,255,255,0.4); font-size:11px; margin-left:8px">详见「约束」标签页</span>
                     </div>
                   </div>
                 </div>
               </template>
               <template v-if="tab === 1">
-                <div class="ni-section" style="flex:1">
-                  <div class="ni-section-title">节点关系 ({{ outgoing.length + incoming.length }})</div>
-                  <div v-for="e in outgoing" :key="e.id">
-                    <div v-if="nmap[e.to]" class="ni-row">
-                      <div class="ni-key" style="color:#3d9bff; display:flex; flex-direction:column; gap:2px;">
-                        <span>→ 输出</span>
-                        <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399">⚡规则驱动</span>
-                      </div>
-                      <div class="ni-val">
-                        <span style="color:#ffaa22">{{ e.label }}</span>
-                        <span v-if="e.source === 'inferred'" style="font-size:10px; color:#bb77ff; margin-left:4px;">(AI推理)</span>
-                        <span style="color:#253a52"> → </span>{{ nmap[e.to].label }}
-                        <button v-if="(e.constraints?.length || 0) > 0"
-                                class="ni-constraint-pill"
-                                :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')"
-                                @click="toggleEdgeExpand(e.id)">🔒 {{ e.constraints.length }}</button>
-                        <div v-if="(e.constraints?.length || 0) > 0 && expandedEdges.has(e.id)" class="ni-constraint-list">
-                          <div v-for="(c, i) in e.constraints" :key="'oc'+i" class="ni-constraint-item">
-                            <span class="ni-constraint-kind">{{ kindLabel(c.kind) }}</span>
-                            <span>{{ c.note }}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button>
-                    </div>
-                  </div>
-                  <div v-for="e in incoming" :key="e.id">
-                    <div v-if="nmap[e.from]" class="ni-row">
-                      <div class="ni-key" style="color:#22dd88; display:flex; flex-direction:column; gap:2px;">
-                        <span>← 输入</span>
-                        <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399">⚡规则驱动</span>
-                      </div>
-                      <div class="ni-val">
-                        {{ nmap[e.from].label }}<span style="color:#253a52"> → </span>
-                        <span style="color:#ffaa22">{{ e.label }}</span>
-                        <span v-if="e.source === 'inferred'" style="font-size:10px; color:#bb77ff; margin-left:4px;">(AI推理)</span>
-                        <button v-if="(e.constraints?.length || 0) > 0"
-                                class="ni-constraint-pill"
-                                :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')"
-                                @click="toggleEdgeExpand(e.id)">🔒 {{ e.constraints.length }}</button>
-                        <div v-if="(e.constraints?.length || 0) > 0 && expandedEdges.has(e.id)" class="ni-constraint-list">
-                          <div v-for="(c, i) in e.constraints" :key="'ic'+i" class="ni-constraint-item">
-                            <span class="ni-constraint-kind">{{ kindLabel(c.kind) }}</span>
-                            <span>{{ c.note }}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button>
-                    </div>
-                  </div>
-                  <div v-if="!outgoing.length && !incoming.length" style="color:#1e3348;font-size:11px;padding-top:4px">暂无关系</div>
-                </div>
-              </template>
-              <template v-if="tab === 2">
                 <!-- 属性 Tab 可编辑 -->
                 <div class="ni-prop-list">
+                  <div class="ni-section-title">自定义属性 ({{ editableProps.length }})</div>
                   <div v-for="(p, i) in editableProps" :key="i" class="ni-prop-row">
                     <input v-model="p.key" class="ni-prop-key-input" placeholder="键" />
                     <input v-model="p.value" class="ni-prop-val-input" placeholder="值" />
@@ -241,11 +179,73 @@ const startResize = (e: MouseEvent) => {
                   <button v-if="propsChanged" class="ni-prop-save" @click="saveProps">保存属性</button>
                 </div>
               </template>
+              <template v-if="tab === 2">
+                <div class="ni-section" style="flex:1">
+                  <div class="ni-section-title">节点关系 ({{ outgoing.length + incoming.length }})</div>
+                  <table v-if="outgoing.length || incoming.length" class="ni-rel-table">
+                    <thead>
+                      <tr>
+                        <th class="ni-th">方向</th>
+                        <th class="ni-th">关系名称</th>
+                        <th class="ni-th">来源</th>
+                        <th class="ni-th">目标节点</th>
+                        <th class="ni-th" style="width:32px"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="e in outgoing" :key="e.id" v-if="nmap[e.to]" class="ni-tr">
+                        <td class="ni-td">
+                          <span style="color:#3d9bff">→ 输出</span>
+                          <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399; margin-left:4px">⚡</span>
+                          <span v-if="(e.constraints?.length || 0) > 0" class="ni-lock-inline" :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')">🔒</span>
+                        </td>
+                        <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
+                        <td class="ni-td">
+                          <span v-if="e.source === 'inferred'" style="color:#bb77ff; font-size:11px">AI推理</span>
+                          <span v-else-if="e.source === 'derived'" style="color:#22dd88; font-size:11px">文本提取</span>
+                          <span v-else style="color:rgba(255,255,255,0.4); font-size:11px">预置</span>
+                        </td>
+                        <td class="ni-td">{{ nmap[e.to].label }}</td>
+                        <td class="ni-td"><button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button></td>
+                      </tr>
+                      <tr v-for="e in incoming" :key="e.id" v-if="nmap[e.from]" class="ni-tr">
+                        <td class="ni-td">
+                          <span style="color:#22dd88">← 输入</span>
+                          <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399; margin-left:4px">⚡</span>
+                          <span v-if="(e.constraints?.length || 0) > 0" class="ni-lock-inline" :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')">🔒</span>
+                        </td>
+                        <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
+                        <td class="ni-td">
+                          <span v-if="e.source === 'inferred'" style="color:#bb77ff; font-size:11px">AI推理</span>
+                          <span v-else-if="e.source === 'derived'" style="color:#22dd88; font-size:11px">文本提取</span>
+                          <span v-else style="color:rgba(255,255,255,0.4); font-size:11px">预置</span>
+                        </td>
+                        <td class="ni-td">{{ nmap[e.from].label }}</td>
+                        <td class="ni-td"><button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div v-if="!outgoing.length && !incoming.length" style="color:rgba(255,255,255,0.35);font-size:12px;padding-top:8px">暂无关系</div>
+                </div>
+              </template>
               <template v-if="tab === 3">
-                <div class="ni-section">
-                  <div class="ni-section-title">Schema 定义</div>
-                  <div v-for="[k, v] in [['label','String (required)'],['type',t.label+' (enum)'],['id','String (PK)'],['x','Float'],['y','Float']]" :key="k" class="ni-row">
-                    <div class="ni-key">{{ k }}</div><div class="ni-val">{{ v }}</div>
+                <div class="ni-section" style="flex:1">
+                  <div class="ni-section-title">节点约束 ({{ (node.constraints || []).length }})</div>
+                  <div v-for="(c, i) in (node.constraints || [])" :key="'c'+i" class="ni-row">
+                    <div class="ni-key" style="color:#ff7fbe">{{ kindLabel(c.kind) }}</div>
+                    <div class="ni-val">{{ c.note }}</div>
+                  </div>
+                  <div v-if="!(node.constraints?.length)" style="color:rgba(255,255,255,0.35); font-size:12px; padding:8px 0;">暂无约束</div>
+
+                  <div v-if="relatedEdgeConstraints.length > 0" style="margin-top:16px">
+                    <div class="ni-section-title">所在关系的约束 ({{ relatedEdgeConstraints.length }})</div>
+                    <div v-for="(row, i) in relatedEdgeConstraints" :key="'rec'+i" class="ni-row">
+                      <div class="ni-key" style="color:#ff7fbe">{{ kindLabel(row.c.kind) }}</div>
+                      <div class="ni-val">
+                        <span style="color:rgba(255,255,255,0.55); font-size:11px">{{ row.relLabel }}</span>
+                        <span style="display:block">{{ row.c.note }}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </template>
@@ -262,31 +262,39 @@ const startResize = (e: MouseEvent) => {
                 </div>
               </template>
               <template v-if="tab === 1">
-                <div class="ni-section" style="flex:1">
-                  <div class="ni-section-title">全局拓扑关系表 ({{ edges.length }})</div>
-                  <div v-for="e in edges" :key="e.id">
-                    <div v-if="nmap[e.from] && nmap[e.to]" class="ni-row">
-                      <div class="ni-key" style="color:#ffaa22; width: 100px;">{{ e.label }}</div>
-                      <div class="ni-val">{{ nmap[e.from].label }} <span style="color:#253a52; margin: 0 8px;">→</span> {{ nmap[e.to].label }}</div>
-                    </div>
-                  </div>
-                  <div v-if="!edges.length" style="color:#1e3348;font-size:11px;padding-top:4px">暂无全局关系</div>
-                </div>
-              </template>
-              <template v-if="tab === 2">
                 <div class="ni-section">
-                  <div class="ni-section-title">模型属性表</div>
-                  <!-- TODO: 接入后端的模型 metadata（type / level / version 等） -->
+                  <div class="ni-section-title">模型属性概要</div>
                   <div class="ni-row"><div class="ni-key">节点总数</div><div class="ni-val">{{ nodes.length }}</div></div>
                   <div class="ni-row"><div class="ni-key">关系总数</div><div class="ni-val">{{ edges.length }}</div></div>
                 </div>
               </template>
+              <template v-if="tab === 2">
+                <div class="ni-section" style="flex:1">
+                  <div class="ni-section-title">全局拓扑关系表 ({{ edges.length }})</div>
+                  <table v-if="edges.length" class="ni-rel-table">
+                    <thead>
+                      <tr>
+                        <th class="ni-th">关系名称</th>
+                        <th class="ni-th">起始节点</th>
+                        <th class="ni-th">目标节点</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="e in edges" :key="e.id" v-if="nmap[e.from] && nmap[e.to]" class="ni-tr">
+                        <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
+                        <td class="ni-td">{{ nmap[e.from].label }}</td>
+                        <td class="ni-td">{{ nmap[e.to].label }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div v-if="!edges.length" style="color:rgba(255,255,255,0.35);font-size:12px;padding-top:8px">暂无全局关系</div>
+                </div>
+              </template>
               <template v-if="tab === 3">
                 <div class="ni-section">
-                  <div class="ni-section-title">全局本体 Schema</div>
-                  <div class="ni-row"><div class="ni-key">Entity [实体]</div><div class="ni-val">id(PK), label(String), type(Enum)</div></div>
-                  <div class="ni-row"><div class="ni-key">Edge [关系]</div><div class="ni-val">id(PK), from(EntityID), to(EntityID), label(String)</div></div>
-                  <div class="ni-row"><div class="ni-key">Properties [属性列]</div><div class="ni-val">动态键值对 (支持 String, Number, Boolean)</div></div>
+                  <div class="ni-section-title">全局约束概要</div>
+                  <div class="ni-row"><div class="ni-key">带约束的节点</div><div class="ni-val">{{ nodes.filter(n => (n.constraints?.length || 0) > 0).length }} 个</div></div>
+                  <div class="ni-row"><div class="ni-key">带约束的关系</div><div class="ni-val">{{ edges.filter(e => (e.constraints?.length || 0) > 0).length }} 条</div></div>
                 </div>
               </template>
             </template>
