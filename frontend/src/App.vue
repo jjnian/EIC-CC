@@ -410,6 +410,18 @@ const updateEdgeSchema = (id: string, patch: any) => {
   persistCurrentModel();
 };
 
+// 在画布空白处右键添加节点
+const addNodeAtPosition = (type: string, x: number, y: number) => {
+  history.snapshot();
+  const id = 'n_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+  const label = type === 'class' ? '新对象' : '新关系类型';
+  const newNode: OntologyNode = { id, label, type, x, y, source: 'manual' };
+  nodes.value.push(newNode);
+  sel.value = id;
+  editingNode.value = { ...newNode };
+  persistCurrentModel();
+};
+
 // 节点编辑对话框状态
 const editingNode = ref<OntologyNode | null>(null);
 
@@ -783,6 +795,7 @@ const openPreview = () => {
         @update-node-props="updateNodeProps"
         @delete-edge="deleteEdge"
         @clear-diff="clearDiffHighlight"
+        @add-node="addNodeAtPosition"
       />
 
       <!-- Predict Dialog (modal) -->

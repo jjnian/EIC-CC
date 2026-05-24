@@ -42,6 +42,7 @@ const emit = defineEmits<{
   (e: 'explain-node', id: string): void;
   (e: 'undo'): void;
   (e: 'redo'): void;
+  (e: 'add-node', type: string, x: number, y: number): void;
 }>();
 
 /* ── 节点类型筛选（图例点击） ── */
@@ -139,14 +140,27 @@ const diffColor = (n: any) => {
 
 /* ── 右键菜单 ── */
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
+const canvasCtxMenu = ref<{ x: number; y: number; canvasX: number; canvasY: number } | null>(null);
 const onNodeContext = (e: MouseEvent, id: string) => {
   e.preventDefault();
   e.stopPropagation();
-  if (props.readonly) return; // 只读模式不弹推演菜单
+  if (props.readonly) return;
   emit('select', id);
+  canvasCtxMenu.value = null;
   ctxMenu.value = { x: e.clientX, y: e.clientY, id };
 };
-const closeCtx = () => { ctxMenu.value = null; };
+const onCanvasContext = (e: MouseEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (props.readonly) return;
+  if ((e.target as HTMLElement).closest('.node') || (e.target as HTMLElement).closest('.hud-overlay')) return;
+  ctxMenu.value = null;
+  const rect = cvRef.value!.getBoundingClientRect();
+  const canvasX = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
+  const canvasY = (e.clientY - rect.top + cvRef.value!.scrollTop) / zoom.value;
+  canvasCtxMenu.value = { x: e.clientX, y: e.clientY, canvasX, canvasY };
+};
+const closeCtx = () => { ctxMenu.value = null; canvasCtxMenu.value = null; };
 const triggerPredict = () => {
   if (ctxMenu.value) {
     emit('predict-from', ctxMenu.value.id);
@@ -188,6 +202,13 @@ const triggerBatchDelete = () => {
     emit('delete-nodes', [...multiSel]);
     multiSel.clear();
     ctxMenu.value = null;
+  }
+};
+
+const triggerAddNode = (type: string) => {
+  if (canvasCtxMenu.value) {
+    emit('add-node', type, canvasCtxMenu.value.canvasX, canvasCtxMenu.value.canvasY);
+    canvasCtxMenu.value = null;
   }
 };
 
@@ -548,6 +569,17 @@ const onWheel = (e: WheelEvent) => {
 
 const getT = (n: any) => (NT as any)[n.type] || NT.class;
 
+const neighborIds = computed(() => {
+  if (!props.selId) return null;
+  const ids = new Set<string>();
+  ids.add(props.selId);
+  for (const e of props.edges) {
+    if (e.from === props.selId) ids.add(e.to);
+    if (e.to === props.selId) ids.add(e.from);
+  }
+  return ids;
+});
+
 /** 平滑滚动让指定节点居中显示，用于搜索跳转。 */
 const focusNode = (id: string) => {
   const n = nmap.value[id];
@@ -572,7 +604,7 @@ defineExpose({ fitView, focusNode });
 
 <template>
   <div class="graph-wrapper" style="position: relative; flex: 1; overflow: hidden; display: flex; background: transparent;">
-    <div ref="cvRef" class="graph-canvas" style="flex: 1; overflow: auto; min-width: 0; position: relative;" @mousedown="startPan" @wheel="onWheel" @click="() => { closeCtx(); multiSel.clear(); emit('select', null); }" @contextmenu.prevent>
+    <div ref="cvRef" class="graph-canvas" style="flex: 1; overflow: auto; min-width: 0; position: relative;" @mousedown="startPan" @wheel="onWheel" @click="() => { closeCtx(); multiSel.clear(); emit('select', null); }" @contextmenu="onCanvasContext">
       <div :style="{ width: Math.max(3000, bounds.w * zoom) + 'px', height: Math.max(3000, bounds.h * zoom) + 'px', position: 'relative' }">
         <div class="scale-container" :style="{ transform: `scale(${zoom})`, transformOrigin: '0 0', width: '3000px', height: '3000px', position: 'absolute', top: 0, left: 0 }">
           <svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible">
@@ -592,7 +624,7 @@ defineExpose({ fitView, focusNode });
             </defs>
             <g>
               <template v-for="e in visibleEdges" :key="e.id">
-                <g v-if="nmap[e.from] && nmap[e.to]" :style="{ opacity: edgeMatchesFilter(e) ? 1 : 0.15 }">
+                <g v-if="nmap[e.from] && nmap[e.to]" :style="{ opacity: !edgeMatchesFilter(e) ? 0.15 : (selId && selId !== e.from && selId !== e.to ? 0.25 : 1), transition: 'opacity .2s' }">
                   <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : '#42b883')" :stroke-width="8" opacity="0.1"/>
                   <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
                         :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#42b883' : 'rgba(255, 255, 255, 0.3)'))"
@@ -613,14 +645,14 @@ defineExpose({ fitView, focusNode });
 
           <div class="graph-root" style="transform:none;">
             <div v-for="n in visibleNodes" :key="n.id"
-                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-multi-sel': multiSel.has(n.id), 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n) || (searchQuery && !isSearchMatch(n)), 'node-hl': typeFilter && matchesFilter(n), 'node-search-current': isCurrentSearchTarget(n) }]"
+                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-multi-sel': multiSel.has(n.id), 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n) || (searchQuery && !isSearchMatch(n)), 'node-neighbor-dim': !typeFilter && !searchQuery && neighborIds && !neighborIds.has(n.id), 'node-neighbor-hl': !typeFilter && !searchQuery && neighborIds && neighborIds.has(n.id) && selId !== n.id, 'node-hl': typeFilter && matchesFilter(n), 'node-search-current': isCurrentSearchTarget(n) }]"
                 :style="{
                   left: n.x + 'px', top: n.y + 'px', width: NW + 'px',
                   background: diffColor(n) || heatColor(n) || getT(n).bg, borderLeftColor: getT(n).color,
-                  borderTopColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
-                  borderRightColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
-                  borderBottomColor: (selId === n.id || (typeFilter && matchesFilter(n))) ? getT(n).color + '44' : '#111c2c',
-                  boxShadow: (selId === n.id || (typeFilter && matchesFilter(n))) ? `0 0 0 1px ${getT(n).color}55,0 4px 24px ${getT(n).color}33` : '0 2px 8px rgba(0,0,0,0.4)'
+                  borderTopColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#111c2c',
+                  borderRightColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#111c2c',
+                  borderBottomColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#111c2c',
+                  boxShadow: (selId === n.id || (typeFilter && matchesFilter(n))) ? `0 0 0 1px ${getT(n).color}55,0 4px 24px ${getT(n).color}33` : (neighborIds && neighborIds.has(n.id) && selId !== n.id) ? `0 0 0 1px ${getT(n).color}44,0 2px 12px ${getT(n).color}22` : '0 2px 8px rgba(0,0,0,0.4)'
                 }"
                 @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @dblclick.stop="emit('edit-node', n.id)" @click.stop>
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
@@ -671,6 +703,18 @@ defineExpose({ fitView, focusNode });
       <button v-else class="ctx-item ctx-danger" @click="triggerDelete">
         <span class="ctx-icon">✕</span>
         <span>删除节点</span>
+      </button>
+    </div>
+
+    <!-- Canvas right-click context menu (blank area) -->
+    <div v-if="canvasCtxMenu" class="node-ctx-menu" :style="{ left: canvasCtxMenu.x + 'px', top: canvasCtxMenu.y + 'px' }" @click.stop>
+      <button class="ctx-item" @click="triggerAddNode('class')">
+        <span class="ctx-icon" :style="{ color: NT.class.color }">■</span>
+        <span>添加对象节点</span>
+      </button>
+      <button class="ctx-item" @click="triggerAddNode('relation_type')">
+        <span class="ctx-icon" :style="{ color: NT.relation_type.color }">◆</span>
+        <span>添加关系类型节点</span>
       </button>
     </div>
 
