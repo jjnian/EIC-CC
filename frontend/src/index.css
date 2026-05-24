@@ -590,6 +590,31 @@ body {
   transition: all .15s;
 }
 .ni-prop-add:hover { border-color: var(--accent); color: var(--accent); background: rgba(66, 184, 131, 0.04); }
+.ni-inline-input {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  color: var(--text-main);
+  font-size: 12px;
+  padding: 3px 6px;
+  outline: none;
+  font-family: inherit;
+  width: 100%;
+  transition: border-color .15s;
+}
+.ni-inline-input:focus { border-color: var(--accent); }
+.ni-inline-input.mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-top: 2px; }
+.ni-inline-select {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  color: var(--text-main);
+  font-size: 11px;
+  padding: 2px 4px;
+  outline: none;
+  font-family: inherit;
+  cursor: pointer;
+}
 .ni-prop-save {
   background: var(--accent);
   border: none;

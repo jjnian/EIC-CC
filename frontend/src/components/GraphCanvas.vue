@@ -42,6 +42,7 @@ const emit = defineEmits<{
   (e: 'explain-node', id: string): void;
   (e: 'undo'): void;
   (e: 'redo'): void;
+  (e: 'add-node', type: string, x: number, y: number): void;
 }>();
 
 /* ── 节点类型筛选（图例点击） ── */
@@ -139,14 +140,27 @@ const diffColor = (n: any) => {
 
 /* ── 右键菜单 ── */
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
+const canvasCtxMenu = ref<{ x: number; y: number; canvasX: number; canvasY: number } | null>(null);
 const onNodeContext = (e: MouseEvent, id: string) => {
   e.preventDefault();
   e.stopPropagation();
-  if (props.readonly) return; // 只读模式不弹推演菜单
+  if (props.readonly) return;
   emit('select', id);
+  canvasCtxMenu.value = null;
   ctxMenu.value = { x: e.clientX, y: e.clientY, id };
 };
-const closeCtx = () => { ctxMenu.value = null; };
+const onCanvasContext = (e: MouseEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+  if (props.readonly) return;
+  if ((e.target as HTMLElement).closest('.node') || (e.target as HTMLElement).closest('.hud-overlay')) return;
+  ctxMenu.value = null;
+  const rect = cvRef.value!.getBoundingClientRect();
+  const canvasX = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
+  const canvasY = (e.clientY - rect.top + cvRef.value!.scrollTop) / zoom.value;
+  canvasCtxMenu.value = { x: e.clientX, y: e.clientY, canvasX, canvasY };
+};
+const closeCtx = () => { ctxMenu.value = null; canvasCtxMenu.value = null; };
 const triggerPredict = () => {
   if (ctxMenu.value) {
     emit('predict-from', ctxMenu.value.id);
@@ -188,6 +202,13 @@ const triggerBatchDelete = () => {
     emit('delete-nodes', [...multiSel]);
     multiSel.clear();
     ctxMenu.value = null;
+  }
+};
+
+const triggerAddNode = (type: string) => {
+  if (canvasCtxMenu.value) {
+    emit('add-node', type, canvasCtxMenu.value.canvasX, canvasCtxMenu.value.canvasY);
+    canvasCtxMenu.value = null;
   }
 };
 
@@ -583,7 +604,7 @@ defineExpose({ fitView, focusNode });
 
 <template>
   <div class="graph-wrapper" style="position: relative; flex: 1; overflow: hidden; display: flex; background: transparent;">
-    <div ref="cvRef" class="graph-canvas" style="flex: 1; overflow: auto; min-width: 0; position: relative;" @mousedown="startPan" @wheel="onWheel" @click="() => { closeCtx(); multiSel.clear(); emit('select', null); }" @contextmenu.prevent>
+    <div ref="cvRef" class="graph-canvas" style="flex: 1; overflow: auto; min-width: 0; position: relative;" @mousedown="startPan" @wheel="onWheel" @click="() => { closeCtx(); multiSel.clear(); emit('select', null); }" @contextmenu="onCanvasContext">
       <div :style="{ width: Math.max(3000, bounds.w * zoom) + 'px', height: Math.max(3000, bounds.h * zoom) + 'px', position: 'relative' }">
         <div class="scale-container" :style="{ transform: `scale(${zoom})`, transformOrigin: '0 0', width: '3000px', height: '3000px', position: 'absolute', top: 0, left: 0 }">
           <svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible">
@@ -682,6 +703,18 @@ defineExpose({ fitView, focusNode });
       <button v-else class="ctx-item ctx-danger" @click="triggerDelete">
         <span class="ctx-icon">✕</span>
         <span>删除节点</span>
+      </button>
+    </div>
+
+    <!-- Canvas right-click context menu (blank area) -->
+    <div v-if="canvasCtxMenu" class="node-ctx-menu" :style="{ left: canvasCtxMenu.x + 'px', top: canvasCtxMenu.y + 'px' }" @click.stop>
+      <button class="ctx-item" @click="triggerAddNode('class')">
+        <span class="ctx-icon" :style="{ color: NT.class.color }">■</span>
+        <span>添加对象节点</span>
+      </button>
+      <button class="ctx-item" @click="triggerAddNode('relation_type')">
+        <span class="ctx-icon" :style="{ color: NT.relation_type.color }">◆</span>
+        <span>添加关系类型节点</span>
       </button>
     </div>
 

@@ -13,6 +13,7 @@ const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'update-node-props', id: string, props: { key: string; value: any; source?: string }[]): void;
   (e: 'delete-edge', edgeId: string): void;
+  (e: 'update-node-schema', id: string, patch: any): void;
 }>();
 
 const tab = ref(0);
@@ -94,6 +95,48 @@ const saveProps = () => {
   emit('update-node-props', props.node.id, cleaned);
 };
 
+const addAttribute = () => {
+  if (!props.node) return;
+  const attrs = [...(props.node.attributes || []), { name: '', valueSpace: '', source: 'manual' }];
+  emit('update-node-schema', props.node.id, { attributes: attrs });
+};
+
+const removeAttribute = (i: number) => {
+  if (!props.node) return;
+  const attrs = [...(props.node.attributes || [])];
+  attrs.splice(i, 1);
+  emit('update-node-schema', props.node.id, { attributes: attrs });
+};
+
+const updateAttribute = (i: number, field: 'name' | 'valueSpace', value: string) => {
+  if (!props.node) return;
+  const attrs = (props.node.attributes || []).map((a: any, idx: number) =>
+    idx === i ? { ...a, [field]: value } : { ...a }
+  );
+  emit('update-node-schema', props.node.id, { attributes: attrs });
+};
+
+const addConstraint = () => {
+  if (!props.node) return;
+  const cons = [...(props.node.constraints || []), { kind: 'custom', note: '', source: 'manual' }];
+  emit('update-node-schema', props.node.id, { constraints: cons });
+};
+
+const removeConstraint = (i: number) => {
+  if (!props.node) return;
+  const cons = [...(props.node.constraints || [])];
+  cons.splice(i, 1);
+  emit('update-node-schema', props.node.id, { constraints: cons });
+};
+
+const updateConstraint = (i: number, field: 'kind' | 'note', value: string) => {
+  if (!props.node) return;
+  const cons = (props.node.constraints || []).map((c: any, idx: number) =>
+    idx === i ? { ...c, [field]: value } : { ...c }
+  );
+  emit('update-node-schema', props.node.id, { constraints: cons });
+};
+
 const startResize = (e: MouseEvent) => {
   e.preventDefault();
   const startY = e.clientY;
@@ -158,16 +201,21 @@ const startResize = (e: MouseEvent) => {
                 </div>
               </template>
               <template v-if="tab === 1">
-                <!-- TBox 属性: 类节点上的属性定义（来自本体抽取，含来源标识） -->
-                <div v-if="(node.attributes?.length || 0) > 0" class="ni-card">
-                  <div class="ni-card-title">本体属性 <span class="ni-card-count">{{ node.attributes.length }}</span></div>
+                <!-- TBox 属性: 类节点上的属性定义 -->
+                <div class="ni-card">
+                  <div class="ni-card-title">本体属性 <span class="ni-card-count">{{ (node.attributes || []).length }}</span></div>
                   <div class="ni-attr-list">
-                    <div v-for="(a, i) in node.attributes" :key="'tba'+i" class="ni-attr-item">
+                    <div v-for="(a, i) in (node.attributes || [])" :key="'tba'+i" class="ni-attr-item">
                       <div class="ni-attr-name">
-                        <span>{{ a.name }}</span>
+                        <input class="ni-inline-input" :value="a.name" placeholder="属性名" @change="(e: any) => updateAttribute(i, 'name', e.target.value)" />
                         <span class="ni-badge" :style="{color: sourceBadge(a.source).color, background: sourceBadge(a.source).bg}">{{ sourceBadge(a.source).text }}</span>
+                        <button class="ni-prop-del" @click="removeAttribute(i)" title="删除">✕</button>
                       </div>
-                      <div class="ni-attr-val mono">{{ a.valueSpace || '—' }}</div>
+                      <input class="ni-inline-input mono" :value="a.valueSpace" placeholder="取值空间" @change="(e: any) => updateAttribute(i, 'valueSpace', e.target.value)" />
+                    </div>
+                    <div v-if="(node.attributes || []).length === 0" class="ni-empty">暂无本体属性</div>
+                    <div class="ni-prop-actions">
+                      <button class="ni-prop-add" @click="addAttribute">+ 新增属性</button>
                     </div>
                   </div>
                 </div>
@@ -249,13 +297,23 @@ const startResize = (e: MouseEvent) => {
                   <div v-if="(node.constraints?.length || 0) > 0" class="ni-cons-list">
                     <div v-for="(c, i) in (node.constraints || [])" :key="'c'+i" class="ni-cons-item">
                       <div class="ni-cons-head">
-                        <span class="ni-cons-kind">{{ kindLabel(c.kind) }}</span>
+                        <select class="ni-inline-select" :value="c.kind || 'custom'" @change="(e: any) => updateConstraint(i, 'kind', e.target.value)">
+                          <option value="cardinality">基数</option>
+                          <option value="exclusive">互斥</option>
+                          <option value="symmetric">对称</option>
+                          <option value="transitive">传递</option>
+                          <option value="custom">自定义</option>
+                        </select>
                         <span class="ni-badge" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
+                        <button class="ni-prop-del" @click="removeConstraint(i)" title="删除">✕</button>
                       </div>
-                      <div class="ni-cons-note">{{ c.note }}</div>
+                      <input class="ni-inline-input" :value="c.note" placeholder="约束说明" @change="(e: any) => updateConstraint(i, 'note', e.target.value)" />
                     </div>
                   </div>
                   <div v-else class="ni-empty">暂无节点约束</div>
+                  <div class="ni-prop-actions">
+                    <button class="ni-prop-add" @click="addConstraint">+ 新增约束</button>
+                  </div>
                 </div>
 
                 <div v-if="relatedEdgeConstraints.length > 0" class="ni-card">
