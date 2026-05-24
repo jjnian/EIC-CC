@@ -2,7 +2,6 @@ package com.tuiyan.backend.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
@@ -22,9 +21,11 @@ public class AsyncConfig {
      *   <li>queue=50：防止突发请求超出 max 后被直接拒绝；</li>
      *   <li>WaitForTasksToCompleteOnShutdown=true：JVM 退出时让正在跑的推演自然结束（最长 20s）。</li>
      * </ul>
+     * <p>返回类型声明为具体的 {@link ThreadPoolTaskExecutor}：DocumentExtractionService
+     * 注入时需要这个具体类型；ScenarioController 等用 TaskExecutor 接口的地方也能向上兼容。
      */
     @Bean(name = "predictionExecutor")
-    public TaskExecutor predictionExecutor() {
+    public ThreadPoolTaskExecutor predictionExecutor() {
         ThreadPoolTaskExecutor exec = new ThreadPoolTaskExecutor();
         exec.setCorePoolSize(4);
         exec.setMaxPoolSize(8);
