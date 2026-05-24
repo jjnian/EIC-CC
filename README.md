@@ -434,18 +434,22 @@ NodeInfo 面板的关系 Tab 中，每条边末尾有 `✕` 按钮，点击直�
 | **PDF** | PDFBox 抽每页文字；扫描件（每页文字 ≤ 200 字符）自动回落到逐页渲染（110 DPI，最多 8 页）走视觉抽取 |
 | **DOCX** | Apache POI 抽取段落 + 表格；表格保留二维结构 |
 | **图片**（PNG / JPEG / WebP / GIF） | base64 编码作为多模态 attachment 给 LLM |
+| **网页 URL** | Jsoup 拉静态 HTML，启发式去掉 nav/footer/script，优先取 article/main 正文；文本 < 500 字时回落 Playwright headless Chromium 重抓（应对 Vue/React SPA） |
 | **文本类** | 直接拼入 prompt |
 
 #### 5.9.2 流程
 
-1. 拖入或点击选择文件 → 上传到 `/api/ontology-models/extract`（multipart）
+1. 拖入或点击选择文件、或在「网址」区粘贴一行一个 URL → 上传到 `/api/ontology-models/extract`（multipart）
 2. 后端按魔术字节（非扩展名）做文件类型嗅探，分流到对应管线
-3. LLM 用 `EXTRACT_SYSTEM` prompt 抽取实体 / 关系，强调"以文档为准、不要虚构"
-4. 抽取结果经 **ID 盐重写**（防止多次导入同一文件时 ID 冲突）
-5. 返回前端 `ImportDialog`，可预览
-6. 用户选择：
+3. URL 走 `WebPageFetcher`：解析→ SSRF 校验（拒绝 loopback / link-local / 内网 / CGNAT）→ Jsoup 抓取 → 文本不足时 Playwright 兜底
+4. LLM 用 `EXTRACT_SYSTEM` prompt 抽取实体 / 关系，强调"以文档为准、不要虚构"
+5. 抽取结果经 **ID 盐重写**（防止多次导入同一文件时 ID 冲突）
+6. 返回前端 `ImportDialog`，可预览
+7. 用户选择：
    - **合并到当前模型** — 增量加入主干（自动去重）
    - **另存为新模型** — 新建一个 OntologyModel
+
+> **关于 headless 兜底**：Playwright 首次使用前需要执行 `mvn exec:java -e -Dexec.mainClass="com.microsoft.playwright.CLI" -Dexec.args="install chromium"` 下载 Chromium（约 150 MB）。未安装时静态 HTML 仍可正常工作，仅 SPA 站点会拿到骨架。
 
 #### 5.9.3 限制
 
@@ -454,8 +458,11 @@ NodeInfo 面板的关系 Tab 中，每条边末尾有 `✕` 按钮，点击直�
 | 单文件 | PDF / DOCX ≤ 12 MB；图片 ≤ 8 MB |
 | 单次请求 | ≤ 80 MB（spring multipart） |
 | 单次上传文件数 | ≤ 8 |
+| 单次 URL 数 | ≤ 5 |
 | 单次总图片数 | ≤ 12 |
-| 抽取文本预算 | PDF / DOCX 各自 60K 字，超出截断 |
+| 抽取文本预算 | PDF / DOCX / URL 各自 60K 字，超出截断 |
+| 单页 HTML 体积 | ≤ 5 MB |
+| 网页连接 / 读取超时 | 8s / 15s（headless 渲染 25s） |
 
 ---
 
@@ -1074,6 +1081,8 @@ interface ModelConfig {
 | Jackson | JSON 序列化 / 反序列化 |
 | Apache PDFBox | 3.0.3（PDF 文字抽取 + 图片渲染） |
 | Apache POI | 5.2.5（DOCX 解析） |
+| Jsoup | 1.20.1（HTML 抓取 + 正文抽取） |
+| Playwright for Java | 1.50.0（SPA 网页 headless 兜底，需首次 `install chromium`） |
 | Java HttpClient | 内置 HTTP 客户端（LLM API 调用） |
 
 ### 10.2 目录结构
@@ -1244,7 +1253,7 @@ backend/src/main/java/com/tuiyan/backend/
 | `POST` | `/api/ontology-models` | 新建模型 |
 | `PUT` | `/api/ontology-models/{id}` | 更新模型（自动创建版本快照） |
 | `DELETE` | `/api/ontology-models/{id}` | 删除模型 |
-| `POST` | `/api/ontology-models/extract` | 上传文档抽取实体/关系（multipart，PDF / DOCX / 图片） |
+| `POST` | `/api/ontology-models/extract` | 上传文档 / 网址抽取实体/关系（multipart：`files` 文件 + `urls` 网址，二者可混用） |
 | `GET` | `/api/ontology-models/{id}/versions` | 列出版本快照 |
 | `POST` | `/api/ontology-models/{id}/versions/{timestamp}/restore` | 恢复到指定版本 |
 

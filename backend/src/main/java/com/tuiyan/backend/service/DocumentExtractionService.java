@@ -5,10 +5,13 @@ import com.tuiyan.backend.support.DocxTextExtractor;
 import com.tuiyan.backend.support.FileSniffer;
 import com.tuiyan.backend.support.IdSaltRewriter;
 import com.tuiyan.backend.support.PdfTextExtractor;
+import com.tuiyan.backend.support.WebPageFetcher;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -18,6 +21,8 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * 文档抽取编排：文件嗅探 + PDF / DOCX / 图片处理 + LLM 抽取 + idMap salt 重写。
@@ -52,30 +57,85 @@ public class DocumentExtractionService {
     // 单个 PDF / DOCX 文件体积上限（12 MB）
     private static final long PDF_FILE_BYTES_LIMIT = 12L * 1024 * 1024;
     private static final long DOCX_FILE_BYTES_LIMIT = 12L * 1024 * 1024;
+    // 一次抽取最多接受 5 个 URL，避免对外网批量打洞
+    private static final int  URL_LIMIT             = 5;
 
     private final LlmService llmService;
+    private final Executor urlFetchExecutor;
 
-    public DocumentExtractionService(LlmService llmService) {
+    public DocumentExtractionService(LlmService llmService,
+                                     @Qualifier("predictionExecutor") ThreadPoolTaskExecutor predictionExecutor) {
         this.llmService = llmService;
+        this.urlFetchExecutor = predictionExecutor;
     }
 
     /**
-     * 入口：文件列表 → LLM 抽取 → salt 重写后的 {nodes, edges, reply, sources, salt}。
-     * <p>入参不合法（无文件 / 超数量 / 单文件超大 / 无可分析内容）时抛 {@link IllegalArgumentException}，
+     * 入口：文件列表 + URL 列表 → LLM 抽取 → salt 重写后的 {nodes, edges, reply, sources, salt}。
+     * <p>files 与 urls 至少要有一个非空；
+     * 入参不合法（无文件 / 超数量 / 单文件超大 / 无可分析内容）时抛 {@link IllegalArgumentException}，
      * 由 GlobalExceptionHandler 映射为 400。
      */
-    public Map<String, Object> extract(List<MultipartFile> files, String modelOverride, String configId) throws Exception {
-        if (files == null || files.isEmpty()) {
-            throw new IllegalArgumentException("未提供文件");
+    public Map<String, Object> extract(List<MultipartFile> files,
+                                       List<String> urls,
+                                       String modelOverride,
+                                       String configId) throws Exception {
+        boolean hasFiles = files != null && !files.isEmpty();
+        boolean hasUrls = urls != null && !urls.isEmpty();
+        if (!hasFiles && !hasUrls) {
+            throw new IllegalArgumentException("请至少提供一个文件或网址");
         }
-        if (files.size() > TOTAL_FILE_LIMIT) {
+        if (hasFiles && files.size() > TOTAL_FILE_LIMIT) {
             throw new IllegalArgumentException("一次最多 " + TOTAL_FILE_LIMIT + " 个文件");
+        }
+        if (hasUrls && urls.size() > URL_LIMIT) {
+            throw new IllegalArgumentException("一次最多 " + URL_LIMIT + " 个网址");
         }
 
         StringBuilder combinedText = new StringBuilder();
         List<Map<String, Object>> imageAttachments = new ArrayList<>();
         List<Map<String, Object>> sourcesMeta = new ArrayList<>();
 
+        if (hasFiles) {
+            processFiles(files, combinedText, imageAttachments, sourcesMeta);
+        }
+        if (hasUrls) {
+            processUrls(urls, combinedText, sourcesMeta);
+        }
+
+        if (combinedText.length() == 0 && imageAttachments.isEmpty()) {
+            throw new IllegalArgumentException("未能从上传文件或网址中抽出任何可分析的文本或图片");
+        }
+
+        JsonNode draft = llmService.extractOntologyFromSources(
+                combinedText.toString(), imageAttachments, modelOverride, configId);
+
+        // 用毫秒时间戳的 36 进制作 salt，加在每个节点 id 前面避免与已有图谱冲突
+        String salt = Long.toString(System.currentTimeMillis(), 36);
+        JsonNode rewritten = IdSaltRewriter.applyImportSalt(draft, salt);
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("nodes", rewritten.path("nodes"));
+        out.put("edges", rewritten.path("edges"));
+        out.put("reply", draft.path("reply").asText(""));
+        out.put("sources", sourcesMeta);
+        // 把 salt 也回传给前端：后续如果用户取消导入，前端能用 salt 反过滤出本次新加的节点
+        out.put("salt", salt);
+        return out;
+    }
+
+    /** 跳过类型 source meta 构造器。 */
+    private static Map<String, Object> skippedMeta(String name, String reason) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("name", name);
+        meta.put("type", "skipped");
+        meta.put("reason", reason);
+        return meta;
+    }
+
+    private void processFiles(List<MultipartFile> files,
+                              StringBuilder combinedText,
+                              List<Map<String, Object>> imageAttachments,
+                              List<Map<String, Object>> sourcesMeta) throws IOException {
         for (MultipartFile f : files) {
             String safeName = FileSniffer.sanitizeFilename(f.getOriginalFilename());
             String contentType = f.getContentType();
@@ -111,32 +171,66 @@ public class DocumentExtractionService {
             } else if (isImage) {
                 handleImage(f, safeName, size, contentType, meta, imageAttachments);
             } else {
-                // 不识别的类型只标记，不抛错（其它文件可能仍可处理）
                 meta.put("type", "skipped");
                 meta.put("reason", "不支持的 content-type 或文件签名:" + contentType);
             }
             sourcesMeta.add(meta);
         }
+    }
 
-        if (combinedText.length() == 0 && imageAttachments.isEmpty()) {
-            throw new IllegalArgumentException("未能从上传文件中抽出任何可分析的文本或图片");
+    /**
+     * URL 列表抓取：并行（最多 5 个）跑 Jsoup 静态 → Playwright 兜底。
+     * <p>用 predictionExecutor 调度，避免串行最差 5 × (15s + 25s) ≈ 200s 的延迟。
+     * 顺序与输入一致，失败的 URL 留 reason 在对应位置。
+     */
+    private void processUrls(List<String> urls,
+                             StringBuilder combinedText,
+                             List<Map<String, Object>> sourcesMeta) {
+        List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>(urls.size());
+        for (String raw : urls) {
+            if (raw == null || raw.isBlank()) continue;
+            String url = raw.trim();
+            futures.add(CompletableFuture.supplyAsync(() -> fetchOneUrl(url, combinedText), urlFetchExecutor));
         }
+        for (CompletableFuture<Map<String, Object>> fu : futures) {
+            try {
+                sourcesMeta.add(fu.join());
+            } catch (Exception e) {
+                sourcesMeta.add(skippedMeta("(unknown)", "抓取异常: " + e.getMessage()));
+            }
+        }
+    }
 
-        JsonNode draft = llmService.extractOntologyFromSources(
-                combinedText.toString(), imageAttachments, modelOverride, configId);
+    /** 单 URL 抓取：返回该 URL 的 sourcesMeta；正文同步追加到 combinedText（StringBuilder 加锁）。 */
+    private Map<String, Object> fetchOneUrl(String url, StringBuilder combinedText) {
+        try {
+            WebPageFetcher.Result r = WebPageFetcher.fetch(url);
+            Map<String, Object> meta = new LinkedHashMap<>();
+            meta.put("name", r.url);
+            meta.put("type", "url");
+            meta.put("chars", r.chars);
+            meta.put("size", r.chars);
+            if (r.title != null && !r.title.isBlank()) meta.put("title", r.title);
+            if (r.truncated) meta.put("truncated", true);
+            if (r.usedHeadless) meta.put("usedHeadless", true);
+            if (r.errorMsg != null) meta.put("reason", r.errorMsg);
 
-        // 用毫秒时间戳的 36 进制作 salt，加在每个节点 id 前面避免与已有图谱冲突
-        String salt = Long.toString(System.currentTimeMillis(), 36);
-        JsonNode rewritten = IdSaltRewriter.applyImportSalt(draft, salt);
-
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("nodes", rewritten.path("nodes"));
-        out.put("edges", rewritten.path("edges"));
-        out.put("reply", draft.path("reply").asText(""));
-        out.put("sources", sourcesMeta);
-        // 把 salt 也回传给前端：后续如果用户取消导入，前端能用 salt 反过滤出本次新加的节点
-        out.put("salt", salt);
-        return out;
+            if (r.text != null && !r.text.isBlank()) {
+                String header = (r.title != null && !r.title.isBlank())
+                        ? "# 网页 " + r.title + "（" + r.url + "）"
+                        : "# 网页 " + r.url;
+                synchronized (combinedText) {
+                    combinedText.append(header).append("\n\n").append(r.text).append("\n\n");
+                }
+            }
+            return meta;
+        } catch (IllegalArgumentException ie) {
+            log.warn("[web] URL 校验失败 url={} err={}", url, ie.getMessage());
+            return skippedMeta(url, ie.getMessage());
+        } catch (Exception e) {
+            log.warn("[web] URL 抓取异常 url={} err={}", url, e.toString());
+            return skippedMeta(url, "抓取失败: " + e.getMessage());
+        }
     }
 
     /**

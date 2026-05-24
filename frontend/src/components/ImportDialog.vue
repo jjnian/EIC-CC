@@ -37,6 +37,7 @@ const emit = defineEmits<{
 }>();
 
 const files = ref<File[]>([]);
+const urlInput = ref('');
 const mode = ref<'merge' | 'new'>('merge');
 const newName = ref('');
 const loading = ref(false);
@@ -52,8 +53,22 @@ let abortCtl: AbortController | null = null;
 
 const normLabel = (s: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
+const parsedUrls = computed(() =>
+  urlInput.value.split(/[\s,]+/).map(u => u.trim()).filter(Boolean));
+const URL_LIMIT = 5;
+const urlOverLimit = computed(() => parsedUrls.value.length > URL_LIMIT);
+
+const SOURCE_ICONS: Record<string, string> = {
+  image: '🖼',
+  pdf: '📄',
+  docx: '📝',
+  url: '🔗',
+};
+const iconForSource = (type?: string) => SOURCE_ICONS[type || ''] || '⛔';
+
 const reset = () => {
   files.value = [];
+  urlInput.value = '';
   mode.value = props.hasCurrentModel ? 'merge' : 'new';
   newName.value = '';
   loading.value = false;
@@ -75,16 +90,11 @@ onBeforeUnmount(() => {
   if (abortCtl) { try { abortCtl.abort(); } catch {} abortCtl = null; }
 });
 
-// 切换 mode 时，让可见节点重新进入全选状态（避免 dup 过滤变化后选择不一致）
+// 切换 mode 时让可见节点重新进入全选状态（dup 过滤变化后选择需要刷新）
 watch(() => mode.value, () => {
   if (!extractedRaw.value) return;
-  // 由于 mode 变化后 displayedNodes 已重算（dupRemap 失效），全选当前展示集合。
-  // nextTick 内执行：先让 computed 重新出值
-  Promise.resolve().then(() => {
-    if (!extractedRaw.value) return;
-    selectedNodeIds.value = new Set(displayedNodes.value.map(n => n.id));
-    selectedEdgeIds.value = new Set(displayedEdges.value.map(e => e.id));
-  });
+  selectedNodeIds.value = new Set(displayedNodes.value.map(n => n.id));
+  selectedEdgeIds.value = new Set(displayedEdges.value.map(e => e.id));
 });
 
 const fmtSize = (n: number) => {
@@ -119,19 +129,25 @@ const addFile = (f: File) => {
 const removeFile = (idx: number) => { files.value.splice(idx, 1); };
 
 const extract = async () => {
-  if (!files.value.length) return;
+  if (!files.value.length && !parsedUrls.value.length) return;
+  if (urlOverLimit.value) {
+    errorMsg.value = `一次最多 ${URL_LIMIT} 个网址`;
+    return;
+  }
   loading.value = true;
   errorMsg.value = '';
   extractedRaw.value = null;
   if (abortCtl) { try { abortCtl.abort(); } catch { /* noop */ } }
   abortCtl = new AbortController();
   try {
-    const data = await extractFromFiles(files.value, { signal: abortCtl.signal });
+    const data = await extractFromFiles(files.value, {
+      urls: parsedUrls.value,
+      signal: abortCtl.signal,
+    });
     extractedRaw.value = { nodes: data.nodes || [], edges: data.edges || [] };
     sources.value = data.sources || [];
     replyText.value = data.reply || '';
 
-    // 默认全选(基于 displayedNodes 的 id 集合,dup 映射会从展示中过滤掉)
     selectedNodeIds.value = new Set(displayedNodes.value.map(n => n.id));
     selectedEdgeIds.value = new Set(extractedRaw.value.edges.map(e => e.id));
   } catch (e: any) {
@@ -267,7 +283,7 @@ const onBackdrop = (e: MouseEvent) => {
   <div v-if="open" class="imp-backdrop" @mousedown="onBackdrop">
     <div class="imp-dialog">
       <div class="imp-head">
-        <div class="imp-title"><span class="imp-icon">📥</span><span>从文档抽取本体</span></div>
+        <div class="imp-title"><span class="imp-icon">📥</span><span>从文档 / 网页抽取本体</span></div>
         <button class="imp-close" @click="emit('close')">×</button>
       </div>
 
@@ -302,6 +318,19 @@ const onBackdrop = (e: MouseEvent) => {
               <span class="imp-file-size">{{ fmtSize(f.size) }}</span>
               <button class="imp-file-x" @click="removeFile(i)" type="button">×</button>
             </div>
+          </div>
+
+          <label class="imp-label" style="margin-top: 4px;">或粘贴网址（每行一个，最多 {{ URL_LIMIT }} 个）</label>
+          <textarea
+            v-model="urlInput"
+            class="imp-url-area"
+            placeholder="https://example.com/article&#10;https://another.site/page"
+            rows="3"
+            spellcheck="false"
+          />
+          <div v-if="parsedUrls.length" class="imp-url-meta">
+            已识别 {{ parsedUrls.length }} 个网址
+            <span v-if="urlOverLimit" class="imp-url-warn">· 超过 {{ URL_LIMIT }} 个上限</span>
           </div>
         </div>
 
@@ -356,8 +385,8 @@ const onBackdrop = (e: MouseEvent) => {
 
           <div v-if="sources.length" class="imp-sources">
             <div v-for="(s, i) in sources" :key="i" class="imp-source-item">
-              <span class="imp-source-icon">{{ s.type === 'image' ? '🖼' : (s.type === 'pdf' ? '📄' : (s.type === 'docx' ? '📝' : '⛔')) }}</span>
-              <span class="imp-source-name">{{ s.name }}</span>
+              <span class="imp-source-icon">{{ iconForSource(s.type) }}</span>
+              <span class="imp-source-name">{{ s.title || s.name }}</span>
               <span v-if="s.type === 'pdf'" class="imp-source-meta">
                 {{ s.pages }} 页 · {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}
               </span>
@@ -365,6 +394,9 @@ const onBackdrop = (e: MouseEvent) => {
                 {{ s.paragraphs }} 段{{ s.tables ? ' · ' + s.tables + ' 表' : '' }} · {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}
               </span>
               <span v-else-if="s.type === 'image'" class="imp-source-meta">{{ fmtSize(s.size) }}</span>
+              <span v-else-if="s.type === 'url'" class="imp-source-meta">
+                {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}{{ s.usedHeadless ? ' · 浏览器渲染' : '' }}
+              </span>
               <span v-else class="imp-source-meta imp-source-skip">{{ s.reason }}</span>
               <span v-if="s.renderedPages" class="imp-source-rendered">📸 渲染 {{ s.renderedPages }} 页</span>
             </div>
@@ -412,7 +444,7 @@ const onBackdrop = (e: MouseEvent) => {
           v-if="!extractedRaw"
           class="imp-btn imp-btn-primary"
           type="button"
-          :disabled="!files.length || loading"
+          :disabled="(!files.length && !parsedUrls.length) || urlOverLimit || loading"
           @click="extract"
         >
           <span v-if="loading" class="imp-spin" /> {{ loading ? '抽取中…' : '开始抽取' }}
@@ -488,6 +520,23 @@ const onBackdrop = (e: MouseEvent) => {
 .imp-file-size { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
 .imp-file-x { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 2px 6px; font-size: 16px; line-height: 1; }
 .imp-file-x:hover { color: #ff8a8a; }
+
+.imp-url-area {
+  width: 100%; box-sizing: border-box;
+  background: rgba(10, 16, 27, 0.8);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-main);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  outline: none;
+  resize: vertical;
+  min-height: 56px;
+}
+.imp-url-area:focus { border-color: rgba(66, 184, 131, 0.5); }
+.imp-url-meta { font-size: 11px; color: var(--text-dim); }
+.imp-url-warn { color: #ff8a8a; margin-left: 6px; }
 
 .imp-tabs { display: flex; gap: 8px; }
 .imp-tab {

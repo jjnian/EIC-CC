@@ -65,9 +65,13 @@ public class OntologyModelController {
 
     @PostMapping(value = "/extract", consumes = {"multipart/form-data"})
     public ResponseEntity<?> extract(
-            @RequestParam("files") List<MultipartFile> files,
+            @RequestParam(value = "files", required = false) List<MultipartFile> files,
+            @RequestParam(value = "urls", required = false) List<String> urls,
             @RequestParam(value = "modelOverride", required = false) String modelOverride,
             @RequestParam(value = "configId", required = false) String configId) throws Exception {
-        return ResponseEntity.ok(extractionService.extract(files, modelOverride, configId));
+        return ResponseEntity.ok(extractionService.extract(
+                files == null ? List.of() : files,
+                urls == null ? List.of() : urls,
+                modelOverride, configId));
     }
 }

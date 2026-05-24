@@ -124,12 +124,16 @@ export interface Scenario {
 
 export interface SourceMeta {
   name: string;
-  type: 'pdf' | 'image' | 'skipped' | string;
+  type: 'pdf' | 'image' | 'docx' | 'url' | 'skipped' | string;
   size: number;
   chars?: number;
   pages?: number;
+  paragraphs?: number;
+  tables?: number;
+  title?: string;
   truncated?: boolean;
   renderedPages?: number;
+  usedHeadless?: boolean;
   reason?: string;
 }
 

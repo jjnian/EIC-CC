@@ -36,9 +36,18 @@ export interface ExtractResult {
   salt: string;
 }
 
-export function extractFromFiles(files: File[], opts?: { modelOverride?: string; configId?: string; signal?: AbortSignal }) {
+export function extractFromFiles(
+  files: File[],
+  opts?: { urls?: string[]; modelOverride?: string; configId?: string; signal?: AbortSignal }
+) {
   const fd = new FormData();
   for (const f of files) fd.append('files', f);
+  if (opts?.urls?.length) {
+    for (const u of opts.urls) {
+      const trimmed = u.trim();
+      if (trimmed) fd.append('urls', trimmed);
+    }
+  }
   if (opts?.modelOverride) fd.append('modelOverride', opts.modelOverride);
   if (opts?.configId) fd.append('configId', opts.configId);
   return request<ExtractResult>('/api/ontology-models/extract', { method: 'POST', body: fd, signal: opts?.signal });
