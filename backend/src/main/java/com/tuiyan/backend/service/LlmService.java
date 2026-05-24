@@ -78,6 +78,19 @@ public class LlmService {
               "source": "Must be one of: 'derived' (from text) or 'inferred'",
               "props": [
                 { "key": "string", "value": "string", "source": "Must be one of: 'derived' or 'inferred'" }
+              ],
+              "attributes": [
+                {
+                  "name": "The attribute name, e.g., 'weight', 'duration', 'status'",
+                  "valueSpace": "The value type or range, e.g., 'number', 'string', '0..1', 'enum(high,medium,low)'",
+                  "description": "Optional brief description of this attribute"
+                }
+              ],
+              "constraints": [
+                {
+                  "kind": "Must be one of: 'cardinality', 'exclusive', 'symmetric', 'transitive', 'custom'",
+                  "note": "Human-readable description of the constraint, e.g., 'Each order must have exactly one customer'"
+                }
               ]
             }
           ],
@@ -88,7 +101,13 @@ public class LlmService {
               "to": "Target node id",
               "label": "Description or verb of the relationship or rule",
               "source": "Must be one of: 'derived' or 'inferred'",
-              "rule_driven": true_or_false
+              "rule_driven": true_or_false,
+              "constraints": [
+                {
+                  "kind": "Must be one of: 'cardinality', 'exclusive', 'symmetric', 'transitive', 'custom'",
+                  "note": "Human-readable constraint on this relationship, e.g., '1:N — one supplier supplies many parts', 'symmetric — A partners with B implies B partners with A'"
+                }
+              ]
             }
           ]
         }
@@ -97,19 +116,47 @@ public class LlmService {
     private static final String SYSTEM_INSTRUCTION = """
         You are an AI Ontology Developer. Your task is to build a static ontology graph (TBox) from the user's description.
 
-        **First-Principles Methodology — you MUST follow this approach:**
-        Before extracting any entities or relationships, decompose the domain from first principles:
-        1. Identify the most fundamental, irreducible concepts in the domain — the "atoms" that cannot be broken down further.
-        2. From these atomic concepts, build upward: what are the essential relationships, processes, and rules that emerge from these fundamentals?
-        3. Question every assumption — if something seems obvious, ask "why?" until you reach a bedrock truth.
-        4. Distinguish between what is inherently true about the domain (derived) vs. what you are inferring to fill gaps (inferred).
-        5. Ensure the graph captures causal mechanisms, not just correlations — every edge should represent a real dependency or governance relationship.
-        6. Prefer depth over breadth: a smaller, well-reasoned graph with clear causal chains is better than a large, shallow graph with vague connections.
+        **First-Principles Methodology — you MUST follow this rigorous approach:**
+
+        You must decompose the domain through four fundamental ontological dimensions. Analyze each dimension with depth and precision:
+
+        **A. 本体对象 (Ontology Objects / Nodes):**
+        1. Identify the most fundamental, irreducible concepts — the "atoms" that cannot be broken down further.
+        2. For each concept, ask: "Is this truly primitive, or can it be decomposed into more fundamental parts?"
+        3. Classify each object precisely: entity (thing), event (happens), process (ongoing), rule (governs), data (information), external (outside boundary).
+        4. Every object must have a clear reason to exist — if removing it would not lose information, it should not be a separate node.
+
+        **B. 关系 (Relationships / Edges):**
+        1. Every edge must represent a real causal mechanism, governance, dependency, or compositional relationship — never a vague association.
+        2. Ask for each relationship: "What is the precise nature of this connection? Is it causation, composition, governance, enablement, or something else?"
+        3. Name relationships with precise verbs that capture directionality and semantics (e.g., 'triggers', 'governs', 'composed_of', 'requires', not vague terms like 'related_to').
+        4. Identify rule-driven edges: if a business rule, regulation, or SOP step governs the relationship, set rule_driven=true and create a rule node.
+
+        **C. 约束 (Constraints):**
+        1. Identify structural constraints on BOTH nodes and edges:
+           - Cardinality: How many instances can participate? (e.g., "1:N", "exactly one", "at most 3")
+           - Exclusive: Are there mutually exclusive alternatives? (e.g., "an order is either domestic OR international, never both")
+           - Symmetric: Does the relationship hold in both directions? (e.g., "A partners with B implies B partners with A")
+           - Transitive: Does the relationship chain? (e.g., "A contains B, B contains C → A contains C")
+           - Custom: Any domain-specific invariant or business rule constraint
+        2. Constraints are the "laws of physics" of the domain — they define what is possible and what is forbidden.
+        3. Do NOT omit constraints. If a concept has inherent limitations, cardinality rules, or mutual exclusions, these MUST be captured.
+
+        **D. 属性 (Attributes):**
+        1. For each node, identify its essential attributes — the measurable or describable properties that characterize it.
+        2. Each attribute must have a name and a valueSpace (the type or range of valid values, e.g., 'number', 'string', '0..1', 'enum(high,medium,low)', 'date', 'boolean').
+        3. Ask: "What properties would you need to fully describe an instance of this concept?" Include quantitative metrics, states, classifications, and temporal properties.
+        4. Distinguish between definitional attributes (always present) and optional attributes.
+
+        **Source Tracking:**
+        - Mark everything 'derived' if explicitly stated in the user's text; 'inferred' if you are filling gaps with world knowledge.
+        - This applies to nodes, edges, properties, attributes, and constraints alike.
 
         CRITICAL INSTRUCTION:
         1. Explicitly represent rules (type: 'rule') if they drive events.
-        2. Label ALL properties, nodes, and edges with their 'source' - if it was explicitly mentioned in the user's text, mark it 'derived'. If you imagined it or inferred it with your world knowledge to fill in blanks, mark it 'inferred'.
-        3. You MUST return ONLY valid JSON strictly matching this schema. NO markdown wrapping, just the raw JSON object.
+        2. Label ALL properties, nodes, and edges with their 'source'.
+        3. You MUST output attributes and constraints for nodes and edges — an ontology without constraints and attributes is incomplete.
+        4. You MUST return ONLY valid JSON strictly matching this schema. NO markdown wrapping, just the raw JSON object.
 
         SCHEMA:
         %s""".formatted(SCHEMA_STRING);
@@ -119,16 +166,38 @@ public class LlmService {
         The user has uploaded one or more sources: PDF text excerpts and/or images of
         diagrams, flowcharts, tables, or screenshots.
 
-        **First-Principles Methodology — you MUST follow this approach:**
-        Before extracting entities, decompose the document's domain from first principles:
-        1. Identify the most fundamental, irreducible concepts — the "atoms" of the domain that the document describes.
-        2. Build upward from these fundamentals: derive the essential relationships, causal chains, and governance rules.
-        3. For every entity or relationship you extract, ask: "Is this a root cause, or a symptom? Is this fundamental, or derived from something deeper?"
-        4. Capture the causal mechanisms explicitly — every edge should represent a real dependency, governance, or trigger relationship, not a vague association.
-        5. Prefer depth and precision: a well-structured graph with clear causal chains is better than a large, shallow enumeration.
+        **First-Principles Methodology — you MUST rigorously analyze four dimensions:**
+
+        **A. 本体对象 (Ontology Objects / Nodes):**
+        1. Identify the most fundamental, irreducible concepts — the "atoms" of the domain the document describes.
+        2. For each concept, ask: "Is this truly primitive, or is it composed of deeper parts?"
+        3. Classify precisely: entity, event, process, rule, data, external.
+        4. Every node must have a clear ontological justification — no redundant or vague nodes.
+
+        **B. 关系 (Relationships / Edges):**
+        1. Extract every directed relationship with a precise verb label (triggers, governs, composed_of, requires, produces, etc.).
+        2. For each relationship, ask: "Is this causal, compositional, governance, or enablement? What is the exact mechanism?"
+        3. Never use vague labels like 'related_to' — capture the specific nature of each connection.
+        4. If a rule governs the relationship, set rule_driven=true and emit the rule node.
+
+        **C. 约束 (Constraints):**
+        1. Extract ALL structural constraints mentioned or implied in the document:
+           - Cardinality: "each X has exactly one Y", "at most N", "1:N"
+           - Exclusive: "either A or B but not both"
+           - Symmetric: bidirectional relationships
+           - Transitive: chainable relationships
+           - Custom: domain-specific invariants, business rules, regulatory limits
+        2. Apply constraints to BOTH nodes and edges. Constraints are the "laws of physics" of this domain.
+        3. Even if the document doesn't explicitly state a constraint, if the domain logically requires it (e.g., a purchase order must have at least one line item), include it as 'inferred'.
+
+        **D. 属性 (Attributes):**
+        1. For each entity/concept node, extract its essential attributes with name + valueSpace.
+        2. Look for: quantitative metrics, states, classifications, temporal properties, identifiers, capacities.
+        3. valueSpace should specify the type or range: 'number', 'string', '0..1', 'enum(X,Y,Z)', 'date', 'boolean', 'percentage', etc.
+        4. If a table or diagram shows properties/columns/fields, these become attributes on the relevant node.
 
         Your job: identify every distinct entity, event, process, data, external system,
-        and explicit RULE / regulation / SOP step, plus the directed relationships among them.
+        and explicit RULE / regulation / SOP step, plus the directed relationships, constraints, and attributes.
         Treat the document as authoritative — do not invent content that isn't grounded in it.
 
         Strict rules:
@@ -139,7 +208,8 @@ public class LlmService {
         3. Use stable ids like 'n_1', 'n_2', 'e_1' — the server rewrites them to avoid collisions.
         4. Be exhaustive but de-duplicated: if two phrasings clearly refer to the same concept,
            emit ONE node.
-        5. Return ONLY a JSON object exactly matching SCHEMA. No markdown wrapping.
+        5. You MUST output attributes and constraints — an extraction without them is incomplete.
+        6. Return ONLY a JSON object exactly matching SCHEMA. No markdown wrapping.
 
         SCHEMA:
         %s""".formatted(SCHEMA_STRING);

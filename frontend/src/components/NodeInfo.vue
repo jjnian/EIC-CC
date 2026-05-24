@@ -193,36 +193,40 @@ const startResize = (e: MouseEvent) => {
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="e in outgoing" :key="e.id" v-if="nmap[e.to]" class="ni-tr">
-                        <td class="ni-td">
-                          <span style="color:#3d9bff">→ 输出</span>
-                          <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399; margin-left:4px">⚡</span>
-                          <span v-if="(e.constraints?.length || 0) > 0" class="ni-lock-inline" :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')">🔒</span>
-                        </td>
-                        <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
-                        <td class="ni-td">
-                          <span v-if="e.source === 'inferred'" style="color:#bb77ff; font-size:11px">AI推理</span>
-                          <span v-else-if="e.source === 'derived'" style="color:#22dd88; font-size:11px">文本提取</span>
-                          <span v-else style="color:rgba(255,255,255,0.4); font-size:11px">预置</span>
-                        </td>
-                        <td class="ni-td">{{ nmap[e.to].label }}</td>
-                        <td class="ni-td"><button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button></td>
-                      </tr>
-                      <tr v-for="e in incoming" :key="e.id" v-if="nmap[e.from]" class="ni-tr">
-                        <td class="ni-td">
-                          <span style="color:#22dd88">← 输入</span>
-                          <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399; margin-left:4px">⚡</span>
-                          <span v-if="(e.constraints?.length || 0) > 0" class="ni-lock-inline" :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')">🔒</span>
-                        </td>
-                        <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
-                        <td class="ni-td">
-                          <span v-if="e.source === 'inferred'" style="color:#bb77ff; font-size:11px">AI推理</span>
-                          <span v-else-if="e.source === 'derived'" style="color:#22dd88; font-size:11px">文本提取</span>
-                          <span v-else style="color:rgba(255,255,255,0.4); font-size:11px">预置</span>
-                        </td>
-                        <td class="ni-td">{{ nmap[e.from].label }}</td>
-                        <td class="ni-td"><button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button></td>
-                      </tr>
+                      <template v-for="e in outgoing" :key="e.id">
+                        <tr v-if="nmap[e.to]" class="ni-tr">
+                          <td class="ni-td">
+                            <span style="color:#3d9bff">→ 输出</span>
+                            <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399; margin-left:4px">⚡</span>
+                            <span v-if="(e.constraints?.length || 0) > 0" class="ni-lock-inline" :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')">🔒</span>
+                          </td>
+                          <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
+                          <td class="ni-td">
+                            <span v-if="e.source === 'inferred'" style="color:#bb77ff; font-size:11px">AI推理</span>
+                            <span v-else-if="e.source === 'derived'" style="color:#22dd88; font-size:11px">文本提取</span>
+                            <span v-else style="color:rgba(255,255,255,0.4); font-size:11px">预置</span>
+                          </td>
+                          <td class="ni-td">{{ nmap[e.to].label }}</td>
+                          <td class="ni-td"><button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button></td>
+                        </tr>
+                      </template>
+                      <template v-for="e in incoming" :key="e.id">
+                        <tr v-if="nmap[e.from]" class="ni-tr">
+                          <td class="ni-td">
+                            <span style="color:#22dd88">← 输入</span>
+                            <span v-if="e.rule_driven" style="font-size:9px; color:#ff3399; margin-left:4px">⚡</span>
+                            <span v-if="(e.constraints?.length || 0) > 0" class="ni-lock-inline" :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')">🔒</span>
+                          </td>
+                          <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
+                          <td class="ni-td">
+                            <span v-if="e.source === 'inferred'" style="color:#bb77ff; font-size:11px">AI推理</span>
+                            <span v-else-if="e.source === 'derived'" style="color:#22dd88; font-size:11px">文本提取</span>
+                            <span v-else style="color:rgba(255,255,255,0.4); font-size:11px">预置</span>
+                          </td>
+                          <td class="ni-td">{{ nmap[e.from].label }}</td>
+                          <td class="ni-td"><button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button></td>
+                        </tr>
+                      </template>
                     </tbody>
                   </table>
                   <div v-if="!outgoing.length && !incoming.length" style="color:rgba(255,255,255,0.35);font-size:12px;padding-top:8px">暂无关系</div>
@@ -280,11 +284,13 @@ const startResize = (e: MouseEvent) => {
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="e in edges" :key="e.id" v-if="nmap[e.from] && nmap[e.to]" class="ni-tr">
-                        <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
-                        <td class="ni-td">{{ nmap[e.from].label }}</td>
-                        <td class="ni-td">{{ nmap[e.to].label }}</td>
-                      </tr>
+                      <template v-for="e in edges" :key="e.id">
+                        <tr v-if="nmap[e.from] && nmap[e.to]" class="ni-tr">
+                          <td class="ni-td" style="color:#ffaa22; font-weight:500">{{ e.label || '(未命名)' }}</td>
+                          <td class="ni-td">{{ nmap[e.from].label }}</td>
+                          <td class="ni-td">{{ nmap[e.to].label }}</td>
+                        </tr>
+                      </template>
                     </tbody>
                   </table>
                   <div v-if="!edges.length" style="color:rgba(255,255,255,0.35);font-size:12px;padding-top:8px">暂无全局关系</div>
