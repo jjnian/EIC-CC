@@ -61,7 +61,7 @@ public class LlmHttpClient {
     }
 
     /** 解析后的模型连接配置：endpoint、模型名、API key、协议类型、输出 token 上限。 */
-    public record ResolvedConfig(String baseURL, String modelName, String apiKey, String protocol, int maxOutputTokens) {}
+    public record ResolvedConfig(String baseURL, String modelName, String apiKey, String protocol, int maxOutputTokens, boolean rawUrl) {}
 
     /**
      * 解析最终连接配置：把 configId / modelOverride / 环境变量 / 默认值按优先级合并。
@@ -81,6 +81,7 @@ public class LlmHttpClient {
         String apiKey;
         String protocol = null;
         Integer maxOutputTokens = null;
+        boolean rawUrl = false;
 
         if (configId != null && !configId.isBlank()) {
             LlmProperties.ModelEntry selected = null;
@@ -101,6 +102,7 @@ public class LlmHttpClient {
             apiKey = selected.getApiKey();
             protocol = selected.getProtocol();
             maxOutputTokens = selected.getMaxOutputTokens();
+            rawUrl = selected.isRawUrl();
         } else {
             List<LlmProperties.ModelEntry> models = llmProperties.getModels();
             if (!models.isEmpty()) {
@@ -110,6 +112,7 @@ public class LlmHttpClient {
                 apiKey = first.getApiKey();
                 protocol = first.getProtocol();
                 maxOutputTokens = first.getMaxOutputTokens();
+                rawUrl = first.isRawUrl();
             } else {
                 LlmProvider provider = LlmProvider.QWEN;
                 baseURL = provider.getBaseUrl();
@@ -138,7 +141,7 @@ public class LlmHttpClient {
 
         int resolvedMax = (maxOutputTokens != null && maxOutputTokens > 0)
                 ? maxOutputTokens : DEFAULT_MAX_OUTPUT_TOKENS;
-        return new ResolvedConfig(baseURL, modelName, apiKey, protocol, resolvedMax);
+        return new ResolvedConfig(baseURL, modelName, apiKey, protocol, resolvedMax, rawUrl);
     }
 
     /**
@@ -315,9 +318,14 @@ public class LlmHttpClient {
      * Anthropic 用 x-api-key + anthropic-version 头，路径 /messages。
      * 总体超时 90s，覆盖 LLM 推理的最坏情况。
      */
-    public HttpRequest buildHttpRequest(String baseURL, String apiKey, boolean anthropic, String requestBody) {
-        String url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
-        log.info("[LLM-http] 请求 URL={} protocol={}", url, anthropic ? "anthropic" : "openai");
+    public HttpRequest buildHttpRequest(String baseURL, String apiKey, boolean anthropic, String requestBody, boolean rawUrl) {
+        String url;
+        if (rawUrl) {
+            url = baseURL.replaceFirst("/+$", "");
+        } else {
+            url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
+        }
+        log.info("[LLM-http] 请求 URL={} protocol={} rawUrl={}", url, anthropic ? "anthropic" : "openai", rawUrl);
         HttpRequest.Builder b = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(90))
@@ -326,6 +334,7 @@ public class LlmHttpClient {
         if (anthropic) {
             b.header("x-api-key", apiKey);
             b.header("anthropic-version", ANTHROPIC_VERSION);
+            b.header("Authorization", "Bearer " + apiKey);
         } else {
             b.header("Authorization", "Bearer " + apiKey);
         }

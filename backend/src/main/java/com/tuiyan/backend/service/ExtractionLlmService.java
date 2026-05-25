@@ -105,7 +105,7 @@ public class ExtractionLlmService {
         String requestBody = http.buildBody(cfg, LlmPrompts.EXTRACT_SYSTEM, userPrompt.toString(),
                 null, imageAttachments, false, true);
 
-        HttpRequest httpReq = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
+        HttpRequest httpReq = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
         long startTime = System.currentTimeMillis();
         HttpResponse<String> resp = http.sendHttp(httpReq, HttpResponse.BodyHandlers.ofString());
         long elapsed = System.currentTimeMillis() - startTime;

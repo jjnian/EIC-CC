@@ -68,7 +68,7 @@ public class PredictLlmService {
 
         long startTime = System.currentTimeMillis();
         try {
-            HttpRequest httpReq = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
+            HttpRequest httpReq = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
             HttpResponse<String> resp = http.sendHttp(httpReq, HttpResponse.BodyHandlers.ofString());
             long elapsed = System.currentTimeMillis() - startTime;
 
