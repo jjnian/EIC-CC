@@ -66,11 +66,13 @@ public class LlmStreamParser {
     /**
      * 解析 Anthropic SSE 流：事件类型由 event: 行决定，content_block_delta 携带文本增量。
      * <p>同时处理 text_delta 和 input_json_delta，让 JSON 模式响应也能流式收齐。
+     * <p>兼容中转站返回 OpenAI 格式的情况：自动检测 choices[].delta.content 并回退。
      */
     public StringBuilder parseAnthropic(BufferedReader reader, SseEmitter emitter) throws IOException {
         StringBuilder fullContent = new StringBuilder();
         StringBuilder rawDump = new StringBuilder();
         int rawLineCount = 0;
+        boolean detectedOpenAi = false;
         String line;
         String currentEvent = "";
         while ((line = reader.readLine()) != null) {
@@ -116,6 +118,25 @@ public class LlmStreamParser {
                         log.warn("emit anthropic error failed: {}", sendErr.toString());
                     }
                     break;
+                } else {
+                    // 中转站可能声明 anthropic 但实际返回 OpenAI SSE 格式，回退解析
+                    JsonNode choices = chunk.path("choices");
+                    if (choices.isArray() && choices.size() > 0) {
+                        String delta = choices.path(0).path("delta").path("content").asText("");
+                        if (!delta.isEmpty()) {
+                            if (!detectedOpenAi) {
+                                detectedOpenAi = true;
+                                log.warn("[LLM-stream] 配置为 anthropic 但流式响应为 OpenAI 格式，已自动回退；建议改为 protocol: openai");
+                            }
+                            fullContent.append(delta);
+                            try {
+                                emitter.send(SseEmitter.event().name("text").data(delta));
+                            } catch (IOException sendErr) {
+                                log.warn("emit openai-fallback chunk failed: {}", sendErr.toString());
+                                return fullContent;
+                            }
+                        }
+                    }
                 }
             } catch (IOException parseErr) {
                 log.warn("anthropic chunk parse failed: {}", parseErr.toString());
