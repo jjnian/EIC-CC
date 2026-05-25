@@ -35,6 +35,7 @@ public class LlmProperties {
         private String apiKey;
         private String protocol;
         private boolean enabled = true;
+        private boolean rawUrl = false;
         private String description;
         private Integer contextWindow;
         private Integer maxOutputTokens;
@@ -58,6 +59,8 @@ public class LlmProperties {
         public void setProtocol(String protocol) { this.protocol = protocol; }
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public boolean isRawUrl() { return rawUrl; }
+        public void setRawUrl(boolean rawUrl) { this.rawUrl = rawUrl; }
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
         public Integer getContextWindow() { return contextWindow; }

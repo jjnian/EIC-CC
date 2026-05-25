@@ -54,7 +54,11 @@ public class LlmStreamParser {
             }
         }
         if (fullContent.length() == 0) {
-            log.warn("[LLM-stream] openai 流为空 已读 {} 行 原始前 10 行 dump:\n{}", rawLineCount, rawDump);
+            String raw = rawDump.toString();
+            if (raw.contains("<!doctype html>") || raw.contains("<!DOCTYPE html>") || raw.contains("<html")) {
+                log.error("[LLM-stream] openai 端点返回 HTML 页面而非 SSE 流，请检查 base-url 是否缺少 /v1 路径前缀");
+            }
+            log.warn("[LLM-stream] openai 流为空 已读 {} 行 原始前 10 行 dump:\n{}", rawLineCount, raw);
         }
         return fullContent;
     }
@@ -118,7 +122,11 @@ public class LlmStreamParser {
             }
         }
         if (fullContent.length() == 0) {
-            log.warn("[LLM-stream] anthropic 流为空 已读 {} 行 原始前 10 行 dump:\n{}", rawLineCount, rawDump);
+            String raw = rawDump.toString();
+            if (raw.contains("<!doctype html>") || raw.contains("<!DOCTYPE html>") || raw.contains("<html")) {
+                log.error("[LLM-stream] anthropic 端点返回 HTML 页面而非 SSE 流，请检查 base-url 是否缺少 /v1 路径前缀");
+            }
+            log.warn("[LLM-stream] anthropic 流为空 已读 {} 行 原始前 10 行 dump:\n{}", rawLineCount, raw);
         }
         return fullContent;
     }

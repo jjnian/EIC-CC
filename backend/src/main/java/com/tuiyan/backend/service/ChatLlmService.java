@@ -68,7 +68,7 @@ public class ChatLlmService {
 
         long startTime = System.currentTimeMillis();
         try {
-            HttpRequest request = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
+            HttpRequest request = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
             HttpResponse<String> response = http.sendHttp(request, HttpResponse.BodyHandlers.ofString());
             long elapsed = System.currentTimeMillis() - startTime;
 
@@ -80,6 +80,14 @@ public class ChatLlmService {
             }
 
             log.info("[LLM-chat] 请求成功 status=200 耗时={}ms 响应大小={} chars", elapsed, response.body().length());
+
+            String responseContentType = response.headers().firstValue("Content-Type").orElse("");
+            if (responseContentType.contains("text/html")) {
+                log.error("[LLM-chat] 收到 HTML 响应而非 JSON，base-url 可能缺少 /v1 路径前缀");
+                http.metrics().recordCall(cfg.modelName(), elapsed, false);
+                throw new RuntimeException("LLM 代理返回了 HTML 页面而非 API 响应，请检查 base-url 配置是否包含 /v1 路径");
+            }
+
             http.metrics().recordCall(cfg.modelName(), elapsed, true);
 
             JsonNode responseJson = objectMapper.readTree(response.body());
@@ -116,7 +124,7 @@ public class ChatLlmService {
                     request.getHistory(), request.getAttachments(), true, true);
             log.debug("[LLM-stream] 请求体大小: {} chars", requestBody.length());
 
-            HttpRequest httpRequest = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
+            HttpRequest httpRequest = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
 
             final String modelNameForMetrics = cfg.modelName();
 
@@ -171,6 +179,20 @@ public class ChatLlmService {
         }
 
         log.info("[LLM-stream] 连接成功 首字节耗时={}ms", firstByteTime);
+
+        String contentType = resp.headers().firstValue("Content-Type").orElse("");
+        if (contentType.contains("text/html")) {
+            log.error("[LLM-stream] 收到 HTML 响应而非 SSE 流，base-url 可能缺少 /v1 路径前缀 Content-Type={}", contentType);
+            http.metrics().recordCall(modelName, firstByteTime, false);
+            try {
+                emitter.send(SseEmitter.event().name("error").data(
+                        "LLM 代理返回了 HTML 页面而非 API 响应，请检查 base-url 配置是否包含 /v1 路径"));
+            } catch (IOException e) {
+                log.warn("emit html-error event failed", e);
+            }
+            emitter.complete();
+            return;
+        }
 
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(resp.body(), StandardCharsets.UTF_8))) {
