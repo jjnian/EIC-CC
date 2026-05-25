@@ -326,6 +326,7 @@ public class LlmHttpClient {
         if (anthropic) {
             b.header("x-api-key", apiKey);
             b.header("anthropic-version", ANTHROPIC_VERSION);
+            b.header("Authorization", "Bearer " + apiKey);
         } else {
             b.header("Authorization", "Bearer " + apiKey);
         }
