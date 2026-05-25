@@ -11,21 +11,41 @@ spring:
 server:
   port: 8000
 
+#app:
+#  data:
+#    dir: ${user.home}/.tuiyan
+#  llm:
+#    models:
+#      - id: deepseek-chat
+#        name: DeepSeek Chat
+#        provider: deepseek
+#        base-url: https://api.deepseek.com
+#        model-name: deepseek-v4-flash
+#        api-key: ${DEEPSEEK_API_KEY:sk-6e221473e331438d849319d376288d13}
+#        protocol: openai
+#        enabled: true
+#        context-window: 64000
+#        max-output-tokens: 16384
+#        capabilities:
+#          - streaming
+#          - json
+
+
 app:
   data:
     dir: ${user.home}/.tuiyan
   llm:
     models:
-      - id: deepseek-chat
-        name: DeepSeek Chat
-        provider: deepseek
-        base-url: https://api.deepseek.com
-        model-name: deepseek-v4-flash
-        api-key: ${DEEPSEEK_API_KEY:sk-6e221473e331438d849319d376288d13}
-        protocol: openai
+      - id: claude-opus-4-7
+        name: Claude Opus 4.7 (中转站)
+        provider: anthropic
+        base-url: https://code.ppchat.vip
+        model-name: claude-opus-4-7
+        api-key: ${ANTHROPIC_API_KEY:}
+        protocol: anthropic
         enabled: true
-        context-window: 64000
-        max-output-tokens: 16384
+        context-window: 200000
+        max-output-tokens: 32768
         capabilities:
           - streaming
-          - json
+

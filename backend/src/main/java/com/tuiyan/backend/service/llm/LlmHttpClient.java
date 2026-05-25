@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.config.LlmProperties;
 import com.tuiyan.backend.model.LlmProvider;
 import com.tuiyan.backend.service.LlmMetricsService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -27,6 +29,8 @@ import java.util.Map;
  */
 @Component
 public class LlmHttpClient {
+
+    private static final Logger log = LoggerFactory.getLogger(LlmHttpClient.class);
 
     // Anthropic Messages API 强制要求 anthropic-version 头；本项目固定使用 2023-06-01（稳定版）
     public static final String ANTHROPIC_VERSION = "2023-06-01";
@@ -313,6 +317,7 @@ public class LlmHttpClient {
      */
     public HttpRequest buildHttpRequest(String baseURL, String apiKey, boolean anthropic, String requestBody) {
         String url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
+        log.info("[LLM-http] 请求 URL={} protocol={}", url, anthropic ? "anthropic" : "openai");
         HttpRequest.Builder b = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(90))

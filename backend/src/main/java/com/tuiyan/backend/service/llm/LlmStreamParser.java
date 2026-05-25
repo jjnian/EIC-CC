@@ -27,8 +27,14 @@ public class LlmStreamParser {
      */
     public StringBuilder parseOpenAI(BufferedReader reader, SseEmitter emitter) throws IOException {
         StringBuilder fullContent = new StringBuilder();
+        StringBuilder rawDump = new StringBuilder();
+        int rawLineCount = 0;
         String line;
         while ((line = reader.readLine()) != null) {
+            if (rawLineCount < 10) {
+                rawDump.append(line).append("\n");
+                rawLineCount++;
+            }
             if (!line.startsWith("data: ")) continue;
             String data = line.substring(6);
             if ("[DONE]".equals(data)) break;
@@ -47,6 +53,9 @@ public class LlmStreamParser {
                 log.warn("openai stream chunk parse failed: {}", parseErr.toString());
             }
         }
+        if (fullContent.length() == 0) {
+            log.warn("[LLM-stream] openai 流为空 已读 {} 行 原始前 10 行 dump:\n{}", rawLineCount, rawDump);
+        }
         return fullContent;
     }
 
@@ -56,9 +65,15 @@ public class LlmStreamParser {
      */
     public StringBuilder parseAnthropic(BufferedReader reader, SseEmitter emitter) throws IOException {
         StringBuilder fullContent = new StringBuilder();
+        StringBuilder rawDump = new StringBuilder();
+        int rawLineCount = 0;
         String line;
         String currentEvent = "";
         while ((line = reader.readLine()) != null) {
+            if (rawLineCount < 10) {
+                rawDump.append(line).append("\n");
+                rawLineCount++;
+            }
             if (line.isEmpty()) continue;
             if (line.startsWith("event: ")) {
                 currentEvent = line.substring(7).trim();
@@ -101,6 +116,9 @@ public class LlmStreamParser {
             } catch (IOException parseErr) {
                 log.warn("anthropic chunk parse failed: {}", parseErr.toString());
             }
+        }
+        if (fullContent.length() == 0) {
+            log.warn("[LLM-stream] anthropic 流为空 已读 {} 行 原始前 10 行 dump:\n{}", rawLineCount, rawDump);
         }
         return fullContent;
     }
