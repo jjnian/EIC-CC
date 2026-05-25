@@ -41,7 +41,7 @@ app:
         provider: anthropic
         base-url: https://code.ppchat.vip
         model-name: claude-opus-4-7
-        api-key: ${ANTHROPIC_API_KEY:}
+        api-key: ${ANTHROPIC_API_KEY:sk-}
         protocol: anthropic
         enabled: true
         context-window: 200000

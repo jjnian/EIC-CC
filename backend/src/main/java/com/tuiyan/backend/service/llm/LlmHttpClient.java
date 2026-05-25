@@ -317,6 +317,7 @@ public class LlmHttpClient {
      */
     public HttpRequest buildHttpRequest(String baseURL, String apiKey, boolean anthropic, String requestBody) {
         String url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
+        // String url = baseURL;
         log.info("[LLM-http] 请求 URL={} protocol={}", url, anthropic ? "anthropic" : "openai");
         HttpRequest.Builder b = HttpRequest.newBuilder()
                 .uri(URI.create(url))
