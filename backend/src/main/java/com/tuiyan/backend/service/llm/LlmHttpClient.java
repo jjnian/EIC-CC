@@ -318,21 +318,11 @@ public class LlmHttpClient {
      * Anthropic 用 x-api-key + anthropic-version 头，路径 /messages。
      * 总体超时 90s，覆盖 LLM 推理的最坏情况。
      */
-<<<<<<< HEAD
-    public HttpRequest buildHttpRequest(String baseURL, String apiKey, boolean anthropic, String requestBody) {
-        String url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
-        // String url = baseURL;
-        log.info("[LLM-http] 请求 URL={} protocol={}", url, anthropic ? "anthropic" : "openai");
-=======
     public HttpRequest buildHttpRequest(String baseURL, String apiKey, boolean anthropic, String requestBody, boolean rawUrl) {
-        String url;
-        if (rawUrl) {
-            url = baseURL.replaceFirst("/+$", "");
-        } else {
-            url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
-        }
-        log.info("[LLM-http] 请求 URL={} protocol={} rawUrl={}", url, anthropic ? "anthropic" : "openai", rawUrl);
->>>>>>> 63dd491edb4c3902866c306402bc1a9667472d42
+        String url = rawUrl
+                ? baseURL.replaceFirst("/+$", "")
+                : baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
+        log.info("[LLM-http] 请求 URL={} protocol={}", url, anthropic ? "anthropic" : "openai");
         HttpRequest.Builder b = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(90))
