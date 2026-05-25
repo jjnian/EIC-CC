@@ -68,7 +68,7 @@ public class ChatLlmService {
 
         long startTime = System.currentTimeMillis();
         try {
-            HttpRequest request = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
+            HttpRequest request = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
             HttpResponse<String> response = http.sendHttp(request, HttpResponse.BodyHandlers.ofString());
             long elapsed = System.currentTimeMillis() - startTime;
 
@@ -124,7 +124,7 @@ public class ChatLlmService {
                     request.getHistory(), request.getAttachments(), true, true);
             log.debug("[LLM-stream] 请求体大小: {} chars", requestBody.length());
 
-            HttpRequest httpRequest = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody);
+            HttpRequest httpRequest = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
 
             final String modelNameForMetrics = cfg.modelName();
 
