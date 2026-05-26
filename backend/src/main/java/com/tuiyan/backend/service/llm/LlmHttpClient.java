@@ -323,7 +323,7 @@ public class LlmHttpClient {
         if (rawUrl) {
             url = baseURL.replaceFirst("/+$", "");
         } else {
-            url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
+            url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/v1/messages" : "/v1/chat/completions");
         }
         log.info("[LLM-http] 请求 URL={} protocol={} rawUrl={}", url, anthropic ? "anthropic" : "openai", rawUrl);
         HttpRequest.Builder b = HttpRequest.newBuilder()
