@@ -1,0 +1,26 @@
+package com.tuiyan.backend.entity;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+
+/**
+ * 对话会话 PO，对应 conversation 表。
+ */
+@TableName("conversation")
+public class ConversationPO {
+    @TableId(type = IdType.INPUT)
+    private String id;
+    private String title;
+    private Long createdAt;
+    private Long updatedAt;
+
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
+    public Long getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Long createdAt) { this.createdAt = createdAt; }
+    public Long getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Long updatedAt) { this.updatedAt = updatedAt; }
+}

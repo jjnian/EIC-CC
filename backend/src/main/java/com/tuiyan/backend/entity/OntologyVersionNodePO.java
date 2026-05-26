@@ -1,0 +1,48 @@
+package com.tuiyan.backend.entity;
+
+import com.baomidou.mybatisplus.annotation.TableName;
+
+/**
+ * 版本节点 PO，对应 ontology_version_node 表。
+ * <p>结构与 OntologyNodePO 几乎一致，但 owner 是 version_id 而非 model_id。
+ */
+@TableName("ontology_version_node")
+public class OntologyVersionNodePO {
+    private Long versionId;
+    private String nodeId;
+    private String label;
+    private String type;
+    private String source;
+    private Double x;
+    private Double y;
+    private Integer predictedStep;
+    private String predictedIntent;
+    private Double confidence;
+    private Double effectiveProbability;
+    private String explanation;
+
+    public Long getVersionId() { return versionId; }
+    public void setVersionId(Long versionId) { this.versionId = versionId; }
+    public String getNodeId() { return nodeId; }
+    public void setNodeId(String nodeId) { this.nodeId = nodeId; }
+    public String getLabel() { return label; }
+    public void setLabel(String label) { this.label = label; }
+    public String getType() { return type; }
+    public void setType(String type) { this.type = type; }
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
+    public Double getX() { return x; }
+    public void setX(Double x) { this.x = x; }
+    public Double getY() { return y; }
+    public void setY(Double y) { this.y = y; }
+    public Integer getPredictedStep() { return predictedStep; }
+    public void setPredictedStep(Integer predictedStep) { this.predictedStep = predictedStep; }
+    public String getPredictedIntent() { return predictedIntent; }
+    public void setPredictedIntent(String predictedIntent) { this.predictedIntent = predictedIntent; }
+    public Double getConfidence() { return confidence; }
+    public void setConfidence(Double confidence) { this.confidence = confidence; }
+    public Double getEffectiveProbability() { return effectiveProbability; }
+    public void setEffectiveProbability(Double effectiveProbability) { this.effectiveProbability = effectiveProbability; }
+    public String getExplanation() { return explanation; }
+    public void setExplanation(String explanation) { this.explanation = explanation; }
+}

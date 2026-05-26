@@ -7,9 +7,30 @@ spring:
     multipart:
       max-file-size: 20MB
       max-request-size: 80MB
+  # PostgreSQL 数据源：用户需自行准备 PgSQL 实例并执行 init.sql 建表
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/tuiyan}
+    username: ${DB_USERNAME:tuiyan}
+    password: ${DB_PASSWORD:tuiyan}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 10000
 
 server:
   port: 8000
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: assign_id      # 主键由业务代码生成（保留 om_xxx / sc_xxx 等命名）
+      logic-delete-field: null
+
 
 #app:
 #  data:

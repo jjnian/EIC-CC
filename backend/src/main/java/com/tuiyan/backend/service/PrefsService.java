@@ -1,14 +1,18 @@
 package com.tuiyan.backend.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.config.AppPaths;
+import com.tuiyan.backend.entity.ScenarioPO;
+import com.tuiyan.backend.mapper.ScenarioMapper;
 import com.tuiyan.backend.util.JsonAtomic;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -21,9 +25,11 @@ public class PrefsService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AppPaths appPaths;
+    private final ScenarioMapper scenarioMapper;
 
-    public PrefsService(AppPaths appPaths) {
+    public PrefsService(AppPaths appPaths, ScenarioMapper scenarioMapper) {
         this.appPaths = appPaths;
+        this.scenarioMapper = scenarioMapper;
     }
 
     /**
@@ -54,19 +60,14 @@ public class PrefsService {
     }
 
     /**
-     * 删除全部 scenarios 文件。
-     * @return 实际删除的张数（不含目录、不含 .bak 备份）
+     * 清空全部推演分支（含 DAG / chain / 约束 / 解释，外键级联清子表）。
+     * @return 实际删除的分支数
      */
     public int clearAllScenarios() {
+        List<ScenarioPO> all = scenarioMapper.selectList(new LambdaQueryWrapper<>());
         int n = 0;
-        File dir = appPaths.scenariosDir();
-        if (dir.exists() && dir.isDirectory()) {
-            File[] files = dir.listFiles((f, name) -> name.endsWith(".json"));
-            if (files != null) {
-                for (File f : files) {
-                    if (f.delete()) n++;
-                }
-            }
+        for (ScenarioPO p : all) {
+            if (scenarioMapper.deleteById(p.getId()) > 0) n++;
         }
         return n;
     }

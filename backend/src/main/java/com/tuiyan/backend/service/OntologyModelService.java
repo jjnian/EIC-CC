@@ -1,34 +1,25 @@
 package com.tuiyan.backend.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tuiyan.backend.config.AppPaths;
+import com.tuiyan.backend.config.ResourceNotFoundException;
 import com.tuiyan.backend.model.OntologyModel;
-import com.tuiyan.backend.util.JsonAtomic;
+import com.tuiyan.backend.repository.OntologyModelRepository;
+import com.tuiyan.backend.repository.OntologyVersionRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import com.tuiyan.backend.config.ResourceNotFoundException;
-
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * 本体图谱模型服务：CRUD + 版本快照管理 + 默认种子数据。
  * <p>核心特性：
  * <ul>
- *   <li>每次保存前自动把"当前文件"拷贝到 {@code versions/<modelId>/<时间戳>.json}，最多保留 {@link #MAX_VERSIONS} 份；</li>
- *   <li>首次启动时（目录为空）自动播种 3 个示例图谱（供应链 / 财务 / 组织架构）让用户能立刻上手；</li>
+ *   <li>每次保存前先把"当前模型快照"写入 {@code ontology_model_version} 系列表，最多保留 100 份；</li>
+ *   <li>首次启动时（库为空）自动播种 3 个示例图谱（供应链 / 财务 / 组织架构）让用户能立刻上手；</li>
  *   <li>支持按时间戳恢复到任意历史版本，恢复前的当前版本也会被备份成新快照。</li>
  * </ul>
  */
@@ -36,56 +27,42 @@ import java.util.Objects;
 public class OntologyModelService {
 
     private static final Logger log = LoggerFactory.getLogger(OntologyModelService.class);
-    // 版本快照最大保留数量；超过后会删除最早的快照
-    private static final int MAX_VERSIONS = 100;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private final AppPaths appPaths;
+    private final OntologyModelRepository modelRepository;
+    private final OntologyVersionRepository versionRepository;
 
-    public OntologyModelService(AppPaths appPaths) {
-        this.appPaths = appPaths;
+    public OntologyModelService(OntologyModelRepository modelRepository,
+                                OntologyVersionRepository versionRepository) {
+        this.modelRepository = modelRepository;
+        this.versionRepository = versionRepository;
     }
 
-    /** 启动时确保目录存在；目录为空（全新安装）时播种默认图谱。 */
+    /** 启动时若数据库为空则播种默认图谱。 */
     @PostConstruct
-    public void init() throws IOException {
-        File d = appPaths.ontologyModelsDir();
-        if (!d.exists()) d.mkdirs();
-        File[] existing = d.listFiles((f, n) -> n.endsWith(".json"));
-        if (Objects.requireNonNullElse(existing, new File[0]).length == 0) {
-            seedDefaults();
-        }
-    }
-
-    /** 全量列表，按 updatedAt 倒序；损坏文件跳过。 */
-    public List<OntologyModel> list() throws IOException {
-        File d = appPaths.ontologyModelsDir();
-        File[] files = d.listFiles((f, n) -> n.endsWith(".json"));
-        List<OntologyModel> out = new ArrayList<>();
-        if (files == null) return out;
-        for (File f : files) {
-            try {
-                out.add(objectMapper.readValue(f, OntologyModel.class));
-            } catch (IOException ioe) {
-                log.warn("skip malformed ontology-model file {}: {}", f, ioe.toString());
+    public void init() {
+        try {
+            if (modelRepository.count() == 0) {
+                seedDefaults();
             }
+        } catch (Exception e) {
+            log.warn("seed defaults failed: {}", e.toString(), e);
         }
-        out.sort(Comparator.comparingLong(OntologyModel::getUpdatedAt).reversed());
-        return out;
     }
 
-    public OntologyModel get(String id) throws IOException {
-        File f = fileFor(id);
-        if (!f.exists()) return null;
-        return objectMapper.readValue(f, OntologyModel.class);
+    /** 全量列表，按 updatedAt 倒序。 */
+    public List<OntologyModel> list() {
+        return modelRepository.list();
+    }
+
+    public OntologyModel get(String id) {
+        return modelRepository.get(id);
     }
 
     /**
      * 保存（新建或更新）。
-     * <p>更新场景下会先把当前文件拷贝到 versions 目录作为快照，再覆盖写入新内容，
-     * 保证"任何一次保存"都有回溯点。
+     * <p>更新场景下会先把旧版本写入版本表作为快照，再覆盖写入新内容，保证"任何一次保存"都有回溯点。
      */
-    public OntologyModel save(OntologyModel m) throws IOException {
+    public OntologyModel save(OntologyModel m) {
         if (m.getId() == null || m.getId().isBlank()) {
             m.setId("om_" + System.currentTimeMillis());
         }
@@ -93,125 +70,55 @@ public class OntologyModelService {
         if (m.getCreatedAt() == 0L) m.setCreatedAt(now);
         m.setUpdatedAt(now);
         m.setUpdated("刚刚");
-        // 如果文件已存在（即是更新而非新建），保存旧版本快照
-        File modelFile = fileFor(m.getId());
-        if (modelFile.exists()) {
-            saveVersionSnapshot(m.getId(), modelFile);
+        // 若已存在则先快照旧版本
+        OntologyModel existing = modelRepository.get(m.getId());
+        if (existing != null) {
+            try {
+                versionRepository.snapshot(existing);
+            } catch (Exception e) {
+                log.warn("snapshot failed for model {}: {}", m.getId(), e.toString());
+            }
         }
-        JsonAtomic.write(objectMapper, fileFor(m.getId()), m);
+        modelRepository.save(m);
         return m;
     }
 
     /** 按指定 id 更新；id 强制覆写，保证路径与 body 里 id 一致。 */
-    public OntologyModel update(String id, OntologyModel m) throws IOException {
+    public OntologyModel update(String id, OntologyModel m) {
         m.setId(id);
         return save(m);
     }
 
     public boolean delete(String id) {
-        File f = fileFor(id);
-        return f.exists() && f.delete();
+        return modelRepository.delete(id);
     }
 
-    /**
-     * 获取指定模型的版本快照列表（不含内容，只返回时间戳 + 节点 / 边数概要 + 文件大小）。
-     * <p>用于设置页的"历史版本"列表渲染，按时间戳倒序。
-     */
+    /** 列出版本快照（不含内容，只返回时间戳 + 节点 / 边数概要 + 文件大小）。 */
     public List<Map<String, Object>> listVersions(String modelId) {
-        File versionsDir = new File(appPaths.ontologyModelsDir(),
-                "versions" + File.separator + modelId.replaceAll("[^a-zA-Z0-9_\\-]", "_"));
-        if (!versionsDir.exists()) return List.of();
-
-        File[] files = versionsDir.listFiles((dir, name) -> name.endsWith(".json"));
-        if (files == null || files.length == 0) return List.of();
-
-        Arrays.sort(files, Comparator.comparingLong(File::lastModified).reversed());
-
-        List<Map<String, Object>> versions = new ArrayList<>();
-        for (File f : files) {
-            String ts = f.getName().replace(".json", "");
-            try {
-                long timestamp = Long.parseLong(ts);
-                // 读取文件获取节点/边数量摘要，让用户在恢复前能预览版本规模
-                OntologyModel snapshot = objectMapper.readValue(f, OntologyModel.class);
-                int nodeCount = snapshot.getGraphData() != null && snapshot.getGraphData().getNodes() != null
-                        ? snapshot.getGraphData().getNodes().size() : 0;
-                int edgeCount = snapshot.getGraphData() != null && snapshot.getGraphData().getEdges() != null
-                        ? snapshot.getGraphData().getEdges().size() : 0;
-                versions.add(Map.of(
-                        "timestamp", timestamp,
-                        "nodeCount", nodeCount,
-                        "edgeCount", edgeCount,
-                        "fileSize", f.length()
-                ));
-            } catch (Exception e) {
-                // 跳过损坏的版本文件
-            }
-        }
-        return versions;
+        return versionRepository.listVersions(modelId);
     }
 
     /**
      * 恢复指定时间戳的版本快照。
-     * <p>恢复过程调用 {@link #save}，所以当前版本会被自动备份为新的快照，
-     * 这意味着"恢复"操作本身也是可撤销的。
+     * <p>恢复过程调用 {@link #save}，所以当前版本会被自动备份为新的快照——恢复操作本身也是可撤销的。
      */
-    public OntologyModel restoreVersion(String modelId, long timestamp) throws IOException {
-        File versionsDir = new File(appPaths.ontologyModelsDir(),
-                "versions" + File.separator + modelId.replaceAll("[^a-zA-Z0-9_\\-]", "_"));
-        File versionFile = new File(versionsDir, timestamp + ".json");
-        if (!versionFile.exists()) {
+    public OntologyModel restoreVersion(String modelId, long timestamp) {
+        OntologyModel snapshot = versionRepository.loadByTimestamp(modelId, timestamp);
+        if (snapshot == null) {
             throw new ResourceNotFoundException("Version not found: " + timestamp);
         }
-        OntologyModel snapshot = objectMapper.readValue(versionFile, OntologyModel.class);
         snapshot.setId(modelId);
-        // save 会先保存当前版本为快照，再写入恢复的版本
         return save(snapshot);
     }
 
-    /**
-     * 把当前文件复制到 versions/<modelId>/<时间戳>.json，并清理超额快照。
-     * <p>快照失败仅记录警告，不阻断主保存流程——快照是辅助功能，不能因为它失败导致用户数据丢失。
-     */
-    private void saveVersionSnapshot(String modelId, File currentFile) {
-        try {
-            File versionsDir = new File(appPaths.ontologyModelsDir(),
-                    "versions" + File.separator + modelId.replaceAll("[^a-zA-Z0-9_\\-]", "_"));
-            if (!versionsDir.exists()) versionsDir.mkdirs();
-
-            // 用时间戳命名版本文件
-            String versionName = System.currentTimeMillis() + ".json";
-            File versionFile = new File(versionsDir, versionName);
-            Files.copy(currentFile.toPath(), versionFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-
-            // 清理超过 MAX_VERSIONS 的旧版本：按 lastModified 升序删最早的
-            File[] versions = versionsDir.listFiles((dir, name) -> name.endsWith(".json"));
-            if (versions != null && versions.length > MAX_VERSIONS) {
-                Arrays.sort(versions, Comparator.comparingLong(File::lastModified));
-                for (int i = 0; i < versions.length - MAX_VERSIONS; i++) {
-                    versions[i].delete();
-                }
-            }
-        } catch (IOException e) {
-            // 版本快照保存失败不应阻断主流程
-            log.warn("Failed to save version snapshot for {}: {}", modelId, e.getMessage());
-        }
-    }
-
-    private File fileFor(String id) {
-        String safe = id.replaceAll("[^a-zA-Z0-9_\\-]", "_");
-        return new File(appPaths.ontologyModelsDir(), safe + ".json");
-    }
-
     /** 首次启动时播种 3 个示例图谱，让用户能立刻进行推演体验。 */
-    private void seedDefaults() throws IOException {
-        OntologyModel m1 = buildSeed("1", "供应链本体模型", "包含供应链核心实体与关系的推演模型",
-                supplyChainNodes(), supplyChainEdges());
-        OntologyModel m2 = buildSeed("2", "财务追踪模型", "用于企业财务审批及资金流向追踪",
-                new ArrayList<>(), new ArrayList<>());
-        OntologyModel m3 = buildSeed("3", "组织架构解析", "部门架构与人员编制分析本体",
-                new ArrayList<>(), new ArrayList<>());
-        save(m1); save(m2); save(m3);
+    private void seedDefaults() {
+        save(buildSeed("1", "供应链本体模型", "包含供应链核心实体与关系的推演模型",
+                supplyChainNodes(), supplyChainEdges()));
+        save(buildSeed("2", "财务追踪模型", "用于企业财务审批及资金流向追踪",
+                new ArrayList<>(), new ArrayList<>()));
+        save(buildSeed("3", "组织架构解析", "部门架构与人员编制分析本体",
+                new ArrayList<>(), new ArrayList<>()));
     }
 
     private OntologyModel buildSeed(String id, String title, String desc,

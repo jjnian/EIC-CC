@@ -6,23 +6,21 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.config.ResourceNotFoundException;
 import com.tuiyan.backend.model.NodeExplanation;
 import com.tuiyan.backend.model.Scenario;
-import com.tuiyan.backend.service.ExplainLlmService;
+import com.tuiyan.backend.repository.ScenarioRepository;
 import com.tuiyan.backend.support.SsePushUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * P1-7：对推演节点生成三段式解释（依据 / 假设 / 反例），缓存到 {@link Scenario#getDag()}.explanations。
+ * P1-7：对推演节点生成三段式解释（依据 / 假设 / 反例），缓存到 scenario_node_explanation 表。
  * <p>三段分别通过 SSE 的 chunk 事件推送给前端浮动面板，避免用户等待完整 JSON 才看到内容。
  * 缓存命中时仍然走分段推送，让前端逻辑可以统一处理。
  */
@@ -32,11 +30,15 @@ public class ScenarioExplanationService {
     private static final Logger log = LoggerFactory.getLogger(ScenarioExplanationService.class);
 
     private final ScenarioService scenarioService;
+    private final ScenarioRepository scenarioRepository;
     private final ExplainLlmService explainLlmService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public ScenarioExplanationService(ScenarioService scenarioService, ExplainLlmService explainLlmService) {
+    public ScenarioExplanationService(ScenarioService scenarioService,
+                                      ScenarioRepository scenarioRepository,
+                                      ExplainLlmService explainLlmService) {
         this.scenarioService = scenarioService;
+        this.scenarioRepository = scenarioRepository;
         this.explainLlmService = explainLlmService;
     }
 
@@ -98,19 +100,11 @@ public class ScenarioExplanationService {
             // 分段推送：先发完三段 chunk，再发 complete；让前端 UI 能按字段渐进渲染
             sendChunks(emitter, cancelled, explanation);
 
-            // 写回 Scenario 缓存；写盘失败不影响本次返回结果，仅记日志
-            if (scenario.getDag() != null) {
-                Map<String, NodeExplanation> map = scenario.getDag().getExplanations();
-                if (map == null) {
-                    map = new HashMap<>();
-                    scenario.getDag().setExplanations(map);
-                }
-                map.put(nodeId, explanation);
-                try {
-                    scenarioService.save(scenario);
-                } catch (IOException ioe) {
-                    log.warn("save explanation cache failed for scenario={}: {}", scenarioId, ioe.toString());
-                }
+            // 写回数据库；写盘失败不影响本次返回结果，仅记日志
+            try {
+                scenarioRepository.upsertExplanation(scenarioId, nodeId, explanation);
+            } catch (Exception ex) {
+                log.warn("save explanation cache failed for scenario={}: {}", scenarioId, ex.toString());
             }
 
             if (!cancelled.get()) {
