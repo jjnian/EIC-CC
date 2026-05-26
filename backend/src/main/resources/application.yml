@@ -36,6 +36,8 @@ app:
     dir: ${user.home}/.tuiyan
   llm:
     models:
+      # 中转站通常使用 OpenAI 兼容协议（即使代理的是 Claude 模型）
+      # 如果中转站返回 OpenAI 格式，请使用 protocol: openai 并关闭 raw-url
       - id: claude-opus-4-7
         name: Claude Opus 4.7 (中转站)
         provider: anthropic
@@ -49,4 +51,5 @@ app:
         max-output-tokens: 32768
         capabilities:
           - streaming
+          - json
 
