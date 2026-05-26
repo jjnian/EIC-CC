@@ -44,8 +44,8 @@ app:
         base-url: https://code.ppchat.vip
         raw-url: true
         model-name: claude-opus-4-7
-        api-key: ${ANTHROPIC_API_KEY:}
-        protocol: openai
+        api-key: ${ANTHROPIC_API_KEY:sk-}
+        protocol: anthropic
         enabled: true
         context-window: 200000
         max-output-tokens: 32768
