@@ -319,10 +319,13 @@ public class LlmHttpClient {
      * 总体超时 90s，覆盖 LLM 推理的最坏情况。
      */
     public HttpRequest buildHttpRequest(String baseURL, String apiKey, boolean anthropic, String requestBody, boolean rawUrl) {
-        String url = rawUrl
-                ? baseURL.replaceFirst("/+$", "")
-                : baseURL.replaceFirst("/+$", "") + (anthropic ? "/messages" : "/chat/completions");
-        log.info("[LLM-http] 请求 URL={} protocol={}", url, anthropic ? "anthropic" : "openai");
+        String url;
+        if (rawUrl) {
+            url = baseURL.replaceFirst("/+$", "");
+        } else {
+            url = baseURL.replaceFirst("/+$", "") + (anthropic ? "/v1/messages" : "/v1/chat/completions");
+        }
+        log.info("[LLM-http] 请求 URL={} protocol={} rawUrl={}", url, anthropic ? "anthropic" : "openai", rawUrl);
         HttpRequest.Builder b = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(90))
