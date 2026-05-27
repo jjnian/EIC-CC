@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import { useSidebarTree } from '../composables/useSidebarTree';
+import { useWorkspaces } from '../composables/useWorkspaces';
 import { confirm as uiConfirm } from '../composables/useConfirm';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
@@ -22,10 +23,12 @@ const emit = defineEmits<{
 }>();
 
 const tree = useSidebarTree();
+const ws = useWorkspaces();
 
-// 二级展开状态:对话/数据源各自独立,初始收起
+// 二级展开状态:对话/数据源/血缘图各自独立,初始收起
 const convExpanded = ref(false);
 const dsExpanded = ref(false);
+const lineageExpanded = ref(false);
 
 const conversations = computed(() => tree.getConversations(props.workspace.id));
 const dataSources = computed(() => tree.getDataSources(props.workspace.id));
@@ -39,6 +42,7 @@ watch(() => props.expanded, (val) => {
   if (!val) {
     convExpanded.value = false;
     dsExpanded.value = false;
+    lineageExpanded.value = false;
   }
 });
 
@@ -62,6 +66,29 @@ const onClickSwitch = async (e: Event) => {
   });
   if (!ok) return;
   emit('switch-current', props.workspace.id);
+};
+
+const onClickDelete = async (e: Event) => {
+  e.stopPropagation();
+  if (props.workspace.isDefault) {
+    toast.warn('默认工作空间不可删除');
+    return;
+  }
+  const ok = await uiConfirm({
+    title: '删除工作空间',
+    message: `「${props.workspace.name}」内的本体图、推演分支、对话与数据源将一并清空，且无法恢复。确定继续吗？`,
+    confirmLabel: '删除',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    const res = await ws.remove(props.workspace.id);
+    toast.success('已删除');
+    // 删的是当前 ws 时,后端切到默认 ws,前端整页刷新以重置所有视图
+    if (res.switchedTo) window.location.reload();
+  } catch (err) {
+    toast.warn(err instanceof ApiError ? err.message : '删除失败');
+  }
 };
 
 const onToggleConv = () => {
@@ -150,7 +177,7 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
 
 <template>
   <div class="ws-node">
-    <!-- 顶级行:caret + 头像 + 名称 + 默认徽章 + 切换按钮 -->
+    <!-- 顶级行:caret + 头像 + 名称 + 默认徽章 + 切换按钮 + 删除按钮 -->
     <div :class="['ws-head', { active: isCurrent }]" @click="onToggleTop">
       <span :class="['ws-caret', { open: expanded }]">▸</span>
       <span class="ws-avatar">{{ wsInitial(workspace.name) }}</span>
@@ -161,6 +188,10 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
               :title="`切换到 ${workspace.name}`"
               @click="onClickSwitch">切换</button>
       <span v-else class="ws-dot" title="当前工作空间" />
+      <button v-if="!workspace.isDefault"
+              class="ws-del-btn"
+              :title="`删除 ${workspace.name}`"
+              @click="onClickDelete">×</button>
     </div>
 
     <!-- 二级:对话记录 + 数据源 -->
@@ -223,6 +254,21 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
             <button class="ws-child-del" :title="`删除 ${d.name}`"
                     @click="(e) => onDeleteDS(d.id, d.name, e)">×</button>
           </div>
+        </div>
+      </div>
+      <!-- 血缘图(占位:功能开发中) -->
+      <div class="ws-child-node">
+        <div class="ws-child-head" role="button" tabindex="0"
+             @click="lineageExpanded = !lineageExpanded"
+             @keydown.enter.prevent="lineageExpanded = !lineageExpanded"
+             @keydown.space.prevent="lineageExpanded = !lineageExpanded">
+          <span :class="['ws-caret', { open: lineageExpanded }]">▸</span>
+          <span class="ws-child-icon">🧬</span>
+          <span class="ws-child-label">血缘图</span>
+          <span class="ws-child-spacer" />
+        </div>
+        <div v-if="lineageExpanded" class="ws-child-list">
+          <div class="ws-child-empty">功能开发中…</div>
         </div>
       </div>
     </div>
@@ -324,6 +370,28 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
   background: rgba(66, 184, 131, 0.18);
   color: #6dd4a7;
   border-color: rgba(66, 184, 131, 0.3);
+}
+.ws-del-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 14px;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-family: inherit;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+}
+.ws-head:hover .ws-del-btn { display: flex; }
+.ws-del-btn:hover {
+  background: rgba(255, 102, 68, 0.2);
+  color: #ff8a6f;
 }
 
 /* ---------- 二级容器 ---------- */

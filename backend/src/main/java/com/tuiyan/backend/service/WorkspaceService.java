@@ -16,6 +16,8 @@ import com.tuiyan.backend.mapper.HypothesisTemplateMapper;
 import com.tuiyan.backend.mapper.OntologyModelMapper;
 import com.tuiyan.backend.mapper.ScenarioMapper;
 import com.tuiyan.backend.repository.WorkspaceRepository;
+import com.tuiyan.backend.service.connector.FileStoredService;
+import com.tuiyan.backend.service.connector.HttpScheduler;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,8 @@ public class WorkspaceService {
     private final GraphTemplateMapper graphTemplateMapper;
     private final HypothesisTemplateMapper hypothesisTemplateMapper;
     private final DataSourceMapper dataSourceMapper;
+    private final FileStoredService fileStoredService;
+    private final HttpScheduler httpScheduler;
 
     public WorkspaceService(WorkspaceRepository repo,
                             OntologyModelMapper ontologyModelMapper,
@@ -48,7 +52,9 @@ public class WorkspaceService {
                             ConversationMapper conversationMapper,
                             GraphTemplateMapper graphTemplateMapper,
                             HypothesisTemplateMapper hypothesisTemplateMapper,
-                            DataSourceMapper dataSourceMapper) {
+                            DataSourceMapper dataSourceMapper,
+                            FileStoredService fileStoredService,
+                            HttpScheduler httpScheduler) {
         this.repo = repo;
         this.ontologyModelMapper = ontologyModelMapper;
         this.scenarioMapper = scenarioMapper;
@@ -56,6 +62,8 @@ public class WorkspaceService {
         this.graphTemplateMapper = graphTemplateMapper;
         this.hypothesisTemplateMapper = hypothesisTemplateMapper;
         this.dataSourceMapper = dataSourceMapper;
+        this.fileStoredService = fileStoredService;
+        this.httpScheduler = httpScheduler;
     }
 
     public List<WorkspacePO> list() {
@@ -92,6 +100,9 @@ public class WorkspaceService {
 
     /**
      * 删除工作空间：级联清空业务数据；默认 ws 禁止删除。
+     * <p>顺序：先取消该 ws 下 https_api 数据源的定时任务、删除 file_stored 的物理目录，
+     * 再走 DB 级联删除（外键 ON DELETE CASCADE 处理子表）。
+     * 副作用清理放在 DB 删除之前，文件层失败仅记日志，不影响事务。
      * @return true 表示成功删除
      */
     @Transactional
@@ -101,7 +112,21 @@ public class WorkspaceService {
         if (Boolean.TRUE.equals(ws.getIsDefault())) {
             throw new IllegalArgumentException("默认工作空间不可删除");
         }
-        // 关联业务数据级联清空（外键 ON DELETE CASCADE 处理子表）
+        // 1. 该 ws 下所有数据源：cancel 调度 + 清盘
+        List<DataSourcePO> dsList = dataSourceMapper.selectList(
+                new LambdaQueryWrapper<DataSourcePO>().eq(DataSourcePO::getWorkspaceId, id));
+        for (DataSourcePO ds : dsList) {
+            try {
+                if ("https_api".equals(ds.getKind())) {
+                    httpScheduler.cancel(ds.getId());
+                } else if ("file_stored".equals(ds.getKind())) {
+                    fileStoredService.deleteFiles(ds.getId());
+                }
+            } catch (Exception e) {
+                log.warn("cleanup datasource {} failed: {}", ds.getId(), e.toString());
+            }
+        }
+        // 2. 关联业务数据级联清空（外键 ON DELETE CASCADE 处理子表）
         int models = ontologyModelMapper.delete(
                 new LambdaQueryWrapper<OntologyModelPO>().eq(OntologyModelPO::getWorkspaceId, id));
         int scenarios = scenarioMapper.delete(
