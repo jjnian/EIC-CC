@@ -120,10 +120,10 @@ public class HttpScheduler {
             if (n >= MAX_CONSECUTIVE_FAILS) {
                 log.warn("[ds-sched] auto-disable id={} after  fails", dataSourceId, n);
                 // 落配置 enabled=false
-                Map<?, ?> sched = cfg.get("schedule") instanceof Map<?, ?> m ? m : null;
-                if (sched != null) {
+                if (cfg.get("schedule") instanceof Map<?, ?> sched) {
                     var newCfg = new java.util.LinkedHashMap<String, Object>(cfg);
-                    var newSched = new java.util.LinkedHashMap<>(sched);
+                    var newSched = new java.util.LinkedHashMap<String, Object>();
+                    sched.forEach((k, v) -> newSched.put(String.valueOf(k), v));
                     newSched.put("enabled", false);
                     newCfg.put("schedule", newSched);
                     repo.updateConfig(po.getId(), null, newCfg);

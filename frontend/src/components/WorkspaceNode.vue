@@ -197,14 +197,17 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
 
       <!-- 数据源 -->
       <div class="ws-child-node">
-        <button class="ws-child-head" @click="onToggleDS">
+        <div class="ws-child-head" role="button" tabindex="0"
+             @click="onToggleDS"
+             @keydown.enter.prevent="onToggleDS"
+             @keydown.space.prevent="onToggleDS">
           <span :class="['ws-caret', { open: dsExpanded }]">▸</span>
           <span class="ws-child-icon">📂</span>
           <span class="ws-child-label">数据源</span>
           <span v-if="dataSources.length" class="ws-child-count">{{ dataSources.length }}</span>
           <span class="ws-child-spacer" />
           <button class="ws-child-action" title="添加数据源" @click.stop="emit('open-create-data-source')">＋</button>
-        </button>
+        </div>
         <div v-if="dsExpanded" class="ws-child-list">
           <div v-if="loadingDS && !dataSources.length" class="ws-child-empty">加载中…</div>
           <div v-else-if="loadedDS && !dataSources.length" class="ws-child-empty">还没有导入文档</div>
@@ -212,7 +215,7 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
           <div v-for="d in dataSources" :key="d.id"
                class="ws-child-item"
                :title="d.name + (d.size ? ' · ' + formatBytes(d.size) : '')"
-               @click="if (['mysql','pgsql','file_stored','https_api'].includes(String(d.kind))) emit('open-data-source', String(d.id))">
+               @click="['mysql','pgsql','file_stored','https_api'].includes(String(d.kind)) && emit('open-data-source', String(d.id))">
             <span class="ws-child-icon-mini">{{ ({ mysql:'🗄', pgsql:'🐘', file_stored:'📄', https_api:'🌐', file:'📎', url:'🔗' } as Record<string,string>)[d.kind] || '📁' }}</span>
             <span class="ws-child-item-title">{{ d.name }}</span>
             <span v-if="['mysql','pgsql','file_stored','https_api'].includes(String(d.kind))" :class="['status-dot', String((d as any).status || 'idle')]" />

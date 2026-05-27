@@ -47,7 +47,7 @@ const scheduleEnabled = computed({
 const scheduleInterval = computed({
   get: () => cfg.value.schedule?.intervalSec || 300,
   set: (v: number) => {
-    cfg.value.schedule = { ...(cfg.value.schedule || ), intervalSec: Number(v) || 300 };
+    cfg.value.schedule = { ...(cfg.value.schedule || {}), intervalSec: Number(v) || 300 };
     emitConfig();
   },
 });
