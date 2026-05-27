@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import SettingsView from './components/SettingsView.vue';
 import WelcomeChat from './components/WelcomeChat.vue';
+import WorkspacePickerView from './components/WorkspacePickerView.vue';
 import PredictDialog from './components/PredictDialog.vue';
 import BranchCompareDialog from './components/BranchCompareDialog.vue';
 import ImportDialog from './components/ImportDialog.vue';
@@ -21,16 +22,20 @@ import { useGraphHistory } from './composables/useGraphHistory';
 import { useImportMerge } from './composables/useImportMerge';
 import { useGraphEditor } from './composables/useGraphEditor';
 import { useVersionTemplates } from './composables/useVersionTemplates';
+import { useWorkspaces } from './composables/useWorkspaces';
 import { NT } from './constants';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
 const graphRef = ref<any>(null);
+const chatRef = ref<any>(null);
 const { chatW, startDivider, isDragging } = useDivider(360, () => graphRef.value?.fitView());
 
-const view = ref<'welcome' | 'list' | 'graph' | 'settings'>('welcome');
+const view = ref<'welcome' | 'list' | 'graph' | 'settings' | 'workspace-picker'>('workspace-picker');
 const currentModelTitle = ref('供应链本体图');
 const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
+
+const wsManager = useWorkspaces();
 
 const currentModelId = ref<string>('');
 const compareDialogOpen = ref(false);
@@ -137,11 +142,36 @@ const onGlobalKeydown = (e: KeyboardEvent) => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   mountToastRoot();
-  loadOntologyModels();
   window.addEventListener('keydown', onGlobalKeydown);
+  try {
+    const valid = await wsManager.ensureValidCurrent();
+    if (!valid) {
+      view.value = 'workspace-picker';
+      return;
+    }
+    await loadOntologyModels();
+    view.value = 'welcome';
+  } catch (e) {
+    console.error('init workspace failed', e);
+    view.value = 'workspace-picker';
+  }
 });
+
+const onWorkspaceEntered = async () => {
+  try {
+    await loadOntologyModels();
+  } catch (e) {
+    console.error('load models failed', e);
+  }
+  goWelcome();
+};
+
+const onWorkspaceSwitched = (_id: string) => {
+  // 切换 ws 后内存中的所有图谱/对话/分支都要重新拉。最简单可靠的做法是整页刷新。
+  window.location.reload();
+};
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown);
@@ -337,6 +367,33 @@ const goWelcome = () => {
   welcomeResetTick.value++;
 };
 
+const onOpenConversation = async (id: string) => {
+  // 对话面板挂在 graph view 里；当前没打开模型时优先用最近一个模型，否则保持当前画布
+  if (view.value !== 'graph') {
+    const target = currentModelId.value ? findModel(currentModelId.value) : models.value[0];
+    if (target) {
+      await openModel(target);
+    } else {
+      view.value = 'graph';
+    }
+  }
+  await nextTick();
+  chatRef.value?.switchConversation(id);
+};
+
+const onNewConversation = async () => {
+  if (view.value !== 'graph') {
+    const target = currentModelId.value ? findModel(currentModelId.value) : models.value[0];
+    if (target) {
+      await openModel(target);
+    } else {
+      view.value = 'graph';
+    }
+  }
+  await nextTick();
+  chatRef.value?.newConversation();
+};
+
 const openModelById = (id: string) => {
   const m = findModel(id);
   if (m) openModel(m);
@@ -377,13 +434,12 @@ const formatFileSize = (bytes: number) => {
   <div class="app">
     <Sidebar
       :expanded="sbExp"
-      :models="models"
-      :currentModelId="currentModelId"
       :view="view"
       @toggle="sbExp = !sbExp"
       @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; }"
-      @open-model="openModelById"
-      @delete-model="deleteOntologyModel"
+      @open-conversation="onOpenConversation"
+      @new-conversation="onNewConversation"
+      @switch-workspace="onWorkspaceSwitched"
     />
     <div class="main">
       <div class="topbar">
@@ -446,8 +502,11 @@ const formatFileSize = (bytes: number) => {
         </div>
       </div>
 
+      <!-- Workspace Picker -->
+      <WorkspacePickerView v-if="view === 'workspace-picker'" @enter="onWorkspaceEntered" />
+
       <!-- Welcome / Chat-first View -->
-      <WelcomeChat v-if="view === 'welcome'" :resetTick="welcomeResetTick" @submit="onWelcomeSubmit" />
+      <WelcomeChat v-else-if="view === 'welcome'" :resetTick="welcomeResetTick" @submit="onWelcomeSubmit" />
 
       <!-- List View -->
       <div class="model-list-view" v-if="view === 'list'">
@@ -472,7 +531,7 @@ const formatFileSize = (bytes: number) => {
       </div>
 
       <!-- Settings View -->
-      <SettingsView v-if="view === 'settings'" />
+      <SettingsView v-if="view === 'settings'" @switch-workspace="onWorkspaceSwitched" />
 
       <!-- Graph View -->
       <GraphView
@@ -522,6 +581,7 @@ const formatFileSize = (bytes: number) => {
         @seed-consumed="pendingChatSeed = null"
         @start-divider="startDivider"
         @graph-ref="(el) => graphRef = el"
+        @chat-ref="(el) => chatRef = el"
         @abort-prediction="closeTimeline"
         @update-node-props="updateNodeProps"
         @delete-edge="deleteEdge"

@@ -10,13 +10,19 @@ spring:
   # PostgreSQL 数据源：用户需自行准备 PgSQL 实例并执行 init.sql 建表
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/tuiyan}
-    username: ${DB_USERNAME:tuiyan}
-    password: ${DB_PASSWORD:tuiyan}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:123456}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 10000
+  # 启动时自动执行 init.sql（脚本幂等，可重复运行）：用于新部署建表 + 老库的轻量迁移
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:sql/init.sql
+      continue-on-error: false
 
 server:
   port: 8000
@@ -62,7 +68,7 @@ app:
         provider: anthropic
         base-url: https://code.ppchat.vip
         model-name: claude-opus-4-7
-        api-key: ${ANTHROPIC_API_KEY:sk-}
+        api-key: ${ANTHROPIC_API_KEY:}
         protocol: anthropic
         enabled: true
         context-window: 200000

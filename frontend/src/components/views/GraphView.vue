@@ -62,6 +62,7 @@ const emit = defineEmits<{
   (e: 'seed-consumed'): void;
   (e: 'start-divider', ev: MouseEvent): void;
   (e: 'graph-ref', el: any): void;
+  (e: 'chat-ref', el: any): void;
   (e: 'edit-node', id: string): void;
   (e: 'delete-node', id: string): void;
   (e: 'delete-nodes', ids: string[]): void;
@@ -222,6 +223,7 @@ watch(() => props.activeBranchId, () => {
     />
     <div :class="['resize-divider', { dragging: divDragActive }]" @mousedown="emit('start-divider', $event)" />
     <ChatPanel
+      :ref="(el) => emit('chat-ref', el)"
       :nodes="nodes"
       :edges="edges"
       :width="chatW"

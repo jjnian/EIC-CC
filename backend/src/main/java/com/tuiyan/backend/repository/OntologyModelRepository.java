@@ -11,6 +11,7 @@ import com.tuiyan.backend.mapper.OntologyModelMapper;
 import com.tuiyan.backend.mapper.OntologyNodeMapper;
 import com.tuiyan.backend.mapper.OntologyNodePropMapper;
 import com.tuiyan.backend.model.OntologyModel;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,13 +49,16 @@ public class OntologyModelRepository {
 
     /** 计数；启动时种子判定用。 */
     public long count() {
-        return modelMapper.selectCount(null);
+        return modelMapper.selectCount(
+                new LambdaQueryWrapper<OntologyModelPO>().eq(OntologyModelPO::getWorkspaceId, WorkspaceContext.required()));
     }
 
     /** 列表，按 updated_at 倒序。 */
     public List<OntologyModel> list() {
         List<OntologyModelPO> pos = modelMapper.selectList(
-                new LambdaQueryWrapper<OntologyModelPO>().orderByDesc(OntologyModelPO::getUpdatedAt));
+                new LambdaQueryWrapper<OntologyModelPO>()
+                        .eq(OntologyModelPO::getWorkspaceId, WorkspaceContext.required())
+                        .orderByDesc(OntologyModelPO::getUpdatedAt));
         List<OntologyModel> out = new ArrayList<>(pos.size());
         for (OntologyModelPO po : pos) {
             out.add(loadModel(po));
@@ -62,10 +66,11 @@ public class OntologyModelRepository {
         return out;
     }
 
-    /** 按 id 加载完整模型（含节点、props、边）；不存在返回 null。 */
+    /** 按 id 加载完整模型（含节点、props、边）；不存在或不属于当前 ws 返回 null。 */
     public OntologyModel get(String id) {
         OntologyModelPO po = modelMapper.selectById(id);
         if (po == null) return null;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
         return loadModel(po);
     }
 
@@ -77,9 +82,15 @@ public class OntologyModelRepository {
     public void save(OntologyModel m) {
         // 1. upsert 主表
         OntologyModelPO po = toPO(m);
-        if (modelMapper.selectById(m.getId()) == null) {
+        OntologyModelPO existing = modelMapper.selectById(m.getId());
+        if (existing == null) {
+            po.setWorkspaceId(WorkspaceContext.required());
             modelMapper.insert(po);
         } else {
+            if (!WorkspaceContext.required().equals(existing.getWorkspaceId())) {
+                throw new IllegalArgumentException("Model does not belong to current workspace: " + m.getId());
+            }
+            po.setWorkspaceId(existing.getWorkspaceId());
             modelMapper.updateById(po);
         }
 
@@ -103,9 +114,12 @@ public class OntologyModelRepository {
         }
     }
 
-    /** 物理删除模型；外键级联自动清理子表。 */
+    /** 物理删除模型；外键级联自动清理子表。仅允许删除当前 workspace 下的模型。 */
     @Transactional
     public boolean delete(String id) {
+        OntologyModelPO po = modelMapper.selectById(id);
+        if (po == null) return false;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
         return modelMapper.deleteById(id) > 0;
     }
 

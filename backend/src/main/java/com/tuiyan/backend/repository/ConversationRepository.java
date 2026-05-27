@@ -7,6 +7,7 @@ import com.tuiyan.backend.entity.ConversationPO;
 import com.tuiyan.backend.mapper.ConversationMapper;
 import com.tuiyan.backend.mapper.ConversationMessageMapper;
 import com.tuiyan.backend.model.Conversation;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,7 +38,9 @@ public class ConversationRepository {
     /** 列出所有对话（含完整消息列表），按 updated_at 倒序。 */
     public List<Conversation> list() {
         List<ConversationPO> pos = conversationMapper.selectList(
-                new LambdaQueryWrapper<ConversationPO>().orderByDesc(ConversationPO::getUpdatedAt));
+                new LambdaQueryWrapper<ConversationPO>()
+                        .eq(ConversationPO::getWorkspaceId, WorkspaceContext.required())
+                        .orderByDesc(ConversationPO::getUpdatedAt));
         List<Conversation> out = new ArrayList<>(pos.size());
         for (ConversationPO po : pos) {
             out.add(loadConversation(po));
@@ -48,6 +51,7 @@ public class ConversationRepository {
     public Conversation get(String id) {
         ConversationPO po = conversationMapper.selectById(id);
         if (po == null) return null;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
         return loadConversation(po);
     }
 
@@ -58,9 +62,15 @@ public class ConversationRepository {
         po.setTitle(c.getTitle());
         po.setCreatedAt(c.getCreatedAt());
         po.setUpdatedAt(c.getUpdatedAt());
-        if (conversationMapper.selectById(c.getId()) == null) {
+        ConversationPO existing = conversationMapper.selectById(c.getId());
+        if (existing == null) {
+            po.setWorkspaceId(WorkspaceContext.required());
             conversationMapper.insert(po);
         } else {
+            if (!WorkspaceContext.required().equals(existing.getWorkspaceId())) {
+                throw new IllegalArgumentException("Conversation does not belong to current workspace: " + c.getId());
+            }
+            po.setWorkspaceId(existing.getWorkspaceId());
             conversationMapper.updateById(po);
         }
         // 覆盖式重写消息列表
@@ -76,6 +86,9 @@ public class ConversationRepository {
 
     @Transactional
     public boolean delete(String id) {
+        ConversationPO existing = conversationMapper.selectById(id);
+        if (existing == null) return false;
+        if (!WorkspaceContext.required().equals(existing.getWorkspaceId())) return false;
         return conversationMapper.deleteById(id) > 0;
     }
 

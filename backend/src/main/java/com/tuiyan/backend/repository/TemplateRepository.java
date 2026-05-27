@@ -9,6 +9,7 @@ import com.tuiyan.backend.mapper.HypothesisTemplateMapper;
 import com.tuiyan.backend.model.Constraint;
 import com.tuiyan.backend.model.HypothesisTemplate;
 import com.tuiyan.backend.model.OntologyModel;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,7 +39,9 @@ public class TemplateRepository {
 
     public List<OntologyModel> listGraph() {
         List<GraphTemplatePO> pos = graphTemplateMapper.selectList(
-                new LambdaQueryWrapper<GraphTemplatePO>().orderByDesc(GraphTemplatePO::getUpdatedAt));
+                new LambdaQueryWrapper<GraphTemplatePO>()
+                        .eq(GraphTemplatePO::getWorkspaceId, WorkspaceContext.required())
+                        .orderByDesc(GraphTemplatePO::getUpdatedAt));
         List<OntologyModel> out = new ArrayList<>(pos.size());
         for (GraphTemplatePO po : pos) {
             out.add(graphPOToModel(po));
@@ -48,7 +51,9 @@ public class TemplateRepository {
 
     public OntologyModel getGraph(String id) {
         GraphTemplatePO po = graphTemplateMapper.selectById(id);
-        return po == null ? null : graphPOToModel(po);
+        if (po == null) return null;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
+        return graphPOToModel(po);
     }
 
     @Transactional
@@ -61,15 +66,24 @@ public class TemplateRepository {
         po.setEdgesJson(m.getGraphData() == null ? null : codec.toJson(m.getGraphData().getEdges()));
         po.setCreatedAt(m.getCreatedAt());
         po.setUpdatedAt(m.getUpdatedAt());
-        if (graphTemplateMapper.selectById(m.getId()) == null) {
+        GraphTemplatePO existing = graphTemplateMapper.selectById(m.getId());
+        if (existing == null) {
+            po.setWorkspaceId(WorkspaceContext.required());
             graphTemplateMapper.insert(po);
         } else {
+            if (!WorkspaceContext.required().equals(existing.getWorkspaceId())) {
+                throw new IllegalArgumentException("Graph template does not belong to current workspace: " + m.getId());
+            }
+            po.setWorkspaceId(existing.getWorkspaceId());
             graphTemplateMapper.updateById(po);
         }
     }
 
     @Transactional
     public boolean deleteGraph(String id) {
+        GraphTemplatePO existing = graphTemplateMapper.selectById(id);
+        if (existing == null) return false;
+        if (!WorkspaceContext.required().equals(existing.getWorkspaceId())) return false;
         return graphTemplateMapper.deleteById(id) > 0;
     }
 
@@ -91,6 +105,7 @@ public class TemplateRepository {
 
     public List<HypothesisTemplate> listHypothesis(String modelId) {
         LambdaQueryWrapper<HypothesisTemplatePO> qw = new LambdaQueryWrapper<>();
+        qw.eq(HypothesisTemplatePO::getWorkspaceId, WorkspaceContext.required());
         if (modelId != null && !modelId.isBlank()) {
             qw.eq(HypothesisTemplatePO::getModelId, modelId);
         }
@@ -105,7 +120,9 @@ public class TemplateRepository {
 
     public HypothesisTemplate getHypothesis(String id) {
         HypothesisTemplatePO po = hypothesisTemplateMapper.selectById(id);
-        return po == null ? null : hypothesisPOToModel(po);
+        if (po == null) return null;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
+        return hypothesisPOToModel(po);
     }
 
     @Transactional
@@ -121,15 +138,24 @@ public class TemplateRepository {
         po.setConstraintsJson(codec.toJson(t.getConstraints()));
         po.setCreatedAt(t.getCreatedAt());
         po.setLastUsedAt(t.getLastUsedAt());
-        if (hypothesisTemplateMapper.selectById(t.getId()) == null) {
+        HypothesisTemplatePO existing = hypothesisTemplateMapper.selectById(t.getId());
+        if (existing == null) {
+            po.setWorkspaceId(WorkspaceContext.required());
             hypothesisTemplateMapper.insert(po);
         } else {
+            if (!WorkspaceContext.required().equals(existing.getWorkspaceId())) {
+                throw new IllegalArgumentException("Hypothesis template does not belong to current workspace: " + t.getId());
+            }
+            po.setWorkspaceId(existing.getWorkspaceId());
             hypothesisTemplateMapper.updateById(po);
         }
     }
 
     @Transactional
     public boolean deleteHypothesis(String id) {
+        HypothesisTemplatePO existing = hypothesisTemplateMapper.selectById(id);
+        if (existing == null) return false;
+        if (!WorkspaceContext.required().equals(existing.getWorkspaceId())) return false;
         return hypothesisTemplateMapper.deleteById(id) > 0;
     }
 
@@ -138,6 +164,7 @@ public class TemplateRepository {
     public boolean touchHypothesis(String id) {
         HypothesisTemplatePO po = hypothesisTemplateMapper.selectById(id);
         if (po == null) return false;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
         po.setLastUsedAt(System.currentTimeMillis());
         hypothesisTemplateMapper.updateById(po);
         return true;

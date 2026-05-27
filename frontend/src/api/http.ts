@@ -1,6 +1,21 @@
 // 统一前端网络层 — 所有接口调用经过这里
 // 非 2xx 抛出 ApiError;SSE 用 fetch + ReadableStream 解析
 
+export const WORKSPACE_STORAGE_KEY = 'tuiyan.workspaceId';
+
+/** 当前请求要附带的 workspaceId,从 localStorage 取。空字符串表示尚未选择。 */
+export function getCurrentWorkspaceId(): string {
+  try { return localStorage.getItem(WORKSPACE_STORAGE_KEY) || ''; }
+  catch { return ''; }
+}
+
+export function setCurrentWorkspaceId(id: string): void {
+  try {
+    if (id) localStorage.setItem(WORKSPACE_STORAGE_KEY, id);
+    else localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+  } catch { /* noop */ }
+}
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -33,6 +48,8 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
+  const wsId = getCurrentWorkspaceId();
+  if (wsId && !headers.has('X-Workspace-Id')) headers.set('X-Workspace-Id', wsId);
   const res = await fetch(path, { ...init, headers });
   if (!res.ok) {
     const { msg, body } = await parseError(res);
@@ -64,12 +81,15 @@ export function sse(path: string, body: unknown, handlers: SseHandlers): SseHand
   let aborted = false;
   (async () => {
     try {
+      const headers: Record<string, string> = {
+        'Accept': 'text/event-stream',
+        'Content-Type': 'application/json',
+      };
+      const wsId = getCurrentWorkspaceId();
+      if (wsId) headers['X-Workspace-Id'] = wsId;
       const res = await fetch(path, {
         method: 'POST',
-        headers: {
-          'Accept': 'text/event-stream',
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });

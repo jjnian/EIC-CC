@@ -12,6 +12,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 public class GraphTemplatePO {
     @TableId(type = IdType.INPUT)
     private String id;
+    private String workspaceId;
     private String title;
     private String description;
     private String nodesJson;
@@ -21,6 +22,8 @@ public class GraphTemplatePO {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+    public String getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getDescription() { return description; }

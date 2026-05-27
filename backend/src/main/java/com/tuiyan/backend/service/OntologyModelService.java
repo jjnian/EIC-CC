@@ -4,7 +4,6 @@ import com.tuiyan.backend.config.ResourceNotFoundException;
 import com.tuiyan.backend.model.OntologyModel;
 import com.tuiyan.backend.repository.OntologyModelRepository;
 import com.tuiyan.backend.repository.OntologyVersionRepository;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -19,7 +18,7 @@ import java.util.Map;
  * <p>核心特性：
  * <ul>
  *   <li>每次保存前先把"当前模型快照"写入 {@code ontology_model_version} 系列表，最多保留 100 份；</li>
- *   <li>首次启动时（库为空）自动播种 3 个示例图谱（供应链 / 财务 / 组织架构）让用户能立刻上手；</li>
+ *   <li>首次进入空工作空间时（list 为空）自动播种 3 个示例图谱，让用户能立刻上手；</li>
  *   <li>支持按时间戳恢复到任意历史版本，恢复前的当前版本也会被备份成新快照。</li>
  * </ul>
  */
@@ -37,21 +36,18 @@ public class OntologyModelService {
         this.versionRepository = versionRepository;
     }
 
-    /** 启动时若数据库为空则播种默认图谱。 */
-    @PostConstruct
-    public void init() {
-        try {
-            if (modelRepository.count() == 0) {
-                seedDefaults();
-            }
-        } catch (Exception e) {
-            log.warn("seed defaults failed: {}", e.toString(), e);
-        }
-    }
-
-    /** 全量列表，按 updatedAt 倒序。 */
+    /** 全量列表，按 updatedAt 倒序。当前 ws 为空时懒种 3 个示例图谱。 */
     public List<OntologyModel> list() {
-        return modelRepository.list();
+        List<OntologyModel> all = modelRepository.list();
+        if (all.isEmpty()) {
+            try {
+                seedDefaults();
+                all = modelRepository.list();
+            } catch (Exception e) {
+                log.warn("seed defaults failed: {}", e.toString(), e);
+            }
+        }
+        return all;
     }
 
     public OntologyModel get(String id) {
@@ -111,13 +107,14 @@ public class OntologyModelService {
         return save(snapshot);
     }
 
-    /** 首次启动时播种 3 个示例图谱，让用户能立刻进行推演体验。 */
+    /** 当前工作空间下播种 3 个示例图谱，让用户能立刻进行推演体验。 */
     private void seedDefaults() {
-        save(buildSeed("1", "供应链本体模型", "包含供应链核心实体与关系的推演模型",
+        long base = System.currentTimeMillis();
+        save(buildSeed("om_seed_supply_" + base, "供应链本体模型", "包含供应链核心实体与关系的推演模型",
                 supplyChainNodes(), supplyChainEdges()));
-        save(buildSeed("2", "财务追踪模型", "用于企业财务审批及资金流向追踪",
+        save(buildSeed("om_seed_finance_" + base, "财务追踪模型", "用于企业财务审批及资金流向追踪",
                 new ArrayList<>(), new ArrayList<>()));
-        save(buildSeed("3", "组织架构解析", "部门架构与人员编制分析本体",
+        save(buildSeed("om_seed_org_" + base, "组织架构解析", "部门架构与人员编制分析本体",
                 new ArrayList<>(), new ArrayList<>()));
     }
 

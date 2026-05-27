@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>纪锐鑫 · 个人简历</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --black: #0f172a;
+            --ink: #1e293b;
+            --gray-1: #334155;
+            --gray-2: #64748b;
+            --gray-3: #94a3b8;
+            --gray-4: #cbd5e1;
+            --gray-5: #e2e8f0;
+            --gray-6: #f1f5f9;
+            --gray-7: #f8fafc;
+            --bg: #eef0f5;
+            --line: #e2e8f0;
+
+            --blue: #2563eb;
+            --blue-soft: #dbeafe;
+            --indigo: #4f46e5;
+            --emerald: #059669;
+            --emerald-soft: #d1fae5;
+            --amber: #d97706;
+            --amber-soft: #fef3c7;
+            --rose: #e11d48;
+            --rose-soft: #ffe4e6;
+            --purple: #7c3aed;
+            --purple-soft: #ede9fe;
+        }
+
+        html, body {
+            font-family: "Noto Sans SC", "Inter", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: var(--gray-1);
+            background: var(--bg);
+            font-size: 14px;
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+            font-feature-settings: "tnum", "kern";
+        }
+
+        .page {
+            max-width: 920px;
+            margin: 32px auto;
+            background: #fff;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(15,23,42,.05), 0 30px 80px -20px rgba(15,23,42,.18);
+        }
+
+        /* ============================================ */
+        /* ============ HERO：深色英雄区 ============== */
+        /* ============================================ */
+        .hero {
+            position: relative;
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 60%, #312e81 100%);
+            color: #fff;
+            padding: 48px 56px 44px;
+            overflow: hidden;
+        }
+        /* 几何装饰 */
+        .hero::before {
+            content: "";
+            position: absolute;
+            top: -100px;
+            right: -100px;
+            width: 380px;
+            height: 380px;
+            background: radial-gradient(circle, rgba(99,102,241,0.35) 0%, transparent 60%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        .hero::after {
+            content: "";
+            position: absolute;
+            bottom: -140px;
+            left: 200px;
+            width: 320px;
+            height: 320px;
+            background: radial-gradient(circle, rgba(59,130,246,0.2) 0%, transparent 65%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        .hero-grid-bg {
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+        }
+        .hero-inner {
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-top {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 18px;
+            font-size: 12px;
+            letter-spacing: 8px;
+            color: #93c5fd;
+            font-weight: 500;
+        }
+        .hero-top::before {
+            content: "";
+            width: 24px;
+            height: 1px;
+            background: #93c5fd;
+            margin-right: 8px;
+        }
+
+        .hero-name-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+        .name {
+            font-size: 44px;
+            font-weight: 800;
+            color: #fff;
+            letter-spacing: 6px;
+            line-height: 1;
+        }
+        .name .en {
+            font-size: 16px;
+            font-weight: 400;
+            color: #93c5fd;
+            letter-spacing: 3px;
+            margin-left: 14px;
+            font-family: "Inter", sans-serif;
+            text-transform: uppercase;
+            vertical-align: 6px;
+        }
+        .role-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 16px;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 100px;
+            font-size: 13px;
+            color: #e0e7ff;
+            backdrop-filter: blur(10px);
+        }
+        .role-badge .dot {
+            width: 6px;
+            height: 6px;
+            background: #34d399;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #34d399;
+        }
+
+        /* Hero 统计 */
+        .hero-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0;
+            margin-top: 28px;
+            padding: 22px 0 0;
+            border-top: 1px solid rgba(255,255,255,0.12);
+        }
+        .hstat {
+            padding: 0 18px;
+            border-right: 1px solid rgba(255,255,255,0.1);
+        }
+        .hstat:first-child { padding-left: 0; }
+        .hstat:last-child { border-right: none; padding-right: 0; }
+        .hstat .num {
+            font-size: 28px;
+            font-weight: 700;
+            color: #fff;
+            font-family: "Inter", sans-serif;
+            line-height: 1;
+            letter-spacing: -0.5px;
+        }
+        .hstat .num .u {
+            font-size: 14px;
+            color: #93c5fd;
+            font-weight: 400;
+            margin-left: 2px;
+        }
+        .hstat .label {
+            font-size: 11px;
+            color: #cbd5e1;
+            letter-spacing: 3px;
+            margin-top: 6px;
+        }
+
+        /* 联系方式条 */
+        .contact-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 24px;
+            margin-top: 24px;
+            padding-top: 22px;
+            border-top: 1px solid rgba(255,255,255,0.12);
+            font-size: 13px;
+            color: #e0e7ff;
+        }
+        .contact-bar .item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .contact-bar svg {
+            width: 14px;
+            height: 14px;
+            color: #93c5fd;
+            flex-shrink: 0;
+        }
+
+        /* ============================================ */
+        /* ============ 上半：关于我 ================== */
+        /* ============================================ */
+        .about {
+            padding: 36px 56px 40px;
+            background: var(--gray-7);
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 28px;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 10px;
+            padding: 20px 22px;
+            border: 1px solid var(--line);
+        }
+
+        .card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--ink);
+            letter-spacing: 3px;
+            margin-bottom: 14px;
+        }
+        .card-title .ico {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            color: #fff;
+        }
+        .card-title .ico.blue { background: linear-gradient(135deg, var(--blue), var(--indigo)); }
+        .card-title .ico.emerald { background: linear-gradient(135deg, #10b981, var(--emerald)); }
+        .card-title .ico.amber { background: linear-gradient(135deg, #f59e0b, var(--amber)); }
+        .card-title .ico.rose { background: linear-gradient(135deg, #f43f5e, var(--rose)); }
+        .card-title .ico svg { width: 13px; height: 13px; }
+
+        /* 教育 */
+        .edu-item {
+            margin-bottom: 14px;
+            padding-bottom: 12px;
+            border-bottom: 1px dashed var(--line);
+        }
+        .edu-item:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        .edu-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 2px;
+        }
+        .edu-school {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--black);
+        }
+        .edu-date {
+            font-size: 12px;
+            color: var(--gray-3);
+            font-family: "Inter", sans-serif;
+            font-weight: 500;
+        }
+        .edu-major {
+            font-size: 12.5px;
+            color: var(--gray-2);
+        }
+        .edu-major .degree {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 1px 7px;
+            background: var(--blue-soft);
+            color: var(--blue);
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 3px;
+        }
+        .edu-extra {
+            font-size: 12px;
+            color: var(--gray-3);
+            margin-top: 3px;
+        }
+
+        /* 荣誉 */
+        .honors {
+            font-size: 12.5px;
+            color: var(--gray-1);
+            line-height: 1.9;
+        }
+        .honors li {
+            list-style: none;
+            position: relative;
+            padding-left: 16px;
+            padding-top: 1px;
+            padding-bottom: 1px;
+        }
+        .honors li::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 11px;
+            width: 5px;
+            height: 5px;
+            background: var(--amber);
+            border-radius: 50%;
+            box-shadow: 0 0 0 3px var(--amber-soft);
+        }
+
+        /* 技能（占两栏） */
+        .skills-card {
+            grid-column: 1 / -1;
+        }
+        .skill-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px 24px;
+        }
+        .skill-group {}
+        .skill-cat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--gray-2);
+            margin-bottom: 7px;
+            font-weight: 500;
+        }
+        .skill-cat::before {
+            content: "";
+            width: 3px;
+            height: 11px;
+            background: linear-gradient(180deg, var(--blue), var(--indigo));
+            border-radius: 2px;
+        }
+        .skill-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        .skill {
+            font-size: 12px;
+            padding: 2px 9px;
+            background: var(--gray-6);
+            color: var(--ink);
+            border-radius: 4px;
+            font-weight: 500;
+            transition: all .2s;
+        }
+        .skill.key {
+            background: linear-gradient(135deg, var(--ink), var(--black));
+            color: #fff;
+            box-shadow: 0 2px 4px rgba(15,23,42,0.15);
+        }
+        .skill.ai {
+            background: linear-gradient(135deg, var(--purple), var(--indigo));
+            color: #fff;
+            box-shadow: 0 2px 4px rgba(124,58,237,0.2);
+        }
+
+        /* ============================================ */
+        /* ============ 中：分隔区 =================== */
+        /* ============================================ */
+        .divider {
+            position: relative;
+            padding: 28px 56px;
+            text-align: center;
+            background: linear-gradient(135deg, var(--gray-7) 0%, #fff 50%, var(--gray-7) 100%);
+            border-top: 1px solid var(--line);
+            border-bottom: 1px solid var(--line);
+        }
+        .divider-text {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--black);
+            letter-spacing: 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .divider-text::before,
+        .divider-text::after {
+            content: "";
+            display: inline-block;
+            width: 48px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--gray-3), transparent);
+        }
+        .divider-en {
+            font-size: 11px;
+            color: var(--gray-3);
+            letter-spacing: 5px;
+            margin-top: 6px;
+            font-family: "Inter", sans-serif;
+            text-transform: uppercase;
+            font-weight: 500;
+        }
+
+        /* ============================================ */
+        /* ============ 下半：项目经验 ================ */
+        /* ============================================ */
+        .work {
+            padding: 36px 56px 48px;
+        }
+
+        /* 简介卡 */
+        .summary {
+            position: relative;
+            padding: 18px 22px 18px 26px;
+            background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+            border-radius: 10px;
+            font-size: 13.5px;
+            color: var(--gray-1);
+            line-height: 1.9;
+            margin-bottom: 28px;
+            overflow: hidden;
+        }
+        .summary::before {
+            content: "";
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 4px;
+            background: linear-gradient(180deg, var(--blue), var(--indigo));
+        }
+        .summary strong {
+            color: var(--black);
+            font-weight: 600;
+            background: linear-gradient(180deg, transparent 65%, rgba(37,99,235,0.18) 65%);
+            padding: 0 2px;
+        }
+
+        /* 项目卡 */
+        .project {
+            position: relative;
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 18px 22px 18px 26px;
+            margin-bottom: 14px;
+            transition: all .25s;
+            overflow: hidden;
+        }
+        .project:hover {
+            border-color: var(--gray-4);
+            box-shadow: 0 4px 14px -4px rgba(15,23,42,0.08);
+            transform: translateY(-1px);
+        }
+        .project:last-child { margin-bottom: 0; }
+
+        /* 左侧分类色条 */
+        .project::before {
+            content: "";
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 4px;
+        }
+        .project.t-enterprise::before { background: linear-gradient(180deg, var(--blue), var(--indigo)); }
+        .project.t-gov::before { background: linear-gradient(180deg, var(--emerald), #047857); }
+        .project.t-industry::before { background: linear-gradient(180deg, #f59e0b, var(--amber)); }
+        .project.t-military::before { background: linear-gradient(180deg, var(--rose), #be123c); }
+        .project.t-ai::before { background: linear-gradient(180deg, var(--purple), var(--indigo)); }
+        .project.t-doc::before { background: linear-gradient(180deg, var(--gray-3), var(--gray-2)); }
+
+        .proj-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 4px;
+            flex-wrap: wrap;
+        }
+        .proj-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--black);
+            letter-spacing: 0.3px;
+        }
+        .proj-date {
+            font-size: 12.5px;
+            color: var(--gray-3);
+            font-family: "Inter", sans-serif;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .proj-tags {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .ptag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11.5px;
+            padding: 2px 9px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        .ptag.role {
+            background: var(--gray-6);
+            color: var(--gray-1);
+        }
+        .ptag.enterprise { background: var(--blue-soft); color: var(--blue); }
+        .ptag.gov { background: var(--emerald-soft); color: var(--emerald); }
+        .ptag.industry { background: var(--amber-soft); color: var(--amber); }
+        .ptag.military { background: var(--rose-soft); color: var(--rose); }
+        .ptag.ai { background: var(--purple-soft); color: var(--purple); }
+
+        ul.points {
+            list-style: none;
+        }
+        ul.points li {
+            position: relative;
+            padding-left: 16px;
+            font-size: 13px;
+            color: var(--gray-1);
+            line-height: 1.9;
+            margin-bottom: 2px;
+        }
+        ul.points li::before {
+            content: "";
+            position: absolute;
+            left: 2px;
+            top: 11px;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--gray-4);
+        }
+        .project.t-enterprise ul.points li::before { background: var(--blue); }
+        .project.t-gov ul.points li::before { background: var(--emerald); }
+        .project.t-industry ul.points li::before { background: var(--amber); }
+        .project.t-military ul.points li::before { background: var(--rose); }
+        .project.t-ai ul.points li::before { background: var(--purple); }
+
+        ul.points li strong {
+            color: var(--black);
+            font-weight: 600;
+        }
+
+        .stack {
+            margin-top: 10px;
+            padding: 6px 12px;
+            background: var(--gray-7);
+            border-radius: 6px;
+            font-size: 11.5px;
+            color: var(--gray-2);
+            display: inline-block;
+            border: 1px dashed var(--line);
+        }
+        .stack b {
+            color: var(--ink);
+            font-weight: 600;
+            margin-right: 6px;
+            letter-spacing: 0.5px;
+        }
+
+        /* 打印 */
+        @media print {
+            body { background: #fff; }
+            .page {
+                margin: 0;
+                box-shadow: none;
+                border-radius: 0;
+                max-width: 100%;
+            }
+            .hero { padding: 28px 36px; }
+            .about { padding: 20px 36px; gap: 16px; }
+            .divider { padding: 14px 36px; }
+            .work { padding: 22px 36px; }
+            .project { page-break-inside: avoid; }
+            .project:hover { transform: none; box-shadow: none; }
+        }
+
+        @media (max-width: 760px) {
+            .page { margin: 16px auto; border-radius: 0; }
+            .hero { padding: 32px 24px; }
+            .about { padding: 24px; grid-template-columns: 1fr; gap: 16px; }
+            .divider { padding: 18px 24px; }
+            .work { padding: 24px; }
+            .hero-stats { grid-template-columns: repeat(2, 1fr); gap: 14px; }
+            .hstat { border-right: none; padding: 0; }
+            .name { font-size: 32px; letter-spacing: 3px; }
+            .name .en { display: block; margin: 8px 0 0; }
+            .skill-grid { grid-template-columns: 1fr; }
+            .divider-text { font-size: 18px; letter-spacing: 4px; gap: 12px; }
+            .divider-text::before, .divider-text::after { width: 24px; }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+
+    <!-- ================================== -->
+    <!-- ============ HERO 英雄区 ========= -->
+    <!-- ================================== -->
+    <header class="hero">
+        <div class="hero-grid-bg"></div>
+        <div class="hero-inner">
+            <div class="hero-top">个人简历</div>
+
+            <div class="hero-name-row">
+                <div>
+                    <span class="name">纪锐鑫</span>
+                </div>
+                <div class="role-badge">
+                    <span class="dot"></span>
+                    Java 后端 · 数据中台研发 · 3 年经验
+                </div>
+            </div>
+
+            <div class="hero-stats">
+                <div class="hstat">
+                    <div class="num">3<span class="u">年</span></div>
+                    <div class="label">工作经验</div>
+                </div>
+                <div class="hstat">
+                    <div class="num">6<span class="u">个</span></div>
+                    <div class="label">核心项目</div>
+                </div>
+                <div class="hstat">
+                    <div class="num">4<span class="u">类</span></div>
+                    <div class="label">行业领域</div>
+                </div>
+                <div class="hstat">
+                    <div class="num">硕士</div>
+                    <div class="label">学历层次</div>
+                </div>
+            </div>
+
+            <div class="contact-bar">
+                <span class="item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                    156 3284 5362
+                </span>
+                <span class="item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    1148769892@qq.com
+                </span>
+                <span class="item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    河北 · 邢台
+                </span>
+                <span class="item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+                    1997.01
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ================================== -->
+    <!-- ============ 上：关于我 =========== -->
+    <!-- ================================== -->
+    <section class="about">
+
+        <!-- 教育 -->
+        <div class="card">
+            <div class="card-title">
+                <span class="ico blue">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+                </span>
+                教育背景
+            </div>
+            <div class="edu-item">
+                <div class="edu-head">
+                    <span class="edu-school">沈阳理工大学</span>
+                    <span class="edu-date">2020 — 2023</span>
+                </div>
+                <div class="edu-major">环境科学与工程<span class="degree">硕士</span></div>
+                <div class="edu-extra">环境与化学工程学院 · 班长 · 二等奖学金</div>
+            </div>
+            <div class="edu-item">
+                <div class="edu-head">
+                    <span class="edu-school">唐山学院</span>
+                    <span class="edu-date">2015 — 2019</span>
+                </div>
+                <div class="edu-major">机械电子工程<span class="degree" style="background:#fef3c7;color:#d97706">本科</span></div>
+                <div class="edu-extra">机械工程学院 · 优秀毕业设计</div>
+            </div>
+        </div>
+
+        <!-- 荣誉 -->
+        <div class="card">
+            <div class="card-title">
+                <span class="ico amber">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                </span>
+                荣誉证书
+            </div>
+            <ul class="honors">
+                <li>软件著作权《生态环境调查信息采集系统》</li>
+                <li>研究生二等奖学金</li>
+                <li>起重机大赛 国家级二等奖</li>
+                <li>微信小程序大赛 校级二等奖</li>
+                <li>大学英语四级 · 计算机三级</li>
+            </ul>
+        </div>
+
+        <!-- 技能 -->
+        <div class="card skills-card">
+            <div class="card-title">
+                <span class="ico emerald">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                </span>
+                专业技能
+            </div>
+            <div class="skill-grid">
+                <div class="skill-group">
+                    <div class="skill-cat">语言基础</div>
+                    <div class="skill-tags">
+                        <span class="skill key">Java</span>
+                        <span class="skill">多线程</span>
+                        <span class="skill">设计模式</span>
+                        <span class="skill">JVM</span>
+                    </div>
+                </div>
+                <div class="skill-group">
+                    <div class="skill-cat">框架与微服务</div>
+                    <div class="skill-tags">
+                        <span class="skill key">Spring Boot</span>
+                        <span class="skill key">Spring Cloud</span>
+                        <span class="skill">MyBatis</span>
+                        <span class="skill">Feign</span>
+                    </div>
+                </div>
+                <div class="skill-group">
+                    <div class="skill-cat">数据库</div>
+                    <div class="skill-tags">
+                        <span class="skill key">MySQL</span>
+                        <span class="skill">Oracle</span>
+                        <span class="skill">PostgreSQL</span>
+                    </div>
+                </div>
+                <div class="skill-group">
+                    <div class="skill-cat">数据中台</div>
+                    <div class="skill-tags">
+                        <span class="skill">数据建模</span>
+                        <span class="skill">数据脱敏</span>
+                        <span class="skill">数据治理</span>
+                        <span class="skill">指标体系</span>
+                    </div>
+                </div>
+                <div class="skill-group">
+                    <div class="skill-cat">工具</div>
+                    <div class="skill-tags">
+                        <span class="skill">Docker</span>
+                        <span class="skill">Linux</span>
+                        <span class="skill">Git</span>
+                        <span class="skill">Maven</span>
+                    </div>
+                </div>
+                <div class="skill-group">
+                    <div class="skill-cat">前沿方向</div>
+                    <div class="skill-tags">
+                        <span class="skill ai">NL2SQL</span>
+                        <span class="skill ai">RAG</span>
+                        <span class="skill">向量存储</span>
+                        <span class="skill">MCP</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </section>
+
+    <!-- ================================== -->
+    <!-- ============ 中：分隔区 =========== -->
+    <!-- ================================== -->
+    <div class="divider">
+        <div class="divider-text">这些年做的事</div>
+    </div>
+
+    <!-- ================================== -->
+    <!-- ============ 下：项目经验 ========= -->
+    <!-- ================================== -->
+    <section class="work">
+
+        <div class="summary">
+            3 年 Java 后端研发经验，深度参与<strong>企业级、军工级、工业级、政务级</strong>四类数据中台项目研发。熟悉<strong>数据服务、数据建模、数据治理</strong>全链路，擅长基于<strong>工厂、模板方法、策略与拦截器</strong>等设计模式构建高扩展性的数据执行引擎；持续跟进 NL2SQL、RAG 等 AI 前沿方向并独立落地。
+        </div>
+
+        <!-- 项目 1 -->
+        <article class="project t-enterprise">
+            <div class="proj-head">
+                <span class="proj-title">企业级数据中台 · 数据服务模块</span>
+                <span class="proj-date">2023.04 — 2024.01</span>
+            </div>
+            <div class="proj-tags">
+                <span class="ptag enterprise">● 企业级</span>
+                <span class="ptag role">研发工程师 · 后端核心</span>
+            </div>
+            <ul class="points">
+                <li><strong>可扩展执行引擎</strong>：基于工厂模式 + 模板方法实现单表 / 多表 / 脚本 / 本地四种执行源的统一调度，新增数据源类型仅需扩展不需改源码。</li>
+                <li><strong>策略 + 拦截器链</strong>：抽象 11 种 WHERE 操作符为 Operator 策略，配合前置 / 后置拦截器实现分页、字段别名、类型转换、SQL 改写等横切能力。</li>
+                <li><strong>动态 SQL 构建</strong>：集成 JSqlParser 解析与生成 SELECT / WHERE 语句，支持 Oracle Schema 自动拼接与多表 JOIN 模式动态降级。</li>
+                <li><strong>高性能脱敏</strong>：基于抽象工厂封装 AES、SM4、正则等加密算法，通过 parallelStream 对结果集字段并行脱敏。</li>
+            </ul>
+            <div class="stack"><b>技术栈</b>Java · Spring Cloud · MyBatis · JSqlParser · Oracle / MySQL</div>
+        </article>
+
+        <!-- 项目 2 -->
+        <article class="project t-gov">
+            <div class="proj-head">
+                <span class="proj-title">山东省交通厅 · 高速公路数据分析试点</span>
+                <span class="proj-date">2024.08 — 至今</span>
+            </div>
+            <div class="proj-tags">
+                <span class="ptag gov">● 政府级</span>
+                <span class="ptag role">数据工程师 / 后端开发</span>
+            </div>
+            <ul class="points">
+                <li><strong>指标体系建模</strong>：梳理高速业务核心指标的数据来源与计算逻辑，设计事实表 / 维度表 / 中间表，输出统一数据口径。</li>
+                <li><strong>指标计算框架</strong>：抽象 AbstractMetricWithViewProcessor 模板基类，落地车流量、ETC、通行费拆账、运营效益等多个 Processor。</li>
+                <li><strong>大屏 & 小程序后端</strong>：基于 userCode / parentCode 实现多级权限隔离；通过 Quartz 定时任务预聚合大屏数据，保障秒级响应。</li>
+                <li><strong>项目交付</strong>：主导项目需求规格、概要 / 详细设计、数据库设计、测试方案、用户手册等 12 份核心文档撰写。</li>
+            </ul>
+            <div class="stack"><b>技术栈</b>Spring Boot · MyBatis · Quartz · MySQL · ECharts · 微信小程序</div>
+        </article>
+
+        <!-- 项目 3 -->
+        <article class="project t-industry">
+            <div class="proj-head">
+                <span class="proj-title">UMP 绍兴精工 · 工业数据中台</span>
+                <span class="proj-date">2024.04 — 2024.06</span>
+            </div>
+            <div class="proj-tags">
+                <span class="ptag industry">● 工业级</span>
+                <span class="ptag role">数据工程师</span>
+            </div>
+            <ul class="points">
+                <li>对接 <strong>DM、BIM、CRM、SRM、MES、WMS、ERP</strong> 七大业务系统，逐字段梳理生产、设备、质量、物料、能耗等场景数据资产。</li>
+                <li>制定企业级数据标准规范，统一数据口径与编码体系，输出事实表 / 维度表 / 中间表设计文档。</li>
+            </ul>
+        </article>
+
+        <!-- 项目 4 -->
+        <article class="project t-military">
+            <div class="proj-head">
+                <span class="proj-title">北京 15S · 数据中台技术方案</span>
+                <span class="proj-date">2024.01 — 2024.02</span>
+            </div>
+            <div class="proj-tags">
+                <span class="ptag military">● 军工级</span>
+                <span class="ptag role">方案设计</span>
+            </div>
+            <ul class="points">
+                <li>负责军工级数据中台技术方案撰写，覆盖<strong>数据接入、清洗、存储、治理、建模、服务化</strong>全链路模块设计。</li>
+                <li>紧扣军工高安全、高可靠、合规性要求，强化权限管控与脱敏机制。</li>
+            </ul>
+        </article>
+
+        <!-- 项目 5 -->
+        <article class="project t-ai">
+            <div class="proj-head">
+                <span class="proj-title">NL2SQL 智能体 · 数据分析平台集成</span>
+                <span class="proj-date">2025.09 — 2025.10</span>
+            </div>
+            <div class="proj-tags">
+                <span class="ptag ai">● AI 方向</span>
+                <span class="ptag role">技术调研 / 自主落地</span>
+            </div>
+            <ul class="points">
+                <li>深入研究<strong>向量存储优化、MCP 定制开发、RAG 高效检索</strong>等核心 AI Agent 技术，攻克自然语言意图理解、Schema 语义匹配等难点。</li>
+                <li>结合公司数据分析平台架构进行代码调试与适配，实现"自然语言提问 → SQL 生成 → ECharts 自动渲染"完整闭环。</li>
+            </ul>
+        </article>
+
+        <!-- 项目 6 -->
+        <article class="project t-doc">
+            <div class="proj-head">
+                <span class="proj-title">投标技术方案撰写</span>
+                <span class="proj-date">持续</span>
+            </div>
+            <div class="proj-tags">
+                <span class="ptag role">核心技术撰写</span>
+            </div>
+            <ul class="points">
+                <li><strong>国防科大投标</strong>：负责数据中台中数据分析功能模块。</li>
+                <li><strong>山东高速优化升级投标</strong>：数据分析试点优化升级 + 数据服务 / 数据安全模块。</li>
+                <li><strong>辽宁水利三期投标</strong>：完成数据分析功能技术方案。</li>
+            </ul>
+        </article>
+
+    </section>
+
+</div>
+</body>
+</html>

@@ -1,15 +1,25 @@
 package com.tuiyan.backend.config;
 
+import com.tuiyan.backend.repository.WorkspaceRepository;
+import com.tuiyan.backend.support.WorkspaceInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * Spring MVC 跨域配置。
+ * Spring MVC 跨域配置 + 工作空间拦截器注册。
  * <p>仅放行本机 dev server（vite 默认端口随机，所以用 *），生产场景同源部署不需要 CORS。
  */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+
+    private final WorkspaceRepository workspaceRepository;
+
+    public WebConfig(WorkspaceRepository workspaceRepository) {
+        this.workspaceRepository = workspaceRepository;
+    }
+
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
@@ -21,5 +31,11 @@ public class WebConfig implements WebMvcConfigurer {
                 .exposedHeaders("*")
                 .allowCredentials(true)
                 .maxAge(3600);
+    }
+
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new WorkspaceInterceptor(workspaceRepository))
+                .addPathPatterns("/api/**");
     }
 }

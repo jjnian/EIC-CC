@@ -5,30 +5,29 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
 /**
- * 本体模型 PO，对应 ontology_model 表。
+ * 工作空间 PO，对应 workspace 表。
  */
-@TableName("ontology_model")
-public class OntologyModelPO {
-    // 业务 id（如 om_xxx），由代码生成，不走数据库自增
+@TableName("workspace")
+public class WorkspacePO {
     @TableId(type = IdType.INPUT)
     private String id;
-    private String workspaceId;
-    private String title;
+    private String name;
     private String description;
-    private String updatedLabel;
+    private Boolean isDefault;
+    private Integer sortNo;
     private Long createdAt;
     private Long updatedAt;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
-    public String getWorkspaceId() { return workspaceId; }
-    public void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
-    public String getTitle() { return title; }
-    public void setTitle(String title) { this.title = title; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
-    public String getUpdatedLabel() { return updatedLabel; }
-    public void setUpdatedLabel(String updatedLabel) { this.updatedLabel = updatedLabel; }
+    public Boolean getIsDefault() { return isDefault; }
+    public void setIsDefault(Boolean isDefault) { this.isDefault = isDefault; }
+    public Integer getSortNo() { return sortNo; }
+    public void setSortNo(Integer sortNo) { this.sortNo = sortNo; }
     public Long getCreatedAt() { return createdAt; }
     public void setCreatedAt(Long createdAt) { this.createdAt = createdAt; }
     public Long getUpdatedAt() { return updatedAt; }

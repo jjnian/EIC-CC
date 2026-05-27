@@ -9,6 +9,11 @@ import AppearanceTab from './settings/AppearanceTab.vue';
 import DataTab from './settings/DataTab.vue';
 import MonitorTab from './settings/MonitorTab.vue';
 import AboutTab from './settings/AboutTab.vue';
+import WorkspacesTab from './settings/WorkspacesTab.vue';
+
+const emit = defineEmits<{
+  (e: 'switch-workspace', id: string): void;
+}>();
 
 const localToast = ref<{ msg: string; kind: 'success' | 'error' } | null>(null);
 const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
@@ -20,6 +25,7 @@ const mc = useModelConfigs({ showToast });
 const sp = useSettingsPrefs();
 
 const TABS = [
+  { id: 'workspaces', label: '工作空间', icon: '▣' },
   { id: 'models',     label: '模型管理', icon: '◈' },
   { id: 'predict',    label: '推演偏好', icon: '⚡' },
   { id: 'appearance', label: '图谱外观', icon: '✦' },
@@ -27,7 +33,7 @@ const TABS = [
   { id: 'monitor',    label: '系统监控', icon: '📊' },
   { id: 'about',      label: '关于',     icon: 'ⓘ' }
 ];
-const activeTab = ref('models');
+const activeTab = ref('workspaces');
 const APP_VERSION = '0.5.0';
 
 onMounted(() => {
@@ -75,7 +81,10 @@ watch(activeTab, (tab) => {
       </nav>
 
       <div class="sv-pane">
-        <ModelsTab v-if="activeTab === 'models'"
+        <WorkspacesTab v-if="activeTab === 'workspaces'"
+                       @switch="(id) => emit('switch-workspace', id)" />
+
+        <ModelsTab v-else-if="activeTab === 'models'"
                    :models="mc.models.value"
                    :loading="mc.loading.value"
                    :test-results="mc.testResults"

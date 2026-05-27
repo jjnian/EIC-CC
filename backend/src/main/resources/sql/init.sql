@@ -6,6 +6,26 @@
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
+-- 0. 工作空间（workspace）
+-- 所有业务数据按 workspace_id 隔离；ws_default 为系统内置默认工作空间。
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS workspace (
+    id           VARCHAR(64)  PRIMARY KEY,
+    name         VARCHAR(120) NOT NULL,
+    description  TEXT,
+    is_default   BOOLEAN      NOT NULL DEFAULT FALSE,
+    sort_no      INTEGER      NOT NULL DEFAULT 0,
+    created_at   BIGINT       NOT NULL,
+    updated_at   BIGINT       NOT NULL
+);
+
+INSERT INTO workspace (id, name, description, is_default, sort_no, created_at, updated_at)
+VALUES ('ws_default', '默认工作空间', '系统初始化的默认工作空间', TRUE, 0,
+        EXTRACT(EPOCH FROM NOW()) * 1000, EXTRACT(EPOCH FROM NOW()) * 1000)
+ON CONFLICT (id) DO NOTHING;
+
+-- ---------------------------------------------------------------------------
 -- 1. 本体模型（ontology_model）
 -- ---------------------------------------------------------------------------
 
@@ -291,6 +311,46 @@ CREATE TABLE IF NOT EXISTS hypothesis_template (
 );
 CREATE INDEX IF NOT EXISTS idx_hypothesis_template_model
     ON hypothesis_template (model_id, last_used_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- 5.5 数据源（导入过的文档 / 网页）
+-- 每次成功 extract 后写一行；按工作空间隔离，删除工作空间时级联清理。
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS data_source (
+    id            VARCHAR(64)  PRIMARY KEY,
+    workspace_id  VARCHAR(64)  NOT NULL,
+    kind          VARCHAR(16)  NOT NULL,                          -- file | url
+    name          VARCHAR(512) NOT NULL,                          -- 文件名 或 URL
+    mime          VARCHAR(128),
+    size_bytes    BIGINT,
+    extra_json    TEXT,                                           -- pages/chars/title 等附加元信息
+    created_at    BIGINT       NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_data_source_ws_created
+    ON data_source (workspace_id, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- 6. 工作空间字段：所有主体表加 workspace_id；旧数据回填到 ws_default
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE ontology_model      ADD COLUMN IF NOT EXISTS workspace_id VARCHAR(64);
+ALTER TABLE scenario            ADD COLUMN IF NOT EXISTS workspace_id VARCHAR(64);
+ALTER TABLE conversation        ADD COLUMN IF NOT EXISTS workspace_id VARCHAR(64);
+ALTER TABLE graph_template      ADD COLUMN IF NOT EXISTS workspace_id VARCHAR(64);
+ALTER TABLE hypothesis_template ADD COLUMN IF NOT EXISTS workspace_id VARCHAR(64);
+
+UPDATE ontology_model      SET workspace_id = 'ws_default' WHERE workspace_id IS NULL;
+UPDATE scenario            SET workspace_id = 'ws_default' WHERE workspace_id IS NULL;
+UPDATE conversation        SET workspace_id = 'ws_default' WHERE workspace_id IS NULL;
+UPDATE graph_template      SET workspace_id = 'ws_default' WHERE workspace_id IS NULL;
+UPDATE hypothesis_template SET workspace_id = 'ws_default' WHERE workspace_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ontology_model_ws      ON ontology_model      (workspace_id);
+CREATE INDEX IF NOT EXISTS idx_scenario_ws            ON scenario            (workspace_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_ws        ON conversation        (workspace_id);
+CREATE INDEX IF NOT EXISTS idx_graph_template_ws      ON graph_template      (workspace_id);
+CREATE INDEX IF NOT EXISTS idx_hypothesis_template_ws ON hypothesis_template (workspace_id);
 
 -- ===========================================================================
 -- 初始化完成

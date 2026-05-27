@@ -20,6 +20,7 @@ import com.tuiyan.backend.model.Constraint;
 import com.tuiyan.backend.model.NodeExplanation;
 import com.tuiyan.backend.model.PredictionDag;
 import com.tuiyan.backend.model.Scenario;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,9 +64,10 @@ public class ScenarioRepository {
         this.codec = new JsonCodec(objectMapper);
     }
 
-    /** 列出所有分支；modelId 为 null 时返回全部。 */
+    /** 列出所有分支；modelId 为 null 时返回当前 ws 全部。 */
     public List<Scenario> list(String modelId) {
         LambdaQueryWrapper<ScenarioPO> qw = new LambdaQueryWrapper<>();
+        qw.eq(ScenarioPO::getWorkspaceId, WorkspaceContext.required());
         if (modelId != null && !modelId.isBlank()) {
             qw.eq(ScenarioPO::getModelId, modelId);
         }
@@ -78,10 +80,11 @@ public class ScenarioRepository {
         return out;
     }
 
-    /** 按 id 加载单个分支（含完整 dag）。 */
+    /** 按 id 加载单个分支（含完整 dag）；不属于当前 ws 返回 null。 */
     public Scenario get(String id) {
         ScenarioPO po = scenarioMapper.selectById(id);
         if (po == null) return null;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
         return loadScenario(po);
     }
 
@@ -91,9 +94,15 @@ public class ScenarioRepository {
     @Transactional
     public void save(Scenario s) {
         ScenarioPO po = toPO(s);
-        if (scenarioMapper.selectById(s.getId()) == null) {
+        ScenarioPO existing = scenarioMapper.selectById(s.getId());
+        if (existing == null) {
+            po.setWorkspaceId(WorkspaceContext.required());
             scenarioMapper.insert(po);
         } else {
+            if (!WorkspaceContext.required().equals(existing.getWorkspaceId())) {
+                throw new IllegalArgumentException("Scenario does not belong to current workspace: " + s.getId());
+            }
+            po.setWorkspaceId(existing.getWorkspaceId());
             scenarioMapper.updateById(po);
         }
         deleteAllChildren(s.getId());
@@ -123,8 +132,14 @@ public class ScenarioRepository {
      */
     @Transactional
     public int delete(String id) {
-        // 收集以 id 为祖先的所有分支
-        List<ScenarioPO> all = scenarioMapper.selectList(null);
+        ScenarioPO target = scenarioMapper.selectById(id);
+        if (target == null) return 0;
+        if (!WorkspaceContext.required().equals(target.getWorkspaceId())) return 0;
+
+        // 收集当前 ws 内以 id 为祖先的所有分支
+        List<ScenarioPO> all = scenarioMapper.selectList(
+                new LambdaQueryWrapper<ScenarioPO>()
+                        .eq(ScenarioPO::getWorkspaceId, WorkspaceContext.required()));
         Map<String, String> parentMap = new HashMap<>();
         for (ScenarioPO p : all) parentMap.put(p.getId(), p.getParentBranchId());
 

@@ -11,6 +11,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 public class ScenarioPO {
     @TableId(type = IdType.INPUT)
     private String id;
+    private String workspaceId;
     private String modelId;
     private String parentBranchId;
     private String name;
@@ -23,6 +24,8 @@ public class ScenarioPO {
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+    public String getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
     public String getModelId() { return modelId; }
     public void setModelId(String modelId) { this.modelId = modelId; }
     public String getParentBranchId() { return parentBranchId; }

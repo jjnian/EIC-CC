@@ -1,6 +1,7 @@
 package com.tuiyan.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.support.DocxTextExtractor;
 import com.tuiyan.backend.support.FileSniffer;
 import com.tuiyan.backend.support.IdSaltRewriter;
@@ -62,11 +63,14 @@ public class DocumentExtractionService {
 
     private final ExtractionLlmService extractionLlmService;
     private final Executor urlFetchExecutor;
+    private final DataSourceRepository dataSourceRepository;
 
     public DocumentExtractionService(ExtractionLlmService extractionLlmService,
-                                     @Qualifier("predictionExecutor") ThreadPoolTaskExecutor predictionExecutor) {
+                                     @Qualifier("predictionExecutor") ThreadPoolTaskExecutor predictionExecutor,
+                                     DataSourceRepository dataSourceRepository) {
         this.extractionLlmService = extractionLlmService;
         this.urlFetchExecutor = predictionExecutor;
+        this.dataSourceRepository = dataSourceRepository;
     }
 
     /**
@@ -112,6 +116,8 @@ public class DocumentExtractionService {
         // 用毫秒时间戳的 36 进制作 salt，加在每个节点 id 前面避免与已有图谱冲突
         String salt = Long.toString(System.currentTimeMillis(), 36);
         JsonNode rewritten = IdSaltRewriter.applyImportSalt(draft, salt);
+
+        persistDataSources(sourcesMeta);
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("nodes", rewritten.path("nodes"));
@@ -306,6 +312,30 @@ public class DocumentExtractionService {
         if (text != null && !text.isBlank()) {
             combinedText.append("# 文件 ").append(safeName).append("\n\n")
                         .append(text).append("\n\n");
+        }
+    }
+
+    /** 抽取成功后把每个非 skipped 的 source 写入 data_source 表。 */
+    private void persistDataSources(List<Map<String, Object>> sourcesMeta) {
+        for (Map<String, Object> meta : sourcesMeta) {
+            String type = String.valueOf(meta.getOrDefault("type", ""));
+            if ("skipped".equals(type)) continue;
+            String name = String.valueOf(meta.getOrDefault("name", ""));
+            if (name.isBlank()) continue;
+            String kind = "url".equals(type) ? "url" : "file";
+            String mime = meta.containsKey("contentType") ? String.valueOf(meta.get("contentType")) : null;
+            Long size = null;
+            Object sizeObj = meta.get("size");
+            if (sizeObj instanceof Number n) size = n.longValue();
+            Map<String, Object> extra = new LinkedHashMap<>(meta);
+            extra.remove("name");
+            extra.remove("contentType");
+            extra.remove("size");
+            try {
+                dataSourceRepository.saveSource(kind, name, mime, size, extra.isEmpty() ? null : extra);
+            } catch (Exception e) {
+                log.warn("persist data source failed for {}: {}", name, e.toString());
+            }
         }
     }
 

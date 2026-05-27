@@ -254,6 +254,13 @@ const formatTokens = (n: number) => {
   return String(n);
 };
 
+// 对外暴露给侧栏切换 / 删除当前会话使用
+defineExpose({
+  switchConversation: (id: string) => initConversation(id),
+  newConversation: () => initConversation('new'),
+  currentConversationId: () => conv.conversationId.value,
+});
+
 </script>
 
 <template>
