@@ -29,9 +29,14 @@ public class DataSourceRepository {
 
     /** 当前工作空间下全部数据源，按创建时间倒序。 */
     public List<Map<String, Object>> list() {
+        return list(WorkspaceContext.required());
+    }
+
+    /** 指定工作空间下全部数据源（侧栏跨工作空间懒加载）。 */
+    public List<Map<String, Object>> list(String workspaceId) {
         List<DataSourcePO> pos = mapper.selectList(
                 new LambdaQueryWrapper<DataSourcePO>()
-                        .eq(DataSourcePO::getWorkspaceId, WorkspaceContext.required())
+                        .eq(DataSourcePO::getWorkspaceId, workspaceId)
                         .orderByDesc(DataSourcePO::getCreatedAt));
         return pos.stream().map(this::toMap).toList();
     }

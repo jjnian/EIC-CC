@@ -19,7 +19,10 @@ public class ConversationController {
     }
 
     @GetMapping
-    public ResponseEntity<?> list() {
+    public ResponseEntity<?> list(@RequestParam(required = false) String workspaceId) {
+        if (workspaceId != null && !workspaceId.isBlank()) {
+            return ResponseEntity.ok(svc.list(workspaceId));
+        }
         return ResponseEntity.ok(svc.list());
     }
 

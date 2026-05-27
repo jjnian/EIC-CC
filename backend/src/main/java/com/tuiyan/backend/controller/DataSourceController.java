@@ -23,7 +23,10 @@ public class DataSourceController {
     }
 
     @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> list() {
+    public ResponseEntity<List<Map<String, Object>>> list(@RequestParam(required = false) String workspaceId) {
+        if (workspaceId != null && !workspaceId.isBlank()) {
+            return ResponseEntity.ok(repo.list(workspaceId));
+        }
         return ResponseEntity.ok(repo.list());
     }
 

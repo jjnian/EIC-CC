@@ -11,8 +11,11 @@ export interface DataSource {
   [key: string]: unknown;
 }
 
-export function listDataSources() {
-  return request<DataSource[]>('/api/data-sources');
+export function listDataSources(opts?: { workspaceId?: string }) {
+  const qs = opts?.workspaceId
+    ? `?workspaceId=${encodeURIComponent(opts.workspaceId)}`
+    : '';
+  return request<DataSource[]>(`/api/data-sources${qs}`);
 }
 
 export function deleteDataSource(id: string) {

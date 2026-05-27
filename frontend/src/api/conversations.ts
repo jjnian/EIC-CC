@@ -9,8 +9,11 @@ export interface ConversationDto {
   msgs: ChatMsg[];
 }
 
-export function listConversations() {
-  return request<ConversationDto[]>('/api/conversations');
+export function listConversations(opts?: { workspaceId?: string }) {
+  const qs = opts?.workspaceId
+    ? `?workspaceId=${encodeURIComponent(opts.workspaceId)}`
+    : '';
+  return request<ConversationDto[]>(`/api/conversations${qs}`);
 }
 
 export function getConversation(id: string) {

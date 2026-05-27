@@ -35,11 +35,16 @@ public class ConversationRepository {
         this.codec = new JsonCodec(objectMapper);
     }
 
-    /** 列出所有对话（含完整消息列表），按 updated_at 倒序。 */
+    /** 列出当前工作空间的所有对话（含完整消息列表），按 updated_at 倒序。 */
     public List<Conversation> list() {
+        return list(WorkspaceContext.required());
+    }
+
+    /** 列出指定工作空间的所有对话（用于侧栏跨工作空间懒加载）。 */
+    public List<Conversation> list(String workspaceId) {
         List<ConversationPO> pos = conversationMapper.selectList(
                 new LambdaQueryWrapper<ConversationPO>()
-                        .eq(ConversationPO::getWorkspaceId, WorkspaceContext.required())
+                        .eq(ConversationPO::getWorkspaceId, workspaceId)
                         .orderByDesc(ConversationPO::getUpdatedAt));
         List<Conversation> out = new ArrayList<>(pos.size());
         for (ConversationPO po : pos) {

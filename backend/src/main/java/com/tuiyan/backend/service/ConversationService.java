@@ -28,6 +28,11 @@ public class ConversationService {
         return conversationRepository.list();
     }
 
+    /** 列出指定工作空间的对话（侧栏跨工作空间懒加载）。 */
+    public List<Conversation> list(String workspaceId) {
+        return conversationRepository.list(workspaceId);
+    }
+
     /** 按 id 读取；不存在返回 null。 */
     public Conversation get(String id) {
         return conversationRepository.get(id);
