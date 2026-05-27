@@ -49,11 +49,19 @@ export interface PredictionMsg {
   error?: string;
 }
 
+export interface ChatBuildStep {
+  key: string;
+  label: string;
+  status: 'done' | 'running' | 'pending';
+}
+
 export interface ChatMsg {
   role: 'a' | 'u' | 'prediction';
   text: string;
   atts?: ChatMsgAttachment[];
   prediction?: PredictionMsg;
+  buildSteps?: ChatBuildStep[];
+  buildDone?: boolean;
 }
 
 export interface Conversation {

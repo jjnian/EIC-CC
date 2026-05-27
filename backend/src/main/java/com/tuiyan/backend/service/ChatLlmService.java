@@ -103,12 +103,16 @@ public class ChatLlmService {
         long startMs = System.currentTimeMillis();
         String modelName = "unknown";
         try {
+            emitStep(emitter, "resolving_config", "正在解析模型配置…");
+
             LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(request.getModelOverride(), request.getConfigId());
             modelName = cfg.modelName();
             boolean anthropic = http.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
             log.info("[LLM-chat-sse] 开始非流式请求 model={} url={} protocol={}", cfg.modelName(), cfg.baseURL(),
                     anthropic ? "anthropic" : "openai");
+
+            emitStep(emitter, "building_context", "正在构建图谱上下文…");
 
             String prompt = promptBuilder.buildChatPrompt(request.getNodes(), request.getEdges(), request.getMessage());
             callLogger.logConversation("LLM-chat-sse", cfg.modelName(), LlmPrompts.CHAT_SYSTEM,
@@ -117,6 +121,8 @@ public class ChatLlmService {
             String requestBody = http.buildBody(cfg, LlmPrompts.CHAT_SYSTEM, prompt,
                     request.getHistory(), request.getAttachments(), false, true);
             log.debug("[LLM-chat-sse] 请求体大小: {} chars", requestBody.length());
+
+            emitStep(emitter, "calling_llm", "正在调用 " + cfg.modelName() + " 模型…");
 
             HttpRequest httpRequest = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
 
@@ -182,6 +188,8 @@ public class ChatLlmService {
         }
 
         try {
+            emitStep(emitter, "parsing_response", "正在解析模型响应…");
+
             log.info("[LLM-chat-sse] 请求成功 耗时={}ms 响应大小={} chars", elapsed, resp.body().length());
             http.metrics().recordCall(modelName, elapsed, true);
 
@@ -189,12 +197,19 @@ public class ChatLlmService {
             String content = http.stripJsonFence(http.extractContent(responseJson, anthropic));
             callLogger.logLlmResponse("LLM-chat-sse", modelName, elapsed, content);
 
+            emitStep(emitter, "extracting_entities", "正在提取实体和关系…");
+
             JsonNode result = objectMapper.readTree(content);
 
             String reply = result.path("reply").asText("");
             if (!reply.isEmpty()) {
                 emitter.send(SseEmitter.event().name("text").data(reply));
             }
+
+            int nodeCount = result.path("add_nodes").size();
+            int edgeCount = result.path("add_edges").size();
+            emitStep(emitter, "merging_graph",
+                    "正在合并到图谱… (+" + nodeCount + " 节点 / +" + edgeCount + " 关系)");
 
             ObjectNode finalEvent = objectMapper.createObjectNode();
             finalEvent.put("reply", reply);
@@ -212,6 +227,15 @@ public class ChatLlmService {
                 log.warn("emit parse-error failed", ex);
             }
             emitter.complete();
+        }
+    }
+
+    private void emitStep(SseEmitter emitter, String key, String label) {
+        try {
+            String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
+            emitter.send(SseEmitter.event().name("step").data(json));
+        } catch (IOException e) {
+            log.warn("emit step '{}' failed: {}", key, e.toString());
         }
     }
 }
