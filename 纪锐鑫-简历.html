@@ -553,18 +553,51 @@
 
         <div class="timeline">
 
-            <!-- NL2SQL -->
-            <div class="tl-item purple">
+            <!-- 企业级数据中台 -->
+            <div class="tl-item blue">
                 <div class="tl-dot"></div>
-                <div class="tl-date">2025.09 — 2025.10</div>
-                <div class="tl-title">NL2SQL 智能体 · 数据分析平台集成</div>
+                <div class="tl-date">2023.04 — 2024.01</div>
+                <div class="tl-title">企业级数据中台 · 数据服务模块</div>
                 <div class="tl-tags">
-                    <span class="tl-tag purple">AI 方向</span>
-                    <span class="tl-tag type">技术调研 / 自主落地</span>
+                    <span class="tl-tag blue">企业级</span>
+                    <span class="tl-tag type">研发工程师 · 后端核心</span>
                 </div>
                 <ul class="tl-points">
-                    <li>深入研究<strong>向量存储优化、MCP 定制开发、RAG 高效检索</strong>等核心 AI Agent 技术，攻克自然语言意图理解、Schema 语义匹配等难点。</li>
-                    <li>结合公司数据分析平台架构进行代码调试与适配，实现"自然语言提问 → SQL 生成 → ECharts 自动渲染"完整闭环。</li>
+                    <li><strong>可扩展执行引擎</strong>：基于工厂模式 + 模板方法实现单表 / 多表 / 脚本 / 本地四种执行源的统一调度，新增数据源类型仅需扩展不需改源码。</li>
+                    <li><strong>策略 + 拦截器链</strong>：抽象 11 种 WHERE 操作符为 Operator 策略，配合前置 / 后置拦截器实现分页、字段别名、类型转换、SQL 改写等横切能力。</li>
+                    <li><strong>动态 SQL 构建</strong>：集成 JSqlParser 解析与生成 SELECT / WHERE 语句，支持 Oracle Schema 自动拼接与多表 JOIN 模式动态降级。</li>
+                    <li><strong>高性能脱敏</strong>：基于抽象工厂封装 AES、SM4、正则等加密算法，通过 parallelStream 对结果集字段并行脱敏。</li>
+                </ul>
+                <div class="tl-stack"><b>技术栈</b>Java · Spring Cloud · MyBatis · JSqlParser · Oracle / MySQL</div>
+            </div>
+
+            <!-- 北京 15S -->
+            <div class="tl-item rose">
+                <div class="tl-dot"></div>
+                <div class="tl-date">2024.01 — 2024.02</div>
+                <div class="tl-title">北京 15S · 数据中台技术方案</div>
+                <div class="tl-tags">
+                    <span class="tl-tag rose">军工级</span>
+                    <span class="tl-tag type">方案设计</span>
+                </div>
+                <ul class="tl-points">
+                    <li>负责军工级数据中台技术方案撰写，覆盖<strong>数据接入、清洗、存储、治理、建模、服务化</strong>全链路模块设计。</li>
+                    <li>紧扣军工高安全、高可靠、合规性要求，强化权限管控与脱敏机制。</li>
+                </ul>
+            </div>
+
+            <!-- UMP 绍兴精工 -->
+            <div class="tl-item amber">
+                <div class="tl-dot"></div>
+                <div class="tl-date">2024.04 — 2024.06</div>
+                <div class="tl-title">UMP 绍兴精工 · 工业数据中台</div>
+                <div class="tl-tags">
+                    <span class="tl-tag amber">工业级</span>
+                    <span class="tl-tag type">数据工程师</span>
+                </div>
+                <ul class="tl-points">
+                    <li>对接 <strong>DM、BIM、CRM、SRM、MES、WMS、ERP</strong> 七大业务系统，逐字段梳理生产、设备、质量、物料、能耗等场景数据资产。</li>
+                    <li>制定企业级数据标准规范，统一数据口径与编码体系，输出事实表 / 维度表 / 中间表设计文档。</li>
                 </ul>
             </div>
 
@@ -586,52 +619,19 @@
                 <div class="tl-stack"><b>技术栈</b>Spring Boot · MyBatis · Quartz · MySQL · ECharts · 微信小程序</div>
             </div>
 
-            <!-- UMP 绍兴精工 -->
-            <div class="tl-item amber">
+            <!-- NL2SQL -->
+            <div class="tl-item purple">
                 <div class="tl-dot"></div>
-                <div class="tl-date">2024.04 — 2024.06</div>
-                <div class="tl-title">UMP 绍兴精工 · 工业数据中台</div>
+                <div class="tl-date">2025.09 — 2025.10</div>
+                <div class="tl-title">NL2SQL 智能体 · 数据分析平台集成</div>
                 <div class="tl-tags">
-                    <span class="tl-tag amber">工业级</span>
-                    <span class="tl-tag type">数据工程师</span>
+                    <span class="tl-tag purple">AI 方向</span>
+                    <span class="tl-tag type">技术调研 / 自主落地</span>
                 </div>
                 <ul class="tl-points">
-                    <li>对接 <strong>DM、BIM、CRM、SRM、MES、WMS、ERP</strong> 七大业务系统，逐字段梳理生产、设备、质量、物料、能耗等场景数据资产。</li>
-                    <li>制定企业级数据标准规范，统一数据口径与编码体系，输出事实表 / 维度表 / 中间表设计文档。</li>
+                    <li>深入研究<strong>向量存储优化、MCP 定制开发、RAG 高效检索</strong>等核心 AI Agent 技术，攻克自然语言意图理解、Schema 语义匹配等难点。</li>
+                    <li>结合公司数据分析平台架构进行代码调试与适配，实现"自然语言提问 → SQL 生成 → ECharts 自动渲染"完整闭环。</li>
                 </ul>
-            </div>
-
-            <!-- 北京 15S -->
-            <div class="tl-item rose">
-                <div class="tl-dot"></div>
-                <div class="tl-date">2024.01 — 2024.02</div>
-                <div class="tl-title">北京 15S · 数据中台技术方案</div>
-                <div class="tl-tags">
-                    <span class="tl-tag rose">军工级</span>
-                    <span class="tl-tag type">方案设计</span>
-                </div>
-                <ul class="tl-points">
-                    <li>负责军工级数据中台技术方案撰写，覆盖<strong>数据接入、清洗、存储、治理、建模、服务化</strong>全链路模块设计。</li>
-                    <li>紧扣军工高安全、高可靠、合规性要求，强化权限管控与脱敏机制。</li>
-                </ul>
-            </div>
-
-            <!-- 企业级数据中台 -->
-            <div class="tl-item blue">
-                <div class="tl-dot"></div>
-                <div class="tl-date">2023.04 — 2024.01</div>
-                <div class="tl-title">企业级数据中台 · 数据服务模块</div>
-                <div class="tl-tags">
-                    <span class="tl-tag blue">企业级</span>
-                    <span class="tl-tag type">研发工程师 · 后端核心</span>
-                </div>
-                <ul class="tl-points">
-                    <li><strong>可扩展执行引擎</strong>：基于工厂模式 + 模板方法实现单表 / 多表 / 脚本 / 本地四种执行源的统一调度，新增数据源类型仅需扩展不需改源码。</li>
-                    <li><strong>策略 + 拦截器链</strong>：抽象 11 种 WHERE 操作符为 Operator 策略，配合前置 / 后置拦截器实现分页、字段别名、类型转换、SQL 改写等横切能力。</li>
-                    <li><strong>动态 SQL 构建</strong>：集成 JSqlParser 解析与生成 SELECT / WHERE 语句，支持 Oracle Schema 自动拼接与多表 JOIN 模式动态降级。</li>
-                    <li><strong>高性能脱敏</strong>：基于抽象工厂封装 AES、SM4、正则等加密算法，通过 parallelStream 对结果集字段并行脱敏。</li>
-                </ul>
-                <div class="tl-stack"><b>技术栈</b>Java · Spring Cloud · MyBatis · JSqlParser · Oracle / MySQL</div>
             </div>
 
             <!-- 投标 -->
