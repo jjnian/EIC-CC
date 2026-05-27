@@ -93,7 +93,7 @@ public final class WebPageFetcher {
      * 窗口（DNS rebinding 理论上可绕），但本系统只面向单用户本地工具场景，
      * 攻击者已能本地访问后端，引入 IP 绑定的复杂度不划算。
      */
-    static URI parseAndValidate(String raw) {
+    public static URI parseAndValidate(String raw) {
         if (raw == null || raw.isBlank()) {
             throw new IllegalArgumentException("URL 为空");
         }
