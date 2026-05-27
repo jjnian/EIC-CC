@@ -165,15 +165,18 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
     <div v-if="expanded" class="ws-children">
       <!-- 对话记录 -->
       <div class="ws-child-node">
-        <button class="ws-child-head" @click="onToggleConv">
+        <div class="ws-child-head" role="button" tabindex="0"
+             @click="onToggleConv"
+             @keydown.enter.prevent="onToggleConv"
+             @keydown.space.prevent="onToggleConv">
           <span :class="['ws-caret', { open: convExpanded }]">▸</span>
           <span class="ws-child-icon">💬</span>
           <span class="ws-child-label">对话记录</span>
           <span v-if="conversations.length" class="ws-child-count">{{ conversations.length }}</span>
           <span class="ws-child-spacer" />
-          <button v-if="isCurrent" class="ws-child-action" :title="'新对话'" @click="onNewConv">＋</button>
-          <button class="ws-child-action" :title="'刷新'" @click="refreshConv">↻</button>
-        </button>
+          <button v-if="isCurrent" class="ws-child-action" :title="'新对话'" @click.stop="onNewConv">＋</button>
+          <button class="ws-child-action" :title="'刷新'" @click.stop="refreshConv">↻</button>
+        </div>
         <div v-if="convExpanded" class="ws-child-list">
           <div v-if="loadingConv && !conversations.length" class="ws-child-empty">加载中…</div>
           <div v-else-if="loadedConv && !conversations.length" class="ws-child-empty">暂无对话</div>
