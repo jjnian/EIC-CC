@@ -21,6 +21,16 @@ public class DataSourcePO {
     /** pages / chars / title / truncated 等附加信息序列化 */
     private String extraJson;
     private Long createdAt;
+    /** 类型特定连接配置 JSON：mysql/pgsql/file_stored/https_api 各异；旧 kind 为 null */
+    private String configJson;
+    /** idle | connected | error */
+    private String status;
+    /** 上次连接测试时间戳（毫秒） */
+    private Long lastTestedAt;
+    /** 上次失败原因（用于前端 hover 展示） */
+    private String lastError;
+    /** 配置最近修改时间（毫秒） */
+    private Long updatedAt;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -38,4 +48,14 @@ public class DataSourcePO {
     public void setExtraJson(String extraJson) { this.extraJson = extraJson; }
     public Long getCreatedAt() { return createdAt; }
     public void setCreatedAt(Long createdAt) { this.createdAt = createdAt; }
+    public String getConfigJson() { return configJson; }
+    public void setConfigJson(String configJson) { this.configJson = configJson; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public Long getLastTestedAt() { return lastTestedAt; }
+    public void setLastTestedAt(Long lastTestedAt) { this.lastTestedAt = lastTestedAt; }
+    public String getLastError() { return lastError; }
+    public void setLastError(String lastError) { this.lastError = lastError; }
+    public Long getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Long updatedAt) { this.updatedAt = updatedAt; }
 }

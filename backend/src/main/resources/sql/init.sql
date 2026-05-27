@@ -330,6 +330,27 @@ CREATE TABLE IF NOT EXISTS data_source (
 CREATE INDEX IF NOT EXISTS idx_data_source_ws_created
     ON data_source (workspace_id, created_at DESC);
 
+-- 5.5.1 数据源新增字段：持续挂载类型所需的配置 + 状态
+ALTER TABLE data_source ADD COLUMN IF NOT EXISTS config_json    TEXT;
+ALTER TABLE data_source ADD COLUMN IF NOT EXISTS status         VARCHAR(16) DEFAULT 'idle';
+ALTER TABLE data_source ADD COLUMN IF NOT EXISTS last_tested_at BIGINT;
+ALTER TABLE data_source ADD COLUMN IF NOT EXISTS last_error     TEXT;
+ALTER TABLE data_source ADD COLUMN IF NOT EXISTS updated_at     BIGINT;
+
+-- 5.5.2 数据源执行历史（仅 https_api 写入）：单数据源最多保留 20 条
+CREATE TABLE IF NOT EXISTS data_source_fetch_log (
+    id              BIGSERIAL    PRIMARY KEY,
+    data_source_id  VARCHAR(64)  NOT NULL REFERENCES data_source(id) ON DELETE CASCADE,
+    fetched_at      BIGINT       NOT NULL,
+    status_code     INTEGER,
+    success         BOOLEAN      NOT NULL,
+    response_body   TEXT,
+    error_msg       TEXT,
+    duration_ms     INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fetch_log_ds_at
+    ON data_source_fetch_log (data_source_id, fetched_at DESC);
+
 -- ---------------------------------------------------------------------------
 -- 6. 工作空间字段：所有主体表加 workspace_id；旧数据回填到 ws_default
 -- ---------------------------------------------------------------------------

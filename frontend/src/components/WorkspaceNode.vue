@@ -17,6 +17,8 @@ const emit = defineEmits<{
   (e: 'switch-current', id: string): void;
   (e: 'open-conversation', wsId: string, convId: string): void;
   (e: 'new-conversation', wsId: string): void;
+  (e: 'open-data-source', id: string): void;
+  (e: 'open-create-data-source'): void;
 }>();
 
 const tree = useSidebarTree();
@@ -200,6 +202,8 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
           <span class="ws-child-icon">📂</span>
           <span class="ws-child-label">数据源</span>
           <span v-if="dataSources.length" class="ws-child-count">{{ dataSources.length }}</span>
+          <span class="ws-child-spacer" />
+          <button class="ws-child-action" title="添加数据源" @click.stop="emit('open-create-data-source')">＋</button>
         </button>
         <div v-if="dsExpanded" class="ws-child-list">
           <div v-if="loadingDS && !dataSources.length" class="ws-child-empty">加载中…</div>
@@ -207,9 +211,11 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
           <div v-else-if="!loadedDS" class="ws-child-empty">展开自动加载</div>
           <div v-for="d in dataSources" :key="d.id"
                class="ws-child-item"
-               :title="d.name + (d.size ? ' · ' + formatBytes(d.size) : '')">
-            <span class="ws-child-icon-mini">{{ dataSourceIcon(d.kind) }}</span>
+               :title="d.name + (d.size ? ' · ' + formatBytes(d.size) : '')"
+               @click="if (['mysql','pgsql','file_stored','https_api'].includes(String(d.kind))) emit('open-data-source', String(d.id))">
+            <span class="ws-child-icon-mini">{{ ({ mysql:'🗄', pgsql:'🐘', file_stored:'📄', https_api:'🌐', file:'📎', url:'🔗' } as Record<string,string>)[d.kind] || '📁' }}</span>
             <span class="ws-child-item-title">{{ d.name }}</span>
+            <span v-if="['mysql','pgsql','file_stored','https_api'].includes(String(d.kind))" :class="['status-dot', String((d as any).status || 'idle')]" />
             <span class="ws-child-meta">{{ formatBytes(d.size) }}</span>
             <button class="ws-child-del" :title="`删除 ${d.name}`"
                     @click="(e) => onDeleteDS(d.id, d.name, e)">×</button>
@@ -471,4 +477,10 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
   background: rgba(255, 102, 68, 0.2);
   color: #ff8a6f;
 }
+
+/* 数据源连接状态指示点 */
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; vertical-align: middle; flex-shrink: 0; }
+.status-dot.idle { background: #888; }
+.status-dot.connected { background: #22dd88; }
+.status-dot.error { background: tomato; }
 </style>
