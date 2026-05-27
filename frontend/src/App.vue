@@ -8,6 +8,8 @@ import PredictDialog from './components/PredictDialog.vue';
 import BranchCompareDialog from './components/BranchCompareDialog.vue';
 import ImportDialog from './components/ImportDialog.vue';
 import GraphView from './components/views/GraphView.vue';
+import DataSourceDetailView from './components/datasource/DataSourceDetailView.vue';
+import DataSourceCreateDialog from './components/DataSourceCreateDialog.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import { toast, mountToastRoot } from './composables/useToast';
 import { updateOntology } from './api/ontology';
@@ -31,7 +33,8 @@ const graphRef = ref<any>(null);
 const chatRef = ref<any>(null);
 const { chatW, startDivider, isDragging } = useDivider(360, () => graphRef.value?.fitView());
 
-const view = ref<'welcome' | 'list' | 'graph' | 'settings' | 'workspace-picker'>('workspace-picker');
+const view = ref<'welcome' | 'list' | 'graph' | 'settings' | 'workspace-picker' | 'datasource'>('workspace-picker');
+const currentDataSourceId = ref<string | null>(null);
 const currentModelTitle = ref('供应链本体图');
 const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
 
@@ -40,6 +43,13 @@ const wsManager = useWorkspaces();
 const currentModelId = ref<string>('');
 const compareDialogOpen = ref(false);
 const importDialogOpen = ref(false);
+
+// 数据源创建对话框状态
+const dsCreateOpen = ref(false);
+const onDsCreated = async (id: string) => {
+  currentDataSourceId.value = id;
+  view.value = 'datasource';
+};
 
 // 分支对比差异高亮状态
 const diffHighlight = ref<{ sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null>(null);
@@ -440,6 +450,8 @@ const formatFileSize = (bytes: number) => {
       @open-conversation="onOpenConversation"
       @new-conversation="onNewConversation"
       @switch-workspace="onWorkspaceSwitched"
+      @open-data-source="(id: string) => { currentDataSourceId = id; view = 'datasource'; }"
+      @open-create-data-source="dsCreateOpen = true"
     />
     <div class="main">
       <div class="topbar">
@@ -533,6 +545,9 @@ const formatFileSize = (bytes: number) => {
       <!-- Settings View -->
       <SettingsView v-if="view === 'settings'" @switch-workspace="onWorkspaceSwitched" />
 
+      <!-- DataSource Detail View -->
+      <DataSourceDetailView v-else-if="view === 'datasource' && currentDataSourceId" :ds-id="currentDataSourceId" />
+
       <!-- Graph View -->
       <GraphView
         v-else-if="view === 'graph'"
@@ -619,6 +634,9 @@ const formatFileSize = (bytes: number) => {
         @close="importDialogOpen = false"
         @commit="onImportCommit"
       />
+
+      <!-- DataSource Create Dialog (modal) -->
+      <DataSourceCreateDialog v-if="dsCreateOpen" @close="dsCreateOpen = false" @created="onDsCreated" />
 
       <!-- 节点编辑对话框 -->
       <div v-if="editingNode" class="modal-mask" @click.self="cancelEditNode">

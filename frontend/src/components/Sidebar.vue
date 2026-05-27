@@ -17,6 +17,8 @@ const emit = defineEmits<{
   (e: 'open-conversation', id: string): void;
   (e: 'new-conversation'): void;
   (e: 'switch-workspace', id: string): void;
+  (e: 'open-data-source', id: string): void;
+  (e: 'open-create-data-source'): void;
 }>();
 
 const a = ref(0);
@@ -139,7 +141,9 @@ const submitCreate = async () => {
                        @toggle-expand="onToggleTop"
                        @switch-current="onSwitchCurrent"
                        @open-conversation="onOpenConv"
-                       @new-conversation="onNewConv" />
+                       @new-conversation="onNewConv"
+                       @open-data-source="(id: string) => emit('open-data-source', id)"
+                       @open-create-data-source="emit('open-create-data-source')" />
         <button class="sb-ws-new" @click="openCreate" title="新建工作空间">
           <span class="sb-ws-avatar plus">＋</span>
           <span class="sb-ws-name">新建工作空间</span>
