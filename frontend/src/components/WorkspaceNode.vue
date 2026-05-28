@@ -6,11 +6,13 @@ import { confirm as uiConfirm } from '../composables/useConfirm';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
 import type { Workspace } from '../api/workspaces';
+import type { OntologyModel } from '../types';
 
 const props = defineProps<{
   workspace: Workspace;
   isCurrent: boolean;
   expanded: boolean;
+  ontologyModels?: OntologyModel[];
 }>();
 
 const emit = defineEmits<{
@@ -20,14 +22,16 @@ const emit = defineEmits<{
   (e: 'new-conversation', wsId: string): void;
   (e: 'open-data-source', id: string): void;
   (e: 'open-create-data-source'): void;
+  (e: 'open-ontology-model', wsId: string, modelId: string): void;
 }>();
 
 const tree = useSidebarTree();
 const ws = useWorkspaces();
 
-// 二级展开状态:对话/数据源各自独立,初始收起
+// 二级展开状态:对话/数据源/血缘图各自独立,初始收起
 const convExpanded = ref(false);
 const dsExpanded = ref(false);
+const lineageExpanded = ref(false);
 
 const conversations = computed(() => tree.getConversations(props.workspace.id));
 const dataSources = computed(() => tree.getDataSources(props.workspace.id));
@@ -35,12 +39,15 @@ const loadingConv = computed(() => tree.isLoadingConv(props.workspace.id));
 const loadingDS = computed(() => tree.isLoadingDS(props.workspace.id));
 const loadedConv = computed(() => tree.isLoadedConv(props.workspace.id));
 const loadedDS = computed(() => tree.isLoadedDS(props.workspace.id));
+// 血缘图列表仅在当前 ws 时由父级注入(后端 list 按 ws 头作用域,跨 ws 拿不到)
+const lineageModels = computed(() => props.isCurrent ? (props.ontologyModels || []) : []);
 
 // 顶级收起时一并收起二级,避免下次再次展开仍残留旧状态
 watch(() => props.expanded, (val) => {
   if (!val) {
     convExpanded.value = false;
     dsExpanded.value = false;
+    lineageExpanded.value = false;
   }
 });
 
@@ -171,6 +178,25 @@ const formatBytes = (bytes?: number): string => {
 };
 
 const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
+
+const onToggleLineage = () => {
+  lineageExpanded.value = !lineageExpanded.value;
+};
+
+const onClickLineageModel = async (modelId: string) => {
+  if (props.isCurrent) {
+    emit('open-ontology-model', props.workspace.id, modelId);
+    return;
+  }
+  const ok = await uiConfirm({
+    title: '打开其他工作空间的血缘图',
+    message: `将切换到「${props.workspace.name}」并打开该血缘图。`,
+    confirmLabel: '切换并打开',
+  });
+  if (!ok) return;
+  emit('switch-current', props.workspace.id);
+  emit('open-ontology-model', props.workspace.id, modelId);
+};
 </script>
 
 <template>
@@ -251,6 +277,33 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
             <span class="ws-child-meta">{{ formatBytes(d.size) }}</span>
             <button class="ws-child-del" :title="`删除 ${d.name}`"
                     @click="(e) => onDeleteDS(d.id, d.name, e)">×</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 血缘图 -->
+      <div class="ws-child-node">
+        <div class="ws-child-head" role="button" tabindex="0"
+             @click="onToggleLineage"
+             @keydown.enter.prevent="onToggleLineage"
+             @keydown.space.prevent="onToggleLineage">
+          <span :class="['ws-caret', { open: lineageExpanded }]">▸</span>
+          <span class="ws-child-icon">🧬</span>
+          <span class="ws-child-label">血缘图</span>
+          <span v-if="isCurrent && lineageModels.length" class="ws-child-count">{{ lineageModels.length }}</span>
+          <span class="ws-child-spacer" />
+        </div>
+        <div v-if="lineageExpanded" class="ws-child-list">
+          <div v-if="!isCurrent" class="ws-child-empty">切换到此工作空间后查看</div>
+          <div v-else-if="!lineageModels.length" class="ws-child-empty">暂无血缘图</div>
+          <div v-else
+               v-for="m in lineageModels" :key="m.id"
+               class="ws-child-item"
+               :title="m.title || m.name || ''"
+               @click="onClickLineageModel(m.id)">
+            <span class="ws-child-icon-mini">🧬</span>
+            <span class="ws-child-item-title">{{ m.title || m.name || '未命名' }}</span>
+            <span class="ws-child-meta">{{ m.graphData?.nodes?.length || 0 }}/{{ m.graphData?.edges?.length || 0 }}</span>
           </div>
         </div>
       </div>
