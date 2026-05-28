@@ -269,6 +269,12 @@ public class ChatLlmService {
             finalEvent.put("reply", reply);
             finalEvent.set("add_nodes", result.path("add_nodes"));
             finalEvent.set("add_edges", result.path("add_edges"));
+            // 透传 LLM 返回的 clarifying question(如果有),前端会渲染为可点击选项
+            JsonNode question = result.path("question");
+            if (question != null && !question.isMissingNode() && !question.isNull()
+                    && question.has("text") && !question.path("text").asText("").isBlank()) {
+                finalEvent.set("question", question);
+            }
             emitter.send(SseEmitter.event().name("complete")
                     .data(objectMapper.writeValueAsString(finalEvent)));
             emitter.complete();

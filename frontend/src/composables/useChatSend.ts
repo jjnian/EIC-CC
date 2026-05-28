@@ -211,6 +211,17 @@ export function useChatSend(ctx: ChatSendCtx) {
               if (addNodes.length || addEdges.length) {
                 toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
               }
+
+              // LLM 返回了澄清问题 → 挂到这条消息,前端渲染为可点击选项
+              const q = parsed.question;
+              if (q && q.text && q.text.trim()) {
+                aiMsg.question = {
+                  text: q.text.trim(),
+                  options: (q.options || [])
+                    .filter(o => o && typeof o.label === 'string' && o.label.trim())
+                    .map(o => ({ label: o.label.trim(), value: o.value })),
+                };
+              }
             } catch (parseErr) {
               console.error('Failed to handle complete event:', parseErr);
               if (!aiMsg.text) {

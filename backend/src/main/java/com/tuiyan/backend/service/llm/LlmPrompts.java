@@ -54,7 +54,14 @@ public final class LlmPrompts {
                 }
               ]
             }
-          ]
+          ],
+          "question": {
+            "text": "OPTIONAL — only set when user input is ambiguous and the choice would materially change the ontology. A short clarifying question (one sentence, Chinese).",
+            "options": [
+              { "label": "A concrete choice the user can click (short Chinese phrase)" },
+              { "label": "Another choice" }
+            ]
+          }
         }
         """;
 
@@ -96,6 +103,18 @@ public final class LlmPrompts {
         **Source Tracking:**
         - Mark everything 'derived' if explicitly stated in the user's text; 'inferred' if you are filling gaps with world knowledge.
         - This applies to nodes, edges, properties, attributes, and constraints alike.
+
+        **Interactive Clarification (very important):**
+        When the user's description has genuine ambiguity that would lead to materially different ontology choices, INSTEAD of guessing silently you SHOULD set the optional `question` field with 2–4 concrete options the user can click. Examples of when to ask:
+        - The same word could refer to multiple distinct entities (e.g., "客户" = 个人客户 / 企业客户?).
+        - You don't know which database table or data source the user wants to base on.
+        - There are multiple reasonable modeling choices (subclass vs. instance vs. separate entity).
+        - The granularity is unclear (department-level vs. position-level).
+        Rules for `question`:
+        - Omit it entirely when the user's intent is clear — never ask trivial questions.
+        - When you ask, you may still emit `add_nodes` / `add_edges` that are clearly correct; the question covers only the ambiguous part.
+        - Options should be SHORT (≤ 12 Chinese characters), mutually exclusive, and actionable.
+        - Always include a "继续按当前理解构建" or similar fallback option so the user can skip the question.
 
         CRITICAL INSTRUCTION:
         1. Explicitly represent rules (type: 'rule') if they drive events.
