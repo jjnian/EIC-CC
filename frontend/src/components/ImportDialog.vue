@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import type { OntologyNode, SourceMeta } from '../types';
-import { extractFromFiles } from '../api/ontology';
-import { ApiError } from '../api/http';
+import { extractFromFilesStream } from '../api/ontology';
+import type { SseHandle } from '../api/http';
 
 interface ExtractedNode {
   id: string;
@@ -48,8 +48,11 @@ const sources = ref<SourceMeta[]>([]);
 const replyText = ref('');
 const selectedNodeIds = ref<Set<string>>(new Set());
 const selectedEdgeIds = ref<Set<string>>(new Set());
-// 抽取 fetch 的可中断控制器
-let abortCtl: AbortController | null = null;
+// 抽取过程的分步进度（让用户看到"构建本体"的每个阶段，而非只有等待）
+interface BuildStep { key: string; label: string; status: 'running' | 'done' | 'error'; }
+const buildSteps = ref<BuildStep[]>([]);
+// 抽取 SSE 流的可中断句柄
+let sseHandle: SseHandle | null = null;
 
 const normLabel = (s: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -78,16 +81,17 @@ const reset = () => {
   replyText.value = '';
   selectedNodeIds.value = new Set();
   selectedEdgeIds.value = new Set();
-  if (abortCtl) { try { abortCtl.abort(); } catch {} abortCtl = null; }
+  buildSteps.value = [];
+  if (sseHandle) { try { sseHandle.abort(); } catch {} sseHandle = null; }
 };
 
 watch(() => props.open, (v) => {
   if (v) reset();
-  else if (abortCtl) { try { abortCtl.abort(); } catch {} abortCtl = null; }
+  else if (sseHandle) { try { sseHandle.abort(); } catch {} sseHandle = null; }
 });
 
 onBeforeUnmount(() => {
-  if (abortCtl) { try { abortCtl.abort(); } catch {} abortCtl = null; }
+  if (sseHandle) { try { sseHandle.abort(); } catch {} sseHandle = null; }
 });
 
 // 切换 mode 时让可见节点重新进入全选状态（dup 过滤变化后选择需要刷新）
@@ -128,7 +132,13 @@ const addFile = (f: File) => {
 };
 const removeFile = (idx: number) => { files.value.splice(idx, 1); };
 
-const extract = async () => {
+const markRunningAs = (status: 'done' | 'error') => {
+  for (const st of buildSteps.value) {
+    if (st.status === 'running') st.status = status;
+  }
+};
+
+const extract = () => {
   if (!files.value.length && !parsedUrls.value.length) return;
   if (urlOverLimit.value) {
     errorMsg.value = `一次最多 ${URL_LIMIT} 个网址`;
@@ -137,32 +147,41 @@ const extract = async () => {
   loading.value = true;
   errorMsg.value = '';
   extractedRaw.value = null;
-  if (abortCtl) { try { abortCtl.abort(); } catch { /* noop */ } }
-  abortCtl = new AbortController();
-  try {
-    const data = await extractFromFiles(files.value, {
-      urls: parsedUrls.value,
-      signal: abortCtl.signal,
-    });
-    extractedRaw.value = { nodes: data.nodes || [], edges: data.edges || [] };
-    sources.value = data.sources || [];
-    replyText.value = data.reply || '';
+  buildSteps.value = [{ key: 'init', label: '正在准备抽取…', status: 'running' }];
+  if (sseHandle) { try { sseHandle.abort(); } catch { /* noop */ } }
 
-    selectedNodeIds.value = new Set(displayedNodes.value.map(n => n.id));
-    selectedEdgeIds.value = new Set(extractedRaw.value.edges.map(e => e.id));
-  } catch (e: any) {
-    if (e?.name === 'AbortError') return;
-    if (e instanceof ApiError) {
-      errorMsg.value = e.message;
-      const body = e.body as { sources?: SourceMeta[] } | null;
-      if (body && Array.isArray(body.sources)) sources.value = body.sources;
-    } else {
-      errorMsg.value = '网络错误: ' + (e?.message || e);
+  sseHandle = extractFromFilesStream(
+    files.value,
+    { urls: parsedUrls.value },
+    {
+      onStep: (s) => {
+        // 上一步标记完成,新步骤进入运行态——形成清晰的逐步推进感
+        markRunningAs('done');
+        buildSteps.value.push({ key: s.key, label: s.label, status: 'running' });
+      },
+      onComplete: (data) => {
+        markRunningAs('done');
+        extractedRaw.value = { nodes: data.nodes || [], edges: data.edges || [] };
+        sources.value = data.sources || [];
+        replyText.value = data.reply || '';
+        selectedNodeIds.value = new Set(displayedNodes.value.map(n => n.id));
+        selectedEdgeIds.value = new Set(extractedRaw.value.edges.map(e => e.id));
+        loading.value = false;
+        sseHandle = null;
+      },
+      onError: (msg) => {
+        markRunningAs('error');
+        errorMsg.value = msg || '抽取失败';
+        loading.value = false;
+        sseHandle = null;
+      },
+      onClose: () => {
+        // 正常完成由 onComplete 处理;此处只兜底复位 loading（如流意外关闭）
+        if (loading.value) loading.value = false;
+        sseHandle = null;
+      },
     }
-  } finally {
-    loading.value = false;
-    abortCtl = null;
-  }
+  );
 };
 
 // 已有图谱标签 → {id,label} 索引（mode 切换时自动失效）
@@ -289,7 +308,7 @@ const onBackdrop = (e: MouseEvent) => {
 
       <div class="imp-body">
         <!-- 文件区 -->
-        <div v-if="!extractedRaw" class="imp-section">
+        <div v-if="!extractedRaw && !loading" class="imp-section">
           <label class="imp-label">上传 PDF / DOCX / 图片（流程图、表格、文档截图）</label>
           <div
             class="imp-drop"
@@ -335,7 +354,7 @@ const onBackdrop = (e: MouseEvent) => {
         </div>
 
         <!-- 模式 -->
-        <div v-if="!extractedRaw" class="imp-section">
+        <div v-if="!extractedRaw && !loading" class="imp-section">
           <label class="imp-label">抽取后</label>
           <div class="imp-tabs">
             <button
@@ -365,6 +384,28 @@ const onBackdrop = (e: MouseEvent) => {
             placeholder="新模型名称…"
             style="margin-top: 10px;"
           />
+        </div>
+
+        <!-- 抽取过程：逐步展示"构建本体"的每个阶段 -->
+        <div v-if="!extractedRaw && buildSteps.length" class="imp-section imp-steps">
+          <div class="imp-steps-title">
+            {{ loading ? '正在构建本体…' : '构建已结束' }}
+          </div>
+          <div class="imp-step-list">
+            <div
+              v-for="(s, i) in buildSteps"
+              :key="i"
+              class="imp-step"
+              :class="'imp-step-' + s.status"
+            >
+              <span class="imp-step-ico">
+                <span v-if="s.status === 'running'" class="imp-step-spin" />
+                <span v-else-if="s.status === 'done'">✓</span>
+                <span v-else>✕</span>
+              </span>
+              <span class="imp-step-label">{{ s.label }}</span>
+            </div>
+          </div>
         </div>
 
         <!-- 抽取结果预览 -->
@@ -654,6 +695,59 @@ const onBackdrop = (e: MouseEvent) => {
 .imp-edge-arrow { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 11px; flex-shrink: 0; }
 
 .imp-error { color: #ff8a8a; font-size: 12px; background: rgba(255,99,99,0.08); border: 1px solid rgba(255,99,99,0.2); padding: 8px 12px; border-radius: 6px; }
+
+/* 抽取过程分步展示 */
+.imp-steps {
+  background: rgba(10, 16, 27, 0.5);
+  border: 1px solid rgba(66, 184, 131, 0.18);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.imp-steps-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 10px;
+}
+.imp-step-list { display: flex; flex-direction: column; gap: 2px; }
+.imp-step {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 6px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  position: relative;
+}
+/* 步骤之间的竖线，营造时间轴感 */
+.imp-step:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 11px; top: 22px; bottom: -2px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.imp-step-ico {
+  flex-shrink: 0;
+  width: 16px; height: 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+  border-radius: 50%;
+  margin-top: 1px;
+  z-index: 1;
+}
+.imp-step-done .imp-step-ico { color: #42b883; }
+.imp-step-error .imp-step-ico { color: #ff8a8a; }
+.imp-step-label { color: var(--text-dim); }
+.imp-step-running .imp-step-label { color: var(--text-main); }
+.imp-step-done .imp-step-label { color: var(--text-dim); }
+.imp-step-error .imp-step-label { color: #ff8a8a; }
+.imp-step-spin {
+  width: 12px; height: 12px;
+  border: 2px solid rgba(66, 184, 131, 0.25);
+  border-top-color: #42b883;
+  border-radius: 50%;
+  display: inline-block;
+  animation: impSpin 0.8s linear infinite;
+}
 
 .imp-foot {
   display: flex; gap: 10px; justify-content: flex-end;

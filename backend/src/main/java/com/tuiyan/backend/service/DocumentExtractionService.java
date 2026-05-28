@@ -1,12 +1,14 @@
 package com.tuiyan.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.support.DocxTextExtractor;
 import com.tuiyan.backend.support.FileSniffer;
 import com.tuiyan.backend.support.IdSaltRewriter;
 import com.tuiyan.backend.support.PdfTextExtractor;
 import com.tuiyan.backend.support.WebPageFetcher;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.slf4j.Logger;
@@ -15,9 +17,12 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -64,6 +69,7 @@ public class DocumentExtractionService {
     private final ExtractionLlmService extractionLlmService;
     private final Executor urlFetchExecutor;
     private final DataSourceRepository dataSourceRepository;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DocumentExtractionService(ExtractionLlmService extractionLlmService,
                                      @Qualifier("predictionExecutor") ThreadPoolTaskExecutor predictionExecutor,
@@ -72,6 +78,21 @@ public class DocumentExtractionService {
         this.urlFetchExecutor = predictionExecutor;
         this.dataSourceRepository = dataSourceRepository;
     }
+
+    /**
+     * 已读入内存的上传文件：从 MultipartFile 提前拷出字节，使抽取可以脱离 servlet
+     * 请求线程在后台线程池执行（multipart 的临时文件随请求结束即被回收）。
+     */
+    public record UploadedFile(String name, String contentType, long size, byte[] bytes) {}
+
+    /** 抽取进度回调：把每个阶段以 (key,label) 形式上报给调用方（SSE 推送 / 或 no-op）。 */
+    @FunctionalInterface
+    public interface StepSink {
+        void emit(String key, String label);
+    }
+
+    /** 非流式调用使用的空进度回调。 */
+    private static final StepSink NOOP_STEP = (k, l) -> { };
 
     /**
      * 入口：文件列表 + URL 列表 → LLM 抽取 → salt 重写后的 {nodes, edges, reply, sources, salt}。
@@ -83,6 +104,64 @@ public class DocumentExtractionService {
                                        List<String> urls,
                                        String modelOverride,
                                        String configId) throws Exception {
+        return extractCore(toUploaded(files), urls, modelOverride, configId, NOOP_STEP);
+    }
+
+    /**
+     * 流式抽取：在后台线程上执行 {@link #extractCore}，每个阶段通过 SSE {@code step} 事件推送，
+     * 完成时发送 {@code complete} 事件（携带与非流式版本一致的 {nodes,edges,reply,sources,salt}）。
+     * <p>关键点：
+     * <ul>
+     *   <li>files 必须在 controller 线程内已读入内存（multipart 临时文件随请求结束即回收）；</li>
+     *   <li>workspaceId 也要在请求线程捕获后透传——后台线程没有 WorkspaceInterceptor 设置的
+     *       ThreadLocal，持久化数据源时需要手动 set/clear。</li>
+     * </ul>
+     */
+    public void extractStreaming(List<UploadedFile> files,
+                                 List<String> urls,
+                                 String modelOverride,
+                                 String configId,
+                                 String workspaceId,
+                                 SseEmitter emitter) {
+        CompletableFuture.runAsync(() -> {
+            boolean ctxSet = false;
+            try {
+                if (workspaceId != null && !workspaceId.isBlank()) {
+                    WorkspaceContext.set(workspaceId);
+                    ctxSet = true;
+                }
+                StepSink step = (k, l) -> emitStep(emitter, k, l);
+                Map<String, Object> result = extractCore(files, urls, modelOverride, configId, step);
+                emitter.send(SseEmitter.event().name("complete").data(objectMapper.writeValueAsString(result)));
+                emitter.complete();
+            } catch (IllegalArgumentException e) {
+                emitError(emitter, e.getMessage());
+            } catch (Exception e) {
+                log.error("[extract-sse] 抽取失败: {}", e.getMessage(), e);
+                emitError(emitter, "抽取失败: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
+            } finally {
+                if (ctxSet) WorkspaceContext.clear();
+            }
+        }, urlFetchExecutor);
+    }
+
+    /** 把 MultipartFile 列表的字节提前读入内存，过滤掉空文件。 */
+    private static List<UploadedFile> toUploaded(List<MultipartFile> files) throws IOException {
+        List<UploadedFile> out = new ArrayList<>();
+        if (files == null) return out;
+        for (MultipartFile f : files) {
+            if (f == null || f.getSize() <= 0) continue;
+            out.add(new UploadedFile(f.getOriginalFilename(), f.getContentType(), f.getSize(), f.getBytes()));
+        }
+        return out;
+    }
+
+    /** 抽取主流程：文件 / URL 处理 → LLM 抽取 → salt 重写 → 持久化数据源，沿途上报 step。 */
+    private Map<String, Object> extractCore(List<UploadedFile> files,
+                                            List<String> urls,
+                                            String modelOverride,
+                                            String configId,
+                                            StepSink step) throws Exception {
         boolean hasFiles = files != null && !files.isEmpty();
         boolean hasUrls = urls != null && !urls.isEmpty();
         if (!hasFiles && !hasUrls) {
@@ -100,23 +179,29 @@ public class DocumentExtractionService {
         List<Map<String, Object>> sourcesMeta = new ArrayList<>();
 
         if (hasFiles) {
-            processFiles(files, combinedText, imageAttachments, sourcesMeta);
+            processFiles(files, combinedText, imageAttachments, sourcesMeta, step);
         }
         if (hasUrls) {
-            processUrls(urls, combinedText, sourcesMeta);
+            processUrls(urls, combinedText, sourcesMeta, step);
         }
 
         if (combinedText.length() == 0 && imageAttachments.isEmpty()) {
             throw new IllegalArgumentException("未能从上传文件或网址中抽出任何可分析的文本或图片");
         }
 
+        step.emit("calling_llm", "正在调用大模型抽取实体与关系…（依据 "
+                + combinedText.length() + " 字符文本 / " + imageAttachments.size() + " 张图片）");
         JsonNode draft = extractionLlmService.extractOntologyFromSources(
                 combinedText.toString(), imageAttachments, modelOverride, configId);
 
         // 用毫秒时间戳的 36 进制作 salt，加在每个节点 id 前面避免与已有图谱冲突
+        step.emit("normalizing", "正在整理抽取结果、消解 id 冲突…");
         String salt = Long.toString(System.currentTimeMillis(), 36);
         JsonNode rewritten = IdSaltRewriter.applyImportSalt(draft, salt);
 
+        int nodeCount = rewritten.path("nodes").isArray() ? rewritten.path("nodes").size() : 0;
+        int edgeCount = rewritten.path("edges").isArray() ? rewritten.path("edges").size() : 0;
+        step.emit("persisting", "正在登记数据源…（抽出 " + nodeCount + " 节点 / " + edgeCount + " 关系）");
         persistDataSources(sourcesMeta);
 
         Map<String, Object> out = new LinkedHashMap<>();
@@ -129,6 +214,30 @@ public class DocumentExtractionService {
         return out;
     }
 
+    private void emitStep(SseEmitter emitter, String key, String label) {
+        try {
+            emitter.send(SseEmitter.event().name("step")
+                    .data(objectMapper.writeValueAsString(Map.of("key", key, "label", label))));
+        } catch (IOException e) {
+            log.warn("emit step '{}' failed: {}", key, e.toString());
+        }
+    }
+
+    private void emitError(SseEmitter emitter, String msg) {
+        try {
+            emitter.send(SseEmitter.event().name("error").data(msg == null ? "未知错误" : msg));
+        } catch (IOException e) {
+            log.warn("emit extract error failed: {}", e.toString());
+        }
+        emitter.complete();
+    }
+
+    /** byte[] 头部安全切片，替代 FileSniffer.readHead(MultipartFile)。 */
+    private static byte[] headOf(byte[] bytes, int n) {
+        if (bytes == null) return new byte[0];
+        return Arrays.copyOf(bytes, Math.min(n, bytes.length));
+    }
+
     /** 跳过类型 source meta 构造器。 */
     private static Map<String, Object> skippedMeta(String name, String reason) {
         Map<String, Object> meta = new LinkedHashMap<>();
@@ -138,16 +247,22 @@ public class DocumentExtractionService {
         return meta;
     }
 
-    private void processFiles(List<MultipartFile> files,
+    private void processFiles(List<UploadedFile> files,
                               StringBuilder combinedText,
                               List<Map<String, Object>> imageAttachments,
-                              List<Map<String, Object>> sourcesMeta) throws IOException {
-        for (MultipartFile f : files) {
-            String safeName = FileSniffer.sanitizeFilename(f.getOriginalFilename());
-            String contentType = f.getContentType();
-            long size = f.getSize();
+                              List<Map<String, Object>> sourcesMeta,
+                              StepSink step) throws IOException {
+        int total = files.size();
+        int idx = 0;
+        for (UploadedFile f : files) {
+            idx++;
+            String safeName = FileSniffer.sanitizeFilename(f.name());
+            String contentType = f.contentType();
+            long size = f.size();
             // 空文件直接跳过（不算错误，可能是用户误拖）
             if (size <= 0) continue;
+
+            step.emit("reading_file", "正在解析文件（" + idx + "/" + total + "）" + safeName + "…");
 
             Map<String, Object> meta = new LinkedHashMap<>();
             meta.put("name", safeName);
@@ -155,7 +270,7 @@ public class DocumentExtractionService {
             meta.put("size", size);
 
             // 嗅探文件头 + 扩展名 + content-type，三者综合判断真实类型
-            byte[] head = FileSniffer.readHead(f, 12);
+            byte[] head = headOf(f.bytes(), 12);
             boolean pdfMagic = FileSniffer.isPdfMagic(head);
             boolean imageMagic = FileSniffer.isImageMagic(head);
             boolean zipMagic = FileSniffer.isZipMagic(head);
@@ -171,7 +286,7 @@ public class DocumentExtractionService {
             boolean isImage = (lct.startsWith("image/") && imageMagic) || imageMagic;
 
             if (isPdf) {
-                handlePdf(f, safeName, size, meta, combinedText, imageAttachments);
+                handlePdf(f, safeName, size, meta, combinedText, imageAttachments, step);
             } else if (isDocx) {
                 handleDocx(f, safeName, size, meta, combinedText);
             } else if (isImage) {
@@ -191,7 +306,10 @@ public class DocumentExtractionService {
      */
     private void processUrls(List<String> urls,
                              StringBuilder combinedText,
-                             List<Map<String, Object>> sourcesMeta) {
+                             List<Map<String, Object>> sourcesMeta,
+                             StepSink step) {
+        long n = urls.stream().filter(u -> u != null && !u.isBlank()).count();
+        step.emit("fetching_urls", "正在抓取网页（" + n + " 个）…");
         List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>(urls.size());
         for (String raw : urls) {
             if (raw == null || raw.isBlank()) continue;
@@ -205,6 +323,7 @@ public class DocumentExtractionService {
                 sourcesMeta.add(skippedMeta("(unknown)", "抓取异常: " + e.getMessage()));
             }
         }
+        step.emit("fetched_urls", "网页抓取完成（" + n + " 个）");
     }
 
     /** 单 URL 抓取：返回该 URL 的 sourcesMeta；正文同步追加到 combinedText（StringBuilder 加锁）。 */
@@ -247,16 +366,17 @@ public class DocumentExtractionService {
      *   <li>超过 budget 时截断并打 truncated 标记。</li>
      * </ol>
      */
-    private void handlePdf(MultipartFile f, String safeName, long size,
+    private void handlePdf(UploadedFile f, String safeName, long size,
                            Map<String, Object> meta, StringBuilder combinedText,
-                           List<Map<String, Object>> imageAttachments) throws IOException {
+                           List<Map<String, Object>> imageAttachments,
+                           StepSink step) throws IOException {
         if (size > PDF_FILE_BYTES_LIMIT) {
             throw new IllegalArgumentException(
                     "PDF " + safeName + " 超过 " + (PDF_FILE_BYTES_LIMIT / (1024 * 1024)) + " MB 限制");
         }
         String text;
         int pageCount;
-        try (PDDocument doc = Loader.loadPDF(f.getBytes())) {
+        try (PDDocument doc = Loader.loadPDF(f.bytes())) {
             pageCount = doc.getNumberOfPages();
             meta.put("pages", pageCount);
             text = PdfTextExtractor.extractText(doc);
@@ -265,6 +385,7 @@ public class DocumentExtractionService {
             int rawLen = text == null ? 0 : text.trim().length();
             boolean textBare = pageCount > 0 && rawLen < pageCount * MIN_TEXT_PER_PAGE;
             if (textBare) {
+                step.emit("rendering_pdf", safeName + " 文字稀疏，正在将页面渲染为图片识别…");
                 int rendered = PdfTextExtractor.renderPages(doc, imageAttachments,
                         RENDER_MAX_PAGES, RENDER_DPI, IMAGE_BYTE_LIMIT, TOTAL_IMAGE_BUDGET);
                 meta.put("renderedPages", rendered);
@@ -289,14 +410,14 @@ public class DocumentExtractionService {
     }
 
     /** DOCX 处理：用 {@link DocxTextExtractor} 抽段落 + 表格，超过 budget 截断。 */
-    private void handleDocx(MultipartFile f, String safeName, long size,
+    private void handleDocx(UploadedFile f, String safeName, long size,
                             Map<String, Object> meta, StringBuilder combinedText) throws IOException {
         if (size > DOCX_FILE_BYTES_LIMIT) {
             throw new IllegalArgumentException(
                     "DOCX " + safeName + " 超过 " + (DOCX_FILE_BYTES_LIMIT / (1024 * 1024)) + " MB 限制");
         }
         DocxTextExtractor.Result r;
-        try (var in = f.getInputStream()) {
+        try (var in = new ByteArrayInputStream(f.bytes())) {
             r = DocxTextExtractor.extract(in);
         }
         String text = r.text;
@@ -340,7 +461,7 @@ public class DocumentExtractionService {
     }
 
     /** 图片处理：直接 base64 编码挂到 attachments 列表；超过单张大小或总额度则记原因后跳过。 */
-    private void handleImage(MultipartFile f, String safeName, long size, String contentType,
+    private void handleImage(UploadedFile f, String safeName, long size, String contentType,
                              Map<String, Object> meta,
                              List<Map<String, Object>> imageAttachments) throws IOException {
         if (size > IMAGE_BYTE_LIMIT) {
@@ -352,7 +473,7 @@ public class DocumentExtractionService {
             meta.put("reason", "已达全局图片预算 " + TOTAL_IMAGE_BUDGET + " 张");
             return;
         }
-        String b64 = Base64.getEncoder().encodeToString(f.getBytes());
+        String b64 = Base64.getEncoder().encodeToString(f.bytes());
         // contentType 缺失或非 image/* 时回退为 png，避免 LLM 拿到不合法的 media type
         String mediaType = (contentType != null && contentType.toLowerCase().startsWith("image/"))
                 ? contentType : "image/png";

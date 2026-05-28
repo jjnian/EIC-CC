@@ -77,20 +77,35 @@ export interface SseHandle {
  * 调用方负责把 onEvent 的 data 字符串(可能是 JSON)再解一层。
  */
 export function sse(path: string, body: unknown, handlers: SseHandlers): SseHandle {
+  const headers: Record<string, string> = {
+    'Accept': 'text/event-stream',
+    'Content-Type': 'application/json',
+  };
+  return sseFetch(path, { method: 'POST', headers, body: JSON.stringify(body) }, handlers);
+}
+
+/**
+ * 与 {@link sse} 同协议,但 body 为 FormData(multipart 文件上传)。
+ * 不显式设置 Content-Type,交由浏览器带上 multipart boundary。
+ */
+export function sseForm(path: string, form: FormData, handlers: SseHandlers): SseHandle {
+  const headers: Record<string, string> = { 'Accept': 'text/event-stream' };
+  return sseFetch(path, { method: 'POST', headers, body: form }, handlers);
+}
+
+/** sse / sseForm 的公共实现:发起 fetch + 按 SSE 行协议解析流。 */
+function sseFetch(path: string, init: RequestInit, handlers: SseHandlers): SseHandle {
   const ctrl = new AbortController();
   let aborted = false;
   (async () => {
     try {
-      const headers: Record<string, string> = {
-        'Accept': 'text/event-stream',
-        'Content-Type': 'application/json',
-      };
+      const headers = new Headers(init.headers || {});
+      if (!headers.has('Accept')) headers.set('Accept', 'text/event-stream');
       const wsId = getCurrentWorkspaceId();
-      if (wsId) headers['X-Workspace-Id'] = wsId;
+      if (wsId && !headers.has('X-Workspace-Id')) headers.set('X-Workspace-Id', wsId);
       const res = await fetch(path, {
-        method: 'POST',
+        ...init,
         headers,
-        body: JSON.stringify(body),
         signal: ctrl.signal,
       });
       if (!res.ok || !res.body) {
