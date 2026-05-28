@@ -5,10 +5,12 @@ import { useSidebarTree } from '../composables/useSidebarTree';
 import WorkspaceNode from './WorkspaceNode.vue';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
+import type { OntologyModel } from '../types';
 
 const props = defineProps<{
   expanded: boolean;
   view: string;
+  ontologyModels?: OntologyModel[];
 }>();
 
 const emit = defineEmits<{
@@ -19,6 +21,7 @@ const emit = defineEmits<{
   (e: 'switch-workspace', id: string): void;
   (e: 'open-data-source', id: string): void;
   (e: 'open-create-data-source'): void;
+  (e: 'open-ontology-model', id: string): void;
 }>();
 
 const a = ref(0);
@@ -138,12 +141,14 @@ const submitCreate = async () => {
                        :workspace="w"
                        :is-current="w.id === ws.currentId.value"
                        :expanded="topExpanded.has(w.id)"
+                       :ontology-models="w.id === ws.currentId.value ? props.ontologyModels : undefined"
                        @toggle-expand="onToggleTop"
                        @switch-current="onSwitchCurrent"
                        @open-conversation="onOpenConv"
                        @new-conversation="onNewConv"
                        @open-data-source="(id: string) => emit('open-data-source', id)"
-                       @open-create-data-source="emit('open-create-data-source')" />
+                       @open-create-data-source="emit('open-create-data-source')"
+                       @open-ontology-model="(_wsId: string, modelId: string) => emit('open-ontology-model', modelId)" />
         <button class="sb-ws-new" @click="openCreate" title="新建工作空间">
           <span class="sb-ws-avatar plus">＋</span>
           <span class="sb-ws-name">新建工作空间</span>

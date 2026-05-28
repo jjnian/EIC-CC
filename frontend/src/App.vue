@@ -8,6 +8,7 @@ import PredictDialog from './components/PredictDialog.vue';
 import BranchCompareDialog from './components/BranchCompareDialog.vue';
 import ImportDialog from './components/ImportDialog.vue';
 import GraphView from './components/views/GraphView.vue';
+import ChatCenterView from './components/views/ChatCenterView.vue';
 import DataSourceDetailView from './components/datasource/DataSourceDetailView.vue';
 import DataSourceCreateDialog from './components/DataSourceCreateDialog.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
@@ -33,7 +34,7 @@ const graphRef = ref<any>(null);
 const chatRef = ref<any>(null);
 const { chatW, startDivider, isDragging } = useDivider(360, () => graphRef.value?.fitView());
 
-const view = ref<'welcome' | 'list' | 'graph' | 'settings' | 'workspace-picker' | 'datasource'>('workspace-picker');
+const view = ref<'welcome' | 'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource'>('workspace-picker');
 const currentDataSourceId = ref<string | null>(null);
 const currentModelTitle = ref('供应链本体图');
 const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
@@ -243,7 +244,7 @@ const deleteNode = editor.deleteNode;
 const deleteNodes = editor.deleteNodes;
 const clearCanvas = editor.clearCanvas;
 
-const openModel = async (m: OntologyModel) => {
+const openModel = async (m: OntologyModel, targetView: 'graph' | 'chat' = 'graph') => {
   if (currentModelId.value && currentModelId.value !== m.id) {
     persistCurrentModel(true);
   }
@@ -255,7 +256,7 @@ const openModel = async (m: OntologyModel) => {
   sel.value = null;
   activeBranchId.value = 'trunk';
   prediction.resetLiveState();
-  view.value = 'graph';
+  view.value = targetView;
   history.reset(nodes.value, edges.value);
   await scenarios.loadBranches(m.id);
 };
@@ -364,7 +365,8 @@ const onWelcomeSubmit = async (payload: { text: string; files: File[] }) => {
     const saved = await createOnBackend(draft);
     models.value.unshift(saved);
     pendingChatSeed.value = payload;
-    await openModel(saved);
+    // 全程居中:分析过程留在中心聊天视图,生成的图存到血缘图文件夹由用户主动点击打开
+    await openModel(saved, 'chat');
   } finally {
     isCreating.value = false;
   }
@@ -378,13 +380,13 @@ const goWelcome = () => {
 };
 
 const onOpenConversation = async (id: string) => {
-  // 对话面板挂在 graph view 里；当前没打开模型时优先用最近一个模型，否则保持当前画布
-  if (view.value !== 'graph') {
+  // 对话默认在中心聊天视图里展示;已经在 graph 视图则不切换布局
+  if (view.value !== 'graph' && view.value !== 'chat') {
     const target = currentModelId.value ? findModel(currentModelId.value) : models.value[0];
     if (target) {
-      await openModel(target);
+      await openModel(target, 'chat');
     } else {
-      view.value = 'graph';
+      view.value = 'chat';
     }
   }
   await nextTick();
@@ -392,16 +394,22 @@ const onOpenConversation = async (id: string) => {
 };
 
 const onNewConversation = async () => {
-  if (view.value !== 'graph') {
+  if (view.value !== 'graph' && view.value !== 'chat') {
     const target = currentModelId.value ? findModel(currentModelId.value) : models.value[0];
     if (target) {
-      await openModel(target);
+      await openModel(target, 'chat');
     } else {
-      view.value = 'graph';
+      view.value = 'chat';
     }
   }
   await nextTick();
   chatRef.value?.newConversation();
+};
+
+const onOpenOntologyModel = async (id: string) => {
+  const m = findModel(id);
+  if (!m) return;
+  await openModel(m, 'graph');
 };
 
 const openModelById = (id: string) => {
@@ -445,6 +453,7 @@ const formatFileSize = (bytes: number) => {
     <Sidebar
       :expanded="sbExp"
       :view="view"
+      :ontology-models="models"
       @toggle="sbExp = !sbExp"
       @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; }"
       @open-conversation="onOpenConversation"
@@ -452,10 +461,11 @@ const formatFileSize = (bytes: number) => {
       @switch-workspace="onWorkspaceSwitched"
       @open-data-source="(id: string) => { currentDataSourceId = id; view = 'datasource'; }"
       @open-create-data-source="dsCreateOpen = true"
+      @open-ontology-model="onOpenOntologyModel"
     />
     <div class="main">
       <div class="topbar">
-        <div class="tb-title" v-if="view === 'graph'">
+        <div class="tb-title" v-if="view === 'graph' || view === 'chat'">
           <span class="tb-title-text">{{ currentModelTitle }}</span>
           <span class="bc-star">☆</span>
         </div>
@@ -605,6 +615,31 @@ const formatFileSize = (bytes: number) => {
         @add-edges="addEdgesBatch"
         @edit-edge-relation="openEditRelation"
         @delete-relation="deleteRelation"
+      />
+
+      <!-- Chat-Centered View: 全程居中,分析过程在中央显示 -->
+      <ChatCenterView
+        v-else-if="view === 'chat'"
+        :nodes="nodes"
+        :edges="edges"
+        :live-active="liveActive"
+        :live-loading="liveLoading"
+        :live-steps="liveSteps"
+        :live-intent="liveIntent"
+        :live-prune-details="livePruneDetails"
+        :live-seeds="liveSeeds"
+        :live-prompt="livePrompt"
+        :live-name="liveName"
+        :live-branch-id="liveBranchId"
+        :live-error="liveError"
+        :live-status="liveStatus"
+        :pending-chat-seed="pendingChatSeed"
+        :model-title="currentModelTitle"
+        @update="onUpdate"
+        @clear-graph="clearCanvas"
+        @seed-consumed="pendingChatSeed = null"
+        @abort-prediction="closeTimeline"
+        @chat-ref="(el) => chatRef = el"
       />
 
       <!-- Predict Dialog (modal) -->
