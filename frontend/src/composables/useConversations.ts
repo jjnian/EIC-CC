@@ -52,7 +52,15 @@ export interface PredictionMsg {
 export interface ChatBuildStep {
   key: string;
   label: string;
-  status: 'done' | 'running' | 'pending';
+  status: 'done' | 'running' | 'pending' | 'error';
+}
+
+/** LLM 主动抛回给用户的澄清问题(可选),用户点选后会作为下一条 user 消息发回。 */
+export interface ChatQuestionMsg {
+  text: string;
+  options: { label: string; value?: string }[];
+  /** 已被用户回答时,记录所选 label,渲染为只读样式避免重复点击。 */
+  answered?: string;
 }
 
 export interface ChatMsg {
@@ -62,6 +70,7 @@ export interface ChatMsg {
   prediction?: PredictionMsg;
   buildSteps?: ChatBuildStep[];
   buildDone?: boolean;
+  question?: ChatQuestionMsg;
 }
 
 export interface Conversation {

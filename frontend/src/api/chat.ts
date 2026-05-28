@@ -13,10 +13,21 @@ export interface ChatPayload {
   attachments?: ChatAttachment[];
 }
 
+export interface ChatQuestionOption {
+  label: string;
+  value?: string;
+}
+
+export interface ChatQuestion {
+  text: string;
+  options?: ChatQuestionOption[];
+}
+
 export interface ChatResult {
   reply: string;
   add_nodes?: unknown[];
   add_edges?: unknown[];
+  question?: ChatQuestion;
 }
 
 export function chat(payload: ChatPayload) {

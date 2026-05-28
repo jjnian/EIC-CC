@@ -112,7 +112,27 @@ export function useChatSend(ctx: ChatSendCtx) {
       ctx.setConversationTitle(ctx.autoTitle(ctx.msgs.value));
     }
 
-    const aiMsg: ChatMsg = { role: 'a', text: '', buildSteps: [], buildDone: false };
+    const initialSteps: ChatBuildStep[] = [];
+    // 在 SSE 之前先注入一步:让用户看到本次构建依据(上传文件 + 引用的图谱上下文)
+    {
+      const parts: string[] = [];
+      if (requestAtts.length) {
+        const names = requestAtts.slice(0, 4).map(a => a.name).join('、');
+        const suffix = requestAtts.length > 4 ? ` 等 ${requestAtts.length} 个` : '';
+        parts.push(`上传文件 ${names}${suffix}`);
+      }
+      const refNodes = ctx.nodes().length;
+      const refEdges = ctx.edges().length;
+      if (refNodes || refEdges) {
+        parts.push(`当前图谱 ${refNodes} 节点 / ${refEdges} 关系`);
+      }
+      initialSteps.push({
+        key: 'fe_input_summary',
+        label: parts.length ? '正在分析依据:' + parts.join(' · ') : '正在根据用户描述构建本体…',
+        status: 'running',
+      });
+    }
+    const aiMsg: ChatMsg = { role: 'a', text: '', buildSteps: initialSteps, buildDone: false };
     ctx.msgs.value.push(aiMsg);
     let rawJsonBuf = '';
 
@@ -191,6 +211,17 @@ export function useChatSend(ctx: ChatSendCtx) {
               if (addNodes.length || addEdges.length) {
                 toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
               }
+
+              // LLM 返回了澄清问题 → 挂到这条消息,前端渲染为可点击选项
+              const q = parsed.question;
+              if (q && q.text && q.text.trim()) {
+                aiMsg.question = {
+                  text: q.text.trim(),
+                  options: (q.options || [])
+                    .filter(o => o && typeof o.label === 'string' && o.label.trim())
+                    .map(o => ({ label: o.label.trim(), value: o.value })),
+                };
+              }
             } catch (parseErr) {
               console.error('Failed to handle complete event:', parseErr);
               if (!aiMsg.text) {
@@ -200,6 +231,16 @@ export function useChatSend(ctx: ChatSendCtx) {
             }
           },
           onError: (msg: string) => {
+            // LLM 报错时立即终止 SSE 与剩余分析,把进行中的步骤打上失败标记。
+            if (chatHandle) {
+              try { chatHandle.abort(); } catch { /* noop */ }
+              chatHandle = null;
+            }
+            if (aiMsg.buildSteps) {
+              for (const s of aiMsg.buildSteps) {
+                if (s.status === 'running' || s.status === 'pending') s.status = 'error';
+              }
+            }
             aiMsg.text = `错误: ${msg}`;
             aiMsg.buildDone = true;
             resolveStream();

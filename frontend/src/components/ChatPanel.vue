@@ -140,6 +140,16 @@ const onInputPaste = (e: ClipboardEvent) => {
 };
 const onInputClick = () => { nextTick(() => checkMention()); };
 
+// 用户点击 LLM 抛回的澄清问题选项 → 标记已答 + 把选项作为新一条用户消息发送
+const onSelectQuestionOption = (messageIndex: number, option: { label: string; value?: string }) => {
+  if (loading.value) return;
+  const m = msgs.value[messageIndex];
+  if (!m || !m.question || m.question.answered) return;
+  m.question.answered = option.label;
+  input.value = option.value || option.label;
+  nextTick(() => { send(); });
+};
+
 // ===== 启动:加载模型 + 恢复/接收 seed =====
 const consumeSeed = (seed: { text: string; files: File[] }) => {
   seed.files.forEach(f => addFile(f));
@@ -276,6 +286,7 @@ defineExpose({
       @preview="(a) => previewAtt = a"
       @focus-node="(id) => emit('focus-node', id)"
       @abort-prediction="emit('abort-prediction')"
+      @select-option="onSelectQuestionOption"
     />
     <AttachmentPreview :attachment="previewAtt" @close="previewAtt = null" />
     <AttachmentChips

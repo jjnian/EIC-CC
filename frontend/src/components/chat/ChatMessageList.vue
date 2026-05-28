@@ -13,6 +13,7 @@ const emit = defineEmits<{
   (e: 'preview', att: ChatMsgAttachment): void;
   (e: 'focus-node', id: string): void;
   (e: 'abort-prediction'): void;
+  (e: 'select-option', messageIndex: number, option: { label: string; value?: string }): void;
 }>();
 
 const listRef = ref<HTMLElement | null>(null);
@@ -70,6 +71,28 @@ defineExpose({ scrollToBottom });
           <div v-if="m.text || (m.role === 'a' && !m.buildSteps?.length)" class="bubble" :class="{ streaming: m.role === 'a' && !m.text }">
             {{ m.text }}<span v-if="loading && m.role === 'a' && i === messages.length - 1" class="cursor" />
           </div>
+          <!-- LLM 返回的澄清问题 + 可点击选项 -->
+          <div v-if="m.role === 'a' && m.question" class="question-card" :class="{ answered: !!m.question.answered }">
+            <div class="question-head">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span class="question-tag">需要你的确认</span>
+            </div>
+            <div class="question-text">{{ m.question.text }}</div>
+            <div class="question-options">
+              <button v-for="(opt, oi) in m.question.options" :key="oi"
+                      type="button"
+                      class="question-option"
+                      :class="{ selected: m.question.answered === opt.label }"
+                      :disabled="!!m.question.answered"
+                      @click="emit('select-option', i, opt)">
+                {{ opt.label }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </template>
@@ -96,6 +119,71 @@ defineExpose({ scrollToBottom });
 .att-sm:disabled { cursor: default; }
 .att-sm-eye { opacity: 0.55; }
 .att-sm-clickable:hover .att-sm-eye { opacity: 1; }
+
+/* 澄清问题卡片 */
+.question-card {
+  margin-top: 8px;
+  background: rgba(251, 191, 36, 0.06);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.question-card.answered {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.question-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.question-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fbbf24;
+  letter-spacing: 0.4px;
+}
+.question-card.answered .question-tag { color: rgba(255, 255, 255, 0.45); }
+.question-text {
+  color: var(--text-main);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.question-option {
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fde68a;
+  padding: 5px 12px;
+  border-radius: 100px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.12s;
+}
+.question-option:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.22);
+  border-color: rgba(251, 191, 36, 0.55);
+  color: #fff;
+  transform: translateY(-1px);
+}
+.question-option:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.question-option.selected {
+  background: rgba(66, 184, 131, 0.18);
+  border-color: rgba(66, 184, 131, 0.45);
+  color: #6dd4a7;
+  opacity: 1;
+}
 
 /* prediction 消息整行宽,头像用金色 */
 .msg-prediction { align-self: stretch; max-width: 100%; }
