@@ -4,6 +4,7 @@ import com.tuiyan.backend.model.OntologyModel;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.service.DocumentExtractionService;
 import com.tuiyan.backend.service.OntologyModelService;
+import com.tuiyan.backend.service.extraction.UploadedFile;
 import com.tuiyan.backend.support.SsePushUtils;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.http.ResponseEntity;
@@ -88,11 +89,11 @@ public class OntologyModelController {
             @RequestParam(value = "urls", required = false) List<String> urls,
             @RequestParam(value = "modelOverride", required = false) String modelOverride,
             @RequestParam(value = "configId", required = false) String configId) throws IOException {
-        List<DocumentExtractionService.UploadedFile> uploaded = new ArrayList<>();
+        List<UploadedFile> uploaded = new ArrayList<>();
         if (files != null) {
             for (MultipartFile f : files) {
                 if (f == null || f.getSize() <= 0) continue;
-                uploaded.add(new DocumentExtractionService.UploadedFile(
+                uploaded.add(new UploadedFile(
                         f.getOriginalFilename(), f.getContentType(), f.getSize(), f.getBytes()));
             }
         }

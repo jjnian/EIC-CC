@@ -3,14 +3,15 @@ package com.tuiyan.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.repository.DataSourceRepository;
-import com.tuiyan.backend.support.DocxTextExtractor;
+import com.tuiyan.backend.service.extraction.ExtractionContext;
+import com.tuiyan.backend.service.extraction.FileProbe;
+import com.tuiyan.backend.service.extraction.SourceFileHandler;
+import com.tuiyan.backend.service.extraction.StepSink;
+import com.tuiyan.backend.service.extraction.UploadedFile;
 import com.tuiyan.backend.support.FileSniffer;
 import com.tuiyan.backend.support.IdSaltRewriter;
-import com.tuiyan.backend.support.PdfTextExtractor;
 import com.tuiyan.backend.support.WebPageFetcher;
 import com.tuiyan.backend.support.WorkspaceContext;
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -19,11 +20,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,68 +30,36 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
 /**
- * 文档抽取编排：文件嗅探 + PDF / DOCX / 图片处理 + LLM 抽取 + idMap salt 重写。
- * <p>把"用户上传的混合文件" → "可合并到图谱的节点 / 边草稿"的全流程串起来：
- * <ol>
- *   <li>按文件签名 + 扩展名识别真实类型，避免被伪造扩展名绕过；</li>
- *   <li>PDF 优先抽文本，文本稀疏时再渲染为图片（兼顾扫描件 / 截图为主的文档）；</li>
- *   <li>DOCX 用 POI 抽段落和表格；图片直接 base64 编码挂为 attachment；</li>
- *   <li>把累积文本 + 附件交给 LLM 做实体 / 关系抽取；</li>
- *   <li>用时间戳 salt 给草稿节点 id 加前缀，防止同一文档反复导入产生冲突。</li>
- * </ol>
+ * 文档抽取编排：文件嗅探 → 按类型分派给 {@link SourceFileHandler} → LLM 抽取 → idMap salt 重写。
+ * <p>本类只负责"编排"：拿到累积的文本 / 图片后交给 LLM，再做 salt 重写与数据源登记。
+ * 各文件类型（PDF / DOCX / 图片）的识别与抽取细节都封装在各自的 {@link SourceFileHandler}
+ * 实现里，由 Spring 注入并按 {@code @Order} 排序——新增文件类型无需改动本类。
  */
 @Service
 public class DocumentExtractionService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentExtractionService.class);
 
-    // PDF / DOCX 单文件抽取文本上限（按字符），超过会截断并打 truncated 标记
-    private static final int PDF_TEXT_CHAR_BUDGET = 60_000;
-    private static final int DOCX_TEXT_CHAR_BUDGET = 60_000;
-    // 单张图片字节上限：8 MB；超过则直接拒绝
-    private static final long IMAGE_BYTE_LIMIT    = 8L * 1024 * 1024;
     // 一次最多上传 8 个文件，防止 OOM
-    private static final int  TOTAL_FILE_LIMIT    = 8;
-    // PDF 每页平均文本字符数下限：低于此阈值视为"扫描件 / 文本稀疏"，触发图片渲染兜底
-    private static final int  MIN_TEXT_PER_PAGE   = 200;
-    // 渲染兜底时最多渲染前 8 页，分辨率 110 dpi（视觉清晰 + 体积可控）
-    private static final int  RENDER_MAX_PAGES    = 8;
-    private static final int  RENDER_DPI          = 110;
-    // 单次抽取允许的总图片数（PDF 渲染 + 用户直传图片合计）
-    private static final int  TOTAL_IMAGE_BUDGET  = 12;
-    // 单个 PDF / DOCX 文件体积上限（12 MB）
-    private static final long PDF_FILE_BYTES_LIMIT = 12L * 1024 * 1024;
-    private static final long DOCX_FILE_BYTES_LIMIT = 12L * 1024 * 1024;
+    private static final int TOTAL_FILE_LIMIT = 8;
     // 一次抽取最多接受 5 个 URL，避免对外网批量打洞
-    private static final int  URL_LIMIT             = 5;
+    private static final int URL_LIMIT        = 5;
 
     private final ExtractionLlmService extractionLlmService;
     private final Executor urlFetchExecutor;
     private final DataSourceRepository dataSourceRepository;
+    private final List<SourceFileHandler> fileHandlers;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DocumentExtractionService(ExtractionLlmService extractionLlmService,
                                      @Qualifier("predictionExecutor") ThreadPoolTaskExecutor predictionExecutor,
-                                     DataSourceRepository dataSourceRepository) {
+                                     DataSourceRepository dataSourceRepository,
+                                     List<SourceFileHandler> fileHandlers) {
         this.extractionLlmService = extractionLlmService;
         this.urlFetchExecutor = predictionExecutor;
         this.dataSourceRepository = dataSourceRepository;
+        this.fileHandlers = fileHandlers;
     }
-
-    /**
-     * 已读入内存的上传文件：从 MultipartFile 提前拷出字节，使抽取可以脱离 servlet
-     * 请求线程在后台线程池执行（multipart 的临时文件随请求结束即被回收）。
-     */
-    public record UploadedFile(String name, String contentType, long size, byte[] bytes) {}
-
-    /** 抽取进度回调：把每个阶段以 (key,label) 形式上报给调用方（SSE 推送 / 或 no-op）。 */
-    @FunctionalInterface
-    public interface StepSink {
-        void emit(String key, String label);
-    }
-
-    /** 非流式调用使用的空进度回调。 */
-    private static final StepSink NOOP_STEP = (k, l) -> { };
 
     /**
      * 入口：文件列表 + URL 列表 → LLM 抽取 → salt 重写后的 {nodes, edges, reply, sources, salt}。
@@ -104,7 +71,7 @@ public class DocumentExtractionService {
                                        List<String> urls,
                                        String modelOverride,
                                        String configId) throws Exception {
-        return extractCore(toUploaded(files), urls, modelOverride, configId, NOOP_STEP);
+        return extractCore(toUploaded(files), urls, modelOverride, configId, StepSink.NOOP);
     }
 
     /**
@@ -174,25 +141,23 @@ public class DocumentExtractionService {
             throw new IllegalArgumentException("一次最多 " + URL_LIMIT + " 个网址");
         }
 
-        StringBuilder combinedText = new StringBuilder();
-        List<Map<String, Object>> imageAttachments = new ArrayList<>();
-        List<Map<String, Object>> sourcesMeta = new ArrayList<>();
+        ExtractionContext ctx = new ExtractionContext(step);
 
         if (hasFiles) {
-            processFiles(files, combinedText, imageAttachments, sourcesMeta, step);
+            processFiles(files, ctx);
         }
         if (hasUrls) {
-            processUrls(urls, combinedText, sourcesMeta, step);
+            processUrls(urls, ctx);
         }
 
-        if (combinedText.length() == 0 && imageAttachments.isEmpty()) {
+        if (ctx.textLength() == 0 && ctx.imageAttachments().isEmpty()) {
             throw new IllegalArgumentException("未能从上传文件或网址中抽出任何可分析的文本或图片");
         }
 
         step.emit("calling_llm", "正在调用大模型抽取实体与关系…（依据 "
-                + combinedText.length() + " 字符文本 / " + imageAttachments.size() + " 张图片）");
+                + ctx.textLength() + " 字符文本 / " + ctx.imageCount() + " 张图片）");
         JsonNode draft = extractionLlmService.extractOntologyFromSources(
-                combinedText.toString(), imageAttachments, modelOverride, configId);
+                ctx.text(), ctx.imageAttachments(), modelOverride, configId);
 
         // 用毫秒时间戳的 36 进制作 salt，加在每个节点 id 前面避免与已有图谱冲突
         step.emit("normalizing", "正在整理抽取结果、消解 id 冲突…");
@@ -202,13 +167,13 @@ public class DocumentExtractionService {
         int nodeCount = rewritten.path("nodes").isArray() ? rewritten.path("nodes").size() : 0;
         int edgeCount = rewritten.path("edges").isArray() ? rewritten.path("edges").size() : 0;
         step.emit("persisting", "正在登记数据源…（抽出 " + nodeCount + " 节点 / " + edgeCount + " 关系）");
-        persistDataSources(sourcesMeta);
+        persistDataSources(ctx.sourcesMeta());
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("nodes", rewritten.path("nodes"));
         out.put("edges", rewritten.path("edges"));
         out.put("reply", draft.path("reply").asText(""));
-        out.put("sources", sourcesMeta);
+        out.put("sources", ctx.sourcesMeta());
         // 把 salt 也回传给前端：后续如果用户取消导入，前端能用 salt 反过滤出本次新加的节点
         out.put("salt", salt);
         return out;
@@ -232,7 +197,7 @@ public class DocumentExtractionService {
         emitter.complete();
     }
 
-    /** byte[] 头部安全切片，替代 FileSniffer.readHead(MultipartFile)。 */
+    /** byte[] 头部安全切片。 */
     private static byte[] headOf(byte[] bytes, int n) {
         if (bytes == null) return new byte[0];
         return Arrays.copyOf(bytes, Math.min(n, bytes.length));
@@ -247,55 +212,39 @@ public class DocumentExtractionService {
         return meta;
     }
 
-    private void processFiles(List<UploadedFile> files,
-                              StringBuilder combinedText,
-                              List<Map<String, Object>> imageAttachments,
-                              List<Map<String, Object>> sourcesMeta,
-                              StepSink step) throws IOException {
+    /**
+     * 逐个文件嗅探类型并分派给匹配的 {@link SourceFileHandler}；没有 handler 认领则标记 skipped。
+     * 文件按上传顺序单线程处理，meta 累加到 ctx。
+     */
+    private void processFiles(List<UploadedFile> files, ExtractionContext ctx) throws IOException {
         int total = files.size();
         int idx = 0;
         for (UploadedFile f : files) {
             idx++;
             String safeName = FileSniffer.sanitizeFilename(f.name());
-            String contentType = f.contentType();
-            long size = f.size();
             // 空文件直接跳过（不算错误，可能是用户误拖）
-            if (size <= 0) continue;
+            if (f.size() <= 0) continue;
 
-            step.emit("reading_file", "正在解析文件（" + idx + "/" + total + "）" + safeName + "…");
+            ctx.step().emit("reading_file", "正在解析文件（" + idx + "/" + total + "）" + safeName + "…");
 
             Map<String, Object> meta = new LinkedHashMap<>();
             meta.put("name", safeName);
-            meta.put("contentType", contentType);
-            meta.put("size", size);
+            meta.put("contentType", f.contentType());
+            meta.put("size", f.size());
 
-            // 嗅探文件头 + 扩展名 + content-type，三者综合判断真实类型
-            byte[] head = headOf(f.bytes(), 12);
-            boolean pdfMagic = FileSniffer.isPdfMagic(head);
-            boolean imageMagic = FileSniffer.isImageMagic(head);
-            boolean zipMagic = FileSniffer.isZipMagic(head);
-            String lname = safeName.toLowerCase();
-            String lct = contentType == null ? "" : contentType.toLowerCase();
-            boolean isPdf = (lct.contains("pdf") && pdfMagic)
-                    || (lname.endsWith(".pdf") && pdfMagic);
-            // DOCX 是 ZIP 容器，必须 ZIP 签名 + 扩展名 / content-type 同时命中才认
-            boolean isDocx = zipMagic && (
-                    lname.endsWith(".docx")
-                            || lct.contains("wordprocessingml")
-                            || lct.contains("officedocument"));
-            boolean isImage = (lct.startsWith("image/") && imageMagic) || imageMagic;
-
-            if (isPdf) {
-                handlePdf(f, safeName, size, meta, combinedText, imageAttachments, step);
-            } else if (isDocx) {
-                handleDocx(f, safeName, size, meta, combinedText);
-            } else if (isImage) {
-                handleImage(f, safeName, size, contentType, meta, imageAttachments);
+            // 嗅探文件头 + 扩展名 + content-type，交由各 handler 综合判断真实类型
+            FileProbe probe = new FileProbe(headOf(f.bytes(), 12), safeName, f.contentType());
+            SourceFileHandler handler = fileHandlers.stream()
+                    .filter(h -> h.supports(probe))
+                    .findFirst()
+                    .orElse(null);
+            if (handler != null) {
+                handler.handle(f, safeName, ctx, meta);
             } else {
                 meta.put("type", "skipped");
-                meta.put("reason", "不支持的 content-type 或文件签名:" + contentType);
+                meta.put("reason", "不支持的 content-type 或文件签名:" + f.contentType());
             }
-            sourcesMeta.add(meta);
+            ctx.addSource(meta);
         }
     }
 
@@ -304,30 +253,27 @@ public class DocumentExtractionService {
      * <p>用 predictionExecutor 调度，避免串行最差 5 × (15s + 25s) ≈ 200s 的延迟。
      * 顺序与输入一致，失败的 URL 留 reason 在对应位置。
      */
-    private void processUrls(List<String> urls,
-                             StringBuilder combinedText,
-                             List<Map<String, Object>> sourcesMeta,
-                             StepSink step) {
+    private void processUrls(List<String> urls, ExtractionContext ctx) {
         long n = urls.stream().filter(u -> u != null && !u.isBlank()).count();
-        step.emit("fetching_urls", "正在抓取网页（" + n + " 个）…");
+        ctx.step().emit("fetching_urls", "正在抓取网页（" + n + " 个）…");
         List<CompletableFuture<Map<String, Object>>> futures = new ArrayList<>(urls.size());
         for (String raw : urls) {
             if (raw == null || raw.isBlank()) continue;
             String url = raw.trim();
-            futures.add(CompletableFuture.supplyAsync(() -> fetchOneUrl(url, combinedText), urlFetchExecutor));
+            futures.add(CompletableFuture.supplyAsync(() -> fetchOneUrl(url, ctx), urlFetchExecutor));
         }
         for (CompletableFuture<Map<String, Object>> fu : futures) {
             try {
-                sourcesMeta.add(fu.join());
+                ctx.addSource(fu.join());
             } catch (Exception e) {
-                sourcesMeta.add(skippedMeta("(unknown)", "抓取异常: " + e.getMessage()));
+                ctx.addSource(skippedMeta("(unknown)", "抓取异常: " + e.getMessage()));
             }
         }
-        step.emit("fetched_urls", "网页抓取完成（" + n + " 个）");
+        ctx.step().emit("fetched_urls", "网页抓取完成（" + n + " 个）");
     }
 
-    /** 单 URL 抓取：返回该 URL 的 sourcesMeta；正文同步追加到 combinedText（StringBuilder 加锁）。 */
-    private Map<String, Object> fetchOneUrl(String url, StringBuilder combinedText) {
+    /** 单 URL 抓取：返回该 URL 的 sourcesMeta；正文线程安全地追加到 ctx。 */
+    private Map<String, Object> fetchOneUrl(String url, ExtractionContext ctx) {
         try {
             WebPageFetcher.Result r = WebPageFetcher.fetch(url);
             Map<String, Object> meta = new LinkedHashMap<>();
@@ -344,9 +290,7 @@ public class DocumentExtractionService {
                 String header = (r.title != null && !r.title.isBlank())
                         ? "# 网页 " + r.title + "（" + r.url + "）"
                         : "# 网页 " + r.url;
-                synchronized (combinedText) {
-                    combinedText.append(header).append("\n\n").append(r.text).append("\n\n");
-                }
+                ctx.appendSection(header, r.text);
             }
             return meta;
         } catch (IllegalArgumentException ie) {
@@ -355,84 +299,6 @@ public class DocumentExtractionService {
         } catch (Exception e) {
             log.warn("[web] URL 抓取异常 url={} err={}", url, e.toString());
             return skippedMeta(url, "抓取失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * PDF 处理：
-     * <ol>
-     *   <li>抽取全部文本；</li>
-     *   <li>若文本量 / 页数低于 {@link #MIN_TEXT_PER_PAGE}（很可能是扫描件），追加把每页渲染成图片；</li>
-     *   <li>超过 budget 时截断并打 truncated 标记。</li>
-     * </ol>
-     */
-    private void handlePdf(UploadedFile f, String safeName, long size,
-                           Map<String, Object> meta, StringBuilder combinedText,
-                           List<Map<String, Object>> imageAttachments,
-                           StepSink step) throws IOException {
-        if (size > PDF_FILE_BYTES_LIMIT) {
-            throw new IllegalArgumentException(
-                    "PDF " + safeName + " 超过 " + (PDF_FILE_BYTES_LIMIT / (1024 * 1024)) + " MB 限制");
-        }
-        String text;
-        int pageCount;
-        try (PDDocument doc = Loader.loadPDF(f.bytes())) {
-            pageCount = doc.getNumberOfPages();
-            meta.put("pages", pageCount);
-            text = PdfTextExtractor.extractText(doc);
-
-            // 文本稀疏判定：每页字符数 < MIN_TEXT_PER_PAGE 视为扫描件 / 文字稀少，启用图片兜底
-            int rawLen = text == null ? 0 : text.trim().length();
-            boolean textBare = pageCount > 0 && rawLen < pageCount * MIN_TEXT_PER_PAGE;
-            if (textBare) {
-                step.emit("rendering_pdf", safeName + " 文字稀疏，正在将页面渲染为图片识别…");
-                int rendered = PdfTextExtractor.renderPages(doc, imageAttachments,
-                        RENDER_MAX_PAGES, RENDER_DPI, IMAGE_BYTE_LIMIT, TOTAL_IMAGE_BUDGET);
-                meta.put("renderedPages", rendered);
-                // 稀疏文本还是有点价值（如页眉页脚），但保留太多会污染 prompt，截短到 4000 字符
-                if (text != null && text.length() > 4_000) {
-                    text = text.substring(0, 4_000);
-                }
-            }
-        }
-        int rawChars = text == null ? 0 : text.length();
-        if (text != null && text.length() > PDF_TEXT_CHAR_BUDGET) {
-            text = text.substring(0, PDF_TEXT_CHAR_BUDGET) + "\n[…truncated…]";
-            meta.put("truncated", true);
-        }
-        meta.put("type", "pdf");
-        meta.put("chars", rawChars);
-        if (text != null && !text.isBlank()) {
-            // 文本以 "# 文件 名称" 分段拼接，让 LLM 知道哪些段落来自哪个文件
-            combinedText.append("# 文件 ").append(safeName).append("\n\n")
-                        .append(text).append("\n\n");
-        }
-    }
-
-    /** DOCX 处理：用 {@link DocxTextExtractor} 抽段落 + 表格，超过 budget 截断。 */
-    private void handleDocx(UploadedFile f, String safeName, long size,
-                            Map<String, Object> meta, StringBuilder combinedText) throws IOException {
-        if (size > DOCX_FILE_BYTES_LIMIT) {
-            throw new IllegalArgumentException(
-                    "DOCX " + safeName + " 超过 " + (DOCX_FILE_BYTES_LIMIT / (1024 * 1024)) + " MB 限制");
-        }
-        DocxTextExtractor.Result r;
-        try (var in = new ByteArrayInputStream(f.bytes())) {
-            r = DocxTextExtractor.extract(in);
-        }
-        String text = r.text;
-        int rawChars = text == null ? 0 : text.length();
-        if (text != null && text.length() > DOCX_TEXT_CHAR_BUDGET) {
-            text = text.substring(0, DOCX_TEXT_CHAR_BUDGET) + "\n[…truncated…]";
-            meta.put("truncated", true);
-        }
-        meta.put("type", "docx");
-        meta.put("chars", rawChars);
-        meta.put("paragraphs", r.paragraphs);
-        meta.put("tables", r.tables);
-        if (text != null && !text.isBlank()) {
-            combinedText.append("# 文件 ").append(safeName).append("\n\n")
-                        .append(text).append("\n\n");
         }
     }
 
@@ -447,7 +313,7 @@ public class DocumentExtractionService {
             String mime = meta.containsKey("contentType") ? String.valueOf(meta.get("contentType")) : null;
             Long size = null;
             Object sizeObj = meta.get("size");
-            if (sizeObj instanceof Number n) size = n.longValue();
+            if (sizeObj instanceof Number num) size = num.longValue();
             Map<String, Object> extra = new LinkedHashMap<>(meta);
             extra.remove("name");
             extra.remove("contentType");
@@ -458,30 +324,5 @@ public class DocumentExtractionService {
                 log.warn("persist data source failed for {}: {}", name, e.toString());
             }
         }
-    }
-
-    /** 图片处理：直接 base64 编码挂到 attachments 列表；超过单张大小或总额度则记原因后跳过。 */
-    private void handleImage(UploadedFile f, String safeName, long size, String contentType,
-                             Map<String, Object> meta,
-                             List<Map<String, Object>> imageAttachments) throws IOException {
-        if (size > IMAGE_BYTE_LIMIT) {
-            throw new IllegalArgumentException(
-                    "图片 " + safeName + " 超过 " + (IMAGE_BYTE_LIMIT / (1024 * 1024)) + " MB 限制");
-        }
-        if (imageAttachments.size() >= TOTAL_IMAGE_BUDGET) {
-            meta.put("type", "skipped");
-            meta.put("reason", "已达全局图片预算 " + TOTAL_IMAGE_BUDGET + " 张");
-            return;
-        }
-        String b64 = Base64.getEncoder().encodeToString(f.bytes());
-        // contentType 缺失或非 image/* 时回退为 png，避免 LLM 拿到不合法的 media type
-        String mediaType = (contentType != null && contentType.toLowerCase().startsWith("image/"))
-                ? contentType : "image/png";
-        String dataUrl = "data:" + mediaType + ";base64," + b64;
-        Map<String, Object> att = new LinkedHashMap<>();
-        att.put("type", "image");
-        att.put("dataUrl", dataUrl);
-        imageAttachments.add(att);
-        meta.put("type", "image");
     }
 }
