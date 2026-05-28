@@ -147,7 +147,9 @@ public class ScenarioRepository {
         toDelete.add(id);
         for (ScenarioPO s : all) {
             String cur = s.getParentBranchId();
-            while (cur != null) {
+            // visited 防御 parentBranchId 形成环（数据损坏时）导致的死循环
+            java.util.Set<String> visited = new java.util.HashSet<>();
+            while (cur != null && visited.add(cur)) {
                 if (cur.equals(id)) {
                     toDelete.add(s.getId());
                     break;

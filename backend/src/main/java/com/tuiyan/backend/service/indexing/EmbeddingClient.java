@@ -145,6 +145,12 @@ public class EmbeddingClient {
             results.add(vec);
         }
 
+        // 向量条数必须与请求文本数一致，否则 embed()/embedBatch() 会拿到错位或越界的结果
+        if (results.size() != texts.size()) {
+            throw new IOException("Embedding API 返回向量条数(" + results.size()
+                    + ")与请求文本数(" + texts.size() + ")不一致");
+        }
+
         log.info("[Embedding] 成功获取 {} 条向量，维度={}", results.size(),
                 results.isEmpty() ? 0 : results.get(0).length);
         return results;

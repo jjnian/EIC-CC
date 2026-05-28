@@ -51,10 +51,11 @@ public class PrefsService {
     /**
      * 保存：先读出当前合并后的 prefs，再把 body 字段覆盖上去并写盘。
      * <p>这种"读-合并-写"模式保证前端只需要传变化的字段，不必每次完整提交所有 prefs。
+     * <p>整段加锁：否则两个并发 save 会各自基于旧快照合并、后写覆盖先写，丢失字段更新。
      */
-    public Map<String, Object> save(Map<String, Object> body) throws IOException {
+    public synchronized Map<String, Object> save(Map<String, Object> body) throws IOException {
         Map<String, Object> merged = read();
-        merged.putAll(body);
+        if (body != null) merged.putAll(body);
         JsonAtomic.write(objectMapper, appPaths.prefsFile(), merged);
         return merged;
     }
