@@ -112,7 +112,27 @@ export function useChatSend(ctx: ChatSendCtx) {
       ctx.setConversationTitle(ctx.autoTitle(ctx.msgs.value));
     }
 
-    const aiMsg: ChatMsg = { role: 'a', text: '', buildSteps: [], buildDone: false };
+    const initialSteps: ChatBuildStep[] = [];
+    // 在 SSE 之前先注入一步:让用户看到本次构建依据(上传文件 + 引用的图谱上下文)
+    {
+      const parts: string[] = [];
+      if (requestAtts.length) {
+        const names = requestAtts.slice(0, 4).map(a => a.name).join('、');
+        const suffix = requestAtts.length > 4 ? ` 等 ${requestAtts.length} 个` : '';
+        parts.push(`上传文件 ${names}${suffix}`);
+      }
+      const refNodes = ctx.nodes().length;
+      const refEdges = ctx.edges().length;
+      if (refNodes || refEdges) {
+        parts.push(`当前图谱 ${refNodes} 节点 / ${refEdges} 关系`);
+      }
+      initialSteps.push({
+        key: 'fe_input_summary',
+        label: parts.length ? '正在分析依据:' + parts.join(' · ') : '正在根据用户描述构建本体…',
+        status: 'running',
+      });
+    }
+    const aiMsg: ChatMsg = { role: 'a', text: '', buildSteps: initialSteps, buildDone: false };
     ctx.msgs.value.push(aiMsg);
     let rawJsonBuf = '';
 

@@ -124,13 +124,31 @@ public class ChatLlmService {
             String wsId = WorkspaceContext.get();
             if (wsId != null && indexService.isConfigured()) {
                 try {
-                    emitStep(emitter, "searching_datasources", "正在检索数据源…");
+                    emitStep(emitter, "searching_datasources", "正在检索工作空间数据源…");
                     var results = indexService.searchRelevant(wsId, request.getMessage(), 5);
                     if (!results.isEmpty()) {
                         ragChunks = results.stream()
                                 .map(r -> new GraphPromptBuilder.RagChunk(r.content(), r.dataSourceName(), r.score()))
                                 .toList();
                         log.info("[LLM-chat-sse] RAG 检索到 {} 条相关文本块", ragChunks.size());
+
+                        // 把命中的数据源列出来,让用户看到"根据什么"在构建
+                        String sources = results.stream()
+                                .map(r -> r.dataSourceName())
+                                .filter(java.util.Objects::nonNull)
+                                .distinct()
+                                .limit(4)
+                                .collect(java.util.stream.Collectors.joining("、"));
+                        long distinctCount = results.stream()
+                                .map(r -> r.dataSourceName())
+                                .filter(java.util.Objects::nonNull)
+                                .distinct()
+                                .count();
+                        String extra = distinctCount > 4 ? " 等 " + distinctCount + " 个" : "";
+                        emitStep(emitter, "matched_datasources",
+                                "已根据数据源「" + sources + extra + "」匹配 " + results.size() + " 段相关内容");
+                    } else {
+                        emitStep(emitter, "no_match_datasources", "工作空间内暂无相关数据源,按用户描述构建");
                     }
                 } catch (Exception e) {
                     log.warn("[LLM-chat-sse] RAG 检索失败（继续不带 RAG）: {}", e.getMessage());
@@ -146,7 +164,7 @@ public class ChatLlmService {
                     request.getHistory(), request.getAttachments(), false, true);
             log.debug("[LLM-chat-sse] 请求体大小: {} chars", requestBody.length());
 
-            emitStep(emitter, "calling_llm", "正在调用 " + cfg.modelName() + " 模型…");
+            emitStep(emitter, "calling_llm", "正在调用 " + cfg.modelName() + " 推理构建本体…");
 
             HttpRequest httpRequest = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
 
