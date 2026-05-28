@@ -23,8 +23,14 @@ export function chat(payload: ChatPayload) {
   return request<ChatResult>('/api/chat', { method: 'POST', body: JSON.stringify(payload) });
 }
 
+export interface BuildStep {
+  key: string;
+  label: string;
+}
+
 export interface ChatStreamHandlers {
   onText?: (chunk: string) => void;
+  onStep?: (step: BuildStep) => void;
   onComplete?: (result: ChatResult) => void;
   onError?: (msg: string) => void;
   onClose?: () => void;
@@ -35,6 +41,10 @@ export function chatStream(payload: ChatPayload, handlers: ChatStreamHandlers): 
     onEvent: (event, data) => {
       switch (event) {
         case 'text':     handlers.onText?.(data); break;
+        case 'step':
+          try { handlers.onStep?.(JSON.parse(data) as BuildStep); }
+          catch { /* ignore malformed step */ }
+          break;
         case 'complete':
           try { handlers.onComplete?.(JSON.parse(data) as ChatResult); }
           catch { handlers.onError?.('完成事件 JSON 解析失败'); }

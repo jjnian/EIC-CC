@@ -61,6 +61,13 @@ mybatis-plus:
 app:
   data:
     dir: ${user.home}/.tuiyan
+  embedding:
+    base-url: ${EMBEDDING_BASE_URL:}
+    api-key: ${EMBEDDING_API_KEY:}
+    model: ${EMBEDDING_MODEL:text-embedding-3-small}
+    dimension: ${EMBEDDING_DIMENSION:1536}
+    chunk-size: ${EMBEDDING_CHUNK_SIZE:500}
+    chunk-overlap: ${EMBEDDING_CHUNK_OVERLAP:50}
   llm:
     models:
       - id: claude-opus-4-7

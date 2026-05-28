@@ -2,6 +2,7 @@
 import { ref, nextTick, type PropType } from 'vue';
 import type { ChatMsg, ChatMsgAttachment } from '../../composables/useConversations';
 import PredictionMessage from './PredictionMessage.vue';
+import BuildSteps from './BuildSteps.vue';
 
 defineProps({
   messages: { type: Array as PropType<ChatMsg[]>, required: true },
@@ -61,8 +62,13 @@ defineExpose({ scrollToBottom });
               <svg v-if="previewable(a)" class="att-sm-eye" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
-          <div class="bubble" :class="{ streaming: m.role === 'a' && !m.text }">
-            {{ m.text }}<span v-if="loading && m.role === 'a'" class="cursor" />
+          <BuildSteps
+            v-if="m.role === 'a' && m.buildSteps && m.buildSteps.length"
+            :steps="m.buildSteps"
+            :done="!!m.buildDone"
+          />
+          <div v-if="m.text || (m.role === 'a' && !m.buildSteps?.length)" class="bubble" :class="{ streaming: m.role === 'a' && !m.text }">
+            {{ m.text }}<span v-if="loading && m.role === 'a' && i === messages.length - 1" class="cursor" />
           </div>
         </div>
       </div>

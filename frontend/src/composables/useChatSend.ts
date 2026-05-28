@@ -1,9 +1,9 @@
 import { type Ref } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
-import { chatStream, type ChatPayload, type ChatResult } from '../api/chat';
+import { chatStream, type ChatPayload, type ChatResult, type BuildStep } from '../api/chat';
 import type { SseHandle } from '../api/http';
 import { toast } from './useToast';
-import type { ChatMsg, ChatMsgAttachment } from './useConversations';
+import type { ChatMsg, ChatMsgAttachment, ChatBuildStep } from './useConversations';
 import type { Attachment } from './useAttachments';
 import type { ModelOption } from './useChatModels';
 
@@ -45,8 +45,14 @@ export function useChatSend(ctx: ChatSendCtx) {
       chatHandle = null;
     }
     if (currentResolveStream) {
-      if (currentAiMsg && currentAiMsg.text === '正在分析对话内容并构建图谱…') {
+      if (currentAiMsg && !currentAiMsg.text) {
         currentAiMsg.text = '已停止生成。';
+        if (currentAiMsg.buildSteps) {
+          for (const s of currentAiMsg.buildSteps) {
+            if (s.status === 'running') s.status = 'done';
+          }
+        }
+        currentAiMsg.buildDone = true;
       }
       const r = currentResolveStream;
       currentResolveStream = null;
@@ -106,7 +112,7 @@ export function useChatSend(ctx: ChatSendCtx) {
       ctx.setConversationTitle(ctx.autoTitle(ctx.msgs.value));
     }
 
-    const aiMsg: ChatMsg = { role: 'a', text: '正在分析对话内容并构建图谱…' };
+    const aiMsg: ChatMsg = { role: 'a', text: '', buildSteps: [], buildDone: false };
     ctx.msgs.value.push(aiMsg);
     let rawJsonBuf = '';
 
@@ -152,11 +158,23 @@ export function useChatSend(ctx: ChatSendCtx) {
         currentResolveStream = resolveStream;
         currentAiMsg = aiMsg;
         chatHandle = chatStream(body, {
+          onStep: (step: BuildStep) => {
+            if (!aiMsg.buildSteps) aiMsg.buildSteps = [];
+            for (const s of aiMsg.buildSteps) {
+              if (s.status === 'running') s.status = 'done';
+            }
+            aiMsg.buildSteps.push({ key: step.key, label: step.label, status: 'running' });
+          },
           onText: (chunk: string) => {
             rawJsonBuf += chunk;
           },
           onComplete: (parsed: ChatResult) => {
             try {
+              if (aiMsg.buildSteps) {
+                for (const s of aiMsg.buildSteps) s.status = 'done';
+              }
+              aiMsg.buildDone = true;
+
               const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
               const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
               const reply = (parsed.reply || '').trim();
@@ -175,18 +193,20 @@ export function useChatSend(ctx: ChatSendCtx) {
               }
             } catch (parseErr) {
               console.error('Failed to handle complete event:', parseErr);
-              if (!aiMsg.text || aiMsg.text === '正在分析对话内容并构建图谱…') {
+              if (!aiMsg.text) {
                 aiMsg.text = '解析失败,模型返回内容非合法 JSON。';
               }
+              aiMsg.buildDone = true;
             }
           },
           onError: (msg: string) => {
             aiMsg.text = `错误: ${msg}`;
+            aiMsg.buildDone = true;
             resolveStream();
           },
           onClose: () => {
             // 兜底：complete 没触发但有累计的原始 JSON，尝试解析一次
-            if (aiMsg.text === '正在分析对话内容并构建图谱…') {
+            if (!aiMsg.text) {
               const fallback = rawJsonBuf.trim().replace(/^```json/i, '').replace(/```$/, '').trim();
               if (fallback) {
                 try {
@@ -206,6 +226,7 @@ export function useChatSend(ctx: ChatSendCtx) {
                 aiMsg.text = '未收到有效回复';
               }
             }
+            aiMsg.buildDone = true;
             resolveStream();
           },
         });

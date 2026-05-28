@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onBeforeUnmount } from 'vue';
 import { useSidebarTree } from '../composables/useSidebarTree';
 import { useWorkspaces } from '../composables/useWorkspaces';
 import { confirm as uiConfirm } from '../composables/useConfirm';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
+import type { SseHandle } from '../api/http';
 import type { Workspace } from '../api/workspaces';
+import { indexDataSource, getIndexStatus, isEmbeddingConfigured, type IndexStatus } from '../api/indexing';
+import type { ChatBuildStep } from '../composables/useConversations';
+import BuildSteps from './chat/BuildSteps.vue';
 
 const props = defineProps<{
   workspace: Workspace;
@@ -28,7 +32,6 @@ const ws = useWorkspaces();
 // 二级展开状态:对话/数据源/血缘图各自独立,初始收起
 const convExpanded = ref(false);
 const dsExpanded = ref(false);
-const lineageExpanded = ref(false);
 
 const conversations = computed(() => tree.getConversations(props.workspace.id));
 const dataSources = computed(() => tree.getDataSources(props.workspace.id));
@@ -42,7 +45,7 @@ watch(() => props.expanded, (val) => {
   if (!val) {
     convExpanded.value = false;
     dsExpanded.value = false;
-    lineageExpanded.value = false;
+    indexExpanded.value = false;
   }
 });
 
@@ -173,6 +176,108 @@ const formatBytes = (bytes?: number): string => {
 };
 
 const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
+
+// ===== 向量索引 =====
+const indexExpanded = ref(false);
+const embeddingConfigured = ref<boolean | null>(null);
+const indexStatuses = ref<Record<string, IndexStatus>>({});
+const indexingSteps = ref<Record<string, { steps: ChatBuildStep[]; done: boolean }>>({});
+let indexHandles: Record<string, SseHandle> = {};
+
+const fileStoredSources = computed(() =>
+  dataSources.value.filter((d: any) => d.kind === 'file_stored')
+);
+
+const totalIndexedChunks = computed(() =>
+  Object.values(indexStatuses.value).reduce((sum, s) => sum + (s.chunkCount || 0), 0)
+);
+
+const indexStatusLabel = (id: string) => {
+  const s = indexStatuses.value[id];
+  if (!s || s.status === 'none') return '未索引';
+  if (s.status === 'indexing') return '索引中…';
+  if (s.status === 'indexed') return `已索引 (${s.chunkCount}块)`;
+  if (s.status === 'error') return '索引失败';
+  return '';
+};
+
+const canIndex = (id: string) => {
+  const s = indexStatuses.value[id];
+  return !s || s.status !== 'indexing';
+};
+
+const onToggleIndex = () => {
+  indexExpanded.value = !indexExpanded.value;
+  if (indexExpanded.value) {
+    if (embeddingConfigured.value === null) {
+      isEmbeddingConfigured()
+        .then(r => { embeddingConfigured.value = r.configured; })
+        .catch(() => { embeddingConfigured.value = false; });
+    }
+    if (!loadedDS.value) {
+      tree.loadDataSources(props.workspace.id).catch(() => {});
+    }
+    loadIndexStatuses();
+  }
+};
+
+const loadIndexStatuses = async () => {
+  for (const d of fileStoredSources.value) {
+    try {
+      indexStatuses.value[String(d.id)] = await getIndexStatus(String(d.id));
+    } catch { /* ignore */ }
+  }
+};
+
+const onIndexOne = (id: string) => {
+  if (indexHandles[id]) { try { indexHandles[id].abort(); } catch {} }
+
+  indexStatuses.value[id] = { status: 'indexing', chunkCount: 0 };
+  indexingSteps.value[id] = { steps: [], done: false };
+
+  indexHandles[id] = indexDataSource(id, {
+    onStep: (step) => {
+      const state = indexingSteps.value[id];
+      if (!state) return;
+      for (const s of state.steps) {
+        if (s.status === 'running') s.status = 'done';
+      }
+      state.steps.push({ key: step.key, label: step.label, status: 'running' });
+    },
+    onError: (msg) => {
+      indexStatuses.value[id] = { status: 'error', chunkCount: 0 };
+      const state = indexingSteps.value[id];
+      if (state) {
+        for (const s of state.steps) s.status = 'done';
+        state.done = true;
+      }
+      toast.warn(`索引失败: ${msg}`);
+    },
+    onClose: () => {
+      const state = indexingSteps.value[id];
+      if (state) {
+        for (const s of state.steps) s.status = 'done';
+        state.done = true;
+      }
+      delete indexHandles[id];
+      getIndexStatus(id).then(s => { indexStatuses.value[id] = s; }).catch(() => {});
+    },
+  });
+};
+
+const onIndexAll = () => {
+  for (const d of fileStoredSources.value) {
+    if (canIndex(String(d.id))) {
+      onIndexOne(String(d.id));
+    }
+  }
+};
+
+onBeforeUnmount(() => {
+  for (const h of Object.values(indexHandles)) {
+    try { h.abort(); } catch {}
+  }
+});
 </script>
 
 <template>
@@ -256,19 +361,41 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
           </div>
         </div>
       </div>
-      <!-- 血缘图(占位:功能开发中) -->
+      <!-- 向量索引 -->
       <div class="ws-child-node">
         <div class="ws-child-head" role="button" tabindex="0"
-             @click="lineageExpanded = !lineageExpanded"
-             @keydown.enter.prevent="lineageExpanded = !lineageExpanded"
-             @keydown.space.prevent="lineageExpanded = !lineageExpanded">
-          <span :class="['ws-caret', { open: lineageExpanded }]">▸</span>
-          <span class="ws-child-icon">🧬</span>
-          <span class="ws-child-label">血缘图</span>
+             @click="onToggleIndex"
+             @keydown.enter.prevent="onToggleIndex"
+             @keydown.space.prevent="onToggleIndex">
+          <span :class="['ws-caret', { open: indexExpanded }]">▸</span>
+          <span class="ws-child-icon">🔍</span>
+          <span class="ws-child-label">向量索引</span>
+          <span v-if="totalIndexedChunks > 0" class="ws-child-count">{{ totalIndexedChunks }}块</span>
           <span class="ws-child-spacer" />
+          <button v-if="fileStoredSources.length && embeddingConfigured" class="ws-child-action" title="全部索引" @click.stop="onIndexAll">▶</button>
         </div>
-        <div v-if="lineageExpanded" class="ws-child-list">
-          <div class="ws-child-empty">功能开发中…</div>
+        <div v-if="indexExpanded" class="ws-child-list">
+          <div v-if="embeddingConfigured === false" class="ws-child-empty">
+            Embedding 未配置，请设置 EMBEDDING_BASE_URL 和 EMBEDDING_API_KEY
+          </div>
+          <div v-else-if="!fileStoredSources.length" class="ws-child-empty">没有可索引的文件数据源</div>
+          <template v-else>
+            <div v-for="d in fileStoredSources" :key="d.id" class="ws-index-item">
+              <div class="ws-index-row">
+                <span :class="['ws-index-dot', indexStatuses[String(d.id)]?.status || 'none']" />
+                <span class="ws-index-name">{{ d.name }}</span>
+                <span class="ws-index-status">{{ indexStatusLabel(String(d.id)) }}</span>
+                <button v-if="canIndex(String(d.id)) && embeddingConfigured" class="ws-index-btn"
+                        @click.stop="onIndexOne(String(d.id))">
+                  {{ indexStatuses[String(d.id)]?.status === 'indexed' ? '重建' : '索引' }}
+                </button>
+              </div>
+              <BuildSteps v-if="indexingSteps[String(d.id)]?.steps?.length"
+                          :steps="indexingSteps[String(d.id)].steps"
+                          :done="indexingSteps[String(d.id)].done"
+                          class="ws-index-steps" />
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -554,4 +681,31 @@ const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
 .status-dot.idle { background: #888; }
 .status-dot.connected { background: #22dd88; }
 .status-dot.error { background: tomato; }
+
+/* 向量索引 */
+.ws-index-item { padding: 2px 0; }
+.ws-index-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 8px; font-size: 12px; border-radius: 4px; transition: background 0.12s;
+}
+.ws-index-row:hover { background: rgba(255,255,255,0.04); }
+.ws-index-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.ws-index-dot.none { background: rgba(255,255,255,0.2); }
+.ws-index-dot.indexed { background: #42b883; box-shadow: 0 0 4px rgba(66,184,131,0.5); }
+.ws-index-dot.indexing { background: #fbbf24; animation: idx-pulse 1.2s infinite; }
+.ws-index-dot.error { background: #ff6b6b; }
+@keyframes idx-pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+.ws-index-name {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim);
+}
+.ws-index-status { font-size: 10px; color: rgba(255,255,255,0.35); white-space: nowrap; }
+.ws-index-btn {
+  background: rgba(66,184,131,0.12); border: 1px solid rgba(66,184,131,0.25);
+  color: #42b883; font-size: 10px; padding: 1px 8px; border-radius: 4px;
+  cursor: pointer; font-family: inherit; transition: all 0.12s;
+}
+.ws-index-btn:hover { background: rgba(66,184,131,0.2); }
+.ws-index-steps { margin: 4px 8px 6px; }
 </style>
