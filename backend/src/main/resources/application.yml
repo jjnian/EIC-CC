@@ -47,12 +47,12 @@ mybatis-plus:
 #        name: DeepSeek Chat
 #        provider: deepseek
 #        base-url: https://api.deepseek.com
-#        model-name: deepseek-v4-flash
-#        api-key: ${DEEPSEEK_API_KEY:sk-6e221473e331438d849319d376288d13}
+#        model-name: deepseek-chat
+#        api-key: ${DEEPSEEK_API_KEY:}
 #        protocol: openai
 #        enabled: true
 #        context-window: 64000
-#        max-output-tokens: 16384
+#        max-output-tokens: 8192
 #        capabilities:
 #          - streaming
 #          - json

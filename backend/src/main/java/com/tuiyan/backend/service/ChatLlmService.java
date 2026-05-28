@@ -214,12 +214,15 @@ public class ChatLlmService {
         long elapsed = System.currentTimeMillis() - startMs;
 
         if (resp.statusCode() != 200) {
-            log.error("[LLM-chat-sse] 请求失败 status={} 耗时={}ms", resp.statusCode(), elapsed);
+            log.error("[LLM-chat-sse] 请求失败 status={} 耗时={}ms body={}", resp.statusCode(), elapsed, resp.body());
             callLogger.logUpstreamError("chatStreaming", resp.statusCode(), resp.body());
             http.metrics().recordCall(modelName, elapsed, false);
+            // 抽出上游 message 给用户看(常见原因:模型名拼错/api key 错/欠费)
+            String upstreamMsg = extractUpstreamErrorMessage(resp.body());
+            String userMsg = "LLM 调用失败 HTTP " + resp.statusCode()
+                    + (upstreamMsg == null ? "（详情见服务器日志）" : ":" + upstreamMsg);
             try {
-                emitter.send(SseEmitter.event().name("error").data(
-                        "LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）"));
+                emitter.send(SseEmitter.event().name("error").data(userMsg));
             } catch (IOException e) {
                 log.warn("emit error event failed", e);
             }
@@ -288,6 +291,29 @@ public class ChatLlmService {
             }
             emitter.complete();
         }
+    }
+
+    /**
+     * 从 OpenAI / DeepSeek / Anthropic 错误体里抽出 human-readable message,
+     * 让前端能直接显示"Model deepseek-v4-flash does not exist"这种具体原因。
+     */
+    private String extractUpstreamErrorMessage(String body) {
+        if (body == null || body.isBlank()) return null;
+        try {
+            JsonNode root = objectMapper.readTree(body);
+            // OpenAI / DeepSeek 风格: { "error": { "message": "..." } } 或 { "error": "..." }
+            JsonNode err = root.path("error");
+            if (err.isObject() && err.has("message")) return err.path("message").asText(null);
+            if (err.isTextual()) return err.asText(null);
+            // Anthropic 风格: { "error": { "message": "..." } } - 已被上面覆盖
+            // 兜底: 直接看顶层 message
+            if (root.has("message")) return root.path("message").asText(null);
+        } catch (Exception ignored) {
+            // 非 JSON,截断前 200 字直接返回
+            String trimmed = body.length() > 200 ? body.substring(0, 200) + "…" : body;
+            return trimmed.replaceAll("\\s+", " ");
+        }
+        return null;
     }
 
     private void emitStep(SseEmitter emitter, String key, String label) {
