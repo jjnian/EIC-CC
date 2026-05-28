@@ -52,7 +52,7 @@ export interface PredictionMsg {
 export interface ChatBuildStep {
   key: string;
   label: string;
-  status: 'done' | 'running' | 'pending';
+  status: 'done' | 'running' | 'pending' | 'error';
 }
 
 export interface ChatMsg {

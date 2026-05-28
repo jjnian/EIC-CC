@@ -200,6 +200,16 @@ export function useChatSend(ctx: ChatSendCtx) {
             }
           },
           onError: (msg: string) => {
+            // LLM 报错时立即终止 SSE 与剩余分析,把进行中的步骤打上失败标记。
+            if (chatHandle) {
+              try { chatHandle.abort(); } catch { /* noop */ }
+              chatHandle = null;
+            }
+            if (aiMsg.buildSteps) {
+              for (const s of aiMsg.buildSteps) {
+                if (s.status === 'running' || s.status === 'pending') s.status = 'error';
+              }
+            }
             aiMsg.text = `错误: ${msg}`;
             aiMsg.buildDone = true;
             resolveStream();
