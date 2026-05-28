@@ -21,6 +21,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -263,8 +264,14 @@ public class ChatLlmService {
                 emitter.send(SseEmitter.event().name("text").data(reply));
             }
 
-            int nodeCount = result.path("add_nodes").size();
-            int edgeCount = result.path("add_edges").size();
+            JsonNode addNodes = result.path("add_nodes");
+            JsonNode addEdges = result.path("add_edges");
+            int nodeCount = addNodes.size();
+            int edgeCount = addEdges.size();
+
+            // 逐个实体 / 关系上报，让用户看到本体被一步步"构建"出来，而不是只看到一个总数
+            emitBuildSteps(emitter, addNodes, addEdges);
+
             emitStep(emitter, "merging_graph",
                     "正在合并到图谱… (+" + nodeCount + " 节点 / +" + edgeCount + " 关系)");
 
@@ -314,6 +321,71 @@ public class ChatLlmService {
             return trimmed.replaceAll("\\s+", " ");
         }
         return null;
+    }
+
+    // 单次对话最多展示的"逐个构建"步骤数，避免大量实体淹没时间线；超出由 merging_graph 汇总兜底
+    private static final int MAX_BUILD_STEPS = 24;
+    // 每条构建步骤之间的间隔，制造"逐步生长"的视觉节奏（与推演编排一致）
+    private static final long BUILD_STEP_DELAY_MS = 70;
+
+    /**
+     * 把 LLM 一次性返回的 add_nodes / add_edges 拆成逐条 step 事件推给前端：
+     * 先逐个"构建实体「X」(type)"，再逐个"建立关系「A —关系→ B」"，
+     * 让用户直观看到本体的实体与关系是如何被构建出来的。总条数受 {@link #MAX_BUILD_STEPS} 限制。
+     */
+    private void emitBuildSteps(SseEmitter emitter, JsonNode addNodes, JsonNode addEdges) {
+        int budget = MAX_BUILD_STEPS;
+
+        if (addNodes.isArray()) {
+            int i = 0;
+            for (JsonNode n : addNodes) {
+                if (budget <= 0) break;
+                String label = n.path("label").asText("");
+                if (label.isBlank()) label = n.path("id").asText("实体");
+                String type = n.path("type").asText("");
+                String text = type.isBlank()
+                        ? "构建实体「" + label + "」"
+                        : "构建实体「" + label + "」(" + type + ")";
+                emitStep(emitter, "build_node_" + (i++), text);
+                budget--;
+                sleepQuiet(BUILD_STEP_DELAY_MS);
+            }
+        }
+
+        if (addEdges.isArray()) {
+            // 用 add_nodes 的 id→label 映射美化关系端点；引用已有图谱节点时回退为 id
+            Map<String, String> idToLabel = new HashMap<>();
+            if (addNodes.isArray()) {
+                for (JsonNode n : addNodes) {
+                    String id = n.path("id").asText("");
+                    if (!id.isBlank()) idToLabel.put(id, n.path("label").asText(id));
+                }
+            }
+            int j = 0;
+            for (JsonNode e : addEdges) {
+                if (budget <= 0) break;
+                String from = e.path("from").asText("");
+                String to = e.path("to").asText("");
+                String fromLabel = idToLabel.getOrDefault(from, from);
+                String toLabel = idToLabel.getOrDefault(to, to);
+                String rel = e.path("label").asText("");
+                String text = rel.isBlank()
+                        ? "建立关系「" + fromLabel + " → " + toLabel + "」"
+                        : "建立关系「" + fromLabel + " —" + rel + "→ " + toLabel + "」";
+                emitStep(emitter, "build_edge_" + (j++), text);
+                budget--;
+                sleepQuiet(BUILD_STEP_DELAY_MS);
+            }
+        }
+    }
+
+    /** 安静地 sleep，保留中断标志；用于构建步骤间制造节奏。 */
+    private static void sleepQuiet(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void emitStep(SseEmitter emitter, String key, String label) {

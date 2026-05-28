@@ -4,11 +4,16 @@ import com.tuiyan.backend.model.OntologyModel;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.service.DocumentExtractionService;
 import com.tuiyan.backend.service.OntologyModelService;
+import com.tuiyan.backend.service.extraction.UploadedFile;
+import com.tuiyan.backend.support.SsePushUtils;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -71,5 +76,32 @@ public class OntologyModelController {
                 files == null ? List.of() : files,
                 urls == null ? List.of() : urls,
                 modelOverride, configId));
+    }
+
+    /**
+     * 流式抽取：SSE 实时推送抽取的每个阶段（step 事件），完成时发 complete 事件携带结果。
+     * <p>multipart 字节需在请求线程内提前读入内存；workspaceId 也在此捕获后透传给后台线程，
+     * 因为 WorkspaceInterceptor 的 ThreadLocal 不会随异步任务传播。
+     */
+    @PostMapping(value = "/extract/stream", consumes = {"multipart/form-data"})
+    public SseEmitter extractStream(
+            @RequestParam(value = "files", required = false) List<MultipartFile> files,
+            @RequestParam(value = "urls", required = false) List<String> urls,
+            @RequestParam(value = "modelOverride", required = false) String modelOverride,
+            @RequestParam(value = "configId", required = false) String configId) throws IOException {
+        List<UploadedFile> uploaded = new ArrayList<>();
+        if (files != null) {
+            for (MultipartFile f : files) {
+                if (f == null || f.getSize() <= 0) continue;
+                uploaded.add(new UploadedFile(
+                        f.getOriginalFilename(), f.getContentType(), f.getSize(), f.getBytes()));
+            }
+        }
+        String workspaceId = WorkspaceContext.get();
+        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(300_000L);
+        extractionService.extractStreaming(uploaded,
+                urls == null ? List.of() : urls,
+                modelOverride, configId, workspaceId, ce.emitter());
+        return ce.emitter();
     }
 }

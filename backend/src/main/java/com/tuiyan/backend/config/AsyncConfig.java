@@ -1,7 +1,9 @@
 package com.tuiyan.backend.config;
 
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.TaskDecorator;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
@@ -33,7 +35,29 @@ public class AsyncConfig {
         exec.setThreadNamePrefix("predict-");
         exec.setWaitForTasksToCompleteOnShutdown(true);
         exec.setAwaitTerminationSeconds(20);
+        // 把提交线程（Tomcat 请求线程）的 WorkspaceContext 透传到工作线程：
+        // 推演 / 解释等任务在 worker 线程上落盘 scenario 时需要 WorkspaceContext.required()，
+        // 而 ThreadLocal 不会自动随线程池传播。worker 线程复用，故任务结束必须还原。
+        exec.setTaskDecorator(workspacePropagatingDecorator());
         exec.initialize();
         return exec;
+    }
+
+    /** 捕获提交时的 workspaceId，在 worker 线程上 set，任务结束后还原，避免污染下一个复用任务。 */
+    private static TaskDecorator workspacePropagatingDecorator() {
+        return runnable -> {
+            String captured = WorkspaceContext.get();
+            return () -> {
+                String previous = WorkspaceContext.get();
+                if (captured != null) WorkspaceContext.set(captured);
+                else WorkspaceContext.clear();
+                try {
+                    runnable.run();
+                } finally {
+                    if (previous != null) WorkspaceContext.set(previous);
+                    else WorkspaceContext.clear();
+                }
+            };
+        };
     }
 }

@@ -118,7 +118,7 @@ public class HttpScheduler {
             failCounters.put(dataSourceId, n);
             repo.markStatus(dataSourceId, "error", r.getErrorMsg());
             if (n >= MAX_CONSECUTIVE_FAILS) {
-                log.warn("[ds-sched] auto-disable id={} after  fails", dataSourceId, n);
+                log.warn("[ds-sched] auto-disable id={} after {} fails", dataSourceId, n);
                 // 落配置 enabled=false
                 if (cfg.get("schedule") instanceof Map<?, ?> sched) {
                     var newCfg = new java.util.LinkedHashMap<String, Object>(cfg);
