@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.model.ChatRequest;
+import com.tuiyan.backend.service.indexing.DataSourceIndexService;
 import com.tuiyan.backend.service.llm.GraphPromptBuilder;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
 import com.tuiyan.backend.service.llm.LlmHttpClient;
 import com.tuiyan.backend.service.llm.LlmPrompts;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -32,13 +34,16 @@ public class ChatLlmService {
     private final LlmHttpClient http;
     private final GraphPromptBuilder promptBuilder;
     private final LlmCallLogger callLogger;
+    private final DataSourceIndexService indexService;
 
     public ChatLlmService(LlmHttpClient http,
                           GraphPromptBuilder promptBuilder,
-                          LlmCallLogger callLogger) {
+                          LlmCallLogger callLogger,
+                          DataSourceIndexService indexService) {
         this.http = http;
         this.promptBuilder = promptBuilder;
         this.callLogger = callLogger;
+        this.indexService = indexService;
     }
 
     /**
@@ -114,7 +119,26 @@ public class ChatLlmService {
 
             emitStep(emitter, "building_context", "正在构建图谱上下文…");
 
-            String prompt = promptBuilder.buildChatPrompt(request.getNodes(), request.getEdges(), request.getMessage());
+            // RAG：从已索引的数据源中检索相关内容
+            List<GraphPromptBuilder.RagChunk> ragChunks = List.of();
+            String wsId = WorkspaceContext.get();
+            if (wsId != null && indexService.isConfigured()) {
+                try {
+                    emitStep(emitter, "searching_datasources", "正在检索数据源…");
+                    var results = indexService.searchRelevant(wsId, request.getMessage(), 5);
+                    if (!results.isEmpty()) {
+                        ragChunks = results.stream()
+                                .map(r -> new GraphPromptBuilder.RagChunk(r.content(), r.dataSourceName(), r.score()))
+                                .toList();
+                        log.info("[LLM-chat-sse] RAG 检索到 {} 条相关文本块", ragChunks.size());
+                    }
+                } catch (Exception e) {
+                    log.warn("[LLM-chat-sse] RAG 检索失败（继续不带 RAG）: {}", e.getMessage());
+                }
+            }
+
+            String prompt = promptBuilder.buildChatPrompt(request.getNodes(), request.getEdges(),
+                    request.getMessage(), ragChunks);
             callLogger.logConversation("LLM-chat-sse", cfg.modelName(), LlmPrompts.CHAT_SYSTEM,
                     request.getHistory(), prompt, request.getAttachments());
 

@@ -35,11 +35,33 @@ public class GraphPromptBuilder {
     public record PredictPromptArtifact(String system, String user,
                                         boolean truncated, int droppedNodes, int droppedEdges) {}
 
+    /** RAG 检索结果片段 */
+    public record RagChunk(String content, String sourceName, double score) {}
+
     /** chat 用 user prompt：把现有图谱摘要放在前面，作为已知上下文。 */
     public String buildChatPrompt(List<Map<String, Object>> nodes,
                                   List<Map<String, Object>> edges,
                                   String message) {
+        return buildChatPrompt(nodes, edges, message, null);
+    }
+
+    /** chat 用 user prompt（含 RAG 数据源上下文）。 */
+    public String buildChatPrompt(List<Map<String, Object>> nodes,
+                                  List<Map<String, Object>> edges,
+                                  String message,
+                                  List<RagChunk> ragChunks) {
         StringBuilder sb = new StringBuilder();
+
+        // RAG 上下文
+        if (ragChunks != null && !ragChunks.isEmpty()) {
+            sb.append("相关数据源内容 (按相关度排序，请参考这些内容来提取实体和关系):\n");
+            for (RagChunk chunk : ragChunks) {
+                sb.append("--- 来源: ").append(chunk.sourceName())
+                  .append(" (相关度: ").append(String.format("%.2f", chunk.score())).append(") ---\n");
+                sb.append(chunk.content()).append("\n\n");
+            }
+        }
+
         boolean hasGraph = (nodes != null && !nodes.isEmpty()) || (edges != null && !edges.isEmpty());
         if (hasGraph) {
             sb.append("Existing ontology graph (the user is incrementally extending this — do NOT recreate any of these; reuse the ids exactly when you need to reference them):\n");

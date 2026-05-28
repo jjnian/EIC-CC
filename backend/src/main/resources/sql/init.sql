@@ -373,6 +373,37 @@ CREATE INDEX IF NOT EXISTS idx_conversation_ws        ON conversation        (wo
 CREATE INDEX IF NOT EXISTS idx_graph_template_ws      ON graph_template      (workspace_id);
 CREATE INDEX IF NOT EXISTS idx_hypothesis_template_ws ON hypothesis_template (workspace_id);
 
+-- ---------------------------------------------------------------------------
+-- 7. 数据源向量索引
+-- ---------------------------------------------------------------------------
+
+-- 7.1 数据源新增字段：向量索引状态
+ALTER TABLE data_source ADD COLUMN IF NOT EXISTS index_status VARCHAR(16) DEFAULT 'none';
+
+-- 7.2 文本块表
+CREATE TABLE IF NOT EXISTS ds_chunk (
+    id              VARCHAR(64) PRIMARY KEY,
+    data_source_id  VARCHAR(64) NOT NULL REFERENCES data_source(id) ON DELETE CASCADE,
+    workspace_id    VARCHAR(64) NOT NULL,
+    chunk_index     INT         NOT NULL,
+    content         TEXT        NOT NULL,
+    token_count     INT         DEFAULT 0,
+    created_at      BIGINT      NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ds_chunk_ds ON ds_chunk (data_source_id);
+CREATE INDEX IF NOT EXISTS idx_ds_chunk_ws ON ds_chunk (workspace_id);
+
+-- 7.3 向量嵌入表
+CREATE TABLE IF NOT EXISTS ds_embedding (
+    id          VARCHAR(64) PRIMARY KEY,
+    chunk_id    VARCHAR(64) NOT NULL REFERENCES ds_chunk(id) ON DELETE CASCADE,
+    embedding   TEXT        NOT NULL,
+    model_name  VARCHAR(128),
+    dimension   INT         DEFAULT 0,
+    created_at  BIGINT      NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ds_embedding_chunk ON ds_embedding (chunk_id);
+
 -- ===========================================================================
 -- 初始化完成
 -- ===========================================================================
