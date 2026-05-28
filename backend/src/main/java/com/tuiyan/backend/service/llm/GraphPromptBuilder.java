@@ -38,11 +38,14 @@ public class GraphPromptBuilder {
     /** RAG 检索结果片段 */
     public record RagChunk(String content, String sourceName, double score) {}
 
+    /** 数据库 schema 概览片段，用于让 LLM 知道当前工作空间有哪些表可参考。 */
+    public record DbSchema(String sourceName, String kind, String database, List<String> tables) {}
+
     /** chat 用 user prompt：把现有图谱摘要放在前面，作为已知上下文。 */
     public String buildChatPrompt(List<Map<String, Object>> nodes,
                                   List<Map<String, Object>> edges,
                                   String message) {
-        return buildChatPrompt(nodes, edges, message, null);
+        return buildChatPrompt(nodes, edges, message, null, null);
     }
 
     /** chat 用 user prompt（含 RAG 数据源上下文）。 */
@@ -50,7 +53,39 @@ public class GraphPromptBuilder {
                                   List<Map<String, Object>> edges,
                                   String message,
                                   List<RagChunk> ragChunks) {
+        return buildChatPrompt(nodes, edges, message, ragChunks, null);
+    }
+
+    /** chat 用 user prompt（含 RAG + 数据库 schema 上下文）。 */
+    public String buildChatPrompt(List<Map<String, Object>> nodes,
+                                  List<Map<String, Object>> edges,
+                                  String message,
+                                  List<RagChunk> ragChunks,
+                                  List<DbSchema> dbSchemas) {
         StringBuilder sb = new StringBuilder();
+
+        // 数据库 schema 上下文(放在最前面,作为强结构化输入提示)
+        if (dbSchemas != null && !dbSchemas.isEmpty()) {
+            sb.append("可参考的数据库表结构 (来自当前工作空间已接入的数据源，请据此设计实体/关系):\n");
+            for (DbSchema s : dbSchemas) {
+                sb.append("- 数据源「").append(s.sourceName()).append("」 (")
+                  .append(s.kind()).append(", 库: ").append(s.database()).append("):\n");
+                sb.append("  Tables: ");
+                List<String> ts = s.tables();
+                if (ts == null || ts.isEmpty()) {
+                    sb.append("(无)\n");
+                } else {
+                    int max = Math.min(40, ts.size());
+                    for (int i = 0; i < max; i++) {
+                        if (i > 0) sb.append(", ");
+                        sb.append(ts.get(i));
+                    }
+                    if (ts.size() > max) sb.append(" … 共 ").append(ts.size()).append(" 张表");
+                    sb.append("\n");
+                }
+            }
+            sb.append("\n");
+        }
 
         // RAG 上下文
         if (ragChunks != null && !ragChunks.isEmpty()) {

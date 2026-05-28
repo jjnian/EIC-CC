@@ -3,7 +3,10 @@ package com.tuiyan.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.tuiyan.backend.entity.DataSourcePO;
 import com.tuiyan.backend.model.ChatRequest;
+import com.tuiyan.backend.repository.DataSourceRepository;
+import com.tuiyan.backend.service.connector.JdbcConnectorService;
 import com.tuiyan.backend.service.indexing.DataSourceIndexService;
 import com.tuiyan.backend.service.llm.GraphPromptBuilder;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
@@ -35,15 +38,21 @@ public class ChatLlmService {
     private final GraphPromptBuilder promptBuilder;
     private final LlmCallLogger callLogger;
     private final DataSourceIndexService indexService;
+    private final DataSourceRepository dsRepo;
+    private final JdbcConnectorService jdbcConnector;
 
     public ChatLlmService(LlmHttpClient http,
                           GraphPromptBuilder promptBuilder,
                           LlmCallLogger callLogger,
-                          DataSourceIndexService indexService) {
+                          DataSourceIndexService indexService,
+                          DataSourceRepository dsRepo,
+                          JdbcConnectorService jdbcConnector) {
         this.http = http;
         this.promptBuilder = promptBuilder;
         this.callLogger = callLogger;
         this.indexService = indexService;
+        this.dsRepo = dsRepo;
+        this.jdbcConnector = jdbcConnector;
     }
 
     /**
@@ -155,8 +164,11 @@ public class ChatLlmService {
                 }
             }
 
+            // 数据库类数据源：枚举工作空间下已接入的 MySQL / PostgreSQL，拉表清单交给 LLM 作为结构化上下文
+            List<GraphPromptBuilder.DbSchema> dbSchemas = collectDbSchemas(wsId, emitter);
+
             String prompt = promptBuilder.buildChatPrompt(request.getNodes(), request.getEdges(),
-                    request.getMessage(), ragChunks);
+                    request.getMessage(), ragChunks, dbSchemas);
             callLogger.logConversation("LLM-chat-sse", cfg.modelName(), LlmPrompts.CHAT_SYSTEM,
                     request.getHistory(), prompt, request.getAttachments());
 
@@ -279,5 +291,58 @@ public class ChatLlmService {
         } catch (IOException e) {
             log.warn("emit step '{}' failed: {}", key, e.toString());
         }
+    }
+
+    /**
+     * 枚举当前工作空间下已接入的 MySQL / PostgreSQL 数据源,拉表清单作为 LLM 结构化输入。
+     * <p>对每个 DB 单独 try-catch,坏的跳过；最多读 5 个数据源以控制总耗时；
+     * 每个数据源在 SSE 里 emit 一条 step,让用户看到"读取了哪个库的哪些表"。
+     */
+    private List<GraphPromptBuilder.DbSchema> collectDbSchemas(String wsId, SseEmitter emitter) {
+        if (wsId == null) return List.of();
+        List<Map<String, Object>> dsList;
+        try {
+            dsList = dsRepo.list(wsId);
+        } catch (Exception e) {
+            log.warn("[LLM-chat-sse] 列举工作空间数据源失败: {}", e.getMessage());
+            return List.of();
+        }
+
+        List<GraphPromptBuilder.DbSchema> out = new java.util.ArrayList<>();
+        int probed = 0;
+        for (Map<String, Object> ds : dsList) {
+            String kind = String.valueOf(ds.get("kind"));
+            if (!"mysql".equals(kind) && !"pgsql".equals(kind)) continue;
+            // status=error 的连不上,直接跳过避免拖慢聊天
+            Object statusObj = ds.get("status");
+            if ("error".equals(String.valueOf(statusObj))) continue;
+            if (probed >= 5) break;
+            probed++;
+
+            String id = String.valueOf(ds.get("id"));
+            String name = String.valueOf(ds.getOrDefault("name", id));
+            DataSourcePO po = dsRepo.findById(id);
+            if (po == null) continue;
+            Map<String, Object> cfg = dsRepo.readConfig(po);
+            String database = String.valueOf(cfg.getOrDefault("database", "?"));
+
+            try {
+                List<String> tables = jdbcConnector.listTables(kind, cfg);
+                if (tables == null) tables = List.of();
+                String preview = tables.stream().limit(6)
+                        .collect(java.util.stream.Collectors.joining("、"));
+                String tail = tables.size() > 6 ? " … 共 " + tables.size() + " 张" : "";
+                emitStep(emitter, "reading_db_" + id,
+                        "正在读取数据库「" + name + "」(" + kind + ":" + database
+                                + ") 共 " + tables.size() + " 张表"
+                                + (tables.isEmpty() ? "" : ":" + preview + tail));
+                out.add(new GraphPromptBuilder.DbSchema(name, kind, database, tables));
+            } catch (Exception e) {
+                log.warn("[LLM-chat-sse] 读取数据库 {} 失败: {}", name, e.getMessage());
+                emitStep(emitter, "reading_db_" + id + "_err",
+                        "数据库「" + name + "」读取失败,跳过 (" + e.getMessage() + ")");
+            }
+        }
+        return out;
     }
 }
