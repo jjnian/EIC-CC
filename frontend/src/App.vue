@@ -27,6 +27,8 @@ import { useImportMerge } from './composables/useImportMerge';
 import { useGraphEditor } from './composables/useGraphEditor';
 import { useVersionTemplates } from './composables/useVersionTemplates';
 import { useWorkspaces } from './composables/useWorkspaces';
+import { useSidebarTree } from './composables/useSidebarTree';
+import { getDataSource } from './api/dataSources';
 import { NT } from './constants';
 
 const sel = ref<string | null>(null);
@@ -41,6 +43,7 @@ const currentModelTitle = ref('供应链本体图');
 const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
 
 const wsManager = useWorkspaces();
+const sidebarTree = useSidebarTree();
 
 const currentModelId = ref<string>('');
 const compareDialogOpen = ref(false);
@@ -51,6 +54,14 @@ const dsCreateOpen = ref(false);
 const onDsCreated = async (id: string) => {
   currentDataSourceId.value = id;
   view.value = 'datasource';
+  // 创建后立即回填侧栏缓存，让用户不需要手动刷新就能看到新数据源
+  try {
+    const ds = await getDataSource(id);
+    const wsId = wsManager.currentId.value;
+    if (wsId) sidebarTree.upsertDataSource(wsId, ds);
+  } catch {
+    // 回填失败不影响主流程；侧栏展开时会重新懒加载
+  }
 };
 
 // 分支对比差异高亮状态

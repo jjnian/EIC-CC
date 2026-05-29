@@ -90,6 +90,18 @@ export function useSidebarTree() {
     }
   };
 
+  /** 新增/更新数据源后回填到缓存,不需要重新拉取接口。 */
+  const upsertDataSource = (wsId: string, ds: DataSource) => {
+    if (!wsId) return;
+    const arr = cacheDS.value[wsId] ? [...cacheDS.value[wsId]] : [];
+    const idx = arr.findIndex(x => x.id === ds.id);
+    if (idx >= 0) arr[idx] = ds;
+    else arr.unshift(ds);
+    arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    cacheDS.value[wsId] = arr;
+    loadedDS.value[wsId] = true;
+  };
+
   /** 外部 useConversations 持久化后回填(只对当前 wsId 有效)。 */
   const upsertConversation = (wsId: string, c: SidebarConversation) => {
     if (!wsId) return;
@@ -129,6 +141,7 @@ export function useSidebarTree() {
     removeConversation,
     removeDataSource,
     upsertConversation,
+    upsertDataSource,
     clearCache,
   };
 }
