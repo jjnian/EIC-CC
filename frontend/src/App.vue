@@ -11,6 +11,7 @@ import GraphView from './components/views/GraphView.vue';
 import ChatCenterView from './components/views/ChatCenterView.vue';
 import DataSourceDetailView from './components/datasource/DataSourceDetailView.vue';
 import DataSourceCreateDialog from './components/DataSourceCreateDialog.vue';
+import DataSourcePageView from './components/views/DataSourcePageView.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import { toast, mountToastRoot } from './composables/useToast';
 import { updateOntology } from './api/ontology';
@@ -34,7 +35,7 @@ const graphRef = ref<any>(null);
 const chatRef = ref<any>(null);
 const { chatW, startDivider, isDragging } = useDivider(360, () => graphRef.value?.fitView());
 
-const view = ref<'welcome' | 'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource'>('workspace-picker');
+const view = ref<'welcome' | 'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource' | 'datasource-list'>('workspace-picker');
 const currentDataSourceId = ref<string | null>(null);
 const currentModelTitle = ref('供应链本体图');
 const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
@@ -456,7 +457,7 @@ const formatFileSize = (bytes: number) => {
       :view="view"
       :ontology-models="models"
       @toggle="sbExp = !sbExp"
-      @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; else if(r==='datasource') dsCreateOpen = true; }"
+      @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; else if(r==='datasource') view='datasource-list'; }"
       @open-conversation="onOpenConversation"
       @new-conversation="onNewConversation"
       @switch-workspace="onWorkspaceSwitched"
@@ -558,6 +559,12 @@ const formatFileSize = (bytes: number) => {
 
       <!-- DataSource Detail View -->
       <DataSourceDetailView v-else-if="view === 'datasource' && currentDataSourceId" :ds-id="currentDataSourceId" />
+
+      <!-- DataSource List / Add Page -->
+      <DataSourcePageView
+        v-else-if="view === 'datasource-list'"
+        @open="(id) => { currentDataSourceId = id; view = 'datasource'; }"
+      />
 
       <!-- Graph View -->
       <GraphView

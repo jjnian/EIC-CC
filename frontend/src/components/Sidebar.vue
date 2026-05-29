@@ -125,7 +125,7 @@ const submitCreate = async () => {
       <div class="logo-text">推演平台</div>
     </div>
     <button v-for="(item, i) in items" :key="i"
-            :class="['sb-item', { active: (item[2] === 'welcome' && view === 'welcome') || (item[2] === 'list' && view === 'list') }]"
+            :class="['sb-item', { active: (item[2] === 'welcome' && view === 'welcome') || (item[2] === 'list' && view === 'list') || (item[2] === 'datasource' && (view === 'datasource-list' || view === 'datasource')) }]"
             @click="onPick(i, item[2] as string)">
       <span class="sb-icon">{{ item[0] }}</span><span class="sb-item-label">{{ item[1] }}</span>
     </button>
