@@ -455,7 +455,7 @@ const formatFileSize = (bytes: number) => {
       :view="view"
       :ontology-models="models"
       @toggle="sbExp = !sbExp"
-      @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; }"
+      @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; else if(r==='datasource') dsCreateOpen = true; }"
       @open-conversation="onOpenConversation"
       @new-conversation="onNewConversation"
       @switch-workspace="onWorkspaceSwitched"

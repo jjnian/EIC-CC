@@ -418,13 +418,12 @@ const onClickLineageModel = async (modelId: string) => {
   border-radius: 50%;
   cursor: pointer;
   font-family: inherit;
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   flex-shrink: 0;
 }
-.ws-head:hover .ws-del-btn { display: flex; }
 .ws-del-btn:hover {
   background: rgba(255, 102, 68, 0.2);
   color: #ff8a6f;
