@@ -27,7 +27,7 @@ const emit = defineEmits<{
 const a = ref(0);
 const items = [
   ['✦', '新对话', 'welcome'],
-  ['◈', '本体模型', 'list']
+  ['◈', '数据源', 'datasource']
 ];
 
 const onPick = (i: number, route: string) => {
