@@ -6,6 +6,7 @@ import EdgeInfo from '../EdgeInfo.vue';
 import ChatPanel from '../ChatPanel.vue';
 import ExplanationPanel from '../ExplanationPanel.vue';
 import SchemaPanel from '../SchemaPanel.vue';
+import GraphAnalysisPanel from '../GraphAnalysisPanel.vue';
 import { toast } from '../../composables/useToast';
 import type { OntologyNode, OntologyEdge, ChainStep } from '../../types';
 
@@ -150,6 +151,9 @@ const closePanel = (nodeId: string) => {
 watch(() => props.activeBranchId, () => {
   explanationPanels.value = [];
 });
+
+// 图分析面板
+const analysisOpen = ref(false);
 </script>
 
 <template>
@@ -211,6 +215,21 @@ watch(() => props.activeBranchId, () => {
         @delete-relation="(id) => emit('delete-relation', id)"
         @update-edge-schema="(id, patch) => emit('update-edge-schema', id, patch)"
       />
+      <!-- 图分析面板 -->
+      <GraphAnalysisPanel
+        v-if="analysisOpen"
+        :nodes="nodes"
+        :edges="edges"
+        :selectedId="selectedId"
+        @close="analysisOpen = false"
+        @focus-node="(id) => emit('focus-node', id)"
+      />
+      <!-- 图分析按钮（悬浮在画布右上角） -->
+      <button
+        :class="['analysis-btn', { on: analysisOpen }]"
+        @click="analysisOpen = !analysisOpen"
+        title="图谱分析：节点/关系精确统计与路径查询"
+      >📊 分析</button>
     </div>
     <SchemaPanel
       :open="schemaOpen"
@@ -295,4 +314,21 @@ watch(() => props.activeBranchId, () => {
   font-weight: 500;
 }
 .bb-back:hover { background: rgba(251, 191, 36, 0.32); }
+.analysis-btn {
+  position: absolute;
+  top: 12px; right: 12px;
+  background: rgba(22, 24, 32, 0.88);
+  border: 1px solid rgba(255,255,255,.15);
+  color: #c0c4cf;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  z-index: 15;
+  backdrop-filter: blur(8px);
+  transition: background-color .15s, color .15s;
+}
+.analysis-btn:hover { background: rgba(74,141,240,.15); color: #4a8df0; border-color: rgba(74,141,240,.4); }
+.analysis-btn.on { background: rgba(74,141,240,.2); color: #4a8df0; border-color: rgba(74,141,240,.5); }
 </style>
