@@ -73,11 +73,100 @@ public class ExtractionLlmService {
                     ? "（这是分 " + chunks.size() + " 段输入的第 " + (i + 1)
                       + " 段；语义相同的概念请保持 label 一致，便于跨段合并。）\n\n"
                     : "";
+            // 跨片连边：把前面段落已识别的实体（含其稳定 id）回灌给本段，
+            // 这样本段产生的关系才能直接连到“别的段落里”的实体，避免血缘链在段边界断裂。
+            preface += knownEntitiesPreface(merged);
             JsonNode part = callExtractOnce(preface + chunks.get(i), imgs, cfg, anthropic);
             if (chunks.size() > 1) part = prefixChunkIds(part, "c" + i + "_");
             merged = (merged == null) ? part : mergeExtractionByLabel(merged, part);
         }
-        return merged == null ? objectMapper.createObjectNode() : merged;
+        return sanitizeGraph(merged == null ? objectMapper.createObjectNode() : merged);
+    }
+
+    // 回灌给后续 chunk 的已知实体上限：太多会撑爆 context，取最近的若干个即可。
+    private static final int CARRY_FORWARD_LIMIT = 80;
+
+    /**
+     * 构造“已知实体清单”前言：列出截至目前已识别节点的 id + label(+别名)，
+     * 指示 LLM 在本段产生的关系里直接复用这些 id，而不是重复造节点。
+     * <p>这些 id 已是合并后的稳定 id（如 c0_n1），{@link #prefixChunkIds} 不会再给它们加前缀，
+     * 因此本段输出的边引用它们时能正确连上。
+     */
+    private String knownEntitiesPreface(JsonNode merged) {
+        if (merged == null) return "";
+        JsonNode nodes = merged.path("add_nodes");
+        if (!nodes.isArray() || nodes.isEmpty()) return "";
+        int total = nodes.size();
+        int start = Math.max(0, total - CARRY_FORWARD_LIMIT);
+        StringBuilder sb = new StringBuilder();
+        sb.append("【已在前面段落中识别的实体】若本段内容涉及它们，请在 add_edges 的 from/to 里")
+          .append("直接复用下列 id（不要重复创建同名节点）；只有本段新出现的概念才创建新节点：\n");
+        for (int i = start; i < total; i++) {
+            JsonNode n = nodes.get(i);
+            String id = n.path("id").asText("");
+            String label = n.path("label").asText("");
+            if (id.isEmpty() || label.isEmpty()) continue;
+            sb.append("- ").append(id).append(": ").append(label);
+            JsonNode aliases = n.path("aliases");
+            if (aliases.isArray() && !aliases.isEmpty()) {
+                sb.append("（别名: ");
+                for (int j = 0; j < aliases.size(); j++) {
+                    if (j > 0) sb.append("、");
+                    sb.append(aliases.get(j).asText(""));
+                }
+                sb.append("）");
+            }
+            sb.append('\n');
+        }
+        sb.append('\n');
+        return sb.toString();
+    }
+
+    /**
+     * 抽取后图校验：保证产出的是一张“干净”的图。
+     * <ol>
+     *   <li>丢弃 from/to 指向不存在节点的悬空边；</li>
+     *   <li>丢弃自环（from == to）；</li>
+     *   <li>按 (from,to,rel_type|label) 去重，避免同一关系被多段重复抽出。</li>
+     * </ol>
+     */
+    private JsonNode sanitizeGraph(JsonNode graph) {
+        if (graph == null || !graph.isObject()) return graph;
+        ObjectNode out = (ObjectNode) graph;
+        JsonNode nodes = out.path("add_nodes");
+        JsonNode edges = out.path("add_edges");
+        if (!edges.isArray()) return out;
+
+        Set<String> nodeIds = new HashSet<>();
+        if (nodes.isArray()) {
+            for (JsonNode n : nodes) {
+                String id = n.path("id").asText("");
+                if (!id.isEmpty()) nodeIds.add(id);
+            }
+        }
+
+        ArrayNode cleaned = objectMapper.createArrayNode();
+        Set<String> seenEdge = new HashSet<>();
+        int dropped = 0;
+        for (JsonNode e : edges) {
+            String f = e.path("from").asText("");
+            String t = e.path("to").asText("");
+            if (f.isEmpty() || t.isEmpty() || !nodeIds.contains(f) || !nodeIds.contains(t)) {
+                dropped++;
+                continue; // 悬空边
+            }
+            if (f.equals(t)) { dropped++; continue; } // 自环
+            String relKey = e.path("rel_type").asText(e.path("label").asText(""));
+            String sig = f + "->" + t + "#" + relKey;
+            if (!seenEdge.add(sig)) { dropped++; continue; } // 重复边
+            cleaned.add(e);
+        }
+        if (dropped > 0) {
+            log.info("[LLM-extract] 图校验：丢弃 {} 条非法/重复边（悬空/自环/重复），保留 {} 条",
+                    dropped, cleaned.size());
+        }
+        out.set("add_edges", cleaned);
+        return out;
     }
 
     /** 单次 chunk 调用 LLM 抽取节点 / 边。文本与图片同时挂上让 LLM 跨模态理解文档。 */
@@ -205,28 +294,29 @@ public class ExtractionLlmService {
         for (JsonNode n : a.path("add_nodes")) {
             ObjectNode copy = n.deepCopy();
             outNodes.add(copy);
-            String norm = normalizeLabel(copy.path("label").asText(""));
             String id = copy.path("id").asText("");
-            if (!norm.isEmpty()) labelToId.put(norm, id);
+            for (String key : labelKeys(copy)) labelToId.put(key, id);
             if (!id.isEmpty()) idToNode.put(id, copy);
         }
         for (JsonNode e : a.path("add_edges")) outEdges.add(e);
 
         for (JsonNode n : b.path("add_nodes")) {
-            String norm = normalizeLabel(n.path("label").asText(""));
             String id = n.path("id").asText("");
-            if (!norm.isEmpty() && labelToId.containsKey(norm)) {
-                String aId = labelToId.get(norm);
-                idRemap.put(id, aId);
-                ObjectNode existing = idToNode.get(aId);
+            List<String> keys = labelKeys(n);
+            String matchId = keys.stream().map(labelToId::get)
+                    .filter(java.util.Objects::nonNull).findFirst().orElse(null);
+            if (matchId != null) {
+                idRemap.put(id, matchId);
+                ObjectNode existing = idToNode.get(matchId);
                 if (existing != null) {
                     mergeNodeProps(existing, n);
+                    mergeAliases(existing, n);
                 }
             } else {
                 ObjectNode copy = n.deepCopy();
                 outNodes.add(copy);
-                if (!norm.isEmpty() && !id.isEmpty()) {
-                    labelToId.put(norm, id);
+                if (!id.isEmpty()) {
+                    for (String key : keys) labelToId.put(key, id);
                     idToNode.put(id, copy);
                 }
             }
@@ -274,5 +364,43 @@ public class ExtractionLlmService {
     private static String normalizeLabel(String s) {
         if (s == null) return "";
         return s.trim().toLowerCase().replaceAll("\\s+", " ");
+    }
+
+    /** 收集一个节点用于去重的所有等价键：主 label + 所有 aliases，均做标准化。 */
+    private List<String> labelKeys(JsonNode node) {
+        List<String> keys = new ArrayList<>();
+        String label = normalizeLabel(node.path("label").asText(""));
+        if (!label.isEmpty()) keys.add(label);
+        JsonNode aliases = node.path("aliases");
+        if (aliases.isArray()) {
+            for (JsonNode al : aliases) {
+                String k = normalizeLabel(al.asText(""));
+                if (!k.isEmpty() && !keys.contains(k)) keys.add(k);
+            }
+        }
+        return keys;
+    }
+
+    /** 合并别名：把 b 的 label 与 aliases 并入 a 的 aliases（去重，不含 a 自身的主 label）。 */
+    private void mergeAliases(ObjectNode aNode, JsonNode bNode) {
+        Set<String> existing = new HashSet<>();
+        existing.add(normalizeLabel(aNode.path("label").asText("")));
+        JsonNode aAliases = aNode.path("aliases");
+        ArrayNode merged = aAliases.isArray()
+                ? (ArrayNode) aAliases : objectMapper.createArrayNode();
+        for (JsonNode al : merged) existing.add(normalizeLabel(al.asText("")));
+
+        List<String> candidates = new ArrayList<>();
+        candidates.add(bNode.path("label").asText(""));
+        if (bNode.path("aliases").isArray()) {
+            for (JsonNode al : bNode.path("aliases")) candidates.add(al.asText(""));
+        }
+        for (String c : candidates) {
+            String norm = normalizeLabel(c);
+            if (norm.isEmpty() || existing.contains(norm)) continue;
+            merged.add(c);
+            existing.add(norm);
+        }
+        if (!merged.isEmpty()) aNode.set("aliases", merged);
     }
 }

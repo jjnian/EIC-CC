@@ -15,9 +15,12 @@ public final class LlmPrompts {
           "add_nodes": [
             {
               "id": "A unique id for the node, e.g., 'n_123'",
-              "label": "The name of the entity, event, or rule",
+              "label": "The canonical name of the entity, event, or rule (pick ONE preferred form)",
+              "aliases": ["Other surface forms / abbreviations referring to the SAME concept, e.g., ['采购单','PO'] for '采购订单'. Used to de-duplicate across chunks. Omit or [] if none."],
               "type": "Must be one of: 'entity', 'event', 'rule', 'process', 'data', 'external'",
               "source": "Must be one of: 'derived' (from text) or 'inferred'",
+              "evidence": "≤30-char quote or location from the source that grounds this node. Empty string for purely inferred nodes.",
+              "confidence": "Number 0.0-1.0 — how certain this node really exists in the domain (derived≈0.9-1.0, inferred≈0.4-0.7).",
               "props": [
                 { "key": "string", "value": "string", "source": "Must be one of: 'derived' or 'inferred'" }
               ],
@@ -41,10 +44,13 @@ public final class LlmPrompts {
           "add_edges": [
             {
               "id": "Unique edge id, e.g., 'e_456'",
-              "from": "Source node id",
-              "to": "Target node id",
-              "label": "Description or verb of the relationship or rule",
+              "from": "Source node id (MUST be an id present in add_nodes or in the KNOWN ENTITIES list provided)",
+              "to": "Target node id (MUST be an id present in add_nodes or in the KNOWN ENTITIES list provided)",
+              "rel_type": "The controlled relationship type — MUST be one of: 'produces','consumes','derived_from','depends_on','triggers','governs','composed_of','transforms','flows_to','associated_with'. Use 'associated_with' ONLY when none of the others fit.",
+              "label": "The concrete phrasing from the source for this relationship (free text, for display), e.g., '审批通过后生成'",
               "source": "Must be one of: 'derived' or 'inferred'",
+              "evidence": "≤30-char quote or location from the source that grounds this edge. Empty string for purely inferred edges.",
+              "confidence": "Number 0.0-1.0 — how certain this relationship holds (derived≈0.9-1.0, inferred≈0.4-0.7).",
               "rule_driven": true_or_false,
               "constraints": [
                 {
@@ -139,10 +145,21 @@ public final class LlmPrompts {
         4. Every node must have a clear ontological justification — no redundant or vague nodes.
 
         **B. 关系 (Relationships / Edges):**
-        1. Extract every directed relationship with a precise verb label (triggers, governs, composed_of, requires, produces, etc.).
-        2. For each relationship, ask: "Is this causal, compositional, governance, or enablement? What is the exact mechanism?"
-        3. Never use vague labels like 'related_to' — capture the specific nature of each connection.
+        1. Extract every directed relationship and classify it into the CONTROLLED `rel_type` vocabulary:
+           - produces: A 产出/生成 B (data lineage downstream)
+           - consumes: A 消耗/输入 B
+           - derived_from: A 派生自/血缘来源是 B (data lineage upstream)
+           - depends_on: A 依赖 B 才能成立
+           - triggers: A 触发 B 发生
+           - governs: 规则/规章 A 约束 B
+           - composed_of: A 由 B 组成 / 包含 B
+           - transforms: A 被转换为 B
+           - flows_to: 数据/物料从 A 流向 B
+           - associated_with: 兜底，仅当以上都不贴切时使用（应尽量避免）
+        2. Put the source's concrete wording in `label` (for display); put the classified type in `rel_type`. They are different fields.
+        3. For each relationship, ask: "Is this causal, compositional, governance, or enablement? What is the exact mechanism?"
         4. If a rule governs the relationship, set rule_driven=true and emit the rule node.
+        5. CRITICAL — never emit an edge whose `from`/`to` is not a node id you have defined (in add_nodes) or that appears in the KNOWN ENTITIES list. No dangling edges, no self-loops.
 
         **C. 约束 (Constraints):**
         1. Extract ALL structural constraints mentioned or implied in the document:
@@ -174,6 +191,32 @@ public final class LlmPrompts {
            emit ONE node.
         5. You MUST output attributes and constraints — an extraction without them is incomplete.
         6. Return ONLY a JSON object exactly matching SCHEMA. No markdown wrapping.
+
+        ---
+        WORKED EXAMPLE (study the level of precision, then apply to the real input):
+
+        Source text: "销售订单经财务审批通过后，由 ERP 系统生成出库单；出库单驱动仓库执行拣货。
+        根据《库存管理规定》，单张出库单的商品数量不得超过当前可用库存。"
+
+        Expected JSON (abridged — note rel_type vs label, aliases, evidence, grounded confidence,
+        and that the regulation becomes a 'rule' node with a governs edge):
+        {
+          "add_nodes": [
+            {"id":"n_1","label":"销售订单","aliases":["SO"],"type":"entity","source":"derived","evidence":"销售订单经财务审批","confidence":1.0},
+            {"id":"n_2","label":"财务审批","type":"event","source":"derived","evidence":"经财务审批通过后","confidence":1.0},
+            {"id":"n_3","label":"出库单","aliases":[],"type":"data","source":"derived","evidence":"生成出库单","confidence":1.0},
+            {"id":"n_4","label":"拣货","type":"process","source":"derived","evidence":"执行拣货","confidence":0.9},
+            {"id":"n_5","label":"库存管理规定-出库数量上限","type":"rule","source":"derived","evidence":"不得超过当前可用库存","confidence":1.0}
+          ],
+          "add_edges": [
+            {"id":"e_1","from":"n_2","to":"n_3","rel_type":"triggers","label":"审批通过后生成","source":"derived","evidence":"审批通过后…生成出库单","confidence":0.95,"rule_driven":false},
+            {"id":"e_2","from":"n_1","to":"n_3","rel_type":"derived_from","label":"出库单源自销售订单","source":"inferred","evidence":"","confidence":0.6,"rule_driven":false},
+            {"id":"e_3","from":"n_3","to":"n_4","rel_type":"triggers","label":"驱动仓库拣货","source":"derived","evidence":"出库单驱动…拣货","confidence":0.95,"rule_driven":false},
+            {"id":"e_4","from":"n_5","to":"n_3","rel_type":"governs","label":"数量不得超过可用库存","source":"derived","evidence":"单张出库单的商品数量","confidence":1.0,"rule_driven":true,
+             "constraints":[{"kind":"custom","note":"出库单商品数量 ≤ 当前可用库存","source":"derived"}]}
+          ]
+        }
+        ---
 
         SCHEMA:
         %s""".formatted(SCHEMA_STRING);
