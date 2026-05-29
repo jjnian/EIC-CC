@@ -409,6 +409,7 @@ const onNewConversation = async () => {
 const onOpenOntologyModel = async (id: string) => {
   const m = findModel(id);
   if (!m) return;
+  chatW.value = 0;
   await openModel(m, 'graph');
 };
 
