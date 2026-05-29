@@ -228,6 +228,11 @@ export function useChatSend(ctx: ChatSendCtx) {
                 aiMsg.text = '解析失败,模型返回内容非合法 JSON。';
               }
               aiMsg.buildDone = true;
+            } finally {
+              // complete 事件已处理完毕,主动结束本次流,不再依赖 onClose 触发。
+              // 某些情况下后端 emitter.complete() 后连接未干净关闭,onClose 不触发,
+              // 会导致 await 永久挂起、loading 卡死。这里兜底 resolve。
+              resolveStream();
             }
           },
           onError: (msg: string) => {
