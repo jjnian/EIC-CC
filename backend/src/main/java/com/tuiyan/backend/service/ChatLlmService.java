@@ -118,6 +118,19 @@ public class ChatLlmService {
         long startMs = System.currentTimeMillis();
         String modelName = "unknown";
         try {
+            // 空输入兜底:message 为空且无附件时直接返回友好提示,不浪费一次 LLM 调用
+            boolean blankMessage = request.getMessage() == null || request.getMessage().isBlank();
+            boolean noAttachments = request.getAttachments() == null || request.getAttachments().isEmpty();
+            if (blankMessage && noAttachments) {
+                try {
+                    emitter.send(SseEmitter.event().name("error").data("消息内容为空，请输入描述或上传文件后再试。"));
+                } catch (IOException e) {
+                    log.warn("emit empty-message error failed", e);
+                }
+                emitter.complete();
+                return;
+            }
+
             emitStep(emitter, "resolving_config", "正在解析模型配置…");
 
             LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(request.getModelOverride(), request.getConfigId());
@@ -346,7 +359,7 @@ public class ChatLlmService {
                 String text = type.isBlank()
                         ? "构建实体「" + label + "」"
                         : "构建实体「" + label + "」(" + type + ")";
-                emitStep(emitter, "build_node_" + (i++), text);
+                if (!emitStep(emitter, "build_node_" + (i++), text)) return; // emitter 已关闭，停止逐步推送
                 budget--;
                 sleepQuiet(BUILD_STEP_DELAY_MS);
             }
@@ -372,7 +385,7 @@ public class ChatLlmService {
                 String text = rel.isBlank()
                         ? "建立关系「" + fromLabel + " → " + toLabel + "」"
                         : "建立关系「" + fromLabel + " —" + rel + "→ " + toLabel + "」";
-                emitStep(emitter, "build_edge_" + (j++), text);
+                if (!emitStep(emitter, "build_edge_" + (j++), text)) return; // emitter 已关闭，停止逐步推送
                 budget--;
                 sleepQuiet(BUILD_STEP_DELAY_MS);
             }
@@ -388,12 +401,23 @@ public class ChatLlmService {
         }
     }
 
-    private void emitStep(SseEmitter emitter, String key, String label) {
+    /**
+     * 推送一条 step 事件。
+     * @return true=发送成功；false=emitter 已关闭(超时/客户端断开)或发送失败，调用方应停止后续推送。
+     */
+    private boolean emitStep(SseEmitter emitter, String key, String label) {
         try {
             String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
             emitter.send(SseEmitter.event().name("step").data(json));
+            return true;
+        } catch (IllegalStateException closed) {
+            // emitter 已 complete(常见于 180s 超时或客户端断开)：再 send 会抛此异常。
+            // 不再当作错误刷屏，仅 debug 记录，并让调用方据返回值提前收尾。
+            log.debug("emit step '{}' skipped, emitter closed: {}", key, closed.toString());
+            return false;
         } catch (IOException e) {
-            log.warn("emit step '{}' failed: {}", key, e.toString());
+            log.warn("emit step '{}' failed (client disconnected?): {}", key, e.toString());
+            return false;
         }
     }
 
