@@ -381,27 +381,23 @@ const goWelcome = () => {
 };
 
 const onOpenConversation = async (id: string) => {
-  // 对话默认在中心聊天视图里展示;已经在 graph 视图则不切换布局
-  if (view.value !== 'graph' && view.value !== 'chat') {
-    const target = currentModelId.value ? findModel(currentModelId.value) : models.value[0];
-    if (target) {
-      await openModel(target, 'chat');
-    } else {
-      view.value = 'chat';
-    }
+  // 始终切换到中心聊天视图展示对话
+  const target = currentModelId.value ? findModel(currentModelId.value) : models.value[0];
+  if (target) {
+    await openModel(target, 'chat');
+  } else {
+    view.value = 'chat';
   }
   await nextTick();
   chatRef.value?.switchConversation(id);
 };
 
 const onNewConversation = async () => {
-  if (view.value !== 'graph' && view.value !== 'chat') {
-    const target = currentModelId.value ? findModel(currentModelId.value) : models.value[0];
-    if (target) {
-      await openModel(target, 'chat');
-    } else {
-      view.value = 'chat';
-    }
+  const target = currentModelId.value ? findModel(currentModelId.value) : models.value[0];
+  if (target) {
+    await openModel(target, 'chat');
+  } else {
+    view.value = 'chat';
   }
   await nextTick();
   chatRef.value?.newConversation();

@@ -281,7 +281,7 @@ const onClickLineageModel = async (modelId: string) => {
           <div v-for="d in dataSources" :key="d.id"
                class="ws-child-item"
                :title="d.name + (d.size ? ' · ' + formatBytes(d.size) : '')"
-               @click="['mysql','pgsql','file_stored','https_api'].includes(String(d.kind)) && emit('open-data-source', String(d.id))">
+               @click="emit('open-data-source', String(d.id))">
             <span class="ws-child-icon-mini">{{ ({ mysql:'🗄', pgsql:'🐘', file_stored:'📄', https_api:'🌐', file:'📎', url:'🔗' } as Record<string,string>)[d.kind] || '📁' }}</span>
             <span class="ws-child-item-title">{{ d.name }}</span>
             <span v-if="['mysql','pgsql','file_stored','https_api'].includes(String(d.kind))" :class="['status-dot', String((d as any).status || 'idle')]" />
