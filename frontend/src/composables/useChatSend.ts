@@ -19,6 +19,8 @@ export interface ChatSendCtx {
   setConversationTitle: (t: string) => void;
   autoTitle: (msgs: ChatMsg[]) => string;
   currentModel: Ref<ModelOption | null>;
+  /** 当前打开的本体模型 ID (getter)，用于分析完成后在消息里挂载"查看图谱"链接。 */
+  currentModelId: () => string;
   emit: (event: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[]) => void;
   closeMention: () => void;
 }
@@ -210,6 +212,8 @@ export function useChatSend(ctx: ChatSendCtx) {
 
               if (addNodes.length || addEdges.length) {
                 toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
+                const mid = ctx.currentModelId();
+                if (mid) aiMsg.graphModelId = mid;
               }
 
               // LLM 返回了澄清问题 → 挂到这条消息,前端渲染为可点击选项

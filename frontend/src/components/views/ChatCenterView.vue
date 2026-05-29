@@ -19,6 +19,7 @@ const props = defineProps({
   liveStatus:      { type: Number as PropType<0 | 1 | 2 | 3 | 4>, default: 0 },
   pendingChatSeed: { type: Object as PropType<{ text: string; files: File[] } | null>, default: null },
   modelTitle:      { type: String, default: '' },
+  modelId:         { type: String, default: '' },
 });
 
 const livePrediction = computed(() => ({
@@ -39,6 +40,7 @@ const emit = defineEmits<{
   (e: 'seed-consumed'): void;
   (e: 'abort-prediction'): void;
   (e: 'chat-ref', el: any): void;
+  (e: 'view-graph', modelId: string): void;
 }>();
 </script>
 
@@ -56,11 +58,13 @@ const emit = defineEmits<{
         :width="0"
         :seed="pendingChatSeed"
         :live-prediction="livePrediction"
+        :model-id="modelId"
         class="cc-chat"
         @update="(addNodes, addEdges) => emit('update', addNodes, addEdges)"
         @clear-graph="emit('clear-graph')"
         @seed-consumed="emit('seed-consumed')"
         @abort-prediction="emit('abort-prediction')"
+        @view-graph="(id) => emit('view-graph', id)"
       />
     </div>
   </div>

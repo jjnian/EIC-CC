@@ -640,11 +640,13 @@ const formatFileSize = (bytes: number) => {
         :live-status="liveStatus"
         :pending-chat-seed="pendingChatSeed"
         :model-title="currentModelTitle"
+        :model-id="currentModelId"
         @update="onUpdate"
         @clear-graph="clearCanvas"
         @seed-consumed="pendingChatSeed = null"
         @abort-prediction="closeTimeline"
         @chat-ref="(el) => chatRef = el"
+        @view-graph="onOpenOntologyModel"
       />
 
       <!-- Predict Dialog (modal) -->

@@ -22,6 +22,7 @@ const props = defineProps<{
    * status: 0 空闲 1 运行中 2 完成 3 错误 4 已停止
    */
   livePrediction?: LivePrediction | null;
+  modelId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -30,6 +31,7 @@ const emit = defineEmits<{
   (e: 'seed-consumed'): void;
   (e: 'focus-node', id: string): void;
   (e: 'abort-prediction'): void;
+  (e: 'view-graph', modelId: string): void;
 }>();
 
 // ===== 消息/输入 状态 =====
@@ -91,6 +93,7 @@ const sender = useChatSend({
   setConversationTitle: (t) => { conversationTitle.value = t; },
   autoTitle,
   currentModel,
+  currentModelId: () => props.modelId || '',
   emit: (event, addNodes, addEdges) => emit(event, addNodes, addEdges),
   closeMention: () => mention.closeMention(),
 });
@@ -287,6 +290,7 @@ defineExpose({
       @focus-node="(id) => emit('focus-node', id)"
       @abort-prediction="emit('abort-prediction')"
       @select-option="onSelectQuestionOption"
+      @view-graph="(id) => emit('view-graph', id)"
     />
     <AttachmentPreview :attachment="previewAtt" @close="previewAtt = null" />
     <AttachmentChips

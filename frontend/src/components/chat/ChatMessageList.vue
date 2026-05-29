@@ -14,6 +14,7 @@ const emit = defineEmits<{
   (e: 'focus-node', id: string): void;
   (e: 'abort-prediction'): void;
   (e: 'select-option', messageIndex: number, option: { label: string; value?: string }): void;
+  (e: 'view-graph', modelId: string): void;
 }>();
 
 const listRef = ref<HTMLElement | null>(null);
@@ -71,6 +72,11 @@ defineExpose({ scrollToBottom });
           <div v-if="m.text || (m.role === 'a' && !m.buildSteps?.length)" class="bubble" :class="{ streaming: m.role === 'a' && !m.text }">
             {{ m.text }}<span v-if="loading && m.role === 'a' && i === messages.length - 1" class="cursor" />
           </div>
+          <!-- 分析完成后"查看图谱"快捷入口 -->
+          <button v-if="m.role === 'a' && m.graphModelId" type="button" class="view-graph-btn" @click="emit('view-graph', m.graphModelId!)">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+            查看图谱
+          </button>
           <!-- LLM 返回的澄清问题 + 可点击选项 -->
           <div v-if="m.role === 'a' && m.question" class="question-card" :class="{ answered: !!m.question.answered }">
             <div class="question-head">
@@ -183,6 +189,25 @@ defineExpose({ scrollToBottom });
   border-color: rgba(66, 184, 131, 0.45);
   color: #6dd4a7;
   opacity: 1;
+}
+
+.view-graph-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 5px 12px;
+  background: rgba(66, 184, 131, 0.12);
+  border: 1px solid rgba(66, 184, 131, 0.35);
+  border-radius: 6px;
+  color: #6dd4a7;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.view-graph-btn:hover {
+  background: rgba(66, 184, 131, 0.22);
+  border-color: rgba(66, 184, 131, 0.6);
 }
 
 /* prediction 消息整行宽,头像用金色 */

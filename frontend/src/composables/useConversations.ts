@@ -71,6 +71,8 @@ export interface ChatMsg {
   buildSteps?: ChatBuildStep[];
   buildDone?: boolean;
   question?: ChatQuestionMsg;
+  /** 分析完成后生成的本体模型 ID，有值时显示"查看图谱"按钮。 */
+  graphModelId?: string;
 }
 
 export interface Conversation {
