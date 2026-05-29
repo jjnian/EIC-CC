@@ -464,6 +464,7 @@ const formatFileSize = (bytes: number) => {
       @open-data-source="(id: string) => { currentDataSourceId = id; view = 'datasource'; }"
       @open-create-data-source="dsCreateOpen = true"
       @open-ontology-model="onOpenOntologyModel"
+      @delete-ontology-model="deleteOntologyModel"
     />
     <div class="main">
       <div class="topbar">

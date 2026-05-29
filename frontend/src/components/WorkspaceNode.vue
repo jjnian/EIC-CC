@@ -23,7 +23,8 @@ const emit = defineEmits<{
   (e: 'open-data-source', id: string): void;
   (e: 'open-create-data-source'): void;
   (e: 'open-ontology-model', wsId: string, modelId: string): void;
-}>();
+  (e: 'delete-ontology-model', modelId: string): void;
+});
 
 const tree = useSidebarTree();
 const ws = useWorkspaces();
@@ -183,6 +184,16 @@ const onToggleLineage = () => {
   lineageExpanded.value = !lineageExpanded.value;
 };
 
+const onDeleteLineageModel = async (modelId: string) => {
+  const ok = await uiConfirm({
+    title: '删除血缘图',
+    message: '确认删除该血缘图？此操作不可恢复。',
+    confirmLabel: '删除',
+  });
+  if (!ok) return;
+  emit('delete-ontology-model', modelId);
+};
+
 const onClickLineageModel = async (modelId: string) => {
   if (props.isCurrent) {
     emit('open-ontology-model', props.workspace.id, modelId);
@@ -304,6 +315,7 @@ const onClickLineageModel = async (modelId: string) => {
             <span class="ws-child-icon-mini">🧬</span>
             <span class="ws-child-item-title">{{ m.title || m.name || '未命名' }}</span>
             <span class="ws-child-meta">{{ m.graphData?.nodes?.length || 0 }}/{{ m.graphData?.edges?.length || 0 }}</span>
+            <button class="ws-child-del" @click.stop="onDeleteLineageModel(m.id)" title="删除该血缘图">×</button>
           </div>
         </div>
       </div>

@@ -22,6 +22,7 @@ const emit = defineEmits<{
   (e: 'open-data-source', id: string): void;
   (e: 'open-create-data-source'): void;
   (e: 'open-ontology-model', id: string): void;
+  (e: 'delete-ontology-model', id: string): void;
 }>();
 
 const a = ref(0);
@@ -148,7 +149,8 @@ const submitCreate = async () => {
                        @new-conversation="onNewConv"
                        @open-data-source="(id: string) => emit('open-data-source', id)"
                        @open-create-data-source="emit('open-create-data-source')"
-                       @open-ontology-model="(_wsId: string, modelId: string) => emit('open-ontology-model', modelId)" />
+                       @open-ontology-model="(_wsId: string, modelId: string) => emit('open-ontology-model', modelId)"
+                       @delete-ontology-model="(modelId: string) => emit('delete-ontology-model', modelId)" />
         <button class="sb-ws-new" @click="openCreate" title="新建工作空间">
           <span class="sb-ws-avatar plus">＋</span>
           <span class="sb-ws-name">新建工作空间</span>
