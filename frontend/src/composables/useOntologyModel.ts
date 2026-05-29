@@ -43,9 +43,11 @@ export function useOntologyModel(ctx: OntologyModelCtx) {
 
   /** 带确认弹窗的删除,内部调用 onDeletedCurrent 让父级处理路由跳转。 */
   const deleteOntologyModel = async (id: string) => {
+    const target = findModel(id);
+    const name = target?.title || target?.name || '该血缘图';
     const ok = await confirm({
-      title: '删除本体模型',
-      message: '确定删除该本体模型?关联的推演分支不会自动清除。',
+      title: '删除血缘图',
+      message: `确定删除「${name}」?关联的推演分支不会自动清除。`,
       confirmLabel: '删除',
       danger: true,
     });

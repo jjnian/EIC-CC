@@ -23,6 +23,7 @@ const emit = defineEmits<{
   (e: 'open-data-source', id: string): void;
   (e: 'open-create-data-source'): void;
   (e: 'open-ontology-model', wsId: string, modelId: string): void;
+  (e: 'delete-ontology-model', wsId: string, modelId: string): void;
 }>();
 
 const tree = useSidebarTree();
@@ -197,6 +198,12 @@ const onClickLineageModel = async (modelId: string) => {
   emit('switch-current', props.workspace.id);
   emit('open-ontology-model', props.workspace.id, modelId);
 };
+
+const onDeleteLineageModel = (modelId: string, e: Event) => {
+  e.stopPropagation();
+  // 仅在当前 ws 暴露删除按钮(列表本就只在 isCurrent 时注入);二次确认与 toast 在父级 composable 里
+  emit('delete-ontology-model', props.workspace.id, modelId);
+};
 </script>
 
 <template>
@@ -304,6 +311,8 @@ const onClickLineageModel = async (modelId: string) => {
             <span class="ws-child-icon-mini">🧬</span>
             <span class="ws-child-item-title">{{ m.title || m.name || '未命名' }}</span>
             <span class="ws-child-meta">{{ m.graphData?.nodes?.length || 0 }}/{{ m.graphData?.edges?.length || 0 }}</span>
+            <button class="ws-child-del" :title="`删除 ${m.title || m.name || '该血缘图'}`"
+                    @click="(e) => onDeleteLineageModel(m.id, e)">×</button>
           </div>
         </div>
       </div>
