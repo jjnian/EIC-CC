@@ -24,7 +24,7 @@ const emit = defineEmits<{
   (e: 'open-create-data-source'): void;
   (e: 'open-ontology-model', wsId: string, modelId: string): void;
   (e: 'delete-ontology-model', modelId: string): void;
-});
+}>();
 
 const tree = useSidebarTree();
 const ws = useWorkspaces();
