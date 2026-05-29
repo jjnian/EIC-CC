@@ -282,9 +282,9 @@ const onClickLineageModel = async (modelId: string) => {
                class="ws-child-item"
                :title="d.name + (d.size ? ' · ' + formatBytes(d.size) : '')"
                @click="emit('open-data-source', String(d.id))">
-            <span class="ws-child-icon-mini">{{ ({ mysql:'🗄', pgsql:'🐘', file_stored:'📄', https_api:'🌐', file:'📎', url:'🔗' } as Record<string,string>)[d.kind] || '📁' }}</span>
+            <span class="ws-child-icon-mini">{{ ({'mysql':'🗄', 'pgsql':'🐘', 'file_stored':'📄', 'https_api':'🌐', 'file':'📎', 'url':'🔗'}[d.kind]) || '📁' }}</span>
             <span class="ws-child-item-title">{{ d.name }}</span>
-            <span v-if="['mysql','pgsql','file_stored','https_api'].includes(String(d.kind))" :class="['status-dot', String((d as any).status || 'idle')]" />
+            <span v-if="['mysql','pgsql','file_stored','https_api'].includes(String(d.kind))" :class="['status-dot', String(d.status || 'idle')]" />
             <span class="ws-child-meta">{{ formatBytes(d.size) }}</span>
             <button class="ws-child-del" :title="`删除 ${d.name}`"
                     @click="(e) => onDeleteDS(d.id, d.name, e)">×</button>
