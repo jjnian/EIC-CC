@@ -76,22 +76,27 @@ const onClickSwitch = async (e: Event) => {
 
 const onClickDelete = async (e: Event) => {
   e.stopPropagation();
-  if (props.workspace.isDefault) {
-    toast.warn('默认工作空间不可删除');
+  if (ws.workspaces.value.length <= 1) {
+    toast.warn('至少保留一个工作空间');
     return;
   }
+  const extraNote = props.workspace.isDefault
+    ? '这是默认工作空间，删除后将自动把另一个工作空间设为默认。'
+    : '';
   const ok = await uiConfirm({
     title: '删除工作空间',
-    message: `「${props.workspace.name}」内的本体图、推演分支、对话与数据源将一并清空，且无法恢复。确定继续吗？`,
+    message: `「${props.workspace.name}」内的本体图、推演分支、对话与数据源将一并清空，且无法恢复。${extraNote}确定继续吗？`,
     confirmLabel: '删除',
     danger: true,
   });
   if (!ok) return;
+  const wasDefault = props.workspace.isDefault;
   try {
     const res = await ws.remove(props.workspace.id);
     toast.success('已删除');
-    // 删的是当前 ws 时,后端切到默认 ws,前端整页刷新以重置所有视图
-    if (res.switchedTo) window.location.reload();
+    // 删的是当前 ws 时后端会切到新默认；删的是默认 ws 时后端会把另一个升为默认。
+    // 两种情况都整页刷新以重置视图并同步最新的「默认」标记。
+    if (res.switchedTo || wasDefault) window.location.reload();
   } catch (err) {
     toast.warn(err instanceof ApiError ? err.message : '删除失败');
   }
@@ -223,8 +228,7 @@ const onClickLineageModel = async (modelId: string) => {
               :title="`切换到 ${workspace.name}`"
               @click="onClickSwitch">切换</button>
       <span v-else class="ws-dot" title="当前工作空间" />
-      <button v-if="!workspace.isDefault"
-              class="ws-del-btn"
+      <button class="ws-del-btn"
               :title="`删除 ${workspace.name}`"
               @click="onClickDelete">×</button>
     </div>

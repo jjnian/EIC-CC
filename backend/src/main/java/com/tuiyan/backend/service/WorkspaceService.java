@@ -99,7 +99,7 @@ public class WorkspaceService {
     }
 
     /**
-     * 删除工作空间：级联清空业务数据；默认 ws 禁止删除。
+     * 删除工作空间：级联清空业务数据；删除默认 ws 时自动将另一个 ws 升为默认，系统至少保留一个 ws。
      * <p>顺序：先取消该 ws 下 https_api 数据源的定时任务、删除 file_stored 的物理目录，
      * 再走 DB 级联删除（外键 ON DELETE CASCADE 处理子表）。
      * 副作用清理放在 DB 删除之前，文件层失败仅记日志，不影响事务。
@@ -109,8 +109,17 @@ public class WorkspaceService {
     public boolean delete(String id) {
         WorkspacePO ws = repo.get(id);
         if (ws == null) return false;
+        // 删除默认 ws 时，自动把另一个 ws 提升为默认；系统至少保留一个 ws。
         if (Boolean.TRUE.equals(ws.getIsDefault())) {
-            throw new IllegalArgumentException("默认工作空间不可删除");
+            WorkspacePO next = repo.list().stream()
+                    .filter(w -> !w.getId().equals(id))
+                    .findFirst()
+                    .orElse(null);
+            if (next == null) {
+                throw new IllegalArgumentException("至少保留一个工作空间，无法删除");
+            }
+            next.setIsDefault(true);
+            repo.update(next);
         }
         // 1. 该 ws 下所有数据源：cancel 调度 + 清盘
         List<DataSourcePO> dsList = dataSourceMapper.selectList(
