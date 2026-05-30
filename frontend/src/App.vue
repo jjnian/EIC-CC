@@ -136,6 +136,9 @@ const persistCurrentModel = (immediate = false) => {
     m.graphData = { nodes: nodes.value, edges: edges.value };
     try {
       await updateOntology(m.id, m);
+      // 回填侧栏血缘图缓存，让展开时立刻可见
+      const wsId = wsManager.currentId.value;
+      if (wsId) sidebarTree.upsertOntology(wsId, { id: m.id, name: m.name || m.title || '未命名图谱', updatedAt: Date.now() });
     } catch (e) {
       console.error('save failed', e);
       if (e instanceof ApiError) {
@@ -368,6 +371,8 @@ const createNewModel = async () => {
     const saved = await createOnBackend(draft);
     models.value.unshift(saved);
     await openModel(saved);
+    const wsId = wsManager.currentId.value;
+    if (wsId) sidebarTree.upsertOntology(wsId, { id: saved.id, name: saved.name || saved.title || '未命名图谱', updatedAt: Date.now() });
   } finally {
     isCreating.value = false;
   }
@@ -475,6 +480,8 @@ const formatFileSize = (bytes: number) => {
       @toggle="sbExp = !sbExp"
       @nav="onNav"
       @switch-workspace="onWorkspaceSwitched"
+      @open-conversation="onOpenConversation"
+      @open-graph="onOpenOntologyModel"
     />
     <div class="main">
       <div class="topbar">

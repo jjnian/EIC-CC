@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { uploadFileDataSource } from '../api/dataSources';
 
 /** 单个附件的运行时数据。 */
 export interface Attachment {
@@ -97,6 +98,8 @@ export function useAttachments() {
         } else {
           att.content = await readAsText(f);
         }
+        // 同步注册为工作空间数据源（fire-and-forget，失败不影响聊天）
+        uploadFileDataSource(f, f.name).catch(() => {/* noop */});
       } else {
         att.error = `不支持的文件类型 (.${ext}),请上传文本/图片/DOCX`;
       }

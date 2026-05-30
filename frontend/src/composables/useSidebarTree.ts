@@ -9,6 +9,18 @@ import {
   deleteDataSource as apiDeleteDataSource,
   type DataSource,
 } from '../api/dataSources';
+import { listOntologies } from '../api/ontology';
+import type { OntologyModel } from '../types';
+
+export interface SidebarOntology {
+  id: string;
+  name: string;
+  updatedAt: number;
+}
+
+const cacheOntologies = ref<Record<string, SidebarOntology[]>>({});
+const loadingOntology = ref<Record<string, boolean>>({});
+const loadedOntology = ref<Record<string, boolean>>({});
 
 export interface SidebarConversation {
   id: string;
@@ -65,16 +77,39 @@ export function useSidebarTree() {
     }
   };
 
+  const loadOntologies = async (wsId: string, force = false): Promise<void> => {
+    if (!wsId) return;
+    if (!force && loadedOntology.value[wsId]) return;
+    if (loadingOntology.value[wsId]) return;
+    loadingOntology.value[wsId] = true;
+    try {
+      const list = (await listOntologies()) || [];
+      cacheOntologies.value[wsId] = list
+        .map((m: OntologyModel) => ({ id: m.id, name: m.name || m.title || '未命名图谱', updatedAt: (m as any).updatedAt || (m.updated ? new Date(m.updated).getTime() : 0) }))
+        .sort((a, b) => b.updatedAt - a.updatedAt);
+      loadedOntology.value[wsId] = true;
+    } catch (e) {
+      console.warn('listOntologies failed', wsId, e);
+    } finally {
+      loadingOntology.value[wsId] = false;
+    }
+  };
+
   const getConversations = (wsId: string): SidebarConversation[] =>
     cacheConvs.value[wsId] || [];
 
   const getDataSources = (wsId: string): DataSource[] =>
     cacheDS.value[wsId] || [];
 
+  const getOntologies = (wsId: string): SidebarOntology[] =>
+    cacheOntologies.value[wsId] || [];
+
   const isLoadingConv = (wsId: string): boolean => !!loadingConv.value[wsId];
   const isLoadingDS = (wsId: string): boolean => !!loadingDS.value[wsId];
   const isLoadedConv = (wsId: string): boolean => !!loadedConv.value[wsId];
   const isLoadedDS = (wsId: string): boolean => !!loadedDS.value[wsId];
+  const isLoadingOntology = (wsId: string): boolean => !!loadingOntology.value[wsId];
+  const isLoadedOntology = (wsId: string): boolean => !!loadedOntology.value[wsId];
 
   const removeConversation = async (wsId: string, id: string) => {
     await apiDeleteConversation(id);
@@ -88,6 +123,17 @@ export function useSidebarTree() {
     if (cacheDS.value[wsId]) {
       cacheDS.value[wsId] = cacheDS.value[wsId].filter(d => d.id !== id);
     }
+  };
+
+  const upsertOntology = (wsId: string, m: SidebarOntology) => {
+    if (!wsId) return;
+    const arr = cacheOntologies.value[wsId] ? [...cacheOntologies.value[wsId]] : [];
+    const idx = arr.findIndex(x => x.id === m.id);
+    if (idx >= 0) arr[idx] = m;
+    else arr.unshift(m);
+    arr.sort((a, b) => b.updatedAt - a.updatedAt);
+    cacheOntologies.value[wsId] = arr;
+    loadedOntology.value[wsId] = true;
   };
 
   /** 新增/更新数据源后回填到缓存,不需要重新拉取接口。 */
@@ -119,29 +165,38 @@ export function useSidebarTree() {
     if (wsId) {
       delete cacheConvs.value[wsId];
       delete cacheDS.value[wsId];
+      delete cacheOntologies.value[wsId];
       delete loadedConv.value[wsId];
       delete loadedDS.value[wsId];
+      delete loadedOntology.value[wsId];
     } else {
       cacheConvs.value = {};
       cacheDS.value = {};
+      cacheOntologies.value = {};
       loadedConv.value = {};
       loadedDS.value = {};
+      loadedOntology.value = {};
     }
   };
 
   return {
     loadConversations,
     loadDataSources,
+    loadOntologies,
     getConversations,
     getDataSources,
+    getOntologies,
     isLoadingConv,
     isLoadingDS,
+    isLoadingOntology,
     isLoadedConv,
     isLoadedDS,
+    isLoadedOntology,
     removeConversation,
     removeDataSource,
     upsertConversation,
     upsertDataSource,
+    upsertOntology,
     clearCache,
   };
 }
