@@ -548,7 +548,7 @@ const deleteGraph = async (id: string) => {
     sidebarTree.removeOntology(wsId, id);
     if (currentModelId.value === id) {
       currentModelId.value = '';
-      currentModelTitle.value = '渚涘簲閾炬湰浣撳浘';
+      currentModelTitle.value = '';
       goWelcome();
     }
     toast.success('已删除');
