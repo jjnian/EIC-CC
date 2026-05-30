@@ -355,6 +355,8 @@ defineExpose({
   height: 100%;
   background: rgba(8, 14, 24, 0.6);
   border-left: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  overflow: hidden;
 }
 .ch-head {
   display: flex;

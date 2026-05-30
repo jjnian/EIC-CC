@@ -20,8 +20,8 @@ export function useDivider(
       if (!divDrag.value) return;
       const delta = divDrag.value.sx - ev.clientX;
       const sideW = getSidebarW ? getSidebarW() : 72;
-      const maxW = window.innerWidth - sideW - 200; // 保留至少200px给图谱区域
-      chatW.value = Math.max(200, Math.min(maxW, divDrag.value.sw + delta));
+      const maxW = window.innerWidth - sideW - 100; // 保留至少100px给图谱区域
+      chatW.value = Math.max(120, Math.min(maxW, divDrag.value.sw + delta));
       onResize?.();
     };
     const up = () => {
