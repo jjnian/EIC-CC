@@ -34,6 +34,24 @@ import { NT } from './constants';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
+const sidebarW = ref(240);
+const sbDragging = ref(false);
+const startSbResize = (e: MouseEvent) => {
+  e.preventDefault();
+  const startX = e.clientX;
+  const startW = sidebarW.value;
+  sbDragging.value = true;
+  const onMove = (ev: MouseEvent) => {
+    sidebarW.value = Math.max(160, Math.min(480, startW + ev.clientX - startX));
+  };
+  const onUp = () => {
+    sbDragging.value = false;
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+};
 const graphRef = ref<any>(null);
 const chatRef = ref<any>(null);
 const { chatW, startDivider, isDragging } = useDivider(360, () => graphRef.value?.fitView());
@@ -477,12 +495,18 @@ const formatFileSize = (bytes: number) => {
     <Sidebar
       :expanded="sbExp"
       :view="view"
+      :style="sbExp ? `--sidebar-w: ${sidebarW}px` : ''"
       @toggle="sbExp = !sbExp"
       @nav="onNav"
       @switch-workspace="onWorkspaceSwitched"
       @open-conversation="onOpenConversation"
       @open-graph="onOpenOntologyModel"
       @open-datasource="(id) => { currentDataSourceId.value = id; view.value = 'datasource'; }"
+    />
+    <div
+      v-if="sbExp"
+      :class="['sb-resizer', { dragging: sbDragging }]"
+      @mousedown="startSbResize"
     />
     <div class="main">
       <div class="topbar">
@@ -829,6 +853,18 @@ const formatFileSize = (bytes: number) => {
 </template>
 
 <style>
+.sb-resizer {
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: rgba(255, 255, 255, 0.04);
+  transition: background-color 0.15s;
+  z-index: 10;
+}
+.sb-resizer:hover,
+.sb-resizer.dragging {
+  background: rgba(74, 144, 226, 0.45);
+}
 .model-list-view {
   flex: 1;
   padding: 40px;
