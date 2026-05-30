@@ -25,14 +25,26 @@ const emit = defineEmits<{
   (e: 'delete-ontology-model', id: string): void;
 }>();
 
-const a = ref(0);
-const items = [
+// 左侧顶级功能菜单：点击后右侧切换到对应内容
+const items: [string, string, string][] = [
   ['✦', '新对话', 'welcome'],
-  ['◈', '数据源', 'datasource']
+  ['🧬', '血缘图', 'graph-list'],
+  ['💬', '历史对话', 'conv-list'],
+  ['◈', '数据源', 'datasource'],
 ];
 
-const onPick = (i: number, route: string) => {
-  a.value = i;
+// 每个菜单项在当前 view 下是否高亮
+const isActive = (route: string): boolean => {
+  switch (route) {
+    case 'welcome': return props.view === 'welcome';
+    case 'graph-list': return props.view === 'list' || props.view === 'graph';
+    case 'conv-list': return props.view === 'conv-list' || props.view === 'chat';
+    case 'datasource': return props.view === 'datasource-list' || props.view === 'datasource';
+    default: return false;
+  }
+};
+
+const onPick = (route: string) => {
   emit('nav', route);
 };
 
@@ -126,8 +138,8 @@ const submitCreate = async () => {
       <div class="logo-text">推演平台</div>
     </div>
     <button v-for="(item, i) in items" :key="i"
-            :class="['sb-item', { active: (item[2] === 'welcome' && view === 'welcome') || (item[2] === 'list' && view === 'list') || (item[2] === 'datasource' && (view === 'datasource-list' || view === 'datasource')) }]"
-            @click="onPick(i, item[2] as string)">
+            :class="['sb-item', { active: isActive(item[2]) }]"
+            @click="onPick(item[2])">
       <span class="sb-icon">{{ item[0] }}</span><span class="sb-item-label">{{ item[1] }}</span>
     </button>
 

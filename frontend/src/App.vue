@@ -9,6 +9,7 @@ import BranchCompareDialog from './components/BranchCompareDialog.vue';
 import ImportDialog from './components/ImportDialog.vue';
 import GraphView from './components/views/GraphView.vue';
 import ChatCenterView from './components/views/ChatCenterView.vue';
+import ConversationListView from './components/views/ConversationListView.vue';
 import DataSourceDetailView from './components/datasource/DataSourceDetailView.vue';
 import DataSourceCreateDialog from './components/DataSourceCreateDialog.vue';
 import DataSourcePageView from './components/views/DataSourcePageView.vue';
@@ -37,7 +38,16 @@ const graphRef = ref<any>(null);
 const chatRef = ref<any>(null);
 const { chatW, startDivider, isDragging } = useDivider(360, () => graphRef.value?.fitView());
 
-const view = ref<'welcome' | 'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource' | 'datasource-list'>('workspace-picker');
+const view = ref<'welcome' | 'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource' | 'datasource-list' | 'conv-list'>('workspace-picker');
+
+// 左侧顶级菜单导航：把菜单 route 映射到对应的 view
+const onNav = (r: string) => {
+  if (r === 'welcome') goWelcome();
+  else if (r === 'graph-list') view.value = 'list';
+  else if (r === 'conv-list') view.value = 'conv-list';
+  else if (r === 'datasource') view.value = 'datasource-list';
+  else if (r === 'settings') view.value = 'settings';
+};
 const currentDataSourceId = ref<string | null>(null);
 const currentModelTitle = ref('供应链本体图');
 const pendingChatSeed = ref<{ text: string; files: File[] } | null>(null);
@@ -464,7 +474,7 @@ const formatFileSize = (bytes: number) => {
       :view="view"
       :ontology-models="models"
       @toggle="sbExp = !sbExp"
-      @nav="r => { if(r==='welcome') goWelcome(); else if(r==='list') view='list'; else if(r==='settings') view='settings'; else if(r==='datasource') view='datasource-list'; }"
+      @nav="onNav"
       @open-conversation="onOpenConversation"
       @new-conversation="onNewConversation"
       @switch-workspace="onWorkspaceSwitched"
@@ -561,6 +571,13 @@ const formatFileSize = (bytes: number) => {
           </div>
         </div>
       </div>
+
+      <!-- Conversation List View -->
+      <ConversationListView
+        v-if="view === 'conv-list'"
+        @open="onOpenConversation"
+        @new="onNewConversation"
+      />
 
       <!-- Settings View -->
       <SettingsView v-if="view === 'settings'" @switch-workspace="onWorkspaceSwitched" />
