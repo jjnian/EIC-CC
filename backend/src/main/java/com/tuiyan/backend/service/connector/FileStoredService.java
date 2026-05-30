@@ -12,6 +12,11 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.LinkedHashMap;
@@ -76,7 +81,7 @@ public class FileStoredService {
                 text = "";
             }
         } else {
-            text = Files.readString(rawFile.toPath(), StandardCharsets.UTF_8);
+            text = readTextLenient(rawFile);
         }
         if (text != null && text.length() > TEXT_CHAR_BUDGET) {
             text = text.substring(0, TEXT_CHAR_BUDGET) + "\n[…truncated…]";
@@ -99,6 +104,27 @@ public class FileStoredService {
         cfg.put("originalName", safe);
         cfg.put("sizeBytes", size);
         return cfg;
+    }
+
+    /**
+     * 宽容读取文本：优先按 UTF-8 严格解码；遇到非 UTF-8 字节（常见于
+     * Windows 下 GBK/GB18030 编码的中文 .txt）则回退到 GB18030，
+     * 仍失败则用替换式 UTF-8 解码兜底，避免上传直接 500 失败。
+     */
+    static String readTextLenient(File file) throws IOException {
+        byte[] bytes = Files.readAllBytes(file.toPath());
+        for (Charset cs : new Charset[]{ StandardCharsets.UTF_8, Charset.forName("GB18030") }) {
+            try {
+                CharsetDecoder dec = cs.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT);
+                return dec.decode(ByteBuffer.wrap(bytes)).toString();
+            } catch (CharacterCodingException ignored) {
+                // 尝试下一个编码
+            }
+        }
+        // 兜底：UTF-8 替换式解码，乱码也好过整单失败
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     /** 读取已抽取的文本片段（按字符偏移 + 长度）。 */
