@@ -13,7 +13,11 @@ import ConversationListView from './components/views/ConversationListView.vue';
 import DataSourceDetailView from './components/datasource/DataSourceDetailView.vue';
 import DataSourceCreateDialog from './components/DataSourceCreateDialog.vue';
 import DataSourcePageView from './components/views/DataSourcePageView.vue';
+import NodeEditDialog from './components/dialogs/NodeEditDialog.vue';
+import RelationEditDialog from './components/dialogs/RelationEditDialog.vue';
+import TemplateLibraryDialog from './components/dialogs/TemplateLibraryDialog.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
+import './app.css';
 import { toast, mountToastRoot } from './composables/useToast';
 import { updateOntology, deleteOntology } from './api/ontology';
 import { getConversation, updateConversation, deleteConversation as apiDeleteConversation } from './api/conversations';
@@ -31,7 +35,6 @@ import { useVersionTemplates } from './composables/useVersionTemplates';
 import { useWorkspaces } from './composables/useWorkspaces';
 import { useSidebarTree } from './composables/useSidebarTree';
 import { getDataSource } from './api/dataSources';
-import { NT } from './constants';
 
 const sel = ref<string | null>(null);
 const sbExp = ref(true);
@@ -271,8 +274,8 @@ const graphActions = useGraphActions({
   fitView: () => graphRef.value?.fitView(),
   persist: persistCurrentModel,
 });
+// autoLayout 包了 history.snapshot()，非纯透传，保留包装；layoutDirection 是 ref 别名需保留以供模板解包。
 const autoLayout = () => { history.snapshot(); graphActions.autoLayout(); };
-const toggleLayoutDirection = graphActions.toggleLayoutDirection;
 const layoutDirection = graphActions.layoutDirection;
 
 const merger = useImportMerge({
@@ -282,22 +285,15 @@ const merger = useImportMerge({
   autoLayout: graphActions.autoLayout,
   persist: persistCurrentModel,
 });
-const onUpdate = merger.onUpdate;
 
 const editor = useGraphEditor({
   nodes, edges, sel,
   snapshotHistory: () => history.snapshot(),
   persist: persistCurrentModel,
 });
-const addNodeAtPosition = editor.addNodeAtPosition;
-const addEdgesBatch = editor.addEdgesBatch;
+// 仅保留 ref / computed 别名（模板对“普通对象的嵌套 ref”不会自动解包，必须经顶层 const 解包）；
+// 纯函数透传一律改用 editor.xxx 命名空间调用。
 const editingRelation = editor.editingRelation;
-const openEditRelation = editor.openEditRelation;
-const toggleRelInput = editor.toggleRelInput;
-const toggleRelOutput = editor.toggleRelOutput;
-const saveEditRelation = editor.saveEditRelation;
-const cancelEditRelation = editor.cancelEditRelation;
-const deleteEditingRelation = editor.deleteEditingRelation;
 const editRelGraphNodes = editor.editRelGraphNodes;
 const editingNode = editor.editingNode;
 const editNodeInputs = editor.editNodeInputs;
@@ -305,19 +301,6 @@ const editNodeOutputs = editor.editNodeOutputs;
 const editInputLabels = editor.editInputLabels;
 const editOutputLabels = editor.editOutputLabels;
 const editableGraphNodes = editor.editableGraphNodes;
-const openEditNode = editor.openEditNode;
-const toggleEditInput = editor.toggleEditInput;
-const toggleEditOutput = editor.toggleEditOutput;
-const saveEditNode = editor.saveEditNode;
-const cancelEditNode = editor.cancelEditNode;
-const updateNodeProps = editor.updateNodeProps;
-const updateNodeSchema = editor.updateNodeSchema;
-const updateEdgeSchema = editor.updateEdgeSchema;
-const deleteEdge = editor.deleteEdge;
-const deleteRelation = editor.deleteRelation;
-const deleteNode = editor.deleteNode;
-const deleteNodes = editor.deleteNodes;
-const clearCanvas = editor.clearCanvas;
 
 const openModel = async (m: OntologyModel, targetView: 'graph' | 'chat' = 'graph') => {
   if (currentModelId.value && currentModelId.value !== m.id) {
@@ -348,24 +331,15 @@ const versionTpl = useVersionTemplates({
   openModel,
   persistImmediate: () => persistCurrentModel(true),
 });
+// 仅保留 ref 别名；函数一律改用 versionTpl.xxx 命名空间调用。
 const showVersionMenu = versionTpl.showVersionMenu;
 const versions = versionTpl.versions;
 const versionsLoading = versionTpl.versionsLoading;
-const toggleVersionMenu = versionTpl.toggleVersionMenu;
-const doRestoreVersion = versionTpl.doRestoreVersion;
 const showTemplates = versionTpl.showTemplates;
 const templates = versionTpl.templates;
 const templatesLoading = versionTpl.templatesLoading;
-const openTemplates = versionTpl.openTemplates;
-const saveAsTemplate = versionTpl.saveAsTemplate;
-const createFromTemplate = versionTpl.createFromTemplate;
-const removeTemplate = versionTpl.removeTemplate;
-const closeTemplates = versionTpl.closeTemplates;
-const openPreview = versionTpl.openPreview;
 
-// 模板别名（保留向下兼容）
-const loadBranches = scenarios.loadBranches;
-const switchBranch = scenarios.switchBranch;
+// 仅保留 ref 别名；函数一律改用 prediction.xxx / scenarios.xxx 命名空间调用。
 const predictDialogOpen = prediction.predictDialogOpen;
 const predictSeeds = prediction.predictSeeds;
 const liveSteps = prediction.liveSteps;
@@ -379,16 +353,13 @@ const liveName = prediction.liveName;
 const liveBranchId = prediction.liveBranchId;
 const liveError = prediction.liveError;
 const liveStatus = prediction.liveStatus;
-const openPredictDialog = prediction.openPredictDialog;
-const startPrediction = prediction.startPrediction;
-const closeTimeline = prediction.closeTimeline;
 
 // v1.0 导入提交:抽到 useImportFlow composable
 const importFlow = useImportFlow({
   nodes,
   edges,
   activeBranchId,
-  switchToTrunk: () => switchBranch('trunk'),
+  switchToTrunk: () => scenarios.switchBranch('trunk'),
   persistCurrentModel,
   createNewModel: createOnBackend,
   registerAndOpenModel: async (saved) => {
@@ -671,9 +642,9 @@ const formatFileSize = (bytes: number) => {
             title="查看 / 编辑静态本体 Schema (类 / 关系 / 属性 / 约束)"
             :disabled="!currentModelId"
           >⎔ Schema</button>
-          <button class="tb-btn" @click="openPreview" title="在新标签页里以只读模式预览整张图谱" :disabled="!currentModelId">预览</button>
+          <button class="tb-btn" @click="versionTpl.openPreview" title="在新标签页里以只读模式预览整张图谱" :disabled="!currentModelId">预览</button>
           <div class="export-menu-wrap">
-            <button class="tb-btn" @click="toggleVersionMenu" title="查看和恢复历史版本" :disabled="!currentModelId">
+            <button class="tb-btn" @click="versionTpl.toggleVersionMenu" title="查看和恢复历史版本" :disabled="!currentModelId">
               🕐 版本
               <svg viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="2" fill="none" style="margin-left:2px"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
@@ -683,15 +654,15 @@ const formatFileSize = (bytes: number) => {
               <template v-else>
                 <button v-for="v in versions" :key="v.timestamp"
                         class="vm-item"
-                        @click="doRestoreVersion(v.timestamp); showVersionMenu = false">
+                        @click="versionTpl.doRestoreVersion(v.timestamp); showVersionMenu = false">
                   <div class="vm-time">{{ new Date(v.timestamp).toLocaleString() }}</div>
                   <div class="vm-meta">{{ v.nodeCount }} 节点 · {{ v.edgeCount }} 关系 · {{ formatFileSize(v.fileSize) }}</div>
                 </button>
               </template>
             </div>
           </div>
-          <button class="tb-btn" @click="openTemplates" title="从模板创建新模型">📋 模板</button>
-          <button class="tb-btn" @click="saveAsTemplate" title="将当前模型另存为模板" :disabled="!currentModelId">💾 存为模板</button>
+          <button class="tb-btn" @click="versionTpl.openTemplates" title="从模板创建新模型">📋 模板</button>
+          <button class="tb-btn" @click="versionTpl.saveAsTemplate" title="将当前模型另存为模板" :disabled="!currentModelId">💾 存为模板</button>
           <button class="tb-btn hi" v-if="chatW === 0" @click="backToChat" title="回到对话">回到对话</button>
           <div class="export-menu-wrap">
             <button class="tb-btn" @click="showExportMenu = !showExportMenu" title="导出">⬇ 导出</button>
@@ -783,36 +754,36 @@ const formatFileSize = (bytes: number) => {
         :can-redo="canRedo"
         :schema-open="schemaOpen"
         @close-schema="schemaOpen = false"
-        @update-node-schema="updateNodeSchema"
-        @update-edge-schema="updateEdgeSchema"
+        @update-node-schema="editor.updateNodeSchema"
+        @update-edge-schema="editor.updateEdgeSchema"
         @undo="undoGraph"
         @redo="redoGraph"
         @update:selected-id="(id) => sel = id"
         @move="onMove"
         @drag-start="onDragStart"
         @auto-layout="autoLayout"
-        @toggle-layout-direction="toggleLayoutDirection"
-        @clear="clearCanvas"
-        @predict-from="openPredictDialog"
-        @edit-node="openEditNode"
-        @delete-node="deleteNode"
-        @delete-nodes="deleteNodes"
-        @switch-branch="switchBranch"
-        @close-timeline="closeTimeline"
+        @toggle-layout-direction="graphActions.toggleLayoutDirection"
+        @clear="editor.clearCanvas"
+        @predict-from="prediction.openPredictDialog"
+        @edit-node="editor.openEditNode"
+        @delete-node="editor.deleteNode"
+        @delete-nodes="editor.deleteNodes"
+        @switch-branch="scenarios.switchBranch"
+        @close-timeline="prediction.closeTimeline"
         @focus-node="focusNodeInGraph"
-        @update="onUpdate"
+        @update="merger.onUpdate"
         @seed-consumed="pendingChatSeed = null"
         @start-divider="startDivider"
         @graph-ref="(el) => graphRef = el"
         @chat-ref="(el) => chatRef = el"
-        @abort-prediction="closeTimeline"
-        @update-node-props="updateNodeProps"
-        @delete-edge="deleteEdge"
+        @abort-prediction="prediction.closeTimeline"
+        @update-node-props="editor.updateNodeProps"
+        @delete-edge="editor.deleteEdge"
         @clear-diff="clearDiffHighlight"
-        @add-node="addNodeAtPosition"
-        @add-edges="addEdgesBatch"
-        @edit-edge-relation="openEditRelation"
-        @delete-relation="deleteRelation"
+        @add-node="editor.addNodeAtPosition"
+        @add-edges="editor.addEdgesBatch"
+        @edit-edge-relation="editor.openEditRelation"
+        @delete-relation="editor.deleteRelation"
       />
 
       <!-- Chat-Centered View: 全程居中,分析过程在中央显示 -->
@@ -834,10 +805,10 @@ const formatFileSize = (bytes: number) => {
         :pending-chat-seed="pendingChatSeed"
         :model-title="currentModelTitle"
         :model-id="currentModelId"
-        @update="onUpdate"
-        @clear-graph="clearCanvas"
+        @update="merger.onUpdate"
+        @clear-graph="editor.clearCanvas"
         @seed-consumed="pendingChatSeed = null"
-        @abort-prediction="closeTimeline"
+        @abort-prediction="prediction.closeTimeline"
         @chat-ref="(el) => chatRef = el"
         @view-graph="onOpenOntologyModel"
       />
@@ -850,7 +821,7 @@ const formatFileSize = (bytes: number) => {
         :initialSeedIds="predictSeeds"
         :modelId="currentModelId"
         @close="predictDialogOpen = false"
-        @submit="startPrediction"
+        @submit="prediction.startPrediction"
       />
 
       <!-- Branch Compare Dialog (modal) -->
@@ -874,473 +845,42 @@ const formatFileSize = (bytes: number) => {
       <DataSourceCreateDialog v-if="dsCreateOpen" @close="dsCreateOpen = false" @created="onDsCreated" />
 
       <!-- 节点编辑对话框 -->
-      <div v-if="editingNode" class="modal-mask" @click.self="cancelEditNode">
-        <div class="add-node-dialog">
-          <h3>编辑节点</h3>
-          <label class="anp-label">名称
-            <input v-model="editingNode.label" class="edit-input" @keydown.enter="saveEditNode" />
-          </label>
-          <label class="anp-label">类型
-            <select v-model="editingNode.type" class="edit-input">
-              <option v-for="(t, k) in NT" :key="k" :value="k">{{ t.label }}</option>
-            </select>
-          </label>
-          <div v-if="editableGraphNodes.length > 0" class="anp-section">
-            <div class="anp-section-title">输入连接 <span class="anp-hint">（从哪些节点连入）</span></div>
-            <div class="anp-node-list">
-              <div v-for="n in editableGraphNodes" :key="'ein-'+n.id" class="anp-node-option">
-                <label class="anp-check-label" @click.prevent="toggleEditInput(n.id)">
-                  <span :class="['anp-checkbox', { checked: editNodeInputs.includes(n.id) }]">
-                    <span v-if="editNodeInputs.includes(n.id)" class="anp-check-mark">✓</span>
-                  </span>
-                  <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
-                  <span class="anp-node-name">{{ n.label }}</span>
-                </label>
-                <input v-if="editNodeInputs.includes(n.id)" v-model="editInputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
-              </div>
-            </div>
-          </div>
-          <div v-if="editableGraphNodes.length > 0" class="anp-section">
-            <div class="anp-section-title">输出连接 <span class="anp-hint">（连向哪些节点）</span></div>
-            <div class="anp-node-list">
-              <div v-for="n in editableGraphNodes" :key="'eout-'+n.id" class="anp-node-option">
-                <label class="anp-check-label" @click.prevent="toggleEditOutput(n.id)">
-                  <span :class="['anp-checkbox', { checked: editNodeOutputs.includes(n.id) }]">
-                    <span v-if="editNodeOutputs.includes(n.id)" class="anp-check-mark">✓</span>
-                  </span>
-                  <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
-                  <span class="anp-node-name">{{ n.label }}</span>
-                </label>
-                <input v-if="editNodeOutputs.includes(n.id)" v-model="editOutputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
-              </div>
-            </div>
-          </div>
-          <div class="edit-actions">
-            <button class="edit-cancel" @click="cancelEditNode">取消</button>
-            <button class="edit-save" @click="saveEditNode">保存</button>
-          </div>
-        </div>
-      </div>
+      <NodeEditDialog
+        v-if="editingNode"
+        :editing-node="editingNode"
+        :editable-graph-nodes="editableGraphNodes"
+        :edit-node-inputs="editNodeInputs"
+        :edit-node-outputs="editNodeOutputs"
+        :edit-input-labels="editInputLabels"
+        :edit-output-labels="editOutputLabels"
+        @save="editor.saveEditNode"
+        @cancel="editor.cancelEditNode"
+        @toggle-input="editor.toggleEditInput"
+        @toggle-output="editor.toggleEditOutput"
+      />
 
       <!-- 关系编辑对话框 -->
-      <div v-if="editingRelation" class="modal-mask" @click.self="cancelEditRelation">
-        <div class="add-node-dialog" @click.stop>
-          <h3>编辑关系</h3>
-          <label class="anp-label">关系名称
-            <input v-model="editingRelation.label" class="edit-input" placeholder="输入关系名称…" @keydown.escape="cancelEditRelation" />
-          </label>
-          <div v-if="editRelGraphNodes.length > 0" class="anp-section">
-            <div class="anp-section-title">输入节点 <span class="anp-hint">（关系的起始节点，可多选）</span></div>
-            <div class="anp-node-list">
-              <div v-for="n in editRelGraphNodes.filter(x => !editingRelation!.outputs.includes(x.id))" :key="'ri-'+n.id" class="anp-node-option">
-                <label class="anp-check-label" @click.prevent="toggleRelInput(n.id)">
-                  <span :class="['anp-checkbox', { checked: editingRelation.inputs.includes(n.id) }]">
-                    <span v-if="editingRelation.inputs.includes(n.id)" class="anp-check-mark">✓</span>
-                  </span>
-                  <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
-                  <span class="anp-node-name">{{ n.label }}</span>
-                </label>
-              </div>
-            </div>
-          </div>
-          <div v-if="editRelGraphNodes.length > 0" class="anp-section">
-            <div class="anp-section-title">输出节点 <span class="anp-hint">（关系的目标节点，可多选）</span></div>
-            <div class="anp-node-list">
-              <div v-for="n in editRelGraphNodes.filter(x => !editingRelation!.inputs.includes(x.id))" :key="'ro-'+n.id" class="anp-node-option">
-                <label class="anp-check-label" @click.prevent="toggleRelOutput(n.id)">
-                  <span :class="['anp-checkbox', { checked: editingRelation.outputs.includes(n.id) }]">
-                    <span v-if="editingRelation.outputs.includes(n.id)" class="anp-check-mark">✓</span>
-                  </span>
-                  <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
-                  <span class="anp-node-name">{{ n.label }}</span>
-                </label>
-              </div>
-            </div>
-          </div>
-          <div class="edit-actions">
-            <button class="edit-delete" @click="deleteEditingRelation">删除关系</button>
-            <button class="edit-cancel" @click="cancelEditRelation">取消</button>
-            <button class="edit-save" @click="saveEditRelation" :disabled="editingRelation.inputs.length === 0 || editingRelation.outputs.length === 0">保存</button>
-          </div>
-        </div>
-      </div>
+      <RelationEditDialog
+        v-if="editingRelation"
+        :editing-relation="editingRelation"
+        :edit-rel-graph-nodes="editRelGraphNodes"
+        @save="editor.saveEditRelation"
+        @cancel="editor.cancelEditRelation"
+        @delete="editor.deleteEditingRelation"
+        @toggle-input="editor.toggleRelInput"
+        @toggle-output="editor.toggleRelOutput"
+      />
 
       <!-- 模板库面板 -->
-      <div v-if="showTemplates" class="modal-mask" @click.self="closeTemplates">
-        <div class="version-panel">
-          <div class="vp-header">
-            <h3>模板库</h3>
-            <button class="vp-close" @click="closeTemplates">&#10005;</button>
-          </div>
-          <div v-if="templatesLoading" class="vp-loading">加载中…</div>
-          <div v-else-if="templates.length === 0" class="vp-empty">暂无模板，可在图谱视图中点击「存为模板」保存当前模型为模板</div>
-          <div v-else class="vp-list">
-            <div v-for="t in templates" :key="t.id" class="vp-item" style="display:flex;justify-content:space-between;align-items:center">
-              <div @click="createFromTemplate(t)" style="flex:1;cursor:pointer">
-                <div class="vp-time">{{ t.title || t.name || '未命名' }}</div>
-                <div class="vp-meta">
-                  {{ t.graphData?.nodes?.length || 0 }} 节点 · {{ t.graphData?.edges?.length || 0 }} 关系
-                  {{ t.desc ? ' · ' + t.desc : '' }}
-                </div>
-              </div>
-              <button class="ml-del" @click.stop="removeTemplate(t.id)" title="删除模板">×</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <TemplateLibraryDialog
+        v-if="showTemplates"
+        :templates="templates"
+        :templates-loading="templatesLoading"
+        @close="versionTpl.closeTemplates"
+        @create-from="versionTpl.createFromTemplate"
+        @remove="versionTpl.removeTemplate"
+      />
     </div>
   </div>
 </template>
 
-<style>
-.sb-resizer {
-  width: 4px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background: rgba(255, 255, 255, 0.04);
-  transition: background-color 0.15s ease;
-  z-index: 10;
-}
-.sb-resizer:hover,
-.sb-resizer.dragging {
-  background: linear-gradient(180deg, rgba(74, 144, 226, 0.0), rgba(66, 184, 131, 0.55), rgba(74, 144, 226, 0.0));
-  box-shadow: 0 0 14px rgba(66, 184, 131, 0.35);
-}
-.model-list-view {
-  flex: 1;
-  padding: 40px;
-  overflow-y: auto;
-  background: transparent;
-}
-.ml-header {
-  margin-bottom: 32px;
-}
-.ml-header h2 {
-  font-size: 26px;
-  font-weight: 700;
-  color: var(--text-main);
-  margin-bottom: 8px;
-  letter-spacing: 0.4px;
-  background: linear-gradient(180deg, #ffffff 0%, rgba(244, 247, 251, 0.78) 100%);
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-family: 'Inter', sans-serif;
-}
-.ml-header p {
-  color: var(--text-dim);
-  font-size: 14px;
-  letter-spacing: 0.15px;
-  line-height: 1.65;
-}
-.ml-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 24px;
-}
-.ml-card {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.55) 0%, rgba(11, 18, 32, 0.45) 100%);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 18px;
-  padding: 22px 24px;
-  cursor: pointer;
-  transition: transform 0.22s cubic-bezier(.34,1.4,.64,1), border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  position: relative;
-  overflow: hidden;
-}
-.ml-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 10% -10%, rgba(66, 184, 131, 0.10), transparent 55%);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.22s ease;
-}
-.ml-card:hover {
-  transform: translateY(-4px);
-  background: linear-gradient(180deg, rgba(20, 30, 52, 0.62) 0%, rgba(15, 23, 42, 0.55) 100%);
-  border-color: rgba(66, 184, 131, 0.42);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(66, 184, 131, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-.ml-card:hover::before { opacity: 1; }
-.ml-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.ml-card-head h3 {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-main);
-  letter-spacing: 0.2px;
-}
-.status-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--accent);
-  border-radius: 50%;
-  box-shadow: 0 0 8px var(--accent), 0 0 0 3px rgba(66, 184, 131, 0.10);
-}
-.ml-del {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.42);
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-  display: flex; align-items: center; justify-content: center;
-}
-.ml-del:hover { background: rgba(255, 102, 68, 0.18); border-color: rgba(255, 102, 68, 0.38); color: #ff8a6f; }
-.ml-card-desc {
-  font-size: 13px;
-  color: var(--text-dim);
-  line-height: 1.6;
-  flex: 1;
-  letter-spacing: 0.1px;
-}
-.ml-card-foot {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 8px;
-  padding-top: 16px;
-  border-top: 1px dashed rgba(255, 255, 255, 0.10);
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
-}
-.ml-stat {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 2px 9px;
-  border-radius: 100px;
-  font-family: 'JetBrains Mono', monospace;
-  letter-spacing: 0.2px;
-}
-.ml-time {
-  margin-left: auto;
-  font-family: 'JetBrains Mono', monospace;
-  color: rgba(255, 255, 255, 0.40);
-}
-/* 节点编辑对话框 */
-.modal-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.edit-node-dialog {
-  background: linear-gradient(180deg, #182338 0%, #101729 100%);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 14px;
-  padding: 22px;
-  width: 340px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
-}
-.edit-node-dialog h3 {
-  margin: 0; color: var(--text-main); font-size: 16px;
-  font-weight: 600; letter-spacing: 0.3px;
-}
-.edit-node-dialog label {
-  display: flex; flex-direction: column; gap: 4px;
-  color: rgba(255,255,255,0.62); font-size: 13px;
-  letter-spacing: 0.15px;
-}
-.edit-input {
-  background: rgba(8, 13, 22, 0.78);
-  border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 8px;
-  padding: 9px 12px;
-  color: var(--text-main);
-  font-size: 14px;
-  outline: none;
-  font-family: inherit;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
-}
-.edit-input:focus {
-  border-color: rgba(66, 184, 131, 0.55);
-  box-shadow: 0 0 0 3px rgba(66, 184, 131, 0.10);
-}
-.edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.edit-cancel {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255,255,255,0.14);
-  color: rgba(255,255,255,0.65);
-  border-radius: 8px;
-  padding: 7px 18px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.edit-cancel:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
-.edit-save {
-  background: linear-gradient(135deg, #5fd4a3, #42b883);
-  border: none;
-  color: #062a1c;
-  border-radius: 8px;
-  padding: 7px 18px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 6px 14px rgba(66, 184, 131, 0.30), inset 0 1px 0 rgba(255,255,255,0.32);
-  letter-spacing: 0.2px;
-}
-.edit-save:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(66, 184, 131, 0.40), inset 0 1px 0 rgba(255,255,255,0.36); }
-.edit-delete {
-  background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.42);
-  color: #f87171;
-  border-radius: 8px;
-  padding: 7px 18px;
-  cursor: pointer;
-  margin-right: auto;
-  font-family: inherit;
-  font-size: 13px;
-  transition: background-color .15s ease, border-color .15s ease;
-}
-.edit-delete:hover { background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.6); }
-
-/* 版本历史面板 */
-.version-panel {
-  background: linear-gradient(180deg, #182338 0%, #101729 100%);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 14px;
-  width: 400px;
-  max-height: 70vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
-}
-.vp-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 22px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent);
-}
-.vp-header h3 {
-  margin: 0; color: var(--text-main); font-size: 16px;
-  font-weight: 600; letter-spacing: 0.3px;
-}
-.vp-close {
-  background: transparent; border: none;
-  color: rgba(255,255,255,0.5);
-  font-size: 18px; cursor: pointer;
-  width: 28px; height: 28px;
-  border-radius: 7px;
-  display: flex; align-items: center; justify-content: center;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.vp-close:hover { background: rgba(255,255,255,0.08); color: #fff; }
-.vp-loading, .vp-empty {
-  padding: 32px; text-align: center;
-  color: rgba(255,255,255,0.45); font-size: 14px;
-  font-style: italic;
-}
-.vp-list { overflow-y: auto; padding: 8px; }
-.vp-item {
-  padding: 12px 16px;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-.vp-item:hover { background: rgba(255,255,255,0.06); }
-.vp-time { color: var(--text-main); font-size: 14px; letter-spacing: 0.15px; }
-.vp-meta {
-  color: rgba(255,255,255,0.45); font-size: 12px; margin-top: 4px;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-/* 导出下拉菜单 */
-.export-menu-wrap {
-  position: relative;
-  display: inline-block;
-}
-.export-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 6px;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(11, 18, 32, 0.94));
-  border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 10px;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  min-width: 150px;
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
-  z-index: 60;
-  box-shadow: 0 18px 44px rgba(0,0,0,0.50), inset 0 1px 0 rgba(255,255,255,0.05);
-}
-.export-dropdown button {
-  background: transparent;
-  border: none;
-  color: rgba(255,255,255,0.75);
-  padding: 8px 12px;
-  text-align: left;
-  font-size: 13px;
-  border-radius: 7px;
-  cursor: pointer;
-  font-family: inherit;
-  letter-spacing: 0.15px;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.export-dropdown button:hover { background: rgba(66, 184, 131, 0.12); color: #5fd4a3; }
-
-/* 版本下拉 (复用 export-dropdown 的浮层，但内容更密) */
-.version-dropdown {
-  min-width: 240px;
-  max-width: 320px;
-  max-height: 360px;
-  overflow-y: auto;
-}
-.vm-state {
-  padding: 14px 12px;
-  text-align: center;
-  color: rgba(255,255,255,0.45);
-  font-size: 12px;
-  font-style: italic;
-}
-.vm-item {
-  background: transparent;
-  border: none;
-  text-align: left;
-  padding: 8px 12px;
-  border-radius: 7px;
-  cursor: pointer;
-  display: block;
-  width: 100%;
-  font-family: inherit;
-  transition: background 0.12s ease;
-}
-.vm-item:hover { background: rgba(255,255,255,0.06); }
-.vm-time { color: var(--text-main); font-size: 13px; letter-spacing: 0.15px; }
-.vm-meta {
-  color: rgba(255,255,255,0.48);
-  font-size: 11px;
-  margin-top: 2px;
-  font-family: 'JetBrains Mono', monospace;
-}
-</style>
