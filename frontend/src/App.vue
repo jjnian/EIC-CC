@@ -719,7 +719,10 @@ const formatFileSize = (bytes: number) => {
       <SettingsView v-if="view === 'settings'" @switch-workspace="onWorkspaceSwitched" />
 
       <!-- DataSource Detail View -->
-      <DataSourceDetailView v-else-if="view === 'datasource' && currentDataSourceId" :ds-id="currentDataSourceId" />
+      <DataSourceDetailView v-else-if="view === 'datasource' && currentDataSourceId"
+                            :ds-id="currentDataSourceId"
+                            :has-current-model="!!currentModelId"
+                            @ontology-extracted="onImportCommit" />
 
       <!-- DataSource List / Add Page -->
       <DataSourcePageView

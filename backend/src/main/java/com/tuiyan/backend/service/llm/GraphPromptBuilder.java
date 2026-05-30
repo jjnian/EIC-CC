@@ -2,6 +2,11 @@ package com.tuiyan.backend.service.llm;
 
 import com.tuiyan.backend.model.Constraint;
 import com.tuiyan.backend.model.PredictRequest;
+import com.tuiyan.backend.service.connector.JdbcConnectorService.ColumnInfo;
+import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
+import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
+import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
+import com.tuiyan.backend.service.connector.JdbcConnectorService.UniqueKeyInfo;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -38,8 +43,20 @@ public class GraphPromptBuilder {
     /** RAG 检索结果片段 */
     public record RagChunk(String content, String sourceName, double score) {}
 
-    /** 数据库 schema 概览片段，用于让 LLM 知道当前工作空间有哪些表可参考。 */
-    public record DbSchema(String sourceName, String kind, String database, List<String> tables) {}
+    /**
+     * 数据库 schema 概览片段，用于让 LLM 知道当前工作空间有哪些表可参考。
+     * <p>从 only-table-names 升级为可承载结构化详情（detail 非 null 时使用结构化序列化）。
+     */
+    public record DbSchema(String sourceName,
+                           String kind,
+                           String database,
+                           List<String> tables,
+                           DatabaseSchemaInfo detail) {
+        // 兼容旧调用：只有表名时
+        public DbSchema(String sourceName, String kind, String database, List<String> tables) {
+            this(sourceName, kind, database, tables, null);
+        }
+    }
 
     /** chat 用 user prompt：把现有图谱摘要放在前面，作为已知上下文。 */
     public String buildChatPrompt(List<Map<String, Object>> nodes,
@@ -70,18 +87,24 @@ public class GraphPromptBuilder {
             for (DbSchema s : dbSchemas) {
                 sb.append("- 数据源「").append(s.sourceName()).append("」 (")
                   .append(s.kind()).append(", 库: ").append(s.database()).append("):\n");
-                sb.append("  Tables: ");
-                List<String> ts = s.tables();
-                if (ts == null || ts.isEmpty()) {
-                    sb.append("(无)\n");
+                // 优先用结构化详情；没有就退回到只有表名
+                if (s.detail() != null && s.detail().tables() != null
+                        && !s.detail().tables().isEmpty()) {
+                    sb.append(renderSchemaCompact(s.detail()));
                 } else {
-                    int max = Math.min(40, ts.size());
-                    for (int i = 0; i < max; i++) {
-                        if (i > 0) sb.append(", ");
-                        sb.append(ts.get(i));
+                    sb.append("  Tables: ");
+                    List<String> ts = s.tables();
+                    if (ts == null || ts.isEmpty()) {
+                        sb.append("(无)\n");
+                    } else {
+                        int max = Math.min(40, ts.size());
+                        for (int i = 0; i < max; i++) {
+                            if (i > 0) sb.append(", ");
+                            sb.append(ts.get(i));
+                        }
+                        if (ts.size() > max) sb.append(" … 共 ").append(ts.size()).append(" 张表");
+                        sb.append("\n");
                     }
-                    if (ts.size() > max) sb.append(" … 共 ").append(ts.size()).append(" 张表");
-                    sb.append("\n");
                 }
             }
             sb.append("\n");
@@ -353,5 +376,187 @@ public class GraphPromptBuilder {
         return new TruncatedGraph(outNodes, outEdges,
                 totalNodes - outNodes.size(),
                 totalEdges - outEdges.size());
+    }
+
+    // ============================================================
+    // 数据库 schema 序列化（给 chat / extract 两种场景用）
+    // ============================================================
+
+    // chat 上下文里嵌入 schema 时的预算：列详情每张表只挑前 N 列，避免炸 context
+    private static final int CHAT_SCHEMA_COLS_PER_TABLE = 12;
+    private static final int CHAT_SCHEMA_TABLES_MAX = 60;
+
+    /**
+     * Compact 版 schema 渲染：chat 场景用，每张表只列重要列（PK/FK/unique + 前几列），
+     * 外键单独成段。用 ASCII tree 让 LLM 容易解析。
+     */
+    public String renderSchemaCompact(DatabaseSchemaInfo s) {
+        StringBuilder sb = new StringBuilder();
+        List<TableInfo> tables = s.tables();
+        int total = tables.size();
+        int shown = Math.min(total, CHAT_SCHEMA_TABLES_MAX);
+        // 1) 表 + 简化列清单
+        for (int i = 0; i < shown; i++) {
+            TableInfo t = tables.get(i);
+            sb.append("  · ").append(t.name());
+            if (t.comment() != null && !t.comment().isBlank()) {
+                sb.append(" (").append(t.comment()).append(")");
+            }
+            if (t.estimatedRows() != null && t.estimatedRows() > 0) {
+                sb.append(" ~").append(t.estimatedRows()).append("行");
+            }
+            sb.append("\n");
+            List<ColumnInfo> picked = pickImportantColumns(t, CHAT_SCHEMA_COLS_PER_TABLE);
+            for (ColumnInfo c : picked) {
+                sb.append("      - ").append(c.name())
+                  .append(" : ").append(c.dataType());
+                if (c.primaryKey()) sb.append(" [PK]");
+                if (!c.nullable()) sb.append(" NOT NULL");
+                if (c.comment() != null && !c.comment().isBlank()) {
+                    sb.append(" // ").append(c.comment());
+                }
+                sb.append("\n");
+            }
+            int omitted = t.columns().size() - picked.size();
+            if (omitted > 0) {
+                sb.append("      … 省略 ").append(omitted).append(" 个非关键列\n");
+            }
+        }
+        if (total > shown) {
+            sb.append("  · …（共 ").append(total).append(" 张表，已截 ").append(shown).append("）\n");
+        }
+        // 2) 外键单独列出（最直接的血缘线索）
+        List<String> fkLines = new ArrayList<>();
+        for (TableInfo t : tables) {
+            for (ForeignKeyInfo fk : t.foreignKeys()) {
+                fkLines.add(t.name() + "." + fk.fromColumn()
+                        + " → " + fk.toTable() + "." + fk.toColumn());
+            }
+        }
+        if (!fkLines.isEmpty()) {
+            sb.append("  外键 (=显式血缘):\n");
+            int max = Math.min(fkLines.size(), 60);
+            for (int i = 0; i < max; i++) sb.append("      ").append(fkLines.get(i)).append("\n");
+            if (fkLines.size() > max) {
+                sb.append("      … 还有 ").append(fkLines.size() - max).append(" 条外键\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 重要列选择策略：PK/FK/unique + 业务名 (status/type/name/code/no/amount/qty/_at) 优先，剩下按 ordinal 顺序补齐。 */
+    private List<ColumnInfo> pickImportantColumns(TableInfo t, int limit) {
+        if (t.columns().size() <= limit) return t.columns();
+        Set<String> fkCols = new HashSet<>();
+        for (ForeignKeyInfo fk : t.foreignKeys()) fkCols.add(fk.fromColumn());
+        Set<String> uniqCols = new HashSet<>();
+        for (UniqueKeyInfo uk : t.uniqueKeys()) uniqCols.addAll(uk.columns());
+
+        List<ColumnInfo> picked = new ArrayList<>();
+        List<ColumnInfo> rest = new ArrayList<>();
+        for (ColumnInfo c : t.columns()) {
+            boolean important = c.primaryKey() || fkCols.contains(c.name())
+                    || uniqCols.contains(c.name()) || isBusinessName(c.name());
+            if (important) picked.add(c);
+            else rest.add(c);
+        }
+        for (ColumnInfo c : rest) {
+            if (picked.size() >= limit) break;
+            picked.add(c);
+        }
+        picked.sort((a, b) -> Integer.compare(a.ordinalPosition(), b.ordinalPosition()));
+        return picked.size() > limit ? picked.subList(0, limit) : picked;
+    }
+
+    private static boolean isBusinessName(String col) {
+        if (col == null) return false;
+        String c = col.toLowerCase();
+        return c.equals("name") || c.equals("code") || c.equals("no") || c.equals("title")
+                || c.startsWith("status") || c.startsWith("type") || c.startsWith("kind")
+                || c.contains("amount") || c.contains("price") || c.contains("qty")
+                || c.contains("quantity") || c.endsWith("_at") || c.endsWith("_time")
+                || c.endsWith("_date");
+    }
+
+    // ============================================================
+    // 数据库 schema → 本体血缘图：专用 prompt 构造
+    // ============================================================
+
+    /** schema → ontology user prompt 产物。 */
+    public record SchemaExtractPrompt(String system, String user) {}
+
+    /**
+     * 构造"DB schema → ontology lineage"的完整 prompt。
+     * <p>系统 prompt 用 {@link LlmPrompts#SCHEMA_TO_ONTOLOGY_SYSTEM}，user 部分把 schema 全量
+     * 详尽展开（不像 chat 场景那样省略列），让 LLM 拿到最完整的"事实"。
+     */
+    public SchemaExtractPrompt buildSchemaExtractPrompt(DatabaseSchemaInfo schema,
+                                                       String sourceName,
+                                                       String extraHint) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("以下是从数据源「").append(sourceName).append("」 (")
+          .append(schema.kind()).append(", 库: ").append(schema.database())
+          .append(") 内省得到的完整 schema。请严格按 system 中的映射规则，把它转换成本体血缘图。\n\n");
+        sb.append("====== SCHEMA START ======\n");
+        sb.append(renderSchemaFull(schema));
+        sb.append("====== SCHEMA END ======\n\n");
+        if (extraHint != null && !extraHint.isBlank()) {
+            sb.append("【用户额外提示】").append(extraHint).append("\n\n");
+        }
+        sb.append("现在输出 JSON。必须满足：\n");
+        sb.append("  - 每张表 → 1 个节点（type 按系统规则分类）；\n");
+        sb.append("  - 每个外键 → 1 条边（rel_type 按系统规则选择）；\n");
+        sb.append("  - 每个节点的 attributes 必须覆盖业务列（含 PK/FK/unique/status/_at/amount 等）；\n");
+        sb.append("  - 每个节点的 constraints 至少包含主键、唯一键摘要；\n");
+        sb.append("  - 节点 id 用 `t_<table>`，边 id 用 `e_fk_<child>_<col>__<parent>`，保证幂等；\n");
+        sb.append("  - 不要输出 `question` 字段；\n");
+        sb.append("  - 不允许出现 add_nodes 之外的 from/to 引用（无悬空边）。\n");
+        return new SchemaExtractPrompt(LlmPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
+    }
+
+    /** Full 版 schema 渲染：extract 场景用，每张表完整列出所有列 + 全部约束 + 全部外键。 */
+    public String renderSchemaFull(DatabaseSchemaInfo s) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("数据库类型: ").append(s.kind()).append("\n");
+        sb.append("数据库名:   ").append(s.database()).append("\n");
+        sb.append("表数量:     ").append(s.tables().size()).append("\n\n");
+        for (TableInfo t : s.tables()) {
+            sb.append("TABLE ").append(t.name());
+            if (t.comment() != null && !t.comment().isBlank()) {
+                sb.append("    -- ").append(t.comment());
+            }
+            if (t.estimatedRows() != null && t.estimatedRows() > 0) {
+                sb.append("  (~").append(t.estimatedRows()).append(" rows)");
+            }
+            sb.append("\n");
+            // 列
+            for (ColumnInfo c : t.columns()) {
+                sb.append("  COL ");
+                if (c.primaryKey()) sb.append("[PK] ");
+                sb.append(c.name())
+                  .append("  ").append(c.dataType());
+                if (!c.nullable()) sb.append("  NOT NULL");
+                if (c.defaultValue() != null && !c.defaultValue().isBlank()) {
+                    sb.append("  DEFAULT ").append(c.defaultValue());
+                }
+                if (c.comment() != null && !c.comment().isBlank()) {
+                    sb.append("    -- ").append(c.comment());
+                }
+                sb.append("\n");
+            }
+            // 外键
+            for (ForeignKeyInfo fk : t.foreignKeys()) {
+                sb.append("  FK  ").append(fk.fromColumn())
+                  .append(" -> ").append(fk.toTable()).append("(").append(fk.toColumn()).append(")")
+                  .append("    [constraint=").append(fk.constraintName()).append("]\n");
+            }
+            // 唯一约束
+            for (UniqueKeyInfo uk : t.uniqueKeys()) {
+                sb.append("  UNQ ").append(uk.name())
+                  .append(" (").append(String.join(", ", uk.columns())).append(")\n");
+            }
+            sb.append("\n");
+        }
+        return sb.toString();
     }
 }

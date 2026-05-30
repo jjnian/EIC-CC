@@ -12,8 +12,17 @@ import HttpExecuteTab from './HttpExecuteTab.vue';
 import HttpHistoryTab from './HttpHistoryTab.vue';
 import HttpScheduleTab from './HttpScheduleTab.vue';
 import DataSourceConfigForm from './DataSourceConfigForm.vue';
+import type { OntologyNode, OntologyEdge } from '../../types';
 
-const props = defineProps<{ dsId: string }>();
+const props = defineProps<{ dsId: string; hasCurrentModel?: boolean }>();
+const emit = defineEmits<{
+  (e: 'ontology-extracted', payload: {
+    mode: 'merge' | 'new';
+    name: string;
+    nodes: OntologyNode[];
+    edges: OntologyEdge[];
+  }): void;
+}>();
 const ds = ref<DataSource | null>(null);
 const loading = ref(false);
 const tab = ref<string>('overview');
@@ -95,7 +104,11 @@ watch(() => props.dsId, load);
       </nav>
       <section class="content">
         <DbOverviewTab v-if="tab === 'overview' && (ds.kind === 'mysql' || ds.kind === 'pgsql')" :ds="ds" @updated="load" />
-        <DbTableListTab v-if="tab === 'tables'" :ds-id="ds.id" />
+        <DbTableListTab v-if="tab === 'tables'"
+                        :ds-id="ds.id"
+                        :ds-name="ds.name"
+                        :has-current-model="!!hasCurrentModel"
+                        @ontology-extracted="(p) => emit('ontology-extracted', p)" />
         <DbSqlTab v-if="tab === 'sql'" :ds-id="ds.id" />
         <FileContentTab v-if="tab === 'content' && ds.kind === 'file_stored'" :ds-id="ds.id" :total-chars="Number((ds.config as any)?.chars || 0)" />
         <div v-if="tab === 'overview' && ds.kind === 'file_stored'" class="overview">

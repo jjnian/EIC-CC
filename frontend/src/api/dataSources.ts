@@ -1,4 +1,5 @@
-import { request, requestText } from './http';
+import { request, requestText, sse } from './http';
+import type { SseHandle } from './http';
 
 export type DataSourceKind =
   | 'file' | 'url'                // 旧的导入历史
@@ -119,6 +120,90 @@ export function executeSql(id: string, sql: string, limit = 100) {
   return request<SqlExecuteResult>(`/api/data-sources/${encodeURIComponent(id)}/sql`, {
     method: 'POST',
     body: JSON.stringify({ sql, limit }),
+  });
+}
+
+// ---------- Schema 内省 & 一键提取本体血缘图 ----------
+
+export interface ColumnSchema {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+  defaultValue?: string;
+  comment?: string;
+  primaryKey: boolean;
+}
+
+export interface ForeignKeySchema {
+  constraintName: string;
+  fromColumn: string;
+  toTable: string;
+  toColumn: string;
+}
+
+export interface UniqueKeySchema {
+  name: string;
+  columns: string[];
+}
+
+export interface TableSchema {
+  name: string;
+  comment?: string;
+  estimatedRows?: number;
+  columns: ColumnSchema[];
+  foreignKeys: ForeignKeySchema[];
+  uniqueKeys: UniqueKeySchema[];
+}
+
+export interface DatabaseSchema {
+  kind: 'mysql' | 'pgsql';
+  database: string;
+  tables: TableSchema[];
+}
+
+/** 内省整库 schema：表 + 列 + 外键 + 唯一键。前端可直接展示血缘预览。 */
+export function getDatabaseSchema(id: string) {
+  return request<DatabaseSchema>(`/api/data-sources/${encodeURIComponent(id)}/schema`);
+}
+
+/** 一键从数据库 schema 生成本体血缘图（SSE 流）。 */
+export function extractOntologyFromDb(
+  id: string,
+  body: { modelOverride?: string; configId?: string; hint?: string },
+  handlers: {
+    onStep?: (key: string, label: string) => void;
+    onComplete?: (payload: {
+      nodes: unknown[];
+      edges: unknown[];
+      reply: string;
+      salt: string;
+      tableCount?: number;
+      fkCount?: number;
+    }) => void;
+    onError?: (msg: string) => void;
+    onClose?: () => void;
+  },
+): SseHandle {
+  return sse(`/api/data-sources/${encodeURIComponent(id)}/extract-ontology`, body, {
+    onEvent: (event, data) => {
+      if (event === 'step') {
+        try {
+          const j = JSON.parse(data) as { key: string; label: string };
+          handlers.onStep?.(j.key, j.label);
+        } catch { /* ignore */ }
+      } else if (event === 'complete') {
+        try {
+          const j = JSON.parse(data);
+          handlers.onComplete?.(j);
+        } catch (e) {
+          handlers.onError?.((e as Error).message);
+        }
+      } else if (event === 'error') {
+        handlers.onError?.(data);
+      }
+    },
+    onError: (err) => handlers.onError?.(err.message),
+    onClose: () => handlers.onClose?.(),
   });
 }
 

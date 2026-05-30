@@ -453,16 +453,20 @@ public class ChatLlmService {
             String database = String.valueOf(cfg.getOrDefault("database", "?"));
 
             try {
-                List<String> tables = jdbcConnector.listTables(kind, cfg);
-                if (tables == null) tables = List.of();
+                // 升级：拉完整 schema (表+列+FK+唯一键)，让 LLM 看到结构而不只看到表名
+                var schemaInfo = jdbcConnector.introspectSchema(kind, cfg, 80);
+                List<String> tables = schemaInfo.tables().stream()
+                        .map(t -> t.name()).toList();
+                int fkCount = schemaInfo.tables().stream()
+                        .mapToInt(t -> t.foreignKeys().size()).sum();
                 String preview = tables.stream().limit(6)
                         .collect(java.util.stream.Collectors.joining("、"));
                 String tail = tables.size() > 6 ? " … 共 " + tables.size() + " 张" : "";
                 emitStep(emitter, "reading_db_" + id,
                         "正在读取数据库「" + name + "」(" + kind + ":" + database
-                                + ") 共 " + tables.size() + " 张表"
+                                + ") 共 " + tables.size() + " 张表 / " + fkCount + " 条外键"
                                 + (tables.isEmpty() ? "" : ":" + preview + tail));
-                out.add(new GraphPromptBuilder.DbSchema(name, kind, database, tables));
+                out.add(new GraphPromptBuilder.DbSchema(name, kind, database, tables, schemaInfo));
             } catch (Exception e) {
                 log.warn("[LLM-chat-sse] 读取数据库 {} 失败: {}", name, e.getMessage());
                 emitStep(emitter, "reading_db_" + id + "_err",

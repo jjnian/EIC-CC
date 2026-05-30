@@ -3,14 +3,35 @@ import { ref, watch, onMounted } from 'vue';
 import { listTables, previewTable } from '../../api/dataSources';
 import { ApiError } from '../../api/http';
 import type { TablePreview } from '../../api/dataSources';
+import type { OntologyNode, OntologyEdge } from '../../types';
+import DbOntologyExtractDialog from './DbOntologyExtractDialog.vue';
 
-const props = defineProps<{ dsId: string }>();
+const props = defineProps<{ dsId: string; dsName?: string; hasCurrentModel?: boolean }>();
+const emit = defineEmits<{
+  (e: 'ontology-extracted', payload: {
+    mode: 'merge' | 'new';
+    name: string;
+    nodes: OntologyNode[];
+    edges: OntologyEdge[];
+  }): void;
+}>();
 const tables = ref<string[]>([]);
 const loading = ref(false);
 const selected = ref<string | null>(null);
 const preview = ref<TablePreview | null>(null);
 const previewing = ref(false);
 const err = ref<string>('');
+const extractDialogOpen = ref(false);
+
+const onExtractCommit = (payload: {
+  mode: 'merge' | 'new';
+  name: string;
+  nodes: OntologyNode[];
+  edges: OntologyEdge[];
+}) => {
+  extractDialogOpen.value = false;
+  emit('ontology-extracted', payload);
+};
 
 const load = async () => {
   loading.value = true;
@@ -40,6 +61,14 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
         <span>表 ({{ tables.length }})</span>
         <button @click="load">↻</button>
       </div>
+      <div class="extract-action">
+        <button
+          class="extract-btn"
+          :disabled="loading || tables.length === 0"
+          :title="tables.length === 0 ? '请先确保数据库连接成功' : '基于 schema (表+列+外键) 生成本体血缘图'"
+          @click="extractDialogOpen = true"
+        >🧬 一键生成本体血缘图</button>
+      </div>
       <div v-if="loading" class="msg">加载中…</div>
       <div v-else-if="err" class="msg err">{{ err }}</div>
       <ul v-else>
@@ -63,6 +92,15 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
         </div>
       </div>
     </main>
+
+    <DbOntologyExtractDialog
+      :open="extractDialogOpen"
+      :ds-id="dsId"
+      :ds-name="dsName || ''"
+      :has-current-model="!!hasCurrentModel"
+      @close="extractDialogOpen = false"
+      @commit="onExtractCommit"
+    />
   </div>
 </template>
 
@@ -72,6 +110,15 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
 .tlist .head { display: flex; align-items: center; padding: 8px 12px; color: #888; font-size: 12px; }
 .tlist .head span { flex: 1; }
 .tlist .head button { background: none; border: none; color: #aaa; cursor: pointer; }
+.extract-action { padding: 4px 8px 8px; border-bottom: 1px solid rgba(255,255,255,.04); }
+.extract-btn { width: 100%; padding: 6px 8px; font-size: 12px; border-radius: 6px;
+  background: linear-gradient(135deg, rgba(74,141,240,.18), rgba(74,141,240,.08));
+  color: #b9d4ff; border: 1px solid rgba(74,141,240,.3); cursor: pointer;
+  transition: background .15s; }
+.extract-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(74,141,240,.32), rgba(74,141,240,.18));
+  color: #fff; }
+.extract-btn:disabled { opacity: .35; cursor: not-allowed; }
 .tlist ul { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }
 .tlist li { padding: 6px 12px; cursor: pointer; color: #c0c4cf; font-size: 13px; }
 .tlist li:hover { background: rgba(255,255,255,.06); }

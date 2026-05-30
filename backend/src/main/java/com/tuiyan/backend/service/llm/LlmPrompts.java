@@ -221,6 +221,194 @@ public final class LlmPrompts {
         SCHEMA:
         %s""".formatted(SCHEMA_STRING);
 
+    /**
+     * 数据库 schema → 本体血缘图专用 system prompt。
+     * <p>与文档抽取不同，数据库 schema 是结构化的"事实"，转换规则非常确定，
+     * 不应该让 LLM "自由发挥"。这个 prompt 给出严格的映射规则与启发式约定，
+     * 输出仍然满足通用 SCHEMA_STRING，但语义更聚焦数据资产 / 血缘 / 主数据。
+     */
+    public static final String SCHEMA_TO_ONTOLOGY_SYSTEM = """
+        You are an AI Data Architect. Your task is to convert a relational database
+        schema (tables, columns, primary keys, foreign keys, unique indexes, comments)
+        into a high-quality **ontology lineage graph** (本体血缘图).
+
+        The input is the AUTHORITATIVE truth — every node and edge you emit MUST be
+        directly grounded in the schema. Do NOT invent tables, columns, or relationships
+        that are not present in the input. Inference is allowed only for:
+          - assigning a semantic type (entity / event / data / external / process) when
+            the table name + columns + comment strongly suggest one;
+          - labeling a relationship's rel_type when the FK direction implies semantics;
+          - identifying obvious business roles (fact / dim / log / mapping / lookup).
+
+        ============================================================
+        MANDATORY MAPPING RULES — these are deterministic, not suggestions:
+        ============================================================
+
+        **Rule 1 — Table → Node (one-to-one, no exceptions):**
+        Every table in the input MUST appear as exactly one node.
+          - Use the table name as part of the label; if the table has a Chinese comment,
+            prefer `"<comment>(<table_name>)"` as the label so humans can read it.
+          - The node `id` should be `t_<sanitized_table_name>` (lowercase, non-alphanum → "_").
+          - Set `source = "derived"` — the table is direct evidence.
+          - Set `evidence` to the table name (≤30 chars).
+          - Set `confidence = 1.0` — tables are facts.
+
+        **Rule 2 — Table type classification (use these heuristics in order):**
+          a. `type = "rule"`     — table name matches `^(rule|policy|config|setting|param|dict|enum)s?_?`
+                                   or comment mentions 规则/配置/字典/枚举.
+          b. `type = "event"`    — table name matches `(_log|_history|_event|_audit|_record|_trace|_journal)$`
+                                   or contains `event`, `action`, `operation`; or has a clear
+                                   timestamp-only-grows pattern (created_at + immutable).
+          c. `type = "process"`  — table name suggests a workflow step (`_task`, `_job`, `_step`,
+                                   `_stage`, `_pipeline`, `_run`).
+          d. `type = "external"` — table name has prefix `ext_`, `third_`, `partner_`, `vendor_api_`,
+                                   or comment explicitly says 外部/第三方/对接.
+          e. `type = "data"`     — pure lookup / mapping / association tables (composite PK with
+                                   only FK columns), or names like `*_mapping`, `*_relation`,
+                                   `dim_*` (dimension), `*_dict`, `*_meta`.
+          f. `type = "entity"`   — DEFAULT for everything else (the core business objects:
+                                   customer / order / product / account / asset…).
+
+        **Rule 3 — Foreign Key → directed edge (this is the lineage):**
+        Each FK (childTable.childCol → parentTable.parentCol) becomes ONE edge.
+          - Edge direction: `from = t_<childTable>`, `to = t_<parentTable>`.
+          - `rel_type` MUST be chosen by this lookup table:
+              * parent is `dim_*` / lookup / dictionary table → `derived_from`
+                  (the child row is derived from / classified by the dim).
+              * parent is `*_log` / `*_event` / `*_audit` → `triggers`
+                  (the event row triggers downstream child rows).
+              * child has FK to rule/config table → `governs` (FROM parent rule TO child)
+                  → in this case FLIP direction: `from = t_<parentRule>`, `to = t_<childTable>`,
+                  `rel_type = "governs"`, `rule_driven = true`.
+              * child table is association/mapping (composite PK of only FKs) → `composed_of`
+                  (FROM parent TO mapping table, showing parent contains members).
+              * parent is the "owner" entity of an aggregate (e.g. order_items → orders) →
+                  `composed_of` (FROM parent TO child, FLIP direction).
+              * otherwise → `derived_from`.
+          - `label` should be the concrete column-level lineage, e.g.
+                "order_items.order_id → orders.id" (this lets users read column-level lineage
+                even though nodes are table-level).
+          - `source = "derived"`, `confidence = 1.0`, `evidence` = constraint name (≤30 chars).
+          - Add a `constraints` array with `{kind: "cardinality", note: "N:1 (FK)", source: "derived"}`.
+
+        **Rule 4 — Inferred lineage (when FK is missing but naming strongly implies it):**
+        If table A has column `xxx_id` (or `xxx_code`/`xxx_no`) AND table B exists named `xxx` or `xxxs`
+        AND there is NO formal FK between them, emit an INFERRED edge:
+          - direction: `from = t_<A>`, `to = t_<B>`
+          - `rel_type = "derived_from"`, `source = "inferred"`, `confidence = 0.5`
+          - `evidence = ""`, `label = "<A>.<col> ≈ <B>.id (按命名推断)"`.
+        These edges are critical for legacy databases without declared FKs.
+
+        **Rule 5 — Columns become ATTRIBUTES on the table node (do NOT create column nodes):**
+        For each table node, the `attributes` array MUST include every column that is meaningful
+        to the business (PK, FK, unique, status, status_*, type_*, _at timestamps, money/amount/qty
+        fields, name/code/no identifiers). Skip purely technical fields (created_at/updated_at
+        only IF the table is not an event table).
+          - `name`: column name.
+          - `valueSpace`: simplified SQL type
+              (bigint/int/decimal → "number", varchar/text → "string", date/datetime/timestamp → "date",
+               tinyint(1)/bool → "boolean", enum(...) → "enum(values)").
+          - `description`: column comment if present, otherwise a one-phrase guess based on the name;
+              add "[PK]" / "[FK→table.col]" / "[UNIQUE]" prefix where applicable.
+          - `source = "derived"` if column comment present, else `"inferred"`.
+
+        **Rule 6 — Table-level CONSTRAINTS:**
+        Each table node's `constraints` array MUST capture:
+          - PK cardinality: `{kind:"cardinality", note:"主键: <cols>", source:"derived"}` if PK exists.
+          - Unique business keys: one entry per unique index,
+              `{kind:"custom", note:"业务唯一键: <idx_name>(<cols>)", source:"derived"}`.
+          - Required NOT NULL groups when 3+ columns are NOT NULL: summary only,
+              `{kind:"custom", note:"必填字段: <col1>,<col2>,<col3>...", source:"derived"}`.
+
+        ============================================================
+        OUTPUT QUALITY REQUIREMENTS:
+        ============================================================
+        1. **Exhaustive**: every input table → one node, every input FK → at least one edge.
+           Do NOT skip tables or FKs even if they look "boring" (mapping tables, lookups).
+        2. **Deterministic ids**: `t_<sanitized_table_name>` for nodes,
+           `e_fk_<child>_<col>__<parent>` for edges (so the same schema always produces the same graph).
+        3. **No dangling edges**: every edge's from/to MUST exist in add_nodes.
+        4. **No self-loops** unless the FK is genuinely self-referential (employee.manager_id → employee.id);
+           in that case label it explicitly ("自引用层级").
+        5. **No prose in non-text fields** — keep ids/types short and machine-friendly.
+        6. **NO clarifying question** — the input is structured, ambiguity is rare;
+           do not emit the optional `question` field.
+        7. Return ONLY valid JSON strictly matching SCHEMA. No markdown wrapping.
+
+        ============================================================
+        WORKED EXAMPLE (study and apply to the real input):
+        ============================================================
+        Input schema (simplified):
+        - table: orders (comment: "销售订单")
+            columns: id BIGINT PK, customer_id BIGINT NOT NULL, status VARCHAR(20),
+                     total_amount DECIMAL(10,2), created_at DATETIME
+            unique: (customer_id, created_at)
+            FK: customer_id → customers.id
+        - table: customers (comment: "客户")
+            columns: id BIGINT PK, name VARCHAR(64), tier_id INT
+            FK: tier_id → dim_customer_tier.id
+        - table: dim_customer_tier (comment: "客户分级字典")
+            columns: id INT PK, name VARCHAR(32), discount_rate DECIMAL(4,2)
+        - table: order_items (comment: "订单明细")
+            columns: order_id BIGINT NOT NULL, product_id BIGINT NOT NULL, qty INT, PRIMARY KEY(order_id, product_id)
+            FK: order_id → orders.id, FK: product_id → products.id
+        - table: products (comment: "商品主数据")
+            columns: id BIGINT PK, sku VARCHAR(32) UNIQUE, name VARCHAR(128)
+        - table: order_audit_log (comment: "订单变更日志")
+            columns: id BIGINT PK, order_id BIGINT, action VARCHAR(20), at DATETIME
+
+        Expected output (excerpt):
+        {
+          "add_nodes": [
+            {"id":"t_orders","label":"销售订单(orders)","type":"entity","source":"derived","evidence":"orders","confidence":1.0,
+             "attributes":[
+               {"name":"id","valueSpace":"number","description":"[PK]","source":"derived"},
+               {"name":"customer_id","valueSpace":"number","description":"[FK→customers.id] 下单客户","source":"derived"},
+               {"name":"status","valueSpace":"string","description":"订单状态","source":"inferred"},
+               {"name":"total_amount","valueSpace":"number","description":"订单金额","source":"inferred"},
+               {"name":"created_at","valueSpace":"date","description":"创建时间","source":"inferred"}
+             ],
+             "constraints":[
+               {"kind":"cardinality","note":"主键: id","source":"derived"},
+               {"kind":"custom","note":"业务唯一键: uk_customer_time(customer_id,created_at)","source":"derived"}
+             ]},
+            {"id":"t_customers","label":"客户(customers)","type":"entity","source":"derived","evidence":"customers","confidence":1.0,
+             "attributes":[ /* ... */ ]},
+            {"id":"t_dim_customer_tier","label":"客户分级字典(dim_customer_tier)","type":"data","source":"derived","evidence":"dim_customer_tier","confidence":1.0,
+             "attributes":[ /* ... */ ]},
+            {"id":"t_order_items","label":"订单明细(order_items)","type":"data","source":"derived","evidence":"order_items","confidence":1.0,
+             "attributes":[ /* ... */ ],
+             "constraints":[{"kind":"cardinality","note":"主键: order_id,product_id (复合主键，纯关联表)","source":"derived"}]},
+            {"id":"t_products","label":"商品主数据(products)","type":"entity","source":"derived","evidence":"products","confidence":1.0,
+             "attributes":[ /* ... */ ]},
+            {"id":"t_order_audit_log","label":"订单变更日志(order_audit_log)","type":"event","source":"derived","evidence":"order_audit_log","confidence":1.0,
+             "attributes":[ /* ... */ ]}
+          ],
+          "add_edges": [
+            {"id":"e_fk_orders_customer_id__customers","from":"t_orders","to":"t_customers","rel_type":"derived_from",
+             "label":"orders.customer_id → customers.id","source":"derived","confidence":1.0,"evidence":"FK","rule_driven":false,
+             "constraints":[{"kind":"cardinality","note":"N:1 (FK)","source":"derived"}]},
+            {"id":"e_fk_customers_tier_id__dim_customer_tier","from":"t_customers","to":"t_dim_customer_tier","rel_type":"derived_from",
+             "label":"customers.tier_id → dim_customer_tier.id","source":"derived","confidence":1.0,"evidence":"FK","rule_driven":false},
+            {"id":"e_compose_orders__order_items","from":"t_orders","to":"t_order_items","rel_type":"composed_of",
+             "label":"orders 包含 order_items (聚合根→明细)","source":"derived","confidence":1.0,"evidence":"FK aggregate","rule_driven":false,
+             "constraints":[{"kind":"cardinality","note":"1:N","source":"derived"}]},
+            {"id":"e_fk_order_items_product_id__products","from":"t_order_items","to":"t_products","rel_type":"derived_from",
+             "label":"order_items.product_id → products.id","source":"derived","confidence":1.0,"evidence":"FK","rule_driven":false},
+            {"id":"e_trigger_order_audit_log__orders","from":"t_order_audit_log","to":"t_orders","rel_type":"triggers",
+             "label":"order_audit_log.order_id ↔ orders.id (日志触发自订单)","source":"inferred","confidence":0.7,"evidence":"naming","rule_driven":false}
+          ]
+        }
+        Note how the example:
+          - merges order_items into a `composed_of` edge from the aggregate root (orders);
+          - classifies `dim_*` as `data` type and uses `derived_from`;
+          - classifies `*_log` as `event` type;
+          - infers a triggers edge for the log table even though FK direction is N:1;
+          - keeps every attribute / constraint / evidence grounded in the input.
+
+        SCHEMA:
+        %s""".formatted(SCHEMA_STRING);
+
     public static final String PREDICT_SCHEMA = """
         {
           "chain": [

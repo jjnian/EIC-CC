@@ -1,20 +1,27 @@
 package com.tuiyan.backend.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.entity.DataSourceFetchLogPO;
 import com.tuiyan.backend.model.dto.*;
 import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.service.DataSourceService;
+import com.tuiyan.backend.service.SchemaOntologyService;
+import com.tuiyan.backend.support.SsePushUtils;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -29,10 +36,18 @@ public class DataSourceController {
 
     private final DataSourceRepository repo;
     private final DataSourceService service;
+    private final SchemaOntologyService schemaOntology;
+    private final AsyncTaskExecutor taskExecutor;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public DataSourceController(DataSourceRepository repo, DataSourceService service) {
+    public DataSourceController(DataSourceRepository repo,
+                                DataSourceService service,
+                                SchemaOntologyService schemaOntology,
+                                AsyncTaskExecutor taskExecutor) {
         this.repo = repo;
         this.service = service;
+        this.schemaOntology = schemaOntology;
+        this.taskExecutor = taskExecutor;
     }
 
     // ---------- 列表 / CRUD ----------
@@ -98,6 +113,62 @@ public class DataSourceController {
     public ResponseEntity<SqlExecuteResponse> sql(@PathVariable String id,
                                                   @RequestBody SqlExecuteRequest req) {
         return ResponseEntity.ok(service.executeSql(id, req));
+    }
+
+    /** 数据库 schema 内省：返回表 + 列 + 外键 + 唯一键。前端 UI 直接展示用。 */
+    @GetMapping("/{id}/schema")
+    public ResponseEntity<Map<String, Object>> schema(@PathVariable String id) {
+        return ResponseEntity.ok(service.introspectSchema(id));
+    }
+
+    /**
+     * 从数据库 schema 一键生成本体血缘图（SSE 流式）。
+     * <p>事件序列：step (多次进度) → complete (携带 {nodes, edges, reply, salt}) → 结束。
+     * 失败时发 error 事件。
+     */
+    @PostMapping(value = "/{id}/extract-ontology", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter extractOntology(@PathVariable String id,
+                                      @RequestBody(required = false) Map<String, Object> body) {
+        String modelOverride = body == null ? null : (String) body.get("modelOverride");
+        String configId = body == null ? null : (String) body.get("configId");
+        String userHint = body == null ? null : (String) body.get("hint");
+        String workspaceId = WorkspaceContext.get();
+
+        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(300_000L,
+                "Schema → 本体提取超时 (>300s)，请稍后重试或减少表数量");
+        SseEmitter emitter = ce.emitter();
+
+        taskExecutor.execute(() -> {
+            if (workspaceId != null) WorkspaceContext.set(workspaceId);
+            try {
+                SchemaOntologyService.StepSink step = (key, label) -> {
+                    try {
+                        String json = objectMapper.writeValueAsString(
+                                Map.of("key", key, "label", label));
+                        SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
+                    } catch (Exception ignore) {}
+                };
+                SchemaOntologyService.ExtractResult r =
+                        schemaOntology.extractFromDataSource(id, modelOverride, configId, userHint, step);
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("nodes", r.payload().path("nodes"));
+                payload.put("edges", r.payload().path("edges"));
+                payload.put("reply", r.payload().path("reply").asText(""));
+                payload.put("salt", r.salt());
+                payload.put("tableCount", r.tableCount());
+                payload.put("fkCount", r.fkCount());
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
+                        objectMapper.writeValueAsString(payload));
+                emitter.complete();
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "error", msg);
+                emitter.complete();
+            } finally {
+                WorkspaceContext.clear();
+            }
+        });
+        return emitter;
     }
 
     // ---------- 文件专用 ----------

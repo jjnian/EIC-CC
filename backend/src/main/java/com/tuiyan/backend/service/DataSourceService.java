@@ -156,6 +156,60 @@ public class DataSourceService {
         return jdbc.executeSql(po.getKind(), repo.readConfig(po), req.getSql(), limit);
     }
 
+    /**
+     * 内省 schema：返回 {kind, database, tables:[{name, comment, columns, foreignKeys, uniqueKeys, estimatedRows}]}。
+     * <p>给前端"schema 预览"或"提取本体"按钮决策用，也是一键提取本体的可视化输入。
+     */
+    public Map<String, Object> introspectSchema(String id) {
+        DataSourcePO po = ensureOwnership(id);
+        requireKindIn(po, "mysql", "pgsql");
+        JdbcConnectorService.DatabaseSchemaInfo info =
+                jdbc.introspectSchema(po.getKind(), repo.readConfig(po), 500);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("kind", info.kind());
+        out.put("database", info.database());
+        List<Map<String, Object>> tables = new ArrayList<>();
+        for (JdbcConnectorService.TableInfo t : info.tables()) {
+            Map<String, Object> tm = new LinkedHashMap<>();
+            tm.put("name", t.name());
+            tm.put("comment", t.comment());
+            tm.put("estimatedRows", t.estimatedRows());
+            List<Map<String, Object>> cols = new ArrayList<>();
+            for (JdbcConnectorService.ColumnInfo c : t.columns()) {
+                Map<String, Object> cm = new LinkedHashMap<>();
+                cm.put("name", c.name());
+                cm.put("dataType", c.dataType());
+                cm.put("nullable", c.nullable());
+                cm.put("defaultValue", c.defaultValue());
+                cm.put("comment", c.comment());
+                cm.put("primaryKey", c.primaryKey());
+                cols.add(cm);
+            }
+            tm.put("columns", cols);
+            List<Map<String, Object>> fks = new ArrayList<>();
+            for (JdbcConnectorService.ForeignKeyInfo fk : t.foreignKeys()) {
+                Map<String, Object> fm = new LinkedHashMap<>();
+                fm.put("constraintName", fk.constraintName());
+                fm.put("fromColumn", fk.fromColumn());
+                fm.put("toTable", fk.toTable());
+                fm.put("toColumn", fk.toColumn());
+                fks.add(fm);
+            }
+            tm.put("foreignKeys", fks);
+            List<Map<String, Object>> uks = new ArrayList<>();
+            for (JdbcConnectorService.UniqueKeyInfo uk : t.uniqueKeys()) {
+                Map<String, Object> um = new LinkedHashMap<>();
+                um.put("name", uk.name());
+                um.put("columns", uk.columns());
+                uks.add(um);
+            }
+            tm.put("uniqueKeys", uks);
+            tables.add(tm);
+        }
+        out.put("tables", tables);
+        return out;
+    }
+
     // ---------- 文件专用 ----------
 
     public Map<String, Object> ingestFile(String name, MultipartFile file) throws IOException {
