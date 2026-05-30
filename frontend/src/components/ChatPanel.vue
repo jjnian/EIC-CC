@@ -299,13 +299,6 @@ defineExpose({
       @preview="(a) => previewAtt = { name: a.name, type: a.type, kind: a.kind, size: a.size, content: a.content, error: a.error, truncated: a.truncated }"
     />
     <div class="ch-input-area">
-      <div class="ctx-token-bar" v-if="contextTokenEstimate > 0">
-        <span class="ctx-token-label">上下文</span>
-        <span class="ctx-token-count">~{{ formatTokens(contextTokenEstimate) }} tokens</span>
-        <span class="ctx-token-detail">
-          {{ props.nodes?.length || 0 }} 节点 · {{ props.edges?.length || 0 }} 关系 · {{ msgs.filter(m => (m.role === 'u' || m.role === 'a') && m.text).slice(-40).length }} 条消息
-        </span>
-      </div>
       <div class="input-box">
         <!-- @ mention dropdown -->
         <div ref="mentionListRef" class="mention-dropdown" v-if="mentionOpen && mentionItems.length > 0">
