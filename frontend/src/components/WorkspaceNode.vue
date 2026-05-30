@@ -35,13 +35,12 @@ const onClickSwitch = async (e: Event) => {
 
 const onClickDelete = async (e: Event) => {
   e.stopPropagation();
-  if (ws.workspaces.value.length <= 1) {
-    toast.warn('至少保留一个工作空间');
-    return;
-  }
-  const extraNote = props.workspace.isDefault
-    ? '这是默认工作空间，删除后将自动把另一个工作空间设为默认。'
-    : '';
+  const isLast = ws.workspaces.value.length <= 1;
+  const extraNote = isLast
+    ? '这是最后一个工作空间，删除后将回到工作空间选择页。'
+    : props.workspace.isDefault
+      ? '这是默认工作空间，删除后将自动把另一个工作空间设为默认。'
+      : '';
   const ok = await uiConfirm({
     title: '删除工作空间',
     message: `「${props.workspace.name}」内的本体图、推演分支、对话与数据源将一并清空，且无法恢复。${extraNote}确定继续吗？`,
@@ -53,7 +52,8 @@ const onClickDelete = async (e: Event) => {
   try {
     const res = await ws.remove(props.workspace.id);
     toast.success('已删除');
-    if (res.switchedTo || wasDefault) window.location.reload();
+    // 删光、切换了当前空间、或删的是默认空间，都整页刷新以重置视图（删光时回到选择页）。
+    if (res.switchedTo || wasDefault || ws.workspaces.value.length === 0) window.location.reload();
   } catch (err) {
     toast.warn(err instanceof ApiError ? err.message : '删除失败');
   }
