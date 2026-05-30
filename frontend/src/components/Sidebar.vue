@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: 'switch-workspace', id: string): void;
   (e: 'open-conversation', id: string): void;
   (e: 'open-graph', id: string): void;
+  (e: 'open-datasource', id: string): void;
 }>();
 
 // 左侧顶级功能菜单：只保留「新对话」和「数据源」
@@ -106,7 +107,8 @@ const submitCreate = async () => {
                        :is-current="w.id === ws.currentId.value"
                        @switch-current="onSwitchCurrent"
                        @open-conversation="emit('open-conversation', $event)"
-                       @open-graph="emit('open-graph', $event)" />
+                       @open-graph="emit('open-graph', $event)"
+                       @open-datasource="emit('open-datasource', $event)" />
         <button class="sb-ws-new" @click="openCreate" title="新建工作空间">
           <span class="sb-ws-avatar plus">＋</span>
           <span class="sb-ws-name">新建工作空间</span>

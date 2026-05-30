@@ -482,6 +482,7 @@ const formatFileSize = (bytes: number) => {
       @switch-workspace="onWorkspaceSwitched"
       @open-conversation="onOpenConversation"
       @open-graph="onOpenOntologyModel"
+      @open-datasource="(id) => { currentDataSourceId.value = id; view.value = 'datasource'; }"
     />
     <div class="main">
       <div class="topbar">

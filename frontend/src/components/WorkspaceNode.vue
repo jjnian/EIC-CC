@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: 'switch-current', id: string): void;
   (e: 'open-conversation', id: string): void;
   (e: 'open-graph', id: string): void;
+  (e: 'open-datasource', id: string): void;
 }>();
 
 const ws = useWorkspaces();
@@ -29,6 +30,7 @@ watch(expanded, (v) => {
   if (v) {
     tree.loadConversations(props.workspace.id);
     tree.loadOntologies(props.workspace.id);
+    tree.loadDataSources(props.workspace.id);
   }
 }, { immediate: true });
 
@@ -86,6 +88,10 @@ const fmtTime = (t: number) => {
     ? d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 };
+
+const kindLabel: Record<string, string> = {
+  mysql: 'MySQL', pgsql: 'PgSQL', file_stored: '文件', https_api: 'HTTPS',
+};
 </script>
 
 <template>
@@ -102,29 +108,10 @@ const fmtTime = (t: number) => {
 
     <!-- expanded children -->
     <div v-if="expanded" class="ws-children">
-      <!-- 血缘图 -->
-      <div class="ws-section">
-        <span class="ws-section-lbl">血缘图</span>
-        <span v-if="tree.isLoadingOntology(workspace.id)" class="ws-loading">…</span>
-        <template v-else-if="tree.getOntologies(workspace.id).length">
-          <button
-            v-for="m in tree.getOntologies(workspace.id)"
-            :key="m.id"
-            class="ws-item"
-            @click.stop="emit('open-graph', m.id)"
-            :title="m.name"
-          >
-            <span class="ws-item-ic">◈</span>
-            <span class="ws-item-label">{{ m.name }}</span>
-            <span v-if="m.updatedAt" class="ws-item-time">{{ fmtTime(m.updatedAt) }}</span>
-          </button>
-        </template>
-        <span v-else class="ws-empty">暂无</span>
-      </div>
 
       <!-- 历史对话 -->
       <div class="ws-section">
-        <span class="ws-section-lbl">历史对话</span>
+        <span class="ws-section-lbl">💬 历史对话</span>
         <span v-if="tree.isLoadingConv(workspace.id)" class="ws-loading">…</span>
         <template v-else-if="tree.getConversations(workspace.id).length">
           <button
@@ -134,13 +121,51 @@ const fmtTime = (t: number) => {
             @click.stop="emit('open-conversation', c.id)"
             :title="c.title"
           >
-            <span class="ws-item-ic">💬</span>
             <span class="ws-item-label">{{ c.title || '新对话' }}</span>
             <span v-if="c.updatedAt" class="ws-item-time">{{ fmtTime(c.updatedAt) }}</span>
           </button>
         </template>
-        <span v-else class="ws-empty">暂无</span>
+        <span v-else class="ws-empty">暂无对话</span>
       </div>
+
+      <!-- 血缘图 -->
+      <div class="ws-section">
+        <span class="ws-section-lbl">◈ 血缘图</span>
+        <span v-if="tree.isLoadingOntology(workspace.id)" class="ws-loading">…</span>
+        <template v-else-if="tree.getOntologies(workspace.id).length">
+          <button
+            v-for="m in tree.getOntologies(workspace.id)"
+            :key="m.id"
+            class="ws-item"
+            @click.stop="emit('open-graph', m.id)"
+            :title="m.name"
+          >
+            <span class="ws-item-label">{{ m.name }}</span>
+            <span v-if="m.updatedAt" class="ws-item-time">{{ fmtTime(m.updatedAt) }}</span>
+          </button>
+        </template>
+        <span v-else class="ws-empty">暂无图谱</span>
+      </div>
+
+      <!-- 数据源 -->
+      <div class="ws-section">
+        <span class="ws-section-lbl">📄 数据源</span>
+        <span v-if="tree.isLoadingDS(workspace.id)" class="ws-loading">…</span>
+        <template v-else-if="tree.getDataSources(workspace.id).length">
+          <button
+            v-for="d in tree.getDataSources(workspace.id)"
+            :key="d.id"
+            class="ws-item"
+            @click.stop="emit('open-datasource', d.id)"
+            :title="d.name"
+          >
+            <span class="ws-item-label">{{ d.name }}</span>
+            <span class="ws-item-kind">{{ kindLabel[d.kind] || d.kind }}</span>
+          </button>
+        </template>
+        <span v-else class="ws-empty">暂无数据源</span>
+      </div>
+
     </div>
   </div>
 </template>
@@ -187,23 +212,27 @@ const fmtTime = (t: number) => {
 }
 .ws-del-btn:hover { background: rgba(255,102,68,.2); color: #ff8a6f; }
 /* children */
-.ws-children { padding-left: 16px; display: flex; flex-direction: column; gap: 4px; margin-top: 2px; }
-.ws-section { display: flex; flex-direction: column; gap: 1px; }
+.ws-children { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px; }
+.ws-section { display: flex; flex-direction: column; gap: 0; }
 .ws-section-lbl {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
-  color: rgba(255,255,255,.3); padding: 4px 8px 2px; font-family:'Inter',sans-serif;
+  font-size: 10.5px; letter-spacing: .4px;
+  color: rgba(255,255,255,.4); padding: 5px 10px 3px 24px;
+  font-family:'Inter',sans-serif; font-weight: 500; user-select: none;
 }
-.ws-loading { font-size: 11px; color: rgba(255,255,255,.3); padding: 2px 8px; }
-.ws-empty { font-size: 11px; color: rgba(255,255,255,.25); padding: 2px 8px; font-style: italic; }
+.ws-loading { font-size: 11px; color: rgba(255,255,255,.3); padding: 2px 10px 2px 28px; }
+.ws-empty { font-size: 11px; color: rgba(255,255,255,.22); padding: 2px 10px 4px 28px; font-style: italic; }
 .ws-item {
   display: flex; align-items: center; gap: 6px;
-  padding: 4px 8px; border-radius: 6px; cursor: pointer;
-  background: none; border: none; color: rgba(255,255,255,.6);
+  padding: 3px 10px 3px 28px; border-radius: 0; cursor: pointer;
+  background: none; border: none; color: rgba(255,255,255,.55);
   font-size: 12px; text-align: left; width: 100%; font-family: inherit;
   transition: background .1s;
 }
-.ws-item:hover { background: rgba(255,255,255,.06); color: #e8eaed; }
-.ws-item-ic { font-size: 11px; flex-shrink: 0; }
+.ws-item:hover { background: rgba(255,255,255,.05); color: #e8eaed; }
 .ws-item-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ws-item-time { font-size: 10px; color: rgba(255,255,255,.3); flex-shrink: 0; }
+.ws-item-time { font-size: 10px; color: rgba(255,255,255,.28); flex-shrink: 0; }
+.ws-item-kind {
+  font-size: 9px; padding: 1px 5px; border-radius: 100px; flex-shrink: 0;
+  background: rgba(255,255,255,.06); color: rgba(255,255,255,.35);
+}
 </style>
