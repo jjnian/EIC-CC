@@ -20,8 +20,9 @@ export function useDivider(
       if (!divDrag.value) return;
       const delta = divDrag.value.sx - ev.clientX;
       const sideW = getSidebarW ? getSidebarW() : 72;
-      const maxW = window.innerWidth - sideW - 100; // 保留至少100px给图谱区域
-      chatW.value = Math.max(120, Math.min(maxW, divDrag.value.sw + delta));
+      // 几乎全屏聊天 ↔ 完全收起。给图谱保留 60px，聊天最小 0
+      const maxW = Math.max(0, window.innerWidth - sideW - 60);
+      chatW.value = Math.max(0, Math.min(maxW, divDrag.value.sw + delta));
       onResize?.();
     };
     const up = () => {

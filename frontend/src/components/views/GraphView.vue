@@ -274,11 +274,13 @@ const analysisOpen = ref(false);
 .content { flex: 1; display: flex; min-height: 0; min-width: 0; overflow: hidden; }
 .graph-area { flex: 1; min-width: 0; position: relative; }
 .resize-divider {
-  width: 4px;
+  width: 8px;
   flex-shrink: 0;
   cursor: col-resize;
   background: rgba(255, 255, 255, 0.04);
   transition: background-color 0.15s;
+  position: relative;
+  z-index: 5;
 }
 .resize-divider:hover, .resize-divider.dragging {
   background: rgba(74, 144, 226, 0.45);

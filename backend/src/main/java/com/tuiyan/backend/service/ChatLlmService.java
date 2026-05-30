@@ -190,8 +190,6 @@ public class ChatLlmService {
                     request.getHistory(), request.getAttachments(), false, true);
             log.debug("[LLM-chat-sse] 请求体大小: {} chars", requestBody.length());
 
-            emitStep(emitter, "calling_llm", "正在调用 " + cfg.modelName() + " 推理构建本体…");
-
             HttpRequest httpRequest = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
 
             final String modelForMetrics = cfg.modelName();
