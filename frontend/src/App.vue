@@ -54,7 +54,11 @@ const startSbResize = (e: MouseEvent) => {
 };
 const graphRef = ref<any>(null);
 const chatRef = ref<any>(null);
-const { chatW, startDivider, isDragging } = useDivider(360, () => graphRef.value?.fitView());
+const { chatW, startDivider, isDragging } = useDivider(
+  360,
+  () => graphRef.value?.fitView(),
+  () => sbExp.value ? sidebarW.value : 72,
+);
 
 const view = ref<'welcome' | 'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource' | 'datasource-list' | 'conv-list'>('workspace-picker');
 
