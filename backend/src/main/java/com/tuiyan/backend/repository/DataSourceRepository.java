@@ -41,6 +41,14 @@ public class DataSourceRepository {
         return pos.stream().map(this::toMap).toList();
     }
 
+    public List<DataSourcePO> listByKind(String workspaceId, String kind) {
+        return mapper.selectList(
+                new LambdaQueryWrapper<DataSourcePO>()
+                        .eq(DataSourcePO::getWorkspaceId, workspaceId)
+                        .eq(DataSourcePO::getKind, kind)
+                        .orderByDesc(DataSourcePO::getCreatedAt));
+    }
+
     @Transactional
     public DataSourcePO saveSource(String kind, String name, String mime, Long sizeBytes,
                                    Map<String, Object> extra) {

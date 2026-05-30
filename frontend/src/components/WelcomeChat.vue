@@ -143,41 +143,67 @@ const onInputKeydown = (e: KeyboardEvent) => {
 }
 .welcome-logo {
   margin-bottom: 4px;
+  position: relative;
+}
+.welcome-logo::before {
+  content: '';
+  position: absolute;
+  inset: -24px;
+  background: radial-gradient(circle at 50% 50%, rgba(66, 184, 131, 0.22), transparent 60%);
+  filter: blur(20px);
+  z-index: -1;
+  pointer-events: none;
 }
 .welcome-logo-mark {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #42b883, #35495e);
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #5fd4a3 0%, #42b883 50%, #35495e 100%);
   display: flex; align-items: center; justify-content: center;
-  font-size: 22px; font-weight: 700; color: #fff;
-  box-shadow: 0 8px 24px rgba(66, 184, 131, 0.3);
+  font-size: 24px; font-weight: 800; color: #fff;
+  box-shadow:
+    0 14px 36px rgba(66, 184, 131, 0.40),
+    0 4px 12px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  letter-spacing: 0.5px;
+  font-family: 'Inter', sans-serif;
 }
 .welcome-title {
-  font-size: 32px;
-  font-weight: 600;
+  font-size: 34px;
+  font-weight: 700;
   color: var(--text-main);
   text-align: center;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.4px;
+  background: linear-gradient(180deg, #ffffff 0%, rgba(244, 247, 251, 0.78) 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-family: 'Inter', sans-serif;
 }
 .welcome-sub {
   color: var(--text-dim);
   font-size: 14px;
   text-align: center;
   margin-bottom: 12px;
+  letter-spacing: 0.2px;
+  line-height: 1.7;
 }
 .welcome-input-card {
   width: 100%;
-  background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.65) 0%, rgba(11, 18, 32, 0.55) 100%);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 22px;
   padding: 16px 18px;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 .welcome-input-card:focus-within {
-  border-color: rgba(66, 184, 131, 0.5);
-  box-shadow: 0 0 0 4px rgba(66, 184, 131, 0.08);
+  border-color: rgba(66, 184, 131, 0.55);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.32),
+              0 0 0 4px rgba(66, 184, 131, 0.10),
+              inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .welcome-atts {
   display: flex;
@@ -189,17 +215,20 @@ const onInputKeydown = (e: KeyboardEvent) => {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(66, 184, 131, 0.12);
-  border: 1px solid rgba(66, 184, 131, 0.25);
-  color: #42b883;
+  background: linear-gradient(180deg, rgba(66, 184, 131, 0.16), rgba(66, 184, 131, 0.08));
+  border: 1px solid rgba(66, 184, 131, 0.28);
+  color: #5fd4a3;
   padding: 4px 10px;
   border-radius: 8px;
   font-size: 12px;
+  letter-spacing: 0.2px;
 }
 .welcome-att button {
   background: none; border: none; color: inherit;
   cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px;
+  transition: color 0.15s ease;
 }
+.welcome-att button:hover { color: #ff8a6f; }
 .welcome-input {
   width: 100%;
   background: transparent;
@@ -207,56 +236,60 @@ const onInputKeydown = (e: KeyboardEvent) => {
   outline: none;
   color: var(--text-main);
   font-size: 15px;
-  line-height: 1.6;
+  line-height: 1.65;
   resize: none;
   font-family: inherit;
   min-height: 60px;
+  letter-spacing: 0.15px;
 }
-.welcome-input::placeholder { color: rgba(255, 255, 255, 0.35); }
+.welcome-input::placeholder { color: rgba(255, 255, 255, 0.32); }
 .welcome-input-footer {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-top: 8px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 .welcome-icon-btn {
   display: flex; align-items: center; gap: 6px;
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   color: var(--text-dim);
-  padding: 6px 12px;
-  border-radius: 10px;
+  padding: 7px 13px;
+  border-radius: 11px;
   cursor: pointer;
   font-size: 12px;
-  transition: all 0.15s;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  letter-spacing: 0.15px;
+  font-family: inherit;
 }
 .welcome-icon-btn:hover {
-  border-color: #42b883;
-  color: #42b883;
+  border-color: rgba(66, 184, 131, 0.5);
+  color: #5fd4a3;
   background: rgba(66, 184, 131, 0.08);
 }
 .welcome-spacer { flex: 1; }
 .welcome-hint {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.32);
   font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.3px;
 }
 .welcome-send {
   width: 36px; height: 36px;
-  border-radius: 10px;
-  background: #42b883;
-  color: #002418;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #5fd4a3, #42b883);
+  color: #062a1c;
   border: none;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 6px 16px rgba(66, 184, 131, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.32);
 }
 .welcome-send:hover:not(:disabled) {
-  background: #50caa3;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(66, 184, 131, 0.3);
+  box-shadow: 0 10px 24px rgba(66, 184, 131, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.36);
 }
 .welcome-send:disabled { opacity: 0.4; cursor: not-allowed; }
 .welcome-examples {
@@ -268,38 +301,45 @@ const onInputKeydown = (e: KeyboardEvent) => {
 }
 .welcome-ex-label {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.45);
   align-self: center;
   margin-right: 4px;
+  letter-spacing: 0.3px;
+  font-family: 'JetBrains Mono', monospace;
 }
 .welcome-ex {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.10);
   color: var(--text-dim);
-  padding: 8px 14px;
+  padding: 8px 16px;
   border-radius: 100px;
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease, transform 0.15s ease;
   font-family: inherit;
+  letter-spacing: 0.15px;
 }
 .welcome-ex:hover {
-  border-color: rgba(66, 184, 131, 0.4);
+  border-color: rgba(66, 184, 131, 0.45);
   color: var(--text-main);
-  background: rgba(66, 184, 131, 0.08);
+  background: linear-gradient(180deg, rgba(66, 184, 131, 0.10), rgba(66, 184, 131, 0.04));
+  transform: translateY(-1px);
 }
 .welcome-drop-hint {
   position: absolute;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(66, 184, 131, 0.15);
-  border: 1px solid rgba(66, 184, 131, 0.4);
-  color: #42b883;
+  background: linear-gradient(180deg, rgba(66, 184, 131, 0.22), rgba(66, 184, 131, 0.10));
+  border: 1px solid rgba(66, 184, 131, 0.45);
+  color: #5fd4a3;
   padding: 16px 32px;
-  border-radius: 16px;
+  border-radius: 18px;
   font-size: 16px;
   font-weight: 600;
   pointer-events: none;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 12px 32px rgba(66, 184, 131, 0.22);
+  letter-spacing: 0.4px;
 }
 </style>

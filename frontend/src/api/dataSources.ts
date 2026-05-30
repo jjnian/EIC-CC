@@ -1,4 +1,4 @@
-import { request } from './http';
+import { request, requestText } from './http';
 
 export type DataSourceKind =
   | 'file' | 'url'                // 旧的导入历史
@@ -136,7 +136,7 @@ export function uploadFileDataSource(file: File, name?: string) {
 
 export function readFileContent(id: string, offset = 0, length = 10000) {
   const qs = `?offset=${offset}&length=${length}`;
-  return request<string>(`/api/data-sources/${encodeURIComponent(id)}/content${qs}`);
+  return requestText(`/api/data-sources/${encodeURIComponent(id)}/content${qs}`);
 }
 
 export function fileDownloadUrl(id: string) {

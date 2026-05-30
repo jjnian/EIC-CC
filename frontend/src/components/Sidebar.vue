@@ -17,6 +17,12 @@ const emit = defineEmits<{
   (e: 'open-conversation', id: string): void;
   (e: 'open-graph', id: string): void;
   (e: 'open-datasource', id: string): void;
+  (e: 'open-datasources', workspaceId: string): void;
+  (e: 'add-datasource', workspaceId: string): void;
+  (e: 'rename-conversation', id: string, title: string): void;
+  (e: 'delete-conversation', id: string): void;
+  (e: 'rename-graph', id: string, title: string): void;
+  (e: 'delete-graph', id: string): void;
 }>();
 
 // 左侧顶级功能菜单：只保留「新对话」和「数据源」
@@ -108,7 +114,13 @@ const submitCreate = async () => {
                        @switch-current="onSwitchCurrent"
                        @open-conversation="emit('open-conversation', $event)"
                        @open-graph="emit('open-graph', $event)"
-                       @open-datasource="emit('open-datasource', $event)" />
+                       @open-datasource="emit('open-datasource', $event)"
+                       @open-datasources="emit('open-datasources', $event)"
+                       @add-datasource="emit('add-datasource', $event)"
+                       @rename-conversation="(id, title) => emit('rename-conversation', id, title)"
+                       @delete-conversation="emit('delete-conversation', $event)"
+                       @rename-graph="(id, title) => emit('rename-graph', id, title)"
+                       @delete-graph="emit('delete-graph', $event)" />
         <button class="sb-ws-new" @click="openCreate" title="新建工作空间">
           <span class="sb-ws-avatar plus">＋</span>
           <span class="sb-ws-name">新建工作空间</span>
@@ -155,9 +167,17 @@ const submitCreate = async () => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  position: relative;
+}
+.sb-ws::before {
+  content: '';
+  position: absolute;
+  inset: 0 12px auto 12px; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
+  pointer-events: none;
 }
 .sb-ws::-webkit-scrollbar { width: 4px; }
-.sb-ws::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+.sb-ws::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
 .sb-section-head {
   background: none;
   border: none;
@@ -168,11 +188,13 @@ const submitCreate = async () => {
   cursor: pointer;
   color: inherit;
   font-family: inherit;
+  transition: opacity 0.15s ease;
 }
+.sb-section-head:hover { opacity: 0.85; }
 .sb-caret {
   font-size: 9px;
-  color: rgba(255, 255, 255, 0.35);
-  transition: transform .18s;
+  color: rgba(255, 255, 255, 0.40);
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1);
 }
 .sb-caret.open {
   transform: rotate(90deg);
@@ -188,7 +210,7 @@ const submitCreate = async () => {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: 9px;
   cursor: pointer;
   color: var(--text-dim);
   background: none;
@@ -197,7 +219,8 @@ const submitCreate = async () => {
   font-size: 12.5px;
   text-align: left;
   width: 100%;
-  transition: all 0.12s;
+  transition: background 0.15s ease, color 0.15s ease;
+  letter-spacing: 0.15px;
 }
 .sb-ws-new:hover {
   background: rgba(255, 255, 255, 0.05);
@@ -206,18 +229,24 @@ const submitCreate = async () => {
 .sb-ws-avatar {
   width: 22px; height: 22px;
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   font-family: 'Inter', sans-serif;
 }
 .sb-ws-avatar.plus {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
   color: rgba(255, 255, 255, 0.55);
-  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border: 1px dashed rgba(255, 255, 255, 0.20);
+  transition: all 0.18s ease;
+}
+.sb-ws-new:hover .sb-ws-avatar.plus {
+  border-color: rgba(66, 184, 131, 0.5);
+  color: #5fd4a3;
+  background: rgba(66, 184, 131, 0.08);
 }
 .sb-ws-name {
   flex: 1;
@@ -228,10 +257,10 @@ const submitCreate = async () => {
 .sb-section-label {
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 1.2px;
-  color: rgba(255, 255, 255, 0.35);
-  font-family: 'Inter', sans-serif;
-  font-weight: 500;
+  letter-spacing: 1.4px;
+  color: rgba(255, 255, 255, 0.42);
+  font-family: 'JetBrains Mono', 'Inter', sans-serif;
+  font-weight: 600;
 }
 
 /* ---------- 新建对话框 ---------- */
@@ -239,61 +268,78 @@ const submitCreate = async () => {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1500;
 }
 .sb-dialog {
-  background: #141e30;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
+  background: linear-gradient(180deg, #182338 0%, #101729 100%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 16px;
   padding: 22px;
   width: 360px;
   max-width: 90vw;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
 }
-.sb-dialog h3 { margin: 0; font-size: 16px; color: var(--text-main); }
+.sb-dialog h3 {
+  margin: 0; font-size: 16px; color: var(--text-main);
+  font-weight: 600; letter-spacing: 0.3px;
+}
 .sb-dialog input {
-  background: rgba(10, 16, 27, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 13, 22, 0.80);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   color: #e2e8f0;
-  padding: 9px 12px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border-radius: 9px;
   font-size: 13px;
   outline: none;
   font-family: inherit;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
-.sb-dialog input:focus { border-color: #42b883; }
+.sb-dialog input:focus {
+  border-color: rgba(66, 184, 131, 0.55);
+  box-shadow: 0 0 0 3px rgba(66, 184, 131, 0.10);
+}
 .sb-dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
 }
 .sb-btn-primary {
-  background: #42b883;
-  color: #002418;
+  background: linear-gradient(135deg, #5fd4a3, #42b883);
+  color: #062a1c;
   border: none;
   padding: 9px 20px;
-  border-radius: 8px;
+  border-radius: 9px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 6px 16px rgba(66, 184, 131, 0.30), inset 0 1px 0 rgba(255,255,255,0.32);
+  letter-spacing: 0.2px;
 }
-.sb-btn-primary:hover { background: #50caa3; }
-.sb-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+.sb-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(66, 184, 131, 0.40), inset 0 1px 0 rgba(255,255,255,0.36);
+}
+.sb-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; }
 .sb-btn-cancel {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.65);
+  color: rgba(255, 255, 255, 0.70);
   padding: 9px 20px;
-  border-radius: 8px;
+  border-radius: 9px;
   font-size: 13px;
   cursor: pointer;
   font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.sb-btn-cancel:hover { background: rgba(255, 255, 255, 0.1); }
+.sb-btn-cancel:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
 </style>

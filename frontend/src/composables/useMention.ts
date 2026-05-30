@@ -2,10 +2,27 @@ import { ref, computed, nextTick, type Ref, type ComputedRef } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
 
 export interface MentionItem {
-  kind: 'node' | 'edge';
+  kind: 'graph' | 'relation' | 'node' | 'datasource';
   id: string;
   label: string;
   sub: string;
+}
+
+export interface MentionTreeItem {
+  item: MentionItem;
+  index: number;
+}
+
+export interface MentionTreeGroup {
+  key: string;
+  label: string;
+  items: MentionTreeItem[];
+}
+
+export interface MentionTreeSection {
+  key: string;
+  label: string;
+  groups: MentionTreeGroup[];
 }
 
 export interface MentionCtx {
@@ -13,6 +30,8 @@ export interface MentionCtx {
   inputRef: Ref<HTMLTextAreaElement | null>;
   nodes: ComputedRef<OntologyNode[]> | Ref<OntologyNode[]> | (() => OntologyNode[]);
   edges: ComputedRef<OntologyEdge[]> | Ref<OntologyEdge[]> | (() => OntologyEdge[]);
+  graphLabel?: ComputedRef<string> | Ref<string> | (() => string);
+  dataSources?: ComputedRef<{ id: string; name: string }[]> | Ref<{ id: string; name: string }[]> | (() => { id: string; name: string }[]);
 }
 
 function unwrap<T>(v: ComputedRef<T> | Ref<T> | (() => T)): T {
@@ -20,9 +39,6 @@ function unwrap<T>(v: ComputedRef<T> | Ref<T> | (() => T)): T {
   return (v as Ref<T>).value;
 }
 
-/**
- * 输入框 @mention 弹窗:节点/关系搜索 + 键盘导航 + 插入 token。
- */
 export function useMention(ctx: MentionCtx) {
   const mentionOpen = ref(false);
   const mentionQuery = ref('');
@@ -33,27 +49,83 @@ export function useMention(ctx: MentionCtx) {
     const q = mentionQuery.value.toLowerCase().trim();
     const nodes = unwrap(ctx.nodes) || [];
     const edges = unwrap(ctx.edges) || [];
-    const nodeItems: MentionItem[] = nodes.map(n => ({
-      kind: 'node' as const,
-      id: n.id,
-      label: n.label || n.id,
-      sub: n.type || '实体',
-    }));
-    const edgeItems: MentionItem[] = edges.map(e => {
+    const graphLabel = ctx.graphLabel ? unwrap(ctx.graphLabel) : '';
+    const dataSources = ctx.dataSources ? unwrap(ctx.dataSources) || [] : [];
+
+    const items: MentionItem[] = [];
+    if (graphLabel) {
+      items.push({ kind: 'graph', id: 'graph', label: graphLabel, sub: '当前图谱' });
+    }
+
+    for (const n of nodes) {
+      items.push({
+        kind: 'node',
+        id: n.id,
+        label: n.label || n.id,
+        sub: n.type || '实体',
+      });
+    }
+
+    for (const e of edges) {
       const fromN = nodes.find(n => n.id === e.from);
       const toN = nodes.find(n => n.id === e.to);
-      return {
-        kind: 'edge' as const,
+      items.push({
+        kind: 'relation',
         id: e.id,
         label: e.label || '关系',
         sub: `${fromN?.label || e.from} → ${toN?.label || e.to}`,
-      };
-    });
-    const all = [...nodeItems, ...edgeItems];
-    if (!q) return all.slice(0, 12);
-    return all
+      });
+    }
+
+    for (const ds of dataSources) {
+      items.push({
+        kind: 'datasource',
+        id: ds.id,
+        label: ds.name,
+        sub: '数据源',
+      });
+    }
+
+    if (!q) return items.slice(0, 24);
+    return items
       .filter(it => it.label.toLowerCase().includes(q) || it.sub.toLowerCase().includes(q))
-      .slice(0, 12);
+      .slice(0, 24);
+  });
+
+  const mentionTree = computed<MentionTreeSection[]>(() => {
+    const sections: MentionTreeSection[] = [
+      {
+        key: 'graph',
+        label: '图谱',
+        groups: [
+          { key: 'graph-self', label: '当前图谱', items: [] },
+          { key: 'nodes', label: '节点', items: [] },
+          { key: 'relations', label: '关系', items: [] },
+        ],
+      },
+      {
+        key: 'datasource',
+        label: '数据源',
+        groups: [
+          { key: 'datasources', label: '本空间数据源', items: [] },
+        ],
+      },
+    ];
+
+    mentionItems.value.forEach((item, index) => {
+      const row = { item, index };
+      if (item.kind === 'graph') sections[0].groups[0].items.push(row);
+      else if (item.kind === 'node') sections[0].groups[1].items.push(row);
+      else if (item.kind === 'relation') sections[0].groups[2].items.push(row);
+      else if (item.kind === 'datasource') sections[1].groups[0].items.push(row);
+    });
+
+    return sections
+      .map(section => ({
+        ...section,
+        groups: section.groups.filter(group => group.items.length > 0),
+      }))
+      .filter(section => section.groups.length > 0);
   });
 
   const checkMention = () => {
@@ -80,7 +152,10 @@ export function useMention(ctx: MentionCtx) {
     if (start < 0) return;
     const before = ctx.input.value.slice(0, start);
     const after = ctx.input.value.slice(start + 1 + queryLen);
-    const token = it.kind === 'node' ? `@${it.label}` : `@「${it.label}」`;
+    const token = it.kind === 'graph' ? `@图谱:${it.label}`
+      : it.kind === 'relation' ? `@关系:${it.label}`
+      : it.kind === 'datasource' ? `@数据源:${it.label}`
+      : `@${it.label}`;
     ctx.input.value = before + token + ' ' + after;
     mentionOpen.value = false;
     nextTick(() => {
@@ -100,13 +175,10 @@ export function useMention(ctx: MentionCtx) {
       if (!list) return;
       const items = list.querySelectorAll('.mention-item');
       const active = items[mentionIndex.value] as HTMLElement | undefined;
-      if (active) {
-        active.scrollIntoView({ block: 'nearest' });
-      }
+      if (active) active.scrollIntoView({ block: 'nearest' });
     });
   };
 
-  /** 键盘事件:处理 ↑↓Enter/Tab/Esc,返回 true 表示已消费(调用方不再处理 Enter 发送)。 */
   const handleKeydown = (e: KeyboardEvent): boolean => {
     if (!mentionOpen.value || mentionItems.value.length === 0) return false;
     if (e.key === 'ArrowDown') {
@@ -142,6 +214,7 @@ export function useMention(ctx: MentionCtx) {
     mentionQuery,
     mentionIndex,
     mentionItems,
+    mentionTree,
     mentionListRef,
     checkMention,
     selectMention,

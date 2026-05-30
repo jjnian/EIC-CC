@@ -61,6 +61,23 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   return JSON.parse(text) as T;
 }
 
+/** 纯文本请求。用于后端直接返回 text/plain 的接口。 */
+export async function requestText(path: string, init: RequestInit = {}): Promise<string> {
+  const headers = new Headers(init.headers || {});
+  if (!headers.has('Accept')) headers.set('Accept', 'text/plain');
+  if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const wsId = getCurrentWorkspaceId();
+  if (wsId && !headers.has('X-Workspace-Id')) headers.set('X-Workspace-Id', wsId);
+  const res = await fetch(path, { ...init, headers });
+  if (!res.ok) {
+    const { msg, body } = await parseError(res);
+    throw new ApiError(res.status, msg, body);
+  }
+  return await res.text();
+}
+
 export interface SseHandlers {
   onEvent: (event: string, data: string) => void;
   onError?: (err: Error) => void;

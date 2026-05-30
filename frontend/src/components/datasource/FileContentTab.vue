@@ -7,29 +7,53 @@ const offset = ref(0);
 const PAGE = 10000;
 const text = ref('');
 const loading = ref(false);
+const error = ref('');
 
 const load = async () => {
   loading.value = true;
-  try { text.value = await readFileContent(props.dsId, offset.value, PAGE); }
-  finally { loading.value = false; }
+  error.value = '';
+  try {
+    text.value = await readFileContent(props.dsId, offset.value, PAGE);
+  } catch (e) {
+    text.value = '';
+    error.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    loading.value = false;
+  }
 };
-const next = () => { if (offset.value + PAGE < props.totalChars) { offset.value += PAGE; load(); } };
-const prev = () => { if (offset.value >= PAGE) { offset.value -= PAGE; load(); } };
+
+const next = () => {
+  if (offset.value + PAGE < props.totalChars) {
+    offset.value += PAGE;
+    load();
+  }
+};
+
+const prev = () => {
+  if (offset.value >= PAGE) {
+    offset.value -= PAGE;
+    load();
+  }
+};
 
 onMounted(load);
-watch(() => props.dsId, () => { offset.value = 0; load(); });
+watch(() => props.dsId, () => {
+  offset.value = 0;
+  load();
+});
 </script>
 
 <template>
   <div class="tab">
     <div class="bar">
-      <span>{{ offset }} – {{ Math.min(offset + PAGE, totalChars) }} / {{ totalChars }} 字符</span>
-      <button :disabled="offset === 0" @click="prev">‹ 上一页</button>
-      <button :disabled="offset + PAGE >= totalChars" @click="next">下一页 ›</button>
+      <span>{{ offset }} - {{ Math.min(offset + PAGE, totalChars) }} / {{ totalChars }} 字符</span>
+      <button :disabled="offset === 0" @click="prev">上一页</button>
+      <button :disabled="offset + PAGE >= totalChars" @click="next">下一页</button>
       <a :href="fileDownloadUrl(dsId)" target="_blank">下载原文件</a>
     </div>
-    <pre v-if="!loading" class="content">{{ text }}</pre>
-    <div v-else class="msg">加载中…</div>
+    <div v-if="error" class="msg err">{{ error }}</div>
+    <pre v-else-if="!loading" class="content">{{ text || '暂无可预览内容' }}</pre>
+    <div v-else class="msg">加载中...</div>
   </div>
 </template>
 
@@ -40,4 +64,5 @@ watch(() => props.dsId, () => { offset.value = 0; load(); });
 .bar button:disabled { opacity: .4; cursor: not-allowed; }
 .content { flex: 1; overflow: auto; background: rgba(255,255,255,.03); padding: 12px; border-radius: 6px; color: #e8eaed; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
 .msg { color: #888; padding: 12px; }
+.err { color: #ff8a8a; }
 </style>

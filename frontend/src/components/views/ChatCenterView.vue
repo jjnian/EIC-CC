@@ -47,10 +47,6 @@ const emit = defineEmits<{
 <template>
   <div class="chat-center">
     <div class="cc-inner">
-      <div class="cc-head">
-        <span class="cc-title">{{ modelTitle || '推演助手' }}</span>
-        <span class="cc-stat">{{ nodes.length }} 节点 · {{ edges.length }} 关系</span>
-      </div>
       <ChatPanel
         :ref="(el) => emit('chat-ref', el)"
         :nodes="nodes"
@@ -81,37 +77,73 @@ const emit = defineEmits<{
 }
 .cc-inner {
   width: 100%;
-  max-width: 880px;
   display: flex;
   flex-direction: column;
   min-height: 0;
   padding: 0 24px 0;
 }
-.cc-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 4px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-.cc-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-.cc-stat {
-  font-size: 12px;
-  color: var(--text-dim);
-  font-family: 'JetBrains Mono', monospace;
-}
 .cc-chat {
   flex: 1;
   min-height: 0;
   width: 100% !important;
+}
+.cc-chat.chat-panel {
   background: transparent !important;
-  border-left: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 .cc-chat :deep(.ch-head) {
   display: none;
+}
+/* 去掉对话面板左侧那条渐变竖线(.chat-panel::before 与 cc-chat 同元素) */
+.cc-chat::before {
+  display: none !important;
+}
+.cc-chat :deep(.ch-msgs),
+.cc-chat :deep(.ch-input-area),
+.cc-chat :deep(.att-row) {
+  width: min(100%, 1280px);
+  margin-left: auto;
+  margin-right: auto;
+}
+.cc-chat :deep(.ch-msgs) {
+  padding-left: 32px;
+  padding-right: 32px;
+}
+.cc-chat :deep(.ch-input-area) {
+  padding-left: 32px;
+  padding-right: 32px;
+}
+.cc-chat :deep(.msg) {
+  max-width: 920px;
+}
+.cc-chat :deep(.msg-body) {
+  max-width: 100%;
+}
+.cc-chat :deep(.ch-msgs) {
+  align-items: center;
+}
+.cc-chat :deep(.msg-asst .bubble) {
+  background: transparent !important;
+  border: none;
+  box-shadow: none;
+  color: #f5f7fb;
+  padding: 4px 0;
+}
+.cc-chat :deep(.msg-asst .bubble strong),
+.cc-chat :deep(.msg-asst .bubble em) {
+  color: #fff;
+}
+@media (max-width: 1200px) {
+  .cc-chat :deep(.ch-msgs),
+  .cc-chat :deep(.ch-input-area),
+  .cc-chat :deep(.att-row) {
+    width: min(100%, 960px);
+  }
+  .cc-chat :deep(.msg) {
+    max-width: 820px;
+  }
 }
 </style>

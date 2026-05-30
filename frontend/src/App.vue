@@ -15,7 +15,8 @@ import DataSourceCreateDialog from './components/DataSourceCreateDialog.vue';
 import DataSourcePageView from './components/views/DataSourcePageView.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import { toast, mountToastRoot } from './composables/useToast';
-import { updateOntology } from './api/ontology';
+import { updateOntology, deleteOntology } from './api/ontology';
+import { getConversation, updateConversation, deleteConversation as apiDeleteConversation } from './api/conversations';
 import { ApiError } from './api/http';
 import { useDivider } from './composables/useDivider';
 import { useImportFlow } from './composables/useImportFlow';
@@ -36,13 +37,17 @@ const sel = ref<string | null>(null);
 const sbExp = ref(true);
 const sidebarW = ref(240);
 const sbDragging = ref(false);
+const SIDEBAR_MIN_W = 72;
+const SIDEBAR_EDGE_GAP = 72;
 const startSbResize = (e: MouseEvent) => {
   e.preventDefault();
   const startX = e.clientX;
   const startW = sidebarW.value;
   sbDragging.value = true;
   const onMove = (ev: MouseEvent) => {
-    sidebarW.value = Math.max(160, Math.min(480, startW + ev.clientX - startX));
+    const nextW = startW + ev.clientX - startX;
+    const maxW = Math.max(SIDEBAR_MIN_W, window.innerWidth - SIDEBAR_EDGE_GAP);
+    sidebarW.value = Math.max(SIDEBAR_MIN_W, Math.min(maxW, nextW));
   };
   const onUp = () => {
     sbDragging.value = false;
@@ -83,6 +88,29 @@ const importDialogOpen = ref(false);
 
 // 数据源创建对话框状态
 const dsCreateOpen = ref(false);
+const openDataSourceListForWorkspace = (workspaceId: string) => {
+  if (workspaceId && workspaceId !== wsManager.currentId.value) {
+    wsManager.setCurrent(workspaceId);
+    window.location.reload();
+    return;
+  }
+  currentDataSourceId.value = null;
+  view.value = 'datasource-list';
+};
+const openDataSourceCreateForWorkspace = (workspaceId: string) => {
+  if (workspaceId && workspaceId !== wsManager.currentId.value) {
+    wsManager.setCurrent(workspaceId);
+    window.location.reload();
+    return;
+  }
+  currentDataSourceId.value = null;
+  view.value = 'datasource-list';
+  dsCreateOpen.value = true;
+};
+const openDataSourceDetail = (id: string) => {
+  currentDataSourceId.value = id;
+  view.value = 'datasource';
+};
 const onDsCreated = async (id: string) => {
   currentDataSourceId.value = id;
   view.value = 'datasource';
@@ -428,9 +456,21 @@ const goWelcome = () => {
   welcomeResetTick.value++;
 };
 
+const findConversationModelId = async (id: string): Promise<string | null> => {
+  try {
+    const conv = await getConversation(id);
+    const msg = [...(conv.msgs || [])].reverse().find(m => m.graphModelId);
+    return msg?.graphModelId || null;
+  } catch (e) {
+    console.warn('load conversation graph model failed', id, e);
+    return null;
+  }
+};
+
 const onOpenConversation = async (id: string) => {
   // 始终切换到中心聊天视图展示对话
-  const target = currentModelId.value ? findModel(currentModelId.value) : models.value[0];
+  const modelId = await findConversationModelId(id);
+  const target = modelId ? findModel(modelId) : (currentModelId.value ? findModel(currentModelId.value) : models.value[0]);
   if (target) {
     await openModel(target, 'chat');
   } else {
@@ -438,6 +478,42 @@ const onOpenConversation = async (id: string) => {
   }
   await nextTick();
   chatRef.value?.switchConversation(id);
+  chatRef.value?.focusInput?.();
+};
+
+const renameConversation = async (id: string, title: string) => {
+  const wsId = wsManager.currentId.value;
+  if (!wsId) return;
+  try {
+    const current = await getConversation(id);
+    const saved = await updateConversation(id, {
+      ...current,
+      title,
+    });
+    sidebarTree.renameConversation(wsId, id, saved.title, saved.updatedAt || Date.now());
+    if (chatRef.value?.currentConversationId?.() === id) {
+      chatRef.value?.setConversationTitle?.(saved.title);
+    }
+    toast.success('已重命名');
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '重命名失败');
+  }
+};
+
+const deleteConversation = async (id: string) => {
+  const wsId = wsManager.currentId.value;
+  if (!wsId) return;
+  try {
+    await apiDeleteConversation(id);
+    sidebarTree.removeConversation(wsId, id);
+    if (chatRef.value?.currentConversationId?.() === id) {
+      await chatRef.value?.newConversation?.();
+      goWelcome();
+    }
+    toast.success('已删除');
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '删除失败');
+  }
 };
 
 const onNewConversation = async () => {
@@ -449,13 +525,65 @@ const onNewConversation = async () => {
   }
   await nextTick();
   chatRef.value?.newConversation();
+  chatRef.value?.focusInput?.();
 };
 
 const onOpenOntologyModel = async (id: string) => {
   const m = findModel(id);
   if (!m) return;
+  await chatRef.value?.flushPersist?.();
   chatW.value = 0;
   await openModel(m, 'graph');
+};
+
+const backToChat = async () => {
+  await chatRef.value?.flushPersist?.();
+  if (currentModelId.value) {
+    const m = findModel(currentModelId.value);
+    if (m) {
+      await openModel(m, 'chat');
+      chatW.value = 360;
+      return;
+    }
+  }
+  view.value = 'chat';
+  chatW.value = 360;
+};
+
+const renameGraph = async (id: string, title: string) => {
+  const wsId = wsManager.currentId.value;
+  if (!wsId) return;
+  const m = findModel(id);
+  if (!m) return;
+  try {
+    const next = { ...m, title, name: title };
+    const saved = await updateOntology(id, next);
+    const idx = models.value.findIndex(x => x.id === id);
+    if (idx >= 0) models.value[idx] = saved;
+    if (currentModelId.value === id) currentModelTitle.value = saved.title || saved.name || title;
+    sidebarTree.renameOntology(wsId, id, saved.name || saved.title || title, (saved as any).updatedAt || Date.now());
+    toast.success('已重命名');
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '重命名失败');
+  }
+};
+
+const deleteGraph = async (id: string) => {
+  const wsId = wsManager.currentId.value;
+  if (!wsId) return;
+  try {
+    await deleteOntology(id);
+    models.value = models.value.filter(m => m.id !== id);
+    sidebarTree.removeOntology(wsId, id);
+    if (currentModelId.value === id) {
+      currentModelId.value = '';
+      currentModelTitle.value = '渚涘簲閾炬湰浣撳浘';
+      goWelcome();
+    }
+    toast.success('已删除');
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '删除失败');
+  }
 };
 
 const openModelById = (id: string) => {
@@ -497,6 +625,7 @@ const formatFileSize = (bytes: number) => {
 <template>
   <div class="app">
     <Sidebar
+      :class="{ dragging: sbDragging }"
       :expanded="sbExp"
       :view="view"
       :style="sbExp ? `--sidebar-w: ${sidebarW}px` : ''"
@@ -505,7 +634,13 @@ const formatFileSize = (bytes: number) => {
       @switch-workspace="onWorkspaceSwitched"
       @open-conversation="onOpenConversation"
       @open-graph="onOpenOntologyModel"
-      @open-datasource="(id) => { currentDataSourceId.value = id; view.value = 'datasource'; }"
+      @open-datasource="openDataSourceDetail"
+      @open-datasources="openDataSourceListForWorkspace"
+      @add-datasource="openDataSourceCreateForWorkspace"
+      @rename-conversation="renameConversation"
+      @delete-conversation="deleteConversation"
+      @rename-graph="renameGraph"
+      @delete-graph="deleteGraph"
     />
     <div
       v-if="sbExp"
@@ -557,6 +692,7 @@ const formatFileSize = (bytes: number) => {
           </div>
           <button class="tb-btn" @click="openTemplates" title="从模板创建新模型">📋 模板</button>
           <button class="tb-btn" @click="saveAsTemplate" title="将当前模型另存为模板" :disabled="!currentModelId">💾 存为模板</button>
+          <button class="tb-btn hi" v-if="chatW === 0" @click="backToChat" title="回到对话">回到对话</button>
           <div class="export-menu-wrap">
             <button class="tb-btn" @click="showExportMenu = !showExportMenu" title="导出">⬇ 导出</button>
             <div v-if="showExportMenu" class="export-dropdown">
@@ -617,7 +753,7 @@ const formatFileSize = (bytes: number) => {
       <!-- DataSource List / Add Page -->
       <DataSourcePageView
         v-else-if="view === 'datasource-list'"
-        @open="(id) => { currentDataSourceId = id; view = 'datasource'; }"
+        @open="openDataSourceDetail"
       />
 
       <!-- Graph View -->
@@ -862,12 +998,13 @@ const formatFileSize = (bytes: number) => {
   flex-shrink: 0;
   cursor: col-resize;
   background: rgba(255, 255, 255, 0.04);
-  transition: background-color 0.15s;
+  transition: background-color 0.15s ease;
   z-index: 10;
 }
 .sb-resizer:hover,
 .sb-resizer.dragging {
-  background: rgba(74, 144, 226, 0.45);
+  background: linear-gradient(180deg, rgba(74, 144, 226, 0.0), rgba(66, 184, 131, 0.55), rgba(74, 144, 226, 0.0));
+  box-shadow: 0 0 14px rgba(66, 184, 131, 0.35);
 }
 .model-list-view {
   flex: 1;
@@ -879,15 +1016,21 @@ const formatFileSize = (bytes: number) => {
   margin-bottom: 32px;
 }
 .ml-header h2 {
-  font-size: 24px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 700;
   color: var(--text-main);
   margin-bottom: 8px;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.4px;
+  background: linear-gradient(180deg, #ffffff 0%, rgba(244, 247, 251, 0.78) 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-family: 'Inter', sans-serif;
 }
 .ml-header p {
   color: var(--text-dim);
   font-size: 14px;
+  letter-spacing: 0.15px;
+  line-height: 1.65;
 }
 .ml-grid {
   display: grid;
@@ -895,23 +1038,37 @@ const formatFileSize = (bytes: number) => {
   gap: 24px;
 }
 .ml-card {
-  background: rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 24px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.55) 0%, rgba(11, 18, 32, 0.45) 100%);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 18px;
+  padding: 22px 24px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.22s cubic-bezier(.34,1.4,.64,1), border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+.ml-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 10% -10%, rgba(66, 184, 131, 0.10), transparent 55%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.22s ease;
 }
 .ml-card:hover {
   transform: translateY(-4px);
-  background: rgba(255, 255, 255, 0.05);
-  border-color: rgba(66, 184, 131, 0.4);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(66, 184, 131, 0.1);
+  background: linear-gradient(180deg, rgba(20, 30, 52, 0.62) 0%, rgba(15, 23, 42, 0.55) 100%);
+  border-color: rgba(66, 184, 131, 0.42);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(66, 184, 131, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
+.ml-card:hover::before { opacity: 1; }
 .ml-card-head {
   display: flex;
   align-items: center;
@@ -921,145 +1078,199 @@ const formatFileSize = (bytes: number) => {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-main);
+  letter-spacing: 0.2px;
 }
 .status-dot {
   width: 8px;
   height: 8px;
   background: var(--accent);
   border-radius: 50%;
-  box-shadow: 0 0 8px var(--accent);
+  box-shadow: 0 0 8px var(--accent), 0 0 0 3px rgba(66, 184, 131, 0.10);
 }
 .ml-del {
-  background: rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.42);
   width: 26px; height: 26px;
   border-radius: 50%;
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   display: flex; align-items: center; justify-content: center;
 }
-.ml-del:hover { background: rgba(255, 102, 68, 0.2); border-color: rgba(255, 102, 68, 0.4); color: #ff8a6f; }
+.ml-del:hover { background: rgba(255, 102, 68, 0.18); border-color: rgba(255, 102, 68, 0.38); color: #ff8a6f; }
 .ml-card-desc {
   font-size: 13px;
   color: var(--text-dim);
-  line-height: 1.5;
+  line-height: 1.6;
   flex: 1;
+  letter-spacing: 0.1px;
 }
 .ml-card-foot {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   margin-top: 8px;
   padding-top: 16px;
-  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  border-top: 1px dashed rgba(255, 255, 255, 0.10);
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.55);
 }
 .ml-stat {
   background: rgba(255, 255, 255, 0.05);
-  padding: 2px 8px;
-  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 2px 9px;
+  border-radius: 100px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.2px;
 }
 .ml-time {
   margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  color: rgba(255, 255, 255, 0.40);
 }
 /* 节点编辑对话框 */
 .modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
 }
 .edit-node-dialog {
-  background: #1a2332;
+  background: linear-gradient(180deg, #182338 0%, #101729 100%);
   border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 14px;
+  padding: 22px;
   width: 340px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
 }
-.edit-node-dialog h3 { margin: 0; color: #e2e8f0; font-size: 16px; }
-.edit-node-dialog label { display: flex; flex-direction: column; gap: 4px; color: rgba(255,255,255,0.6); font-size: 13px; }
+.edit-node-dialog h3 {
+  margin: 0; color: var(--text-main); font-size: 16px;
+  font-weight: 600; letter-spacing: 0.3px;
+}
+.edit-node-dialog label {
+  display: flex; flex-direction: column; gap: 4px;
+  color: rgba(255,255,255,0.62); font-size: 13px;
+  letter-spacing: 0.15px;
+}
 .edit-input {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 6px;
-  padding: 8px 10px;
-  color: #e2e8f0;
+  background: rgba(8, 13, 22, 0.78);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--text-main);
   font-size: 14px;
   outline: none;
+  font-family: inherit;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
-.edit-input:focus { border-color: #42b883; }
+.edit-input:focus {
+  border-color: rgba(66, 184, 131, 0.55);
+  box-shadow: 0 0 0 3px rgba(66, 184, 131, 0.10);
+}
 .edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .edit-cancel {
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.15);
-  color: rgba(255,255,255,0.6);
-  border-radius: 6px;
-  padding: 6px 16px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.65);
+  border-radius: 8px;
+  padding: 7px 18px;
   cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
+.edit-cancel:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
 .edit-save {
-  background: #42b883;
+  background: linear-gradient(135deg, #5fd4a3, #42b883);
   border: none;
-  color: #fff;
-  border-radius: 6px;
-  padding: 6px 16px;
+  color: #062a1c;
+  border-radius: 8px;
+  padding: 7px 18px;
   cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 6px 14px rgba(66, 184, 131, 0.30), inset 0 1px 0 rgba(255,255,255,0.32);
+  letter-spacing: 0.2px;
 }
+.edit-save:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(66, 184, 131, 0.40), inset 0 1px 0 rgba(255,255,255,0.36); }
 .edit-delete {
   background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #ef4444;
-  border-radius: 6px;
-  padding: 6px 16px;
+  border: 1px solid rgba(239, 68, 68, 0.42);
+  color: #f87171;
+  border-radius: 8px;
+  padding: 7px 18px;
   cursor: pointer;
   margin-right: auto;
   font-family: inherit;
-  transition: background-color .15s;
+  font-size: 13px;
+  transition: background-color .15s ease, border-color .15s ease;
 }
-.edit-delete:hover { background: rgba(239, 68, 68, 0.12); }
+.edit-delete:hover { background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.6); }
 
 /* 版本历史面板 */
 .version-panel {
-  background: #1a2332;
+  background: linear-gradient(180deg, #182338 0%, #101729 100%);
   border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 12px;
+  border-radius: 14px;
   width: 400px;
   max-height: 70vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
 }
 .vp-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
+  padding: 16px 22px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent);
 }
-.vp-header h3 { margin: 0; color: #e2e8f0; font-size: 16px; }
-.vp-close { background: transparent; border: none; color: rgba(255,255,255,0.5); font-size: 18px; cursor: pointer; }
-.vp-close:hover { color: #fff; }
-.vp-loading, .vp-empty { padding: 32px; text-align: center; color: rgba(255,255,255,0.4); font-size: 14px; }
+.vp-header h3 {
+  margin: 0; color: var(--text-main); font-size: 16px;
+  font-weight: 600; letter-spacing: 0.3px;
+}
+.vp-close {
+  background: transparent; border: none;
+  color: rgba(255,255,255,0.5);
+  font-size: 18px; cursor: pointer;
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.vp-close:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.vp-loading, .vp-empty {
+  padding: 32px; text-align: center;
+  color: rgba(255,255,255,0.45); font-size: 14px;
+  font-style: italic;
+}
 .vp-list { overflow-y: auto; padding: 8px; }
 .vp-item {
   padding: 12px 16px;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s ease;
 }
 .vp-item:hover { background: rgba(255,255,255,0.06); }
-.vp-time { color: #e2e8f0; font-size: 14px; }
-.vp-meta { color: rgba(255,255,255,0.4); font-size: 12px; margin-top: 4px; }
+.vp-time { color: var(--text-main); font-size: 14px; letter-spacing: 0.15px; }
+.vp-meta {
+  color: rgba(255,255,255,0.45); font-size: 12px; margin-top: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
 
 /* 导出下拉菜单 */
 .export-menu-wrap {
@@ -1070,28 +1281,33 @@ const formatFileSize = (bytes: number) => {
   position: absolute;
   top: 100%;
   right: 0;
-  margin-top: 4px;
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 8px;
+  margin-top: 6px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(11, 18, 32, 0.94));
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 10px;
   padding: 4px;
   display: flex;
   flex-direction: column;
-  min-width: 140px;
-  backdrop-filter: blur(8px);
+  min-width: 150px;
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
   z-index: 60;
+  box-shadow: 0 18px 44px rgba(0,0,0,0.50), inset 0 1px 0 rgba(255,255,255,0.05);
 }
 .export-dropdown button {
   background: transparent;
   border: none;
-  color: rgba(255,255,255,0.7);
+  color: rgba(255,255,255,0.75);
   padding: 8px 12px;
   text-align: left;
   font-size: 13px;
-  border-radius: 4px;
+  border-radius: 7px;
   cursor: pointer;
+  font-family: inherit;
+  letter-spacing: 0.15px;
+  transition: background 0.12s ease, color 0.12s ease;
 }
-.export-dropdown button:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.export-dropdown button:hover { background: rgba(66, 184, 131, 0.12); color: #5fd4a3; }
 
 /* 版本下拉 (复用 export-dropdown 的浮层，但内容更密) */
 .version-dropdown {
@@ -1103,23 +1319,26 @@ const formatFileSize = (bytes: number) => {
 .vm-state {
   padding: 14px 12px;
   text-align: center;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.45);
   font-size: 12px;
+  font-style: italic;
 }
 .vm-item {
   background: transparent;
   border: none;
   text-align: left;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: 7px;
   cursor: pointer;
   display: block;
   width: 100%;
+  font-family: inherit;
+  transition: background 0.12s ease;
 }
-.vm-item:hover { background: rgba(255,255,255,0.08); }
-.vm-time { color: #e2e8f0; font-size: 13px; }
+.vm-item:hover { background: rgba(255,255,255,0.06); }
+.vm-time { color: var(--text-main); font-size: 13px; letter-spacing: 0.15px; }
 .vm-meta {
-  color: rgba(255,255,255,0.45);
+  color: rgba(255,255,255,0.48);
   font-size: 11px;
   margin-top: 2px;
   font-family: 'JetBrains Mono', monospace;

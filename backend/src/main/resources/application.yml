@@ -18,8 +18,10 @@ spring:
       minimum-idle: 2
       connection-timeout: 10000
   # 启动时自动执行 init.sql（脚本幂等，可重复运行）：用于新部署建表 + 老库的轻量迁移
+  # enabled=false 可整体跳过执行（环境变量 DB_INIT_SCHEMA=false 同样生效）
   sql:
     init:
+      enabled: ${DB_INIT_SCHEMA:true}
       mode: always
       schema-locations: classpath:sql/init.sql
       continue-on-error: false
@@ -38,48 +40,65 @@ mybatis-plus:
       logic-delete-field: null
 
 
-#app:
-#  data:
-#    dir: ${user.home}/.tuiyan
-#  llm:
-#    models:
-#      - id: deepseek-chat
-#        name: DeepSeek Chat
-#        provider: deepseek
-#        base-url: https://api.deepseek.com
-#        model-name: deepseek-chat
-#        api-key: ${DEEPSEEK_API_KEY:}
-#        protocol: openai
-#        enabled: true
-#        context-window: 64000
-#        max-output-tokens: 8192
-#        capabilities:
-#          - streaming
-#          - json
-
-
 app:
   data:
     dir: ${user.home}/.tuiyan
-  embedding:
-    base-url: ${EMBEDDING_BASE_URL:}
-    api-key: ${EMBEDDING_API_KEY:}
-    model: ${EMBEDDING_MODEL:text-embedding-3-small}
-    dimension: ${EMBEDDING_DIMENSION:1536}
-    chunk-size: ${EMBEDDING_CHUNK_SIZE:500}
-    chunk-overlap: ${EMBEDDING_CHUNK_OVERLAP:50}
   llm:
     models:
-      - id: claude-opus-4-7
-        name: Claude Opus 4.7 (中转站)
-        provider: anthropic
-        base-url: https://code.ppchat.vip
-        model-name: claude-opus-4-7
-        api-key: ${ANTHROPIC_API_KEY:}
-        protocol: anthropic
+      # DeepSeek V4 Flash：速度优先的主力模型（deepseek-chat 老名 2026-07-24 下线，已升级到 v4-flash）
+      - id: deepseek-flash
+        name: DeepSeek V4 Flash
+        provider: deepseek
+        base-url: https://api.deepseek.com
+        model-name: deepseek-v4-flash
+        api-key: ${DEEPSEEK_API_KEY:sk-}
+        protocol: openai
         enabled: true
-        context-window: 200000
-        max-output-tokens: 32768
+        context-window: 128000
+        max-output-tokens: 8192
         capabilities:
+          - streaming
           - json
+          - tools
+      # DeepSeek V4 Pro：复杂推理 / 长 JSON 抽取场景使用
+      - id: deepseek-pro
+        name: DeepSeek V4 Pro
+        provider: deepseek
+        base-url: https://api.deepseek.com
+        model-name: deepseek-v4-pro
+        api-key: ${DEEPSEEK_API_KEY:sk-}
+        protocol: openai
+        enabled: true
+        context-window: 128000
+        max-output-tokens: 8192
+        capabilities:
+          - streaming
+          - json
+          - tools
+
+
+#app:
+#  data:
+#    dir: ${user.home}/.tuiyan
+#  embedding:
+#    base-url: ${EMBEDDING_BASE_URL:}
+#    api-key: ${EMBEDDING_API_KEY:}
+#    model: ${EMBEDDING_MODEL:text-embedding-3-small}
+#    dimension: ${EMBEDDING_DIMENSION:1536}
+#    chunk-size: ${EMBEDDING_CHUNK_SIZE:500}
+#    chunk-overlap: ${EMBEDDING_CHUNK_OVERLAP:50}
+#  llm:
+#    models:
+#      - id: claude-opus-4-7
+#        name: Claude Opus 4.7 (中转站)
+#        provider: anthropic
+#        base-url: https://code.ppchat.vip
+#        model-name: claude-opus-4-7
+#        api-key: ${ANTHROPIC_API_KEY:}
+#        protocol: anthropic
+#        enabled: true
+#        context-window: 200000
+#        max-output-tokens: 32768
+#        capabilities:
+#          - json
 

@@ -218,4 +218,80 @@ defineExpose({ scrollToBottom });
   color: #1a1a1a !important;
   font-size: 16px !important;
 }
+
+.ch-msgs {
+  align-items: center;
+  gap: 18px;
+}
+.msg {
+  width: min(100%, 860px);
+  max-width: 100%;
+  align-self: center;
+  gap: 0;
+}
+.msg-user,
+.msg-asst {
+  align-self: center;
+  flex-direction: row;
+}
+.avatar {
+  display: none !important;
+}
+.msg-body {
+  width: 100%;
+  max-width: 100%;
+}
+.bubble {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 4px 0;
+  border-radius: 0;
+}
+.msg-user .bubble {
+  display: inline-block;
+  max-width: min(100%, 620px);
+  margin-left: auto;
+  background: linear-gradient(135deg, #5fd4a3, #42b883);
+  border: 1px solid rgba(66, 184, 131, 0.45);
+  border-radius: 14px;
+  padding: 10px 14px;
+  color: #062a1c;
+  font-weight: 600;
+  box-shadow: 0 8px 22px rgba(66, 184, 131, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.msg-asst .bubble {
+  max-width: min(100%, 860px);
+  padding: 8px 0;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0;
+  color: #f4f7fb;
+  font-size: 14px;
+  line-height: 1.8;
+  box-shadow: none !important;
+}
+.msg-asst .bubble :deep(p) {
+  margin: 0 0 10px;
+}
+.msg-asst .bubble :deep(ul),
+.msg-asst .bubble :deep(ol) {
+  margin: 8px 0 8px 18px;
+  padding: 0;
+}
+.msg-asst .bubble :deep(li) {
+  margin: 4px 0;
+}
+.msg-asst .msg-body {
+  align-items: flex-start;
+}
+.msg-user .msg-body {
+  align-items: flex-end;
+}
+.msg-prediction .msg-body {
+  align-items: flex-start;
+}
+.att-tags {
+  justify-content: flex-end;
+}
 </style>

@@ -129,25 +129,44 @@ public class FileStoredService {
 
     /** 读取已抽取的文本片段（按字符偏移 + 长度）。 */
     public String readText(Map<String, Object> cfg, int offset, int length) throws IOException {
-        String rel = String.valueOf(cfg.getOrDefault("extractedTextPath", ""));
-        if (rel.isBlank()) return "";
-        File f = new File(paths.rootDir(), rel);
-        if (!f.exists()) return "";
-        String all = Files.readString(f.toPath(), StandardCharsets.UTF_8);
-        int start = Math.max(0, Math.min(offset, all.length()));
-        int end = Math.min(all.length(), start + Math.max(1, length));
-        return all.substring(start, end);
+        String extracted = stringValue(cfg.get("extractedTextPath"));
+        String all = "";
+        if (!extracted.isBlank()) {
+            File f = new File(paths.rootDir(), extracted);
+            if (f.exists()) {
+                all = Files.readString(f.toPath(), StandardCharsets.UTF_8);
+            }
+        }
+        if (all.isBlank()) {
+            String storage = stringValue(cfg.get("storagePath"));
+            if (storage.isBlank()) return "";
+            File raw = new File(paths.rootDir(), storage);
+            if (!raw.exists()) return "";
+            all = readTextLenient(raw);
+        }
+        return sliceText(all, offset, length);
     }
 
     /** 取原文件 File 对象供下载使用。文件不存在时返回 null。 */
     public File originalFile(Map<String, Object> cfg) {
-        String rel = String.valueOf(cfg.getOrDefault("storagePath", ""));
+        String rel = stringValue(cfg.get("storagePath"));
         if (rel.isBlank()) return null;
         File f = new File(paths.rootDir(), rel);
         return f.exists() ? f : null;
     }
 
     /** 删除数据源时级联清理：删整个 datasource-files/<id>/ 目录。 */
+    private static String sliceText(String all, int offset, int length) {
+        if (all == null || all.isEmpty()) return "";
+        int start = Math.max(0, Math.min(offset, all.length()));
+        int end = Math.min(all.length(), start + Math.max(1, length));
+        return all.substring(start, end);
+    }
+
+    private static String stringValue(Object v) {
+        return v == null ? "" : String.valueOf(v);
+    }
+
     public void deleteFiles(String dataSourceId) {
         File dir = new File(paths.datasourceFilesDir(), dataSourceId);
         if (!dir.exists()) return;

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, onBeforeUnmount } from 'vue';
 import { useWorkspaces } from '../composables/useWorkspaces';
 import { useSidebarTree } from '../composables/useSidebarTree';
 import { confirm as uiConfirm } from '../composables/useConfirm';
+import { prompt as uiPrompt } from '../composables/usePrompt';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
 import type { Workspace } from '../api/workspaces';
@@ -17,14 +18,29 @@ const emit = defineEmits<{
   (e: 'open-conversation', id: string): void;
   (e: 'open-graph', id: string): void;
   (e: 'open-datasource', id: string): void;
+  (e: 'open-datasources', workspaceId: string): void;
+  (e: 'add-datasource', workspaceId: string): void;
+  (e: 'rename-conversation', id: string, title: string): void;
+  (e: 'delete-conversation', id: string): void;
+  (e: 'rename-graph', id: string, title: string): void;
+  (e: 'delete-graph', id: string): void;
 }>();
 
 const ws = useWorkspaces();
 const tree = useSidebarTree();
 
 const expanded = ref(props.isCurrent);
+const ctxMenu = ref<null | {
+  kind: 'conversation' | 'graph' | 'datasource-section';
+  id: string;
+  title: string;
+  x: number;
+  y: number;
+}>(null);
 
-watch(() => props.isCurrent, (v) => { if (v) expanded.value = true; });
+watch(() => props.isCurrent, (v) => {
+  if (v) expanded.value = true;
+});
 
 watch(expanded, (v) => {
   if (v) {
@@ -34,17 +50,86 @@ watch(expanded, (v) => {
   }
 }, { immediate: true });
 
+onBeforeUnmount(() => closeCtxMenu());
+
 const wsInitial = (name: string) => {
   const trimmed = (name || '').trim();
   return trimmed ? trimmed.charAt(0) : '?';
 };
+
+const closeCtxMenu = () => {
+  ctxMenu.value = null;
+};
+
+const openCtxMenu = (
+  kind: 'conversation' | 'graph' | 'datasource-section',
+  id: string,
+  title: string,
+  e: MouseEvent,
+) => {
+  e.preventDefault();
+  e.stopPropagation();
+  ctxMenu.value = {
+    kind,
+    id,
+    title,
+    x: Math.min(e.clientX, window.innerWidth - 220),
+    y: Math.min(e.clientY, window.innerHeight - 132),
+  };
+};
+
+const openDataSourceSection = () => {
+  emit('open-datasources', props.workspace.id);
+};
+
+const addDataSourceToWorkspace = () => {
+  closeCtxMenu();
+  emit('add-datasource', props.workspace.id);
+};
+
+const renameItem = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind === 'datasource-section') return;
+  closeCtxMenu();
+  const next = await uiPrompt({
+    title: current.kind === 'conversation' ? '重命名对话' : '重命名血缘图',
+    message: '请输入新的名称',
+    defaultValue: current.title,
+    confirmLabel: '保存',
+    cancelLabel: '取消',
+  });
+  const title = (next || '').trim();
+  if (!title || title === current.title) return;
+  if (current.kind === 'conversation') emit('rename-conversation', current.id, title);
+  else emit('rename-graph', current.id, title);
+};
+
+const deleteItem = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind === 'datasource-section') return;
+  closeCtxMenu();
+  const ok = await uiConfirm({
+    title: current.kind === 'conversation' ? '删除对话' : '删除血缘图',
+    message: `确认删除「${current.title}」吗？此操作不可恢复。`,
+    confirmLabel: '删除',
+    danger: true,
+  });
+  if (!ok) return;
+  if (current.kind === 'conversation') emit('delete-conversation', current.id);
+  else emit('delete-graph', current.id);
+};
+
+const onGlobalMouseDown = () => closeCtxMenu();
+watch(ctxMenu, (v, prev) => {
+  if (!prev && v) window.addEventListener('mousedown', onGlobalMouseDown, { once: true });
+});
 
 const toggle = async (e: Event) => {
   e.stopPropagation();
   if (!props.isCurrent) {
     const ok = await uiConfirm({
       title: '切换工作空间',
-      message: `将切换到「${props.workspace.name}」。当前未保存的图谱编辑会立即提交，列表与对话会重新加载。`,
+      message: `将切换到「${props.workspace.name}」。未保存内容会立即提交，列表和对话会重新加载。`,
       confirmLabel: '切换',
     });
     if (!ok) return;
@@ -59,13 +144,13 @@ const onClickDelete = async (e: Event) => {
   e.stopPropagation();
   const isLast = ws.workspaces.value.length <= 1;
   const extraNote = isLast
-    ? '这是最后一个工作空间，删除后将回到工作空间选择页。'
+    ? '这是最后一个工作空间，删除后会回到工作空间选择页。'
     : props.workspace.isDefault
-      ? '这是默认工作空间，删除后将自动把另一个工作空间设为默认。'
+      ? '这是默认工作空间，删除后会自动把另一个工作空间设为默认。'
       : '';
   const ok = await uiConfirm({
     title: '删除工作空间',
-    message: `「${props.workspace.name}」内的本体图、推演分支、对话与数据源将一并清空，且无法恢复。${extraNote}确定继续吗？`,
+    message: `「${props.workspace.name}」内的内容将一并清空，且无法恢复。${extraNote}确定继续吗？`,
     confirmLabel: '删除',
     danger: true,
   });
@@ -90,15 +175,17 @@ const fmtTime = (t: number) => {
 };
 
 const kindLabel: Record<string, string> = {
-  mysql: 'MySQL', pgsql: 'PgSQL', file_stored: '文件', https_api: 'HTTPS',
+  mysql: 'MySQL',
+  pgsql: 'PgSQL',
+  file_stored: '文件',
+  https_api: 'HTTPS',
 };
 </script>
 
 <template>
   <div class="ws-wrap">
-    <!-- workspace header row -->
     <div :class="['ws-node', { active: isCurrent }]" @click="toggle">
-      <span class="ws-caret" :class="{ open: expanded }">▸</span>
+      <span class="ws-caret" :class="{ open: expanded }">▶</span>
       <span class="ws-avatar">{{ wsInitial(workspace.name) }}</span>
       <span class="ws-name">{{ workspace.name }}</span>
       <span v-if="workspace.isDefault" class="ws-tag">默认</span>
@@ -106,19 +193,17 @@ const kindLabel: Record<string, string> = {
       <button class="ws-del-btn" :title="`删除 ${workspace.name}`" @click="onClickDelete">×</button>
     </div>
 
-    <!-- expanded children -->
     <div v-if="expanded" class="ws-children">
-
-      <!-- 历史对话 -->
       <div class="ws-section">
-        <span class="ws-section-lbl">💬 历史对话</span>
-        <span v-if="tree.isLoadingConv(workspace.id)" class="ws-loading">…</span>
+        <span class="ws-section-lbl">历史对话</span>
+        <span v-if="tree.isLoadingConv(workspace.id)" class="ws-loading">加载中...</span>
         <template v-else-if="tree.getConversations(workspace.id).length">
           <button
             v-for="c in tree.getConversations(workspace.id).slice(0, 10)"
             :key="c.id"
             class="ws-item"
             @click.stop="emit('open-conversation', c.id)"
+            @contextmenu="openCtxMenu('conversation', c.id, c.title, $event)"
             :title="c.title"
           >
             <span class="ws-item-label">{{ c.title || '新对话' }}</span>
@@ -128,16 +213,16 @@ const kindLabel: Record<string, string> = {
         <span v-else class="ws-empty">暂无对话</span>
       </div>
 
-      <!-- 血缘图 -->
       <div class="ws-section">
-        <span class="ws-section-lbl">◈ 血缘图</span>
-        <span v-if="tree.isLoadingOntology(workspace.id)" class="ws-loading">…</span>
+        <span class="ws-section-lbl">血缘图</span>
+        <span v-if="tree.isLoadingOntology(workspace.id)" class="ws-loading">加载中...</span>
         <template v-else-if="tree.getOntologies(workspace.id).length">
           <button
             v-for="m in tree.getOntologies(workspace.id)"
             :key="m.id"
             class="ws-item"
             @click.stop="emit('open-graph', m.id)"
+            @contextmenu="openCtxMenu('graph', m.id, m.name, $event)"
             :title="m.name"
           >
             <span class="ws-item-label">{{ m.name }}</span>
@@ -147,10 +232,14 @@ const kindLabel: Record<string, string> = {
         <span v-else class="ws-empty">暂无图谱</span>
       </div>
 
-      <!-- 数据源 -->
       <div class="ws-section">
-        <span class="ws-section-lbl">📄 数据源</span>
-        <span v-if="tree.isLoadingDS(workspace.id)" class="ws-loading">…</span>
+        <button
+          type="button"
+          class="ws-section-lbl ws-section-btn"
+          @click.stop="openDataSourceSection"
+          @contextmenu="openCtxMenu('datasource-section', workspace.id, '数据源', $event)"
+        >数据源</button>
+        <span v-if="tree.isLoadingDS(workspace.id)" class="ws-loading">加载中...</span>
         <template v-else-if="tree.getDataSources(workspace.id).length">
           <button
             v-for="d in tree.getDataSources(workspace.id)"
@@ -165,7 +254,35 @@ const kindLabel: Record<string, string> = {
         </template>
         <span v-else class="ws-empty">暂无数据源</span>
       </div>
+    </div>
 
+    <div
+      v-if="ctxMenu"
+      class="node-ctx-menu"
+      :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+      @mousedown.stop
+      @click.stop
+    >
+      <button v-if="ctxMenu.kind === 'datasource-section'" class="ctx-item" @click="openDataSourceSection(); closeCtxMenu()">
+        <span class="ctx-icon">◈</span>
+        <span>查看数据源</span>
+        <span class="ctx-hint">Open</span>
+      </button>
+      <button v-if="ctxMenu.kind === 'datasource-section'" class="ctx-item" @click="addDataSourceToWorkspace">
+        <span class="ctx-icon">＋</span>
+        <span>添加数据源</span>
+        <span class="ctx-hint">Add</span>
+      </button>
+      <button v-if="ctxMenu.kind !== 'datasource-section'" class="ctx-item" @click="renameItem">
+        <span class="ctx-icon">✎</span>
+        <span>重新命名</span>
+        <span class="ctx-hint">Rename</span>
+      </button>
+      <button v-if="ctxMenu.kind !== 'datasource-section'" class="ctx-item ctx-danger" @click="deleteItem">
+        <span class="ctx-icon">🗑</span>
+        <span>删除</span>
+        <span class="ctx-hint">Delete</span>
+      </button>
     </div>
   </div>
 </template>
@@ -174,65 +291,139 @@ const kindLabel: Record<string, string> = {
 .ws-wrap { display: flex; flex-direction: column; }
 .ws-node {
   display: flex; align-items: center; gap: 6px;
-  padding: 6px 10px; border-radius: 8px; cursor: pointer;
-  color: var(--text-dim); font-size: 12.5px; transition: all .12s;
+  padding: 6px 10px; border-radius: 9px; cursor: pointer;
+  color: var(--text-dim); font-size: 12.5px;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+  letter-spacing: 0.15px;
 }
 .ws-node:hover { background: rgba(255,255,255,.05); color: var(--text-main); }
-.ws-node.active { background: rgba(66,184,131,.12); color: #42b883; }
+.ws-node.active {
+  background: linear-gradient(135deg, rgba(66,184,131,.18), rgba(66,184,131,.08));
+  color: #5fd4a3;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
 .ws-caret {
-  font-size: 9px; color: rgba(255,255,255,.35);
-  transition: transform .18s; flex-shrink: 0;
+  font-size: 9px; color: rgba(255,255,255,.40);
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1); flex-shrink: 0;
 }
 .ws-caret.open { transform: rotate(90deg); }
 .ws-avatar {
-  width: 22px; height: 22px; flex-shrink: 0; border-radius: 6px;
-  background: linear-gradient(135deg,#3d9bff,#6366f1); color: #fff;
+  width: 22px; height: 22px; flex-shrink: 0; border-radius: 7px;
+  background: linear-gradient(135deg,#5d9eff 0%, #6366f1 60%, #8b5cf6 100%);
+  color: #fff;
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 600; font-family: 'Inter',sans-serif;
+  font-size: 12px; font-weight: 700; font-family: 'Inter',sans-serif;
+  box-shadow: 0 3px 10px rgba(99,102,241,0.30), inset 0 1px 0 rgba(255,255,255,0.20);
+  letter-spacing: 0.3px;
 }
 .ws-node.active .ws-avatar {
-  background: linear-gradient(135deg,#42b883,#2d9b6e);
-  box-shadow: 0 0 0 1px rgba(66,184,131,.45);
+  background: linear-gradient(135deg,#5fd4a3 0%, #42b883 55%, #2d9b6e 100%);
+  box-shadow: 0 3px 12px rgba(66,184,131,0.42), 0 0 0 1px rgba(66,184,131,.45), inset 0 1px 0 rgba(255,255,255,0.22);
 }
 .ws-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ws-tag {
   font-size: 9px; padding: 1px 6px; border-radius: 100px;
-  background: rgba(255,255,255,.06); color: rgba(255,255,255,.45); flex-shrink: 0;
+  background: rgba(255,255,255,.06); color: rgba(255,255,255,.50); flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.3px;
 }
-.ws-node.active .ws-tag { background: rgba(66,184,131,.18); color: #6dd4a7; }
+.ws-node.active .ws-tag {
+  background: rgba(66,184,131,.18); color: #6dd4a7;
+  box-shadow: inset 0 0 0 1px rgba(66,184,131,0.22);
+}
 .ws-dot {
   width: 6px; height: 6px; border-radius: 50%;
-  background: #42b883; box-shadow: 0 0 6px #42b883; flex-shrink: 0;
+  background: #5fd4a3;
+  box-shadow: 0 0 6px #42b883, 0 0 0 2px rgba(66,184,131,0.18);
+  flex-shrink: 0;
 }
 .ws-del-btn {
-  background: transparent; border: none; color: rgba(255,255,255,.35);
+  background: transparent; border: none; color: rgba(255,255,255,.32);
   font-size: 14px; line-height: 1; width: 18px; height: 18px;
   border-radius: 50%; cursor: pointer; font-family: inherit;
   display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.ws-del-btn:hover { background: rgba(255,102,68,.2); color: #ff8a6f; }
-/* children */
+.ws-del-btn:hover { background: rgba(255,102,68,.20); color: #ff8a6f; }
 .ws-children { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px; }
 .ws-section { display: flex; flex-direction: column; gap: 0; }
 .ws-section-lbl {
-  font-size: 10.5px; letter-spacing: .4px;
-  color: rgba(255,255,255,.4); padding: 5px 10px 3px 24px;
-  font-family:'Inter',sans-serif; font-weight: 500; user-select: none;
+  font-size: 10px; letter-spacing: 1.2px;
+  color: rgba(255,255,255,.42); padding: 6px 10px 3px 24px;
+  font-family: 'JetBrains Mono', 'Inter',sans-serif; font-weight: 600;
+  user-select: none; text-transform: uppercase;
 }
-.ws-loading { font-size: 11px; color: rgba(255,255,255,.3); padding: 2px 10px 2px 28px; }
+.ws-section-btn {
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-section-btn:hover { color: #5fd4a3; }
+.ws-loading { font-size: 11px; color: rgba(255,255,255,.32); padding: 2px 10px 2px 28px; font-style: italic; }
 .ws-empty { font-size: 11px; color: rgba(255,255,255,.22); padding: 2px 10px 4px 28px; font-style: italic; }
 .ws-item {
   display: flex; align-items: center; gap: 6px;
-  padding: 3px 10px 3px 28px; border-radius: 0; cursor: pointer;
-  background: none; border: none; color: rgba(255,255,255,.55);
+  padding: 4px 10px 4px 28px; border-radius: 7px; cursor: pointer;
+  background: none; border: none; color: rgba(255,255,255,.62);
   font-size: 12px; text-align: left; width: 100%; font-family: inherit;
-  transition: background .1s;
+  transition: background .12s ease, color .12s ease;
+  position: relative;
+  letter-spacing: 0.1px;
 }
-.ws-item:hover { background: rgba(255,255,255,.05); color: #e8eaed; }
+.ws-item::before {
+  content: '';
+  position: absolute;
+  left: 18px; top: 50%;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  transform: translateY(-50%);
+  transition: background 0.12s ease;
+}
+.ws-item:hover { background: rgba(255,255,255,.05); color: #f4f7fb; }
+.ws-item:hover::before { background: rgba(66,184,131,0.6); box-shadow: 0 0 6px rgba(66,184,131,0.5); }
 .ws-item-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ws-item-time { font-size: 10px; color: rgba(255,255,255,.28); flex-shrink: 0; }
+.ws-item-time { font-size: 10px; color: rgba(255,255,255,.30); flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
 .ws-item-kind {
   font-size: 9px; padding: 1px 5px; border-radius: 100px; flex-shrink: 0;
-  background: rgba(255,255,255,.06); color: rgba(255,255,255,.35);
+  background: rgba(255,255,255,.06); color: rgba(255,255,255,.40);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.3px;
 }
+.node-ctx-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 176px;
+  padding: 6px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(11, 18, 32, 0.96));
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,0.05);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+.ctx-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,.85);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  letter-spacing: 0.15px;
+}
+.ctx-item:hover { background: rgba(255,255,255,.07); }
+.ctx-danger { color: #ff8a6f; }
+.ctx-danger:hover { background: rgba(255,102,68,.12); }
+.ctx-icon { width: 14px; text-align: center; opacity: .85; }
+.ctx-hint { margin-left: auto; font-size: 10px; color: rgba(255,255,255,.35); font-family: 'JetBrains Mono', monospace; }
 </style>

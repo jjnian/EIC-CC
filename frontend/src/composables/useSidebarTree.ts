@@ -118,6 +118,40 @@ export function useSidebarTree() {
     }
   };
 
+  const renameConversation = (wsId: string, id: string, title: string, updatedAt = Date.now()) => {
+    const list = cacheConvs.value[wsId] || [];
+    const current = list.find(c => c.id === id);
+    if (current) {
+      const next = { ...current, title, updatedAt };
+      const idx = list.findIndex(c => c.id === id);
+      if (idx >= 0) list[idx] = next;
+      cacheConvs.value[wsId] = [...list].sort((a, b) => b.updatedAt - a.updatedAt);
+    }
+    else if (wsId) {
+      cacheConvs.value[wsId] = [{ id, title, updatedAt }, ...list];
+      loadedConv.value[wsId] = true;
+    }
+  };
+
+  const renameOntology = (wsId: string, id: string, name: string, updatedAt = Date.now()) => {
+    const list = cacheOntologies.value[wsId] || [];
+    const current = list.find(m => m.id === id);
+    if (current) {
+      const idx = list.findIndex(m => m.id === id);
+      if (idx >= 0) list[idx] = { ...current, name, updatedAt };
+      cacheOntologies.value[wsId] = [...list].sort((a, b) => b.updatedAt - a.updatedAt);
+    } else if (wsId) {
+      cacheOntologies.value[wsId] = [{ id, name, updatedAt }, ...list];
+      loadedOntology.value[wsId] = true;
+    }
+  };
+
+  const removeOntology = (wsId: string, id: string) => {
+    if (cacheOntologies.value[wsId]) {
+      cacheOntologies.value[wsId] = cacheOntologies.value[wsId].filter(m => m.id !== id);
+    }
+  };
+
   const removeDataSource = async (wsId: string, id: string) => {
     await apiDeleteDataSource(id);
     if (cacheDS.value[wsId]) {
@@ -193,6 +227,9 @@ export function useSidebarTree() {
     isLoadedDS,
     isLoadedOntology,
     removeConversation,
+    renameConversation,
+    renameOntology,
+    removeOntology,
     removeDataSource,
     upsertConversation,
     upsertDataSource,

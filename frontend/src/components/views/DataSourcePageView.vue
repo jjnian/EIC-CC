@@ -166,13 +166,14 @@ const submit = async () => {
         </template>
         <div v-if="testMsg" class="test-msg">{{ testMsg }}</div>
         <div class="form-actions">
-          <button class="btn-ghost" @click="step = 'pick'">‹ 返回</button>
+          <button type="button" class="btn-ghost" @click="step = 'pick'">‹ 返回</button>
           <span style="flex:1" />
           <button
             v-if="kind && kind !== 'file_stored'"
+            type="button"
             class="btn-ghost" :disabled="testing" @click="runTest"
           >{{ testing ? '测试中…' : '测试连接' }}</button>
-          <button class="btn-primary" :disabled="submitting" @click="submit">
+          <button type="button" class="btn-primary" :disabled="submitting" @click="submit">
             {{ submitting ? '提交中…' : '保存' }}
           </button>
         </div>
