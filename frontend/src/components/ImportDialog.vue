@@ -1,24 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount } from 'vue';
-import type { OntologyNode, SourceMeta } from '../types';
-import { extractFromFilesStream } from '../api/ontology';
-import type { SseHandle } from '../api/http';
-
-interface ExtractedNode {
-  id: string;
-  label: string;
-  type?: string;
-  source?: string;
-  props?: any[];
-}
-interface ExtractedEdge {
-  id: string;
-  from: string;
-  to: string;
-  label?: string;
-  source?: string;
-  rule_driven?: boolean;
-}
+import type { OntologyNode } from '../types';
+import { useImportFiles } from '../composables/useImportFiles';
+import { useExtractStream, type ExtractedNode, type ExtractedEdge } from '../composables/useExtractStream';
+import { useImportDedup } from '../composables/useImportDedup';
 
 const props = defineProps<{
   open: boolean;
@@ -36,107 +21,60 @@ const emit = defineEmits<{
   }): void;
 }>();
 
-const files = ref<File[]>([]);
-const urlInput = ref('');
 const mode = ref<'merge' | 'new'>('merge');
 const newName = ref('');
-const loading = ref(false);
-const errorMsg = ref('');
-// 原始抽取结果（不破坏性修改），mode 切换时 dup 计算自动失效
-const extractedRaw = ref<{ nodes: ExtractedNode[]; edges: ExtractedEdge[] } | null>(null);
-const sources = ref<SourceMeta[]>([]);
-const replyText = ref('');
-const selectedNodeIds = ref<Set<string>>(new Set());
-const selectedEdgeIds = ref<Set<string>>(new Set());
-// 抽取过程的分步进度（让用户看到"构建本体"的每个阶段，而非只有等待）
-interface BuildStep { key: string; label: string; status: 'running' | 'done' | 'error'; }
-const buildSteps = ref<BuildStep[]>([]);
-// 抽取 SSE 流的可中断句柄
-let sseHandle: SseHandle | null = null;
 
-const normLabel = (s: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+// 文件 / URL 拾取
+const importFiles = useImportFiles();
+const {
+  files, urlInput, errorMsg,
+  parsedUrls, urlOverLimit, URL_LIMIT,
+  iconForSource, fmtSize,
+  onPick, onDrop, removeFile,
+} = importFiles;
 
-const parsedUrls = computed(() =>
-  urlInput.value.split(/[\s,]+/).map(u => u.trim()).filter(Boolean));
-const URL_LIMIT = 5;
-const urlOverLimit = computed(() => parsedUrls.value.length > URL_LIMIT);
+// SSE 流式抽取（errorMsg 仍由 importFiles 持有,抽取完成后回调 dedup 刷新选择集）
+const extractStream = useExtractStream({
+  setError: (msg) => { errorMsg.value = msg; },
+  onExtracted: () => { dedup.selectAll(); },
+});
+const { loading, replyText, sources, extractedRaw, buildSteps } = extractStream;
 
-const SOURCE_ICONS: Record<string, string> = {
-  image: '🖼',
-  pdf: '📄',
-  docx: '📝',
-  url: '🔗',
-};
-const iconForSource = (type?: string) => SOURCE_ICONS[type || ''] || '⛔';
+// 去重对照与勾选
+const dedup = useImportDedup({
+  getRaw: () => extractedRaw.value,
+  getMode: () => mode.value,
+  getCurrentNodes: () => props.currentNodes || [],
+});
+const {
+  selectedNodeIds, selectedEdgeIds,
+  dupList, displayedNodes, displayedEdges,
+  toggleNode, toggleEdge, toggleAllNodes, toggleAllEdges,
+  validEdges, selectedNodes,
+} = dedup;
 
 const reset = () => {
-  files.value = [];
-  urlInput.value = '';
+  importFiles.resetFiles();
+  extractStream.reset();
+  dedup.clearSelection();
   mode.value = props.hasCurrentModel ? 'merge' : 'new';
   newName.value = '';
-  loading.value = false;
-  errorMsg.value = '';
-  extractedRaw.value = null;
-  sources.value = [];
-  replyText.value = '';
-  selectedNodeIds.value = new Set();
-  selectedEdgeIds.value = new Set();
-  buildSteps.value = [];
-  if (sseHandle) { try { sseHandle.abort(); } catch {} sseHandle = null; }
 };
 
 watch(() => props.open, (v) => {
   if (v) reset();
-  else if (sseHandle) { try { sseHandle.abort(); } catch {} sseHandle = null; }
+  else extractStream.abort();
 });
 
 onBeforeUnmount(() => {
-  if (sseHandle) { try { sseHandle.abort(); } catch {} sseHandle = null; }
+  extractStream.abort();
 });
 
 // 切换 mode 时让可见节点重新进入全选状态（dup 过滤变化后选择需要刷新）
 watch(() => mode.value, () => {
   if (!extractedRaw.value) return;
-  selectedNodeIds.value = new Set(displayedNodes.value.map(n => n.id));
-  selectedEdgeIds.value = new Set(displayedEdges.value.map(e => e.id));
+  dedup.selectAll();
 });
-
-const fmtSize = (n: number) => {
-  if (n < 1024) return n + ' B';
-  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
-  return (n / 1024 / 1024).toFixed(2) + ' MB';
-};
-
-const onPick = (e: Event) => {
-  const input = e.target as HTMLInputElement;
-  if (!input.files) return;
-  for (const f of Array.from(input.files)) addFile(f);
-  input.value = '';
-};
-const onDrop = (e: DragEvent) => {
-  e.preventDefault();
-  if (!e.dataTransfer?.files) return;
-  for (const f of Array.from(e.dataTransfer.files)) addFile(f);
-};
-const addFile = (f: File) => {
-  if (files.value.length >= 8) return;
-  const lname = f.name.toLowerCase();
-  const ok = f.type.startsWith('image/')
-          || f.type === 'application/pdf' || lname.endsWith('.pdf')
-          || lname.endsWith('.docx')
-          || f.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  if (!ok) { errorMsg.value = `不支持的文件类型：${f.name}`; return; }
-  if (files.value.find(x => x.name === f.name && x.size === f.size)) return;
-  files.value.push(f);
-  errorMsg.value = '';
-};
-const removeFile = (idx: number) => { files.value.splice(idx, 1); };
-
-const markRunningAs = (status: 'done' | 'error') => {
-  for (const st of buildSteps.value) {
-    if (st.status === 'running') st.status = status;
-  }
-};
 
 const extract = () => {
   if (!files.value.length && !parsedUrls.value.length) return;
@@ -144,136 +82,8 @@ const extract = () => {
     errorMsg.value = `一次最多 ${URL_LIMIT} 个网址`;
     return;
   }
-  loading.value = true;
-  errorMsg.value = '';
-  extractedRaw.value = null;
-  buildSteps.value = [{ key: 'init', label: '正在准备抽取…', status: 'running' }];
-  if (sseHandle) { try { sseHandle.abort(); } catch { /* noop */ } }
-
-  sseHandle = extractFromFilesStream(
-    files.value,
-    { urls: parsedUrls.value },
-    {
-      onStep: (s) => {
-        // 上一步标记完成,新步骤进入运行态——形成清晰的逐步推进感
-        markRunningAs('done');
-        buildSteps.value.push({ key: s.key, label: s.label, status: 'running' });
-      },
-      onComplete: (data) => {
-        markRunningAs('done');
-        extractedRaw.value = { nodes: data.nodes || [], edges: data.edges || [] };
-        sources.value = data.sources || [];
-        replyText.value = data.reply || '';
-        selectedNodeIds.value = new Set(displayedNodes.value.map(n => n.id));
-        selectedEdgeIds.value = new Set(extractedRaw.value.edges.map(e => e.id));
-        loading.value = false;
-        sseHandle = null;
-      },
-      onError: (msg) => {
-        markRunningAs('error');
-        errorMsg.value = msg || '抽取失败';
-        loading.value = false;
-        sseHandle = null;
-      },
-      onClose: () => {
-        // 正常完成由 onComplete 处理;此处只兜底复位 loading（如流意外关闭）
-        if (loading.value) loading.value = false;
-        sseHandle = null;
-      },
-    }
-  );
+  extractStream.start(files.value, parsedUrls.value);
 };
-
-// 已有图谱标签 → {id,label} 索引（mode 切换时自动失效）
-const existingLabelMap = computed(() => {
-  const m = new Map<string, { id: string; label: string }>();
-  if (mode.value !== 'merge') return m;
-  for (const n of (props.currentNodes || [])) {
-    const k = normLabel(n.label || '');
-    if (k) m.set(k, { id: n.id, label: n.label });
-  }
-  return m;
-});
-
-// dup 映射：仅 merge 模式下生效。
-const dupRemap = computed<Record<string, string>>(() => {
-  const out: Record<string, string> = {};
-  if (!extractedRaw.value || mode.value !== 'merge') return out;
-  for (const n of extractedRaw.value.nodes) {
-    const k = normLabel(n.label || '');
-    const hit = k ? existingLabelMap.value.get(k) : null;
-    if (hit) out[n.id] = hit.id;
-  }
-  return out;
-});
-
-const dupList = computed(() => {
-  const out: { extractedId: string; extractedLabel: string; existingLabel: string }[] = [];
-  if (!extractedRaw.value || mode.value !== 'merge') return out;
-  for (const n of extractedRaw.value.nodes) {
-    const k = normLabel(n.label || '');
-    const hit = k ? existingLabelMap.value.get(k) : null;
-    if (hit) out.push({ extractedId: n.id, extractedLabel: n.label, existingLabel: hit.label });
-  }
-  return out;
-});
-
-// 节点显示列表：merge 模式下过滤掉 dup（在原始数据上派生）
-const displayedNodes = computed<ExtractedNode[]>(() => {
-  if (!extractedRaw.value) return [];
-  if (mode.value !== 'merge') return extractedRaw.value.nodes;
-  const dup = dupRemap.value;
-  return extractedRaw.value.nodes.filter(n => !(n.id in dup));
-});
-
-const displayedEdges = computed<ExtractedEdge[]>(() =>
-  extractedRaw.value ? extractedRaw.value.edges : []);
-
-const isExistingId = (id: string) => !!props.currentNodes?.some(n => n.id === id);
-
-const toggleNode = (id: string) => {
-  const s = new Set(selectedNodeIds.value);
-  if (s.has(id)) s.delete(id); else s.add(id);
-  selectedNodeIds.value = s;
-};
-const toggleEdge = (id: string) => {
-  const s = new Set(selectedEdgeIds.value);
-  if (s.has(id)) s.delete(id); else s.add(id);
-  selectedEdgeIds.value = s;
-};
-const toggleAllNodes = () => {
-  const all = displayedNodes.value.map(n => n.id);
-  const cur = selectedNodeIds.value;
-  const allSelected = all.length > 0 && all.every(id => cur.has(id));
-  selectedNodeIds.value = allSelected ? new Set() : new Set(all);
-};
-const toggleAllEdges = () => {
-  const all = displayedEdges.value.map(e => e.id);
-  const cur = selectedEdgeIds.value;
-  const allSelected = all.length > 0 && all.every(id => cur.has(id));
-  selectedEdgeIds.value = allSelected ? new Set() : new Set(all);
-};
-
-const validEdges = computed(() => {
-  if (!extractedRaw.value) return [];
-  const dup = dupRemap.value;
-  // 仅保留勾选的边；端点用 orig id 判断是否选中，再 apply remap，最终判端点是否落到已存在节点上
-  return extractedRaw.value.edges
-    .filter(e => selectedEdgeIds.value.has(e.id))
-    .map(e => {
-      const fromMapped = dup[e.from] || e.from;
-      const toMapped = dup[e.to] || e.to;
-      return { ...e, from: fromMapped, to: toMapped, _origFrom: e.from, _origTo: e.to };
-    })
-    .filter(e =>
-      (selectedNodeIds.value.has(e._origFrom) || isExistingId(e.from)) &&
-      (selectedNodeIds.value.has(e._origTo) || isExistingId(e.to)))
-    .map(({ _origFrom, _origTo, ...rest }) => rest as ExtractedEdge);
-});
-
-const selectedNodes = computed(() => {
-  return displayedNodes.value.filter(n => selectedNodeIds.value.has(n.id));
-});
 
 const canCommit = computed(() => {
   if (!extractedRaw.value || loading.value) return false;
