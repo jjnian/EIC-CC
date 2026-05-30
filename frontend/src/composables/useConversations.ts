@@ -236,7 +236,20 @@ export function useConversations(ctx: ConversationsCtx) {
       if (conv) {
         conversationId.value = conv.id;
         conversationTitle.value = conv.title || '新对话';
-        ctx.msgs.value = conv.msgs.map(m => ({ ...m }));
+        // 历史消息一律视为已完成:把残留的 running 步骤标 done、buildDone=true,
+        // 避免重新打开对话时还显示 loading 动画
+        ctx.msgs.value = conv.msgs.map(m => {
+          const copy: ChatMsg = { ...m };
+          if (copy.role === 'a' && copy.buildSteps?.length) {
+            copy.buildSteps = copy.buildSteps.map(s =>
+              s.status === 'running' || s.status === 'pending'
+                ? { ...s, status: 'done' as const }
+                : s,
+            );
+            copy.buildDone = true;
+          }
+          return copy;
+        });
         return;
       }
     }
