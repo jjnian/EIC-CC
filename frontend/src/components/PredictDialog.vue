@@ -2,7 +2,8 @@
 import { ref, computed, watch } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { toast } from '../composables/useToast';
-import { listTemplates, saveTemplate, touchTemplate, deleteTemplate, type HypothesisTemplate } from '../api/hypothesisTemplates';
+import { useHypothesisTemplates } from '../composables/useHypothesisTemplates';
+import { useConstraintConflicts } from '../composables/useConstraintConflicts';
 
 const props = defineProps<{
   open: boolean;
@@ -33,7 +34,6 @@ const search = ref('');
 const constraints = ref<Constraint[]>([]);
 const cSearch = ref('');
 const showConstraints = ref(false);
-const templates = ref<HypothesisTemplate[]>([]);
 const showTemplatePanel = ref(false);
 const templateName = ref('');
 
@@ -64,78 +64,40 @@ const sync = () => {
   }
 };
 
-const loadTemplates = async () => {
-  if (!props.modelId) return;
-  try {
-    templates.value = await listTemplates(props.modelId);
-  } catch { /* 静默失败 */ }
-};
-
+// 模板增删改查抽到 useHypothesisTemplates；表单读写通过回调注入以保持响应式。
+const tpl = useHypothesisTemplates({
+  getModelId: () => props.modelId,
+  getForm: () => ({ seeds: seedIds.value, steps: steps.value, intent: intent.value,
+                    constraints: constraints.value, prompt: prompt.value }),
+  applyForm: (t, existingIds) => {
+    seedIds.value = t.seeds.filter(id => existingIds.has(id));
+    steps.value = t.steps;
+    intent.value = (t.intent as 'forward' | 'backward') || 'forward';
+    constraints.value = (t.constraints || []).filter(c => existingIds.has(c.nodeId));
+    prompt.value = t.prompt || '';
+    showTemplatePanel.value = false;
+  },
+  getExistingNodeIds: () => new Set(props.nodes.map(n => n.id)),
+});
+// 顶层 const 别名：ref 在模板里才会自动解包（嵌套 tpl.templates 不会），与 App.vue 既有约定一致。
+const templates = tpl.templates;
+const loadTemplates = tpl.loadTemplates;
+const loadFromTemplate = tpl.loadFromTemplate;
+const removeTemplate = tpl.removeTemplate;
+// 原 saveAsTemplate 无参且成功后清空 templateName；保持模板调用不变，清空副作用仅在成功时执行。
 const saveAsTemplate = async () => {
-  const tName = templateName.value.trim();
-  if (!tName) { toast.warn('请输入模板名称'); return; }
-  try {
-    const t = await saveTemplate({
-      modelId: props.modelId,
-      name: tName,
-      seeds: seedIds.value,
-      steps: steps.value,
-      intent: intent.value,
-      constraints: constraints.value.slice(),
-      prompt: prompt.value.trim(),
-    });
-    templates.value.unshift(t);
-    templateName.value = '';
-    toast.info('模板已保存');
-  } catch { toast.error('保存模板失败'); }
-};
-
-const loadFromTemplate = async (t: HypothesisTemplate) => {
-  const existingIds = new Set(props.nodes.map(n => n.id));
-  seedIds.value = t.seeds.filter(id => existingIds.has(id));
-  steps.value = t.steps;
-  intent.value = (t.intent as 'forward' | 'backward') || 'forward';
-  constraints.value = (t.constraints || []).filter(c => existingIds.has(c.nodeId));
-  prompt.value = t.prompt || '';
-  showTemplatePanel.value = false;
-  if (seedIds.value.length < t.seeds.length) {
-    toast.warn(`部分节点已不存在，已加载 ${seedIds.value.length}/${t.seeds.length} 个起点`);
-  }
-  try { await touchTemplate(t.id); } catch { /* 静默 */ }
-};
-
-const removeTemplate = async (t: HypothesisTemplate) => {
-  try {
-    await deleteTemplate(t.id);
-    templates.value = templates.value.filter(x => x.id !== t.id);
-    toast.info('模板已删除');
-  } catch { toast.error('删除失败'); }
+  const ok = await tpl.saveAsTemplate(templateName.value);
+  if (ok) templateName.value = '';
 };
 
 const constraintNodeIds = computed(() => new Set(constraints.value.map(c => c.nodeId)));
 
-// 约束冲突检测:检查 force/block 之间是否存在直接因果边
-interface ConflictWarning { message: string; }
-const constraintConflicts = computed<ConflictWarning[]>(() => {
-  if (constraints.value.length < 2) return [];
-  const forced = new Set(constraints.value.filter(c => c.mode === 'force').map(c => c.nodeId));
-  const blocked = new Set(constraints.value.filter(c => c.mode === 'block').map(c => c.nodeId));
-  if (!forced.size || !blocked.size) return [];
-  const warnings: ConflictWarning[] = [];
-  for (const edge of (props.edges || [])) {
-    if (forced.has(edge.from) && blocked.has(edge.to)) {
-      const fl = nodeMap.value[edge.from]?.label || edge.from;
-      const bl = nodeMap.value[edge.to]?.label || edge.to;
-      warnings.push({ message: `「${fl}」(必然) → 「${bl}」(禁止): 存在直接因果关系` });
-    }
-    if (blocked.has(edge.from) && forced.has(edge.to)) {
-      const bl = nodeMap.value[edge.from]?.label || edge.from;
-      const fl = nodeMap.value[edge.to]?.label || edge.to;
-      warnings.push({ message: `「${bl}」(禁止) → 「${fl}」(必然): 禁止上游可能阻断必然节点` });
-    }
-  }
-  return warnings;
-});
+// 约束冲突检测抽到 useConstraintConflicts；标签解析复用组件内 nodeMap。
+const { constraintConflicts } = useConstraintConflicts(
+  () => constraints.value,
+  () => props.edges,
+  (id) => nodeMap.value[id]?.label || id,
+);
 const constraintCandidates = computed(() => {
   const q = cSearch.value.trim().toLowerCase();
   if (!q) return [];
