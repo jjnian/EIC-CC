@@ -19,6 +19,8 @@ export interface ChatSendCtx {
   setConversationTitle: (t: string) => void;
   autoTitle: (msgs: ChatMsg[]) => string;
   currentModel: Ref<ModelOption | null>;
+  /** 当前打开的本体模型 ID (getter)，用于分析完成后在消息里挂载"查看图谱"链接。 */
+  currentModelId: () => string;
   emit: (event: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[]) => void;
   closeMention: () => void;
 }
@@ -210,6 +212,8 @@ export function useChatSend(ctx: ChatSendCtx) {
 
               if (addNodes.length || addEdges.length) {
                 toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
+                const mid = ctx.currentModelId();
+                if (mid) aiMsg.graphModelId = mid;
               }
 
               // LLM 返回了澄清问题 → 挂到这条消息,前端渲染为可点击选项
@@ -228,6 +232,11 @@ export function useChatSend(ctx: ChatSendCtx) {
                 aiMsg.text = '解析失败,模型返回内容非合法 JSON。';
               }
               aiMsg.buildDone = true;
+            } finally {
+              // complete 事件已处理完毕,主动结束本次流,不再依赖 onClose 触发。
+              // 某些情况下后端 emitter.complete() 后连接未干净关闭,onClose 不触发,
+              // 会导致 await 永久挂起、loading 卡死。这里兜底 resolve。
+              resolveStream();
             }
           },
           onError: (msg: string) => {

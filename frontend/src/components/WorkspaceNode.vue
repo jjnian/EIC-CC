@@ -1,202 +1,184 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
-import { useSidebarTree } from '../composables/useSidebarTree';
+import { ref, watch, onBeforeUnmount } from 'vue';
 import { useWorkspaces } from '../composables/useWorkspaces';
+import { useSidebarTree } from '../composables/useSidebarTree';
 import { confirm as uiConfirm } from '../composables/useConfirm';
+import { prompt as uiPrompt } from '../composables/usePrompt';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
 import type { Workspace } from '../api/workspaces';
-import type { OntologyModel } from '../types';
 
 const props = defineProps<{
   workspace: Workspace;
   isCurrent: boolean;
-  expanded: boolean;
-  ontologyModels?: OntologyModel[];
 }>();
 
 const emit = defineEmits<{
-  (e: 'toggle-expand', id: string): void;
   (e: 'switch-current', id: string): void;
-  (e: 'open-conversation', wsId: string, convId: string): void;
-  (e: 'new-conversation', wsId: string): void;
-  (e: 'open-data-source', id: string): void;
-  (e: 'open-create-data-source'): void;
-  (e: 'open-ontology-model', wsId: string, modelId: string): void;
-  (e: 'delete-ontology-model', wsId: string, modelId: string): void;
+  (e: 'open-conversation', id: string): void;
+  (e: 'open-graph', id: string): void;
+  (e: 'open-datasource', id: string): void;
+  (e: 'open-datasources', workspaceId: string): void;
+  (e: 'add-datasource', workspaceId: string): void;
+  (e: 'rename-conversation', id: string, title: string): void;
+  (e: 'delete-conversation', id: string): void;
+  (e: 'rename-graph', id: string, title: string): void;
+  (e: 'delete-graph', id: string): void;
 }>();
 
-const tree = useSidebarTree();
 const ws = useWorkspaces();
+const tree = useSidebarTree();
 
-// 二级展开状态:对话/数据源/血缘图各自独立,初始收起
-const convExpanded = ref(false);
-const dsExpanded = ref(false);
-const lineageExpanded = ref(false);
+const expanded = ref(props.isCurrent);
+const ctxMenu = ref<null | {
+  kind: 'conversation' | 'graph' | 'datasource-section';
+  id: string;
+  title: string;
+  x: number;
+  y: number;
+}>(null);
 
-const conversations = computed(() => tree.getConversations(props.workspace.id));
-const dataSources = computed(() => tree.getDataSources(props.workspace.id));
-const loadingConv = computed(() => tree.isLoadingConv(props.workspace.id));
-const loadingDS = computed(() => tree.isLoadingDS(props.workspace.id));
-const loadedConv = computed(() => tree.isLoadedConv(props.workspace.id));
-const loadedDS = computed(() => tree.isLoadedDS(props.workspace.id));
-// 血缘图列表仅在当前 ws 时由父级注入(后端 list 按 ws 头作用域,跨 ws 拿不到)
-const lineageModels = computed(() => props.isCurrent ? (props.ontologyModels || []) : []);
-
-// 顶级收起时一并收起二级,避免下次再次展开仍残留旧状态
-watch(() => props.expanded, (val) => {
-  if (!val) {
-    convExpanded.value = false;
-    dsExpanded.value = false;
-    lineageExpanded.value = false;
-  }
+watch(() => props.isCurrent, (v) => {
+  if (v) expanded.value = true;
 });
+
+watch(expanded, (v) => {
+  if (v) {
+    tree.loadConversations(props.workspace.id);
+    tree.loadOntologies(props.workspace.id);
+    tree.loadDataSources(props.workspace.id);
+  }
+}, { immediate: true });
+
+onBeforeUnmount(() => closeCtxMenu());
 
 const wsInitial = (name: string) => {
   const trimmed = (name || '').trim();
-  if (!trimmed) return '?';
-  return trimmed.charAt(0);
+  return trimmed ? trimmed.charAt(0) : '?';
 };
 
-const onToggleTop = () => {
-  emit('toggle-expand', props.workspace.id);
+const closeCtxMenu = () => {
+  ctxMenu.value = null;
 };
 
-const onClickSwitch = async (e: Event) => {
+const openCtxMenu = (
+  kind: 'conversation' | 'graph' | 'datasource-section',
+  id: string,
+  title: string,
+  e: MouseEvent,
+) => {
+  e.preventDefault();
   e.stopPropagation();
-  if (props.isCurrent) return;
+  ctxMenu.value = {
+    kind,
+    id,
+    title,
+    x: Math.min(e.clientX, window.innerWidth - 220),
+    y: Math.min(e.clientY, window.innerHeight - 132),
+  };
+};
+
+const openDataSourceSection = () => {
+  emit('open-datasources', props.workspace.id);
+};
+
+const addDataSourceToWorkspace = () => {
+  closeCtxMenu();
+  emit('add-datasource', props.workspace.id);
+};
+
+const renameItem = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind === 'datasource-section') return;
+  closeCtxMenu();
+  const next = await uiPrompt({
+    title: current.kind === 'conversation' ? '重命名对话' : '重命名血缘图',
+    message: '请输入新的名称',
+    defaultValue: current.title,
+    confirmLabel: '保存',
+    cancelLabel: '取消',
+  });
+  const title = (next || '').trim();
+  if (!title || title === current.title) return;
+  if (current.kind === 'conversation') emit('rename-conversation', current.id, title);
+  else emit('rename-graph', current.id, title);
+};
+
+const deleteItem = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind === 'datasource-section') return;
+  closeCtxMenu();
   const ok = await uiConfirm({
-    title: '切换工作空间',
-    message: `将切换到「${props.workspace.name}」。当前未保存的图谱编辑会立即提交，列表与对话会重新加载。`,
-    confirmLabel: '切换',
+    title: current.kind === 'conversation' ? '删除对话' : '删除血缘图',
+    message: `确认删除「${current.title}」吗？此操作不可恢复。`,
+    confirmLabel: '删除',
+    danger: true,
   });
   if (!ok) return;
-  emit('switch-current', props.workspace.id);
+  if (current.kind === 'conversation') emit('delete-conversation', current.id);
+  else emit('delete-graph', current.id);
+};
+
+const onGlobalMouseDown = () => closeCtxMenu();
+watch(ctxMenu, (v, prev) => {
+  if (!prev && v) window.addEventListener('mousedown', onGlobalMouseDown, { once: true });
+});
+
+const toggle = async (e: Event) => {
+  e.stopPropagation();
+  if (!props.isCurrent) {
+    const ok = await uiConfirm({
+      title: '切换工作空间',
+      message: `将切换到「${props.workspace.name}」。未保存内容会立即提交，列表和对话会重新加载。`,
+      confirmLabel: '切换',
+    });
+    if (!ok) return;
+    emit('switch-current', props.workspace.id);
+    expanded.value = true;
+    return;
+  }
+  expanded.value = !expanded.value;
 };
 
 const onClickDelete = async (e: Event) => {
   e.stopPropagation();
-  if (props.workspace.isDefault) {
-    toast.warn('默认工作空间不可删除');
-    return;
-  }
+  const isLast = ws.workspaces.value.length <= 1;
+  const extraNote = isLast
+    ? '这是最后一个工作空间，删除后会回到工作空间选择页。'
+    : props.workspace.isDefault
+      ? '这是默认工作空间，删除后会自动把另一个工作空间设为默认。'
+      : '';
   const ok = await uiConfirm({
     title: '删除工作空间',
-    message: `「${props.workspace.name}」内的本体图、推演分支、对话与数据源将一并清空，且无法恢复。确定继续吗？`,
+    message: `「${props.workspace.name}」内的内容将一并清空，且无法恢复。${extraNote}确定继续吗？`,
     confirmLabel: '删除',
     danger: true,
   });
   if (!ok) return;
+  const wasDefault = props.workspace.isDefault;
   try {
     const res = await ws.remove(props.workspace.id);
     toast.success('已删除');
-    // 删的是当前 ws 时,后端切到默认 ws,前端整页刷新以重置所有视图
-    if (res.switchedTo) window.location.reload();
+    if (res.switchedTo || wasDefault || ws.workspaces.value.length === 0) window.location.reload();
   } catch (err) {
     toast.warn(err instanceof ApiError ? err.message : '删除失败');
   }
 };
 
-const onToggleConv = () => {
-  convExpanded.value = !convExpanded.value;
-  if (convExpanded.value && !loadedConv.value) {
-    tree.loadConversations(props.workspace.id).catch(() => { /* noop */ });
-  }
+const fmtTime = (t: number) => {
+  if (!t) return '';
+  const d = new Date(t);
+  const now = new Date();
+  return d.toDateString() === now.toDateString()
+    ? d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 };
 
-const onToggleDS = () => {
-  dsExpanded.value = !dsExpanded.value;
-  if (dsExpanded.value && !loadedDS.value) {
-    tree.loadDataSources(props.workspace.id).catch(() => { /* noop */ });
-  }
-};
-
-const refreshConv = (e: Event) => {
-  e.stopPropagation();
-  tree.loadConversations(props.workspace.id, true).catch(() => { /* noop */ });
-};
-
-const onNewConv = (e: Event) => {
-  e.stopPropagation();
-  emit('new-conversation', props.workspace.id);
-};
-
-const onClickConv = async (id: string) => {
-  // 当前工作空间直接打开;非当前则先切换
-  if (props.isCurrent) {
-    emit('open-conversation', props.workspace.id, id);
-    return;
-  }
-  const ok = await uiConfirm({
-    title: '打开其他工作空间的对话',
-    message: `将切换到「${props.workspace.name}」并打开该对话。`,
-    confirmLabel: '切换并打开',
-  });
-  if (!ok) return;
-  emit('switch-current', props.workspace.id);
-  // 切换后由父组件等待重新加载完成,这里再发一次 open
-  // 简化处理:直接发出,父组件自行决定时序
-  emit('open-conversation', props.workspace.id, id);
-};
-
-const onDeleteConv = async (id: string, title: string, e: Event) => {
-  e.stopPropagation();
-  const ok = await uiConfirm({
-    title: '删除对话',
-    message: `确定删除对话「${title}」？`,
-    confirmLabel: '删除',
-    danger: true,
-  });
-  if (!ok) return;
-  try {
-    await tree.removeConversation(props.workspace.id, id);
-  } catch (err) {
-    toast.warn(err instanceof ApiError ? err.message : '删除失败');
-  }
-};
-
-const onDeleteDS = async (id: string, name: string, e: Event) => {
-  e.stopPropagation();
-  const ok = await uiConfirm({
-    title: '删除数据源',
-    message: `确定删除「${name}」？该操作仅清理记录，不影响已并入的图谱节点。`,
-    confirmLabel: '删除',
-    danger: true,
-  });
-  if (!ok) return;
-  try {
-    await tree.removeDataSource(props.workspace.id, id);
-  } catch (err) {
-    toast.warn(err instanceof ApiError ? err.message : '删除失败');
-  }
-};
-
-const formatBytes = (bytes?: number): string => {
-  if (!bytes || bytes <= 0) return '';
-  if (bytes < 1024) return bytes + 'B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'K';
-  return (bytes / 1024 / 1024).toFixed(1) + 'M';
-};
-
-const dataSourceIcon = (kind: string) => kind === 'url' ? '🔗' : '📄';
-
-const onToggleLineage = () => {
-  lineageExpanded.value = !lineageExpanded.value;
-};
-
-const onClickLineageModel = async (modelId: string) => {
-  if (props.isCurrent) {
-    emit('open-ontology-model', props.workspace.id, modelId);
-    return;
-  }
-  const ok = await uiConfirm({
-    title: '打开其他工作空间的血缘图',
-    message: `将切换到「${props.workspace.name}」并打开该血缘图。`,
-    confirmLabel: '切换并打开',
-  });
-  if (!ok) return;
-  emit('switch-current', props.workspace.id);
-  emit('open-ontology-model', props.workspace.id, modelId);
+const kindLabel: Record<string, string> = {
+  mysql: 'MySQL',
+  pgsql: 'PgSQL',
+  file_stored: '文件',
+  https_api: 'HTTPS',
 };
 
 const onDeleteLineageModel = (modelId: string, e: Event) => {
@@ -207,396 +189,247 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 </script>
 
 <template>
-  <div class="ws-node">
-    <!-- 顶级行:caret + 头像 + 名称 + 默认徽章 + 切换按钮 + 删除按钮 -->
-    <div :class="['ws-head', { active: isCurrent }]" @click="onToggleTop">
-      <span :class="['ws-caret', { open: expanded }]">▸</span>
+  <div class="ws-wrap">
+    <div :class="['ws-node', { active: isCurrent }]" @click="toggle">
+      <span class="ws-caret" :class="{ open: expanded }">▶</span>
       <span class="ws-avatar">{{ wsInitial(workspace.name) }}</span>
       <span class="ws-name">{{ workspace.name }}</span>
       <span v-if="workspace.isDefault" class="ws-tag">默认</span>
-      <button v-if="!isCurrent"
-              class="ws-switch-btn"
-              :title="`切换到 ${workspace.name}`"
-              @click="onClickSwitch">切换</button>
-      <span v-else class="ws-dot" title="当前工作空间" />
-      <button v-if="!workspace.isDefault"
-              class="ws-del-btn"
-              :title="`删除 ${workspace.name}`"
-              @click="onClickDelete">×</button>
+      <span v-if="isCurrent" class="ws-dot" title="当前工作空间" />
+      <button class="ws-del-btn" :title="`删除 ${workspace.name}`" @click="onClickDelete">×</button>
     </div>
 
-    <!-- 二级:对话记录 + 数据源 -->
     <div v-if="expanded" class="ws-children">
-      <!-- 对话记录 -->
-      <div class="ws-child-node">
-        <div class="ws-child-head" role="button" tabindex="0"
-             @click="onToggleConv"
-             @keydown.enter.prevent="onToggleConv"
-             @keydown.space.prevent="onToggleConv">
-          <span :class="['ws-caret', { open: convExpanded }]">▸</span>
-          <span class="ws-child-icon">💬</span>
-          <span class="ws-child-label">对话记录</span>
-          <span v-if="conversations.length" class="ws-child-count">{{ conversations.length }}</span>
-          <span class="ws-child-spacer" />
-          <button v-if="isCurrent" class="ws-child-action" :title="'新对话'" @click.stop="onNewConv">＋</button>
-          <button class="ws-child-action" :title="'刷新'" @click.stop="refreshConv">↻</button>
-        </div>
-        <div v-if="convExpanded" class="ws-child-list">
-          <div v-if="loadingConv && !conversations.length" class="ws-child-empty">加载中…</div>
-          <div v-else-if="loadedConv && !conversations.length" class="ws-child-empty">暂无对话</div>
-          <div v-else-if="!loadedConv" class="ws-child-empty">点击 ↻ 加载</div>
-          <div v-for="c in conversations" :key="c.id"
-               class="ws-child-item"
-               :title="c.title"
-               @click="onClickConv(c.id)">
-            <span class="ws-child-dot" />
-            <span class="ws-child-item-title">{{ c.title }}</span>
-            <button class="ws-child-del" :title="`删除 ${c.title}`"
-                    @click="(e) => onDeleteConv(c.id, c.title, e)">×</button>
-          </div>
-        </div>
+      <div class="ws-section">
+        <span class="ws-section-lbl">历史对话</span>
+        <span v-if="tree.isLoadingConv(workspace.id)" class="ws-loading">加载中...</span>
+        <template v-else-if="tree.getConversations(workspace.id).length">
+          <button
+            v-for="c in tree.getConversations(workspace.id).slice(0, 10)"
+            :key="c.id"
+            class="ws-item"
+            @click.stop="emit('open-conversation', c.id)"
+            @contextmenu="openCtxMenu('conversation', c.id, c.title, $event)"
+            :title="c.title"
+          >
+            <span class="ws-item-label">{{ c.title || '新对话' }}</span>
+            <span v-if="c.updatedAt" class="ws-item-time">{{ fmtTime(c.updatedAt) }}</span>
+          </button>
+        </template>
+        <span v-else class="ws-empty">暂无对话</span>
       </div>
 
-      <!-- 数据源 -->
-      <div class="ws-child-node">
-        <div class="ws-child-head" role="button" tabindex="0"
-             @click="onToggleDS"
-             @keydown.enter.prevent="onToggleDS"
-             @keydown.space.prevent="onToggleDS">
-          <span :class="['ws-caret', { open: dsExpanded }]">▸</span>
-          <span class="ws-child-icon">📂</span>
-          <span class="ws-child-label">数据源</span>
-          <span v-if="dataSources.length" class="ws-child-count">{{ dataSources.length }}</span>
-          <span class="ws-child-spacer" />
-          <button class="ws-child-action" title="添加数据源" @click.stop="emit('open-create-data-source')">＋</button>
-        </div>
-        <div v-if="dsExpanded" class="ws-child-list">
-          <div v-if="loadingDS && !dataSources.length" class="ws-child-empty">加载中…</div>
-          <div v-else-if="loadedDS && !dataSources.length" class="ws-child-empty">还没有导入文档</div>
-          <div v-else-if="!loadedDS" class="ws-child-empty">展开自动加载</div>
-          <div v-for="d in dataSources" :key="d.id"
-               class="ws-child-item"
-               :title="d.name + (d.size ? ' · ' + formatBytes(d.size) : '')"
-               @click="['mysql','pgsql','file_stored','https_api'].includes(String(d.kind)) && emit('open-data-source', String(d.id))">
-            <span class="ws-child-icon-mini">{{ ({ mysql:'🗄', pgsql:'🐘', file_stored:'📄', https_api:'🌐', file:'📎', url:'🔗' } as Record<string,string>)[d.kind] || '📁' }}</span>
-            <span class="ws-child-item-title">{{ d.name }}</span>
-            <span v-if="['mysql','pgsql','file_stored','https_api'].includes(String(d.kind))" :class="['status-dot', String((d as any).status || 'idle')]" />
-            <span class="ws-child-meta">{{ formatBytes(d.size) }}</span>
-            <button class="ws-child-del" :title="`删除 ${d.name}`"
-                    @click="(e) => onDeleteDS(d.id, d.name, e)">×</button>
-          </div>
-        </div>
+      <div class="ws-section">
+        <span class="ws-section-lbl">血缘图</span>
+        <span v-if="tree.isLoadingOntology(workspace.id)" class="ws-loading">加载中...</span>
+        <template v-else-if="tree.getOntologies(workspace.id).length">
+          <button
+            v-for="m in tree.getOntologies(workspace.id)"
+            :key="m.id"
+            class="ws-item"
+            @click.stop="emit('open-graph', m.id)"
+            @contextmenu="openCtxMenu('graph', m.id, m.name, $event)"
+            :title="m.name"
+          >
+            <span class="ws-item-label">{{ m.name }}</span>
+            <span v-if="m.updatedAt" class="ws-item-time">{{ fmtTime(m.updatedAt) }}</span>
+          </button>
+        </template>
+        <span v-else class="ws-empty">暂无图谱</span>
       </div>
 
-      <!-- 血缘图 -->
-      <div class="ws-child-node">
-        <div class="ws-child-head" role="button" tabindex="0"
-             @click="onToggleLineage"
-             @keydown.enter.prevent="onToggleLineage"
-             @keydown.space.prevent="onToggleLineage">
-          <span :class="['ws-caret', { open: lineageExpanded }]">▸</span>
-          <span class="ws-child-icon">🧬</span>
-          <span class="ws-child-label">血缘图</span>
-          <span v-if="isCurrent && lineageModels.length" class="ws-child-count">{{ lineageModels.length }}</span>
-          <span class="ws-child-spacer" />
-        </div>
-        <div v-if="lineageExpanded" class="ws-child-list">
-          <div v-if="!isCurrent" class="ws-child-empty">切换到此工作空间后查看</div>
-          <div v-else-if="!lineageModels.length" class="ws-child-empty">暂无血缘图</div>
-          <div v-else
-               v-for="m in lineageModels" :key="m.id"
-               class="ws-child-item"
-               :title="m.title || m.name || ''"
-               @click="onClickLineageModel(m.id)">
-            <span class="ws-child-icon-mini">🧬</span>
-            <span class="ws-child-item-title">{{ m.title || m.name || '未命名' }}</span>
-            <span class="ws-child-meta">{{ m.graphData?.nodes?.length || 0 }}/{{ m.graphData?.edges?.length || 0 }}</span>
-            <button class="ws-child-del" :title="`删除 ${m.title || m.name || '该血缘图'}`"
-                    @click="(e) => onDeleteLineageModel(m.id, e)">×</button>
-          </div>
-        </div>
+      <div class="ws-section">
+        <button
+          type="button"
+          class="ws-section-lbl ws-section-btn"
+          @click.stop="openDataSourceSection"
+          @contextmenu="openCtxMenu('datasource-section', workspace.id, '数据源', $event)"
+        >数据源</button>
+        <span v-if="tree.isLoadingDS(workspace.id)" class="ws-loading">加载中...</span>
+        <template v-else-if="tree.getDataSources(workspace.id).length">
+          <button
+            v-for="d in tree.getDataSources(workspace.id)"
+            :key="d.id"
+            class="ws-item"
+            @click.stop="emit('open-datasource', d.id)"
+            :title="d.name"
+          >
+            <span class="ws-item-label">{{ d.name }}</span>
+            <span class="ws-item-kind">{{ kindLabel[d.kind] || d.kind }}</span>
+          </button>
+        </template>
+        <span v-else class="ws-empty">暂无数据源</span>
       </div>
+    </div>
+
+    <div
+      v-if="ctxMenu"
+      class="node-ctx-menu"
+      :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+      @mousedown.stop
+      @click.stop
+    >
+      <button v-if="ctxMenu.kind === 'datasource-section'" class="ctx-item" @click="openDataSourceSection(); closeCtxMenu()">
+        <span class="ctx-icon">◈</span>
+        <span>查看数据源</span>
+        <span class="ctx-hint">Open</span>
+      </button>
+      <button v-if="ctxMenu.kind === 'datasource-section'" class="ctx-item" @click="addDataSourceToWorkspace">
+        <span class="ctx-icon">＋</span>
+        <span>添加数据源</span>
+        <span class="ctx-hint">Add</span>
+      </button>
+      <button v-if="ctxMenu.kind !== 'datasource-section'" class="ctx-item" @click="renameItem">
+        <span class="ctx-icon">✎</span>
+        <span>重新命名</span>
+        <span class="ctx-hint">Rename</span>
+      </button>
+      <button v-if="ctxMenu.kind !== 'datasource-section'" class="ctx-item ctx-danger" @click="deleteItem">
+        <span class="ctx-icon">🗑</span>
+        <span>删除</span>
+        <span class="ctx-hint">Delete</span>
+      </button>
     </div>
   </div>
 </template>
 
 <style scoped>
+.ws-wrap { display: flex; flex-direction: column; }
 .ws-node {
-  display: flex;
-  flex-direction: column;
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 9px; cursor: pointer;
+  color: var(--text-dim); font-size: 12.5px;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+  letter-spacing: 0.15px;
 }
-
-/* ---------- 顶级行 ---------- */
-.ws-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  color: var(--text-dim);
-  font-size: 12.5px;
-  transition: all .12s;
-}
-.ws-head:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-main);
-}
-.ws-head.active {
-  background: rgba(66, 184, 131, 0.12);
-  color: #42b883;
+.ws-node:hover { background: rgba(255,255,255,.05); color: var(--text-main); }
+.ws-node.active {
+  background: linear-gradient(135deg, rgba(66,184,131,.18), rgba(66,184,131,.08));
+  color: #5fd4a3;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .ws-caret {
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.35);
-  transition: transform .18s;
-  flex-shrink: 0;
-  width: 9px;
+  font-size: 9px; color: rgba(255,255,255,.40);
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1); flex-shrink: 0;
 }
-.ws-caret.open {
-  transform: rotate(90deg);
-}
+.ws-caret.open { transform: rotate(90deg); }
 .ws-avatar {
-  width: 22px; height: 22px;
-  flex-shrink: 0;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #3d9bff, #6366f1);
+  width: 22px; height: 22px; flex-shrink: 0; border-radius: 7px;
+  background: linear-gradient(135deg,#5d9eff 0%, #6366f1 60%, #8b5cf6 100%);
   color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: 'Inter', sans-serif;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; font-family: 'Inter',sans-serif;
+  box-shadow: 0 3px 10px rgba(99,102,241,0.30), inset 0 1px 0 rgba(255,255,255,0.20);
+  letter-spacing: 0.3px;
 }
-.ws-head.active .ws-avatar {
-  background: linear-gradient(135deg, #42b883, #2d9b6e);
-  box-shadow: 0 0 0 1px rgba(66, 184, 131, 0.45);
+.ws-node.active .ws-avatar {
+  background: linear-gradient(135deg,#5fd4a3 0%, #42b883 55%, #2d9b6e 100%);
+  box-shadow: 0 3px 12px rgba(66,184,131,0.42), 0 0 0 1px rgba(66,184,131,.45), inset 0 1px 0 rgba(255,255,255,0.22);
 }
-.ws-name {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.ws-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ws-tag {
-  font-size: 9px;
-  padding: 1px 6px;
-  border-radius: 100px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.45);
-  flex-shrink: 0;
+  font-size: 9px; padding: 1px 6px; border-radius: 100px;
+  background: rgba(255,255,255,.06); color: rgba(255,255,255,.50); flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.3px;
 }
-.ws-head.active .ws-tag {
-  background: rgba(66, 184, 131, 0.18);
-  color: #6dd4a7;
+.ws-node.active .ws-tag {
+  background: rgba(66,184,131,.18); color: #6dd4a7;
+  box-shadow: inset 0 0 0 1px rgba(66,184,131,0.22);
 }
 .ws-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: #42b883;
-  box-shadow: 0 0 6px #42b883;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #5fd4a3;
+  box-shadow: 0 0 6px #42b883, 0 0 0 2px rgba(66,184,131,0.18);
   flex-shrink: 0;
-}
-.ws-switch-btn {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.55);
-  padding: 2px 8px;
-  border-radius: 100px;
-  font-size: 10px;
-  cursor: pointer;
-  font-family: inherit;
-  display: none;
-  flex-shrink: 0;
-}
-.ws-head:hover .ws-switch-btn { display: inline-block; }
-.ws-switch-btn:hover {
-  background: rgba(66, 184, 131, 0.18);
-  color: #6dd4a7;
-  border-color: rgba(66, 184, 131, 0.3);
 }
 .ws-del-btn {
-  background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 14px;
-  line-height: 1;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-family: inherit;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  flex-shrink: 0;
+  background: transparent; border: none; color: rgba(255,255,255,.32);
+  font-size: 14px; line-height: 1; width: 18px; height: 18px;
+  border-radius: 50%; cursor: pointer; font-family: inherit;
+  display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.ws-del-btn:hover {
-  background: rgba(255, 102, 68, 0.2);
-  color: #ff8a6f;
+.ws-del-btn:hover { background: rgba(255,102,68,.20); color: #ff8a6f; }
+.ws-children { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px; }
+.ws-section { display: flex; flex-direction: column; gap: 0; }
+.ws-section-lbl {
+  font-size: 10px; letter-spacing: 1.2px;
+  color: rgba(255,255,255,.42); padding: 6px 10px 3px 24px;
+  font-family: 'JetBrains Mono', 'Inter',sans-serif; font-weight: 600;
+  user-select: none; text-transform: uppercase;
 }
-
-/* ---------- 二级容器 ---------- */
-.ws-children {
-  margin-left: 8px;
-  padding-left: 8px;
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
-  display: flex;
-  flex-direction: column;
-  margin-top: 2px;
-  margin-bottom: 4px;
-}
-.ws-child-node {
-  display: flex;
-  flex-direction: column;
-}
-.ws-child-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
+.ws-section-btn {
   background: none;
   border: none;
-  color: var(--text-dim);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  text-align: left;
   width: 100%;
-  border-radius: 6px;
-  transition: all 0.12s;
-}
-.ws-child-head:hover {
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--text-main);
-}
-.ws-child-icon {
-  font-size: 12px;
-  flex-shrink: 0;
-}
-.ws-child-label {
-  font-weight: 500;
-  flex-shrink: 0;
-}
-.ws-child-count {
-  font-size: 9px;
-  padding: 1px 6px;
-  border-radius: 100px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.5);
-  font-family: 'JetBrains Mono', monospace;
-  flex-shrink: 0;
-}
-.ws-child-spacer {
-  flex: 1;
-}
-.ws-child-action {
-  background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 12px;
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  text-align: left;
   cursor: pointer;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  font-family: inherit;
-  flex-shrink: 0;
 }
-.ws-child-head:hover .ws-child-action { display: flex; }
-.ws-child-action:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-main);
+.ws-section-btn:hover { color: #5fd4a3; }
+.ws-loading { font-size: 11px; color: rgba(255,255,255,.32); padding: 2px 10px 2px 28px; font-style: italic; }
+.ws-empty { font-size: 11px; color: rgba(255,255,255,.22); padding: 2px 10px 4px 28px; font-style: italic; }
+.ws-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 28px; border-radius: 7px; cursor: pointer;
+  background: none; border: none; color: rgba(255,255,255,.62);
+  font-size: 12px; text-align: left; width: 100%; font-family: inherit;
+  transition: background .12s ease, color .12s ease;
+  position: relative;
+  letter-spacing: 0.1px;
 }
-.ws-child-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 0 4px 4px 18px;
+.ws-item::before {
+  content: '';
+  position: absolute;
+  left: 18px; top: 50%;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.18);
+  transform: translateY(-50%);
+  transition: background 0.12s ease;
 }
-.ws-child-empty {
-  padding: 5px 10px;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.3);
+.ws-item:hover { background: rgba(255,255,255,.05); color: #f4f7fb; }
+.ws-item:hover::before { background: rgba(66,184,131,0.6); box-shadow: 0 0 6px rgba(66,184,131,0.5); }
+.ws-item-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-item-time { font-size: 10px; color: rgba(255,255,255,.30); flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
+.ws-item-kind {
+  font-size: 9px; padding: 1px 5px; border-radius: 100px; flex-shrink: 0;
+  background: rgba(255,255,255,.06); color: rgba(255,255,255,.40);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.3px;
 }
-.ws-child-item {
+.node-ctx-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 176px;
+  padding: 6px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(11, 18, 32, 0.96));
+  border: 1px solid rgba(255,255,255,.14);
+  border-radius: 12px;
+  box-shadow: 0 20px 48px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,0.05);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+.ctx-item {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
-  background: none;
+  padding: 8px 10px;
   border: none;
-  color: var(--text-dim);
-  font-size: 12px;
-  font-family: inherit;
-  cursor: pointer;
-  border-radius: 6px;
-  text-align: left;
-  width: 100%;
-  overflow: hidden;
-  transition: all 0.1s;
-}
-.ws-child-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text-main);
-}
-.ws-child-dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
-  opacity: 0.5;
-}
-.ws-child-icon-mini {
-  font-size: 11px;
-  flex-shrink: 0;
-  opacity: 0.7;
-}
-.ws-child-item-title {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.ws-child-meta {
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.3);
-  font-family: 'JetBrains Mono', monospace;
-  flex-shrink: 0;
-}
-.ws-child-del {
   background: transparent;
-  border: none;
-  color: rgba(255, 255, 255, 0.3);
-  font-size: 14px;
-  line-height: 1;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
+  color: rgba(255,255,255,.85);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  border-radius: 8px;
   cursor: pointer;
-  flex-shrink: 0;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  font-family: inherit;
+  transition: background 0.12s ease, color 0.12s ease;
+  letter-spacing: 0.15px;
 }
-.ws-child-item:hover .ws-child-del { display: flex; }
-.ws-child-item:hover .ws-child-meta { display: none; }
-.ws-child-del:hover {
-  background: rgba(255, 102, 68, 0.2);
-  color: #ff8a6f;
-}
-
-/* 数据源连接状态指示点 */
-.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-left: 6px; vertical-align: middle; flex-shrink: 0; }
-.status-dot.idle { background: #888; }
-.status-dot.connected { background: #22dd88; }
-.status-dot.error { background: tomato; }
-
+.ctx-item:hover { background: rgba(255,255,255,.07); }
+.ctx-danger { color: #ff8a6f; }
+.ctx-danger:hover { background: rgba(255,102,68,.12); }
+.ctx-icon { width: 14px; text-align: center; opacity: .85; }
+.ctx-hint { margin-left: auto; font-size: 10px; color: rgba(255,255,255,.35); font-family: 'JetBrains Mono', monospace; }
 </style>

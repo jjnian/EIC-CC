@@ -71,6 +71,8 @@ export interface ChatMsg {
   buildSteps?: ChatBuildStep[];
   buildDone?: boolean;
   question?: ChatQuestionMsg;
+  /** 分析完成后生成的本体模型 ID，有值时显示"查看图谱"按钮。 */
+  graphModelId?: string;
 }
 
 export interface Conversation {
@@ -92,6 +94,8 @@ export interface ConversationsCtx {
   abortChat: () => void;
   /** 新建会话时让父级清空图谱。 */
   clearGraph: () => void;
+  /** 侧边栏重命名当前会话时，由外部注入手动标题，避免后续自动标题覆盖。 */
+  setConversationTitle?: (title: string) => void;
 }
 
 /**
@@ -100,6 +104,7 @@ export interface ConversationsCtx {
 export function useConversations(ctx: ConversationsCtx) {
   const conversationId = ref('');
   const conversationTitle = ref('新对话');
+  const manualTitle = ref(false);
   const showConvPicker = ref(false);
   /** 内存里维护一份缓存,便于 sortedConversations 同步返回。 */
   const cache = ref<Record<string, Conversation>>({});
@@ -192,7 +197,9 @@ export function useConversations(ctx: ConversationsCtx) {
       persistInFlight = true;
       const id = conversationId.value;
       const title = autoTitle(ctx.msgs.value);
-      conversationTitle.value = title === '新对话' ? conversationTitle.value : title;
+      if (!manualTitle.value && title !== '新对话') {
+        conversationTitle.value = title;
+      }
       const payload: ConversationDto = {
         id,
         title: conversationTitle.value || title,
@@ -215,6 +222,38 @@ export function useConversations(ctx: ConversationsCtx) {
     }, PERSIST_DEBOUNCE_MS);
   };
 
+  const flushPersist = async () => {
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    if (persistInFlight) return;
+    if (!conversationId.value && isWelcomeOnly()) return;
+    if (!conversationId.value) {
+      conversationId.value = 'conv_' + Date.now();
+    }
+    persistInFlight = true;
+    try {
+      const id = conversationId.value;
+      const title = autoTitle(ctx.msgs.value);
+      if (!manualTitle.value && title !== '新对话') {
+        conversationTitle.value = title;
+      }
+      const payload: ConversationDto = {
+        id,
+        title: conversationTitle.value || title,
+        createdAt: cache.value[id]?.createdAt || Date.now(),
+        msgs: ctx.msgs.value.map(m => ({ ...m })),
+      };
+      const saved = await updateConversation(id, payload);
+      cache.value[id] = fromDto(saved);
+    } catch (e) {
+      console.warn('flush conversation failed', e);
+    } finally {
+      persistInFlight = false;
+    }
+  };
+
   const initConversation = async (id?: string) => {
     ctx.abortChat();
     if (id && id !== 'new') {
@@ -234,12 +273,27 @@ export function useConversations(ctx: ConversationsCtx) {
       if (conv) {
         conversationId.value = conv.id;
         conversationTitle.value = conv.title || '新对话';
-        ctx.msgs.value = conv.msgs.map(m => ({ ...m }));
+        manualTitle.value = !!conv.title && conv.title !== autoTitle(conv.msgs || []);
+        // 历史消息一律视为已完成:把残留的 running 步骤标 done、buildDone=true,
+        // 避免重新打开对话时还显示 loading 动画
+        ctx.msgs.value = conv.msgs.map(m => {
+          const copy: ChatMsg = { ...m };
+          if (copy.role === 'a' && copy.buildSteps?.length) {
+            copy.buildSteps = copy.buildSteps.map(s =>
+              s.status === 'running' || s.status === 'pending'
+                ? { ...s, status: 'done' as const }
+                : s,
+            );
+            copy.buildDone = true;
+          }
+          return copy;
+        });
         return;
       }
     }
     conversationId.value = 'conv_' + Date.now();
     conversationTitle.value = '新对话';
+    manualTitle.value = false;
     ctx.msgs.value = [{ role: 'a', text: WELCOME_TEXT }];
     ctx.clearGraph();
   };
@@ -296,9 +350,16 @@ export function useConversations(ctx: ConversationsCtx) {
   return {
     conversationId,
     conversationTitle,
+    manualTitle,
     showConvPicker,
     autoTitle,
+    setConversationTitle: (title: string) => {
+      conversationTitle.value = title;
+      manualTitle.value = true;
+      ctx.setConversationTitle?.(title);
+    },
     persistCurrent,
+    flushPersist,
     initConversation,
     newConversation,
     switchConversation,

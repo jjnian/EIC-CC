@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, type PropType } from 'vue';
+import { ref, computed, watch, type PropType } from 'vue';
 import type { ChatBuildStep } from '../../composables/useConversations';
 
 const props = defineProps({
@@ -10,6 +10,11 @@ const props = defineProps({
 const collapsed = ref(false);
 
 const hasError = computed(() => props.steps.some(s => s.status === 'error'));
+
+// 完成后默认折叠，只显示标题；出错时保留展开方便排查
+watch(() => props.done, (v) => {
+  if (v && !hasError.value) collapsed.value = true;
+}, { immediate: true });
 
 const toggleCollapse = () => {
   if (props.done) collapsed.value = !collapsed.value;
@@ -31,7 +36,7 @@ const toggleCollapse = () => {
           <polyline points="20 6 9 17 4 12" />
         </svg>
       </span>
-      <span class="bsteps-title">{{ hasError ? '构建已中止' : (done ? '构建完成' : '正在构建图谱…') }}</span>
+      <span class="bsteps-title">{{ hasError ? '分析已中止' : (done ? '分析完了' : '正在分析…') }}</span>
       <span v-if="steps.length" class="bsteps-count">{{ steps.filter(s => s.status === 'done').length }}/{{ steps.length }}</span>
       <span v-if="done" class="bsteps-toggle">{{ collapsed ? '展开' : '收起' }}</span>
     </div>

@@ -7,7 +7,7 @@
 
 -- ---------------------------------------------------------------------------
 -- 0. 工作空间（workspace）
--- 所有业务数据按 workspace_id 隔离；ws_default 为系统内置默认工作空间。
+-- 所有业务数据按 workspace_id 隔离。
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS workspace (
@@ -19,11 +19,6 @@ CREATE TABLE IF NOT EXISTS workspace (
     created_at   BIGINT       NOT NULL,
     updated_at   BIGINT       NOT NULL
 );
-
-INSERT INTO workspace (id, name, description, is_default, sort_no, created_at, updated_at)
-VALUES ('ws_default', '默认工作空间', '系统初始化的默认工作空间', TRUE, 0,
-        EXTRACT(EPOCH FROM NOW()) * 1000, EXTRACT(EPOCH FROM NOW()) * 1000)
-ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- 1. 本体模型（ontology_model）

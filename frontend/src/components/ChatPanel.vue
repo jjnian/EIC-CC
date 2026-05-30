@@ -8,6 +8,8 @@ import { useChatModels } from '../composables/useChatModels';
 import { useChatSend } from '../composables/useChatSend';
 import { usePredictionSync, type LivePrediction } from '../composables/usePredictionSync';
 import { toast } from '../composables/useToast';
+import { useWorkspaces } from '../composables/useWorkspaces';
+import { useSidebarTree } from '../composables/useSidebarTree';
 import ChatMessageList from './chat/ChatMessageList.vue';
 import AttachmentChips from './chat/AttachmentChips.vue';
 import AttachmentPreview from './chat/AttachmentPreview.vue';
@@ -22,6 +24,7 @@ const props = defineProps<{
    * status: 0 空闲 1 运行中 2 完成 3 错误 4 已停止
    */
   livePrediction?: LivePrediction | null;
+  modelId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -30,6 +33,7 @@ const emit = defineEmits<{
   (e: 'seed-consumed'): void;
   (e: 'focus-node', id: string): void;
   (e: 'abort-prediction'): void;
+  (e: 'view-graph', modelId: string): void;
 }>();
 
 // ===== 消息/输入 状态 =====
@@ -44,18 +48,26 @@ const inputRef = ref<HTMLTextAreaElement | null>(null);
 const previewAtt = ref<ChatMsgAttachment | null>(null);
 
 const { atts, addFile } = useAttachments();
+const ws = useWorkspaces();
+const tree = useSidebarTree();
 
 const mention = useMention({
   input,
   inputRef,
   nodes: () => props.nodes || [],
   edges: () => props.edges || [],
+  graphLabel: () => '当前图谱',
+  dataSources: () => {
+    const wsId = ws.currentId.value;
+    return wsId ? (tree.getDataSources(wsId) || []).map(ds => ({ id: ds.id, name: ds.name })) : [];
+  },
 });
 const {
   mentionOpen,
   mentionQuery,
   mentionIndex,
   mentionItems,
+  mentionTree,
   mentionListRef,
   checkMention,
   selectMention,
@@ -74,7 +86,9 @@ const conv = useConversations({
 const {
   conversationTitle,
   autoTitle,
+  setConversationTitle,
   persistCurrent,
+  flushPersist,
   initConversation,
   restoreLatestOrNew,
 } = conv;
@@ -91,6 +105,7 @@ const sender = useChatSend({
   setConversationTitle: (t) => { conversationTitle.value = t; },
   autoTitle,
   currentModel,
+  currentModelId: () => props.modelId || '',
   emit: (event, addNodes, addEdges) => emit(event, addNodes, addEdges),
   closeMention: () => mention.closeMention(),
 });
@@ -160,12 +175,18 @@ const consumeSeed = (seed: { text: string; files: File[] }) => {
 
 onMounted(() => {
   loadModels();
+  const wsId = ws.currentId.value;
+  if (wsId) tree.loadDataSources(wsId);
   if (props.seed && (props.seed.text || props.seed.files.length)) {
     initConversation('new');
     consumeSeed(props.seed);
     return;
   }
   restoreLatestOrNew();
+});
+
+watch(input, () => {
+  nextTick(() => checkMention());
 });
 
 watch(() => props.seed, (newSeed) => {
@@ -182,6 +203,12 @@ watch(msgs, () => {
   msgListRef.value?.scrollToBottom();
   persistCurrent();
 }, { deep: true });
+
+watch(loading, (now, prev) => {
+  if (!now && prev) {
+    flushPersist();
+  }
+});
 
 // ===== 推演消息同步 =====
 // 监听父级传下来的 livePrediction:
@@ -269,7 +296,14 @@ defineExpose({
   switchConversation: (id: string) => initConversation(id),
   newConversation: () => initConversation('new'),
   currentConversationId: () => conv.conversationId.value,
+  setConversationTitle: (title: string) => setConversationTitle(title),
+  flushPersist,
+  focusInput: () => { inputRef.value?.focus(); nextTick(() => checkMention()); },
 });
+
+watch(() => ws.currentId.value, (wsId) => {
+  if (wsId) tree.loadDataSources(wsId);
+}, { immediate: true });
 
 </script>
 
@@ -287,6 +321,7 @@ defineExpose({
       @focus-node="(id) => emit('focus-node', id)"
       @abort-prediction="emit('abort-prediction')"
       @select-option="onSelectQuestionOption"
+      @view-graph="(id) => emit('view-graph', id)"
     />
     <AttachmentPreview :attachment="previewAtt" @close="previewAtt = null" />
     <AttachmentChips
@@ -295,31 +330,37 @@ defineExpose({
       @preview="(a) => previewAtt = { name: a.name, type: a.type, kind: a.kind, size: a.size, content: a.content, error: a.error, truncated: a.truncated }"
     />
     <div class="ch-input-area">
-      <div class="ctx-token-bar" v-if="contextTokenEstimate > 0">
-        <span class="ctx-token-label">上下文</span>
-        <span class="ctx-token-count">~{{ formatTokens(contextTokenEstimate) }} tokens</span>
-        <span class="ctx-token-detail">
-          {{ props.nodes?.length || 0 }} 节点 · {{ props.edges?.length || 0 }} 关系 · {{ msgs.filter(m => (m.role === 'u' || m.role === 'a') && m.text).slice(-40).length }} 条消息
-        </span>
-      </div>
       <div class="input-box">
         <!-- @ mention dropdown -->
         <div ref="mentionListRef" class="mention-dropdown" v-if="mentionOpen && mentionItems.length > 0">
           <div class="mention-header">
-            <span>引用 {{ mentionQuery ? `"${mentionQuery}"` : '本体节点 / 关系' }}</span>
+            <span>引用 {{ mentionQuery ? `"${mentionQuery}"` : '图谱 / 数据源' }}</span>
             <span class="mention-hint">↑↓ 选择 · Enter 确认 · Esc 取消</span>
           </div>
-          <div
-            v-for="(it, i) in mentionItems"
-            :key="it.kind + ':' + it.id"
-            class="mention-item"
-            :class="{ active: i === mentionIndex, 'mention-edge': it.kind === 'edge' }"
-            @mousedown.prevent="selectMention(it)"
-            @mouseenter="mentionIndex = i"
-          >
-            <span class="mention-kind">{{ it.kind === 'node' ? '◆' : '→' }}</span>
-            <span class="mention-label">{{ it.label }}</span>
-            <span class="mention-sub">{{ it.sub }}</span>
+          <div v-for="section in mentionTree" :key="section.key" class="mention-section">
+            <div class="mention-section-head">{{ section.label }}</div>
+            <div v-for="group in section.groups" :key="group.key" class="mention-group">
+              <div class="mention-group-head">{{ group.label }}</div>
+              <div
+                v-for="row in group.items"
+                :key="row.item.kind + ':' + row.item.id"
+                class="mention-item"
+                :class="{
+                  active: row.index === mentionIndex,
+                  'mention-edge': row.item.kind === 'relation',
+                  'mention-graph': row.item.kind === 'graph',
+                  'mention-ds': row.item.kind === 'datasource'
+                }"
+                @mousedown.prevent="selectMention(row.item)"
+                @mouseenter="mentionIndex = row.index"
+              >
+                <span class="mention-kind">
+                  {{ row.item.kind === 'graph' ? '图' : row.item.kind === 'datasource' ? '源' : row.item.kind === 'relation' ? '关' : '点' }}
+                </span>
+                <span class="mention-label">{{ row.item.label }}</span>
+                <span class="mention-sub">{{ row.item.sub }}</span>
+              </div>
+            </div>
           </div>
         </div>
         <textarea ref="inputRef" class="ch-input" v-model="input" placeholder="描述本体关系，输入 @ 可引用节点/关系，可粘贴图片或附加 DOCX/文件…" @keydown="onInputKeydown" @input="onInputEvent" @click="onInputClick" @paste="onInputPaste" rows="2" />
@@ -356,8 +397,18 @@ defineExpose({
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: rgba(8, 14, 24, 0.6);
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+}
+.chat-panel::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0; width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(255,255,255,0.10) 30%, rgba(255,255,255,0.10) 70%, transparent);
+  pointer-events: none;
 }
 .ch-head {
   display: flex;
@@ -369,35 +420,47 @@ defineExpose({
 .ch-head-l { display: flex; align-items: center; gap: 10px; }
 .ch-pulse {
   width: 8px; height: 8px; border-radius: 50%;
-  background: #42b883; box-shadow: 0 0 8px #42b883;
+  background: #42b883;
+  box-shadow: 0 0 10px #42b883, 0 0 0 4px rgba(66,184,131,0.10);
   animation: pulse 2s infinite;
 }
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(1.2); }
 }
-.ch-head-l span { font-size: 15px; font-weight: 600; color: var(--text-main); }
-.ch-stat { font-size: 12px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+.ch-head-l span {
+  font-size: 15px; font-weight: 600; color: var(--text-main);
+  letter-spacing: 0.4px;
+}
+.ch-stat {
+  font-size: 12px; color: var(--text-dim);
+  font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+  letter-spacing: 0.2px;
+}
 .ch-msgs {
   flex: 1; overflow-y: auto; padding: 20px;
   display: flex; flex-direction: column; gap: 16px;
 }
-.msg { display: flex; gap: 10px; max-width: 90%; }
+.msg { display: flex; gap: 10px; max-width: 72%; }
 .msg-user { align-self: flex-end; flex-direction: row-reverse; }
 .msg-asst { align-self: flex-start; }
 .avatar {
-  width: 32px; height: 32px; border-radius: 8px;
-  background: linear-gradient(135deg, #42b883, #3d9bff);
+  width: 32px; height: 32px; border-radius: 9px;
+  background: linear-gradient(135deg, #5fd4a3, #42b883 55%, #3d9bff);
   display: flex; align-items: center; justify-content: center;
-  font-size: 14px; font-weight: 700; color: white; flex-shrink: 0;
+  font-size: 13px; font-weight: 700; color: white; flex-shrink: 0;
+  box-shadow: 0 6px 14px rgba(66,184,131,0.28), inset 0 1px 0 rgba(255,255,255,0.28);
+  letter-spacing: 0.4px;
 }
-.msg-body { display: flex; flex-direction: column; gap: 6px; }
+.msg-body { display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
 .bubble {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px; padding: 12px 16px;
-  font-size: 14px; line-height: 1.6; color: var(--text-main);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.04));
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px; padding: 12px 16px;
+  font-size: 14px; line-height: 1.65; color: var(--text-main);
   white-space: pre-wrap; word-break: break-word;
+  letter-spacing: 0.15px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.03);
 }
 .cursor {
   display: inline-block;
@@ -406,24 +469,43 @@ defineExpose({
   margin-left: 2px;
   vertical-align: text-bottom;
   animation: blink 0.8s step-end infinite;
+  box-shadow: 0 0 6px rgba(66,184,131,0.6);
 }
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
-.msg-user .bubble { background: rgba(66, 184, 131, 0.15); border-color: rgba(66, 184, 131, 0.25); }
+.msg-user .bubble {
+  background: linear-gradient(135deg, rgba(66, 184, 131, 0.20), rgba(66, 184, 131, 0.10));
+  border-color: rgba(66, 184, 131, 0.32);
+  box-shadow: 0 6px 18px rgba(66, 184, 131, 0.18), inset 0 1px 0 rgba(255,255,255,0.06);
+}
 .att-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.att-sm { font-size: 11px; background: rgba(255,255,255,0.08); padding: 2px 8px; border-radius: 4px; color: var(--text-dim); }
-.att-sm-err { background: rgba(255,99,99,0.12); color: #ff8a8a; }
-.att-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 20px; }
+.att-sm {
+  font-size: 11px;
+  background: rgba(255,255,255,0.07);
+  padding: 2px 8px; border-radius: 5px;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+}
+.att-sm-err { background: rgba(255,99,99,0.14); color: #ff8a8a; }
+.att-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 20px; max-width: 100%; }
 .att-chip {
   display: flex; align-items: center; gap: 6px;
-  background: rgba(66, 184, 131, 0.12); border: 1px solid rgba(66, 184, 131, 0.25);
-  padding: 4px 10px; border-radius: 6px; font-size: 12px; color: #42b883;
+  background: linear-gradient(180deg, rgba(66, 184, 131, 0.16), rgba(66, 184, 131, 0.08));
+  border: 1px solid rgba(66, 184, 131, 0.28);
+  padding: 4px 10px; border-radius: 7px;
+  font-size: 12px; color: #5fd4a3;
 }
 .att-chip button { background: none; border: none; color: inherit; cursor: pointer; font-size: 14px; padding: 0; line-height: 1; }
-.att-chip.att-img { background: rgba(99, 155, 255, 0.12); border-color: rgba(99, 155, 255, 0.25); color: #639bff; }
-.att-chip.att-err { background: rgba(255, 99, 99, 0.12); border-color: rgba(255, 99, 99, 0.3); color: #ff8a8a; }
+.att-chip.att-img {
+  background: linear-gradient(180deg, rgba(99, 155, 255, 0.16), rgba(99, 155, 255, 0.08));
+  border-color: rgba(99, 155, 255, 0.30); color: #82b1ff;
+}
+.att-chip.att-err {
+  background: linear-gradient(180deg, rgba(255, 99, 99, 0.16), rgba(255, 99, 99, 0.08));
+  border-color: rgba(255, 99, 99, 0.34); color: #ff8a8a;
+}
 .att-kind { font-size: 12px; }
 .att-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-spin {
@@ -456,9 +538,12 @@ defineExpose({
   color: rgba(255,255,255,0.25);
 }
 .input-box {
-  background: rgba(10, 16, 27, 0.6); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 12px; padding: 10px 14px; transition: border-color 0.2s;
+  background: linear-gradient(180deg, rgba(8, 13, 22, 0.68), rgba(6, 10, 18, 0.55));
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 14px; padding: 10px 14px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
   position: relative;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
 }
 .mention-dropdown {
   position: absolute;
@@ -492,21 +577,64 @@ defineExpose({
   letter-spacing: 0.5px;
   color: rgba(255, 255, 255, 0.3);
 }
+.mention-section {
+  padding: 2px 0 4px;
+}
+.mention-section + .mention-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 4px;
+  padding-top: 6px;
+}
+.mention-section-head {
+  padding: 5px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #7dd3fc;
+}
+.mention-group {
+  position: relative;
+}
+.mention-group::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 18px;
+  bottom: 4px;
+  width: 1px;
+  background: rgba(125, 211, 252, 0.14);
+}
+.mention-group-head {
+  padding: 4px 10px 3px 28px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.38);
+}
 .mention-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
+  padding: 7px 10px 7px 38px;
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.12s;
   font-size: 13px;
+  position: relative;
+}
+.mention-item::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 14px;
+  height: 1px;
+  background: rgba(125, 211, 252, 0.18);
 }
 .mention-item.active,
 .mention-item:hover {
   background: rgba(66, 184, 131, 0.15);
 }
 .mention-item.mention-edge .mention-kind { color: #639bff; }
+.mention-item.mention-graph .mention-kind { color: #42b883; }
+.mention-item.mention-ds .mention-kind { color: #fbbf24; }
 .mention-kind {
   font-size: 12px;
   color: #42b883;
@@ -532,31 +660,43 @@ defineExpose({
   max-width: 50%;
   text-align: right;
 }
-.input-box:focus-within { border-color: rgba(66, 184, 131, 0.4); }
+.input-box:focus-within {
+  border-color: rgba(66, 184, 131, 0.50);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 0 0 3px rgba(66, 184, 131, 0.10);
+}
 .ch-input {
   width: 100%; background: transparent; border: none; color: white;
   font-size: 14px; resize: none; outline: none; font-family: inherit;
+  letter-spacing: 0.15px;
 }
-.ch-input::placeholder { color: rgba(255,255,255,0.3); }
+.ch-input::placeholder { color: rgba(255,255,255,0.32); }
 .input-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
 .file-tools { display: flex; gap: 6px; }
 .file-icon-btn {
-  background: none; border: none; color: rgba(255,255,255,0.4);
-  cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s;
+  background: none; border: none; color: rgba(255,255,255,0.42);
+  cursor: pointer; padding: 5px; border-radius: 6px;
+  transition: background 0.18s ease, color 0.18s ease;
   display: flex; align-items: center; justify-content: center;
 }
-.file-icon-btn:hover { color: #42b883; background: rgba(66,184,131,0.1); }
+.file-icon-btn:hover { color: #5fd4a3; background: rgba(66,184,131,0.10); }
 .send-btn {
-  background: #42b883; border: none; color: #002418;
-  width: 32px; height: 32px; border-radius: 8px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+  background: linear-gradient(135deg, #5fd4a3, #42b883);
+  border: none; color: #062a1c;
+  width: 32px; height: 32px; border-radius: 9px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  box-shadow: 0 6px 16px rgba(66, 184, 131, 0.30), inset 0 1px 0 rgba(255,255,255,0.30);
 }
-.send-btn:hover:not(:disabled) { background: #50caa3; transform: translateY(-1px); }
+.send-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(66, 184, 131, 0.42), inset 0 1px 0 rgba(255,255,255,0.34);
+}
 .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .send-btn-stop {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.94);
   color: #0a1019;
   position: relative;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 .send-btn-stop::before {
   content: '';

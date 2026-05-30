@@ -1,40 +1,45 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useWorkspaces } from '../composables/useWorkspaces';
-import { useSidebarTree } from '../composables/useSidebarTree';
 import WorkspaceNode from './WorkspaceNode.vue';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
-import type { OntologyModel } from '../types';
 
 const props = defineProps<{
   expanded: boolean;
   view: string;
-  ontologyModels?: OntologyModel[];
 }>();
 
 const emit = defineEmits<{
   (e: 'toggle'): void;
   (e: 'nav', route: string): void;
-  (e: 'open-conversation', id: string): void;
-  (e: 'new-conversation'): void;
   (e: 'switch-workspace', id: string): void;
-  (e: 'open-data-source', id: string): void;
-  (e: 'open-create-data-source'): void;
-  (e: 'open-ontology-model', id: string): void;
-  (e: 'delete-ontology-model', id: string): void;
+  (e: 'open-conversation', id: string): void;
+  (e: 'open-graph', id: string): void;
+  (e: 'open-datasource', id: string): void;
+  (e: 'open-datasources', workspaceId: string): void;
+  (e: 'add-datasource', workspaceId: string): void;
+  (e: 'rename-conversation', id: string, title: string): void;
+  (e: 'delete-conversation', id: string): void;
+  (e: 'rename-graph', id: string, title: string): void;
+  (e: 'delete-graph', id: string): void;
 }>();
 
-const a = ref(0);
-const items = [
+// 左侧顶级功能菜单：只保留「新对话」和「数据源」
+const items: [string, string, string][] = [
   ['✦', '新对话', 'welcome'],
-  ['◈', '数据源', 'datasource']
+  ['◈', '数据源', 'datasource'],
 ];
 
-const onPick = (i: number, route: string) => {
-  a.value = i;
-  emit('nav', route);
+const isActive = (route: string): boolean => {
+  switch (route) {
+    case 'welcome': return props.view === 'welcome' || props.view === 'chat';
+    case 'datasource': return props.view === 'datasource-list' || props.view === 'datasource';
+    default: return false;
+  }
 };
+
+const onPick = (route: string) => emit('nav', route);
 
 // ---------- 工作空间 ----------
 const ws = useWorkspaces();
@@ -43,58 +48,23 @@ const showCreate = ref(false);
 const creating = ref(false);
 const newName = ref('');
 
-const tree = useSidebarTree();
-
-// 顶级展开状态(按 workspaceId);默认仅当前工作空间展开
-const topExpanded = ref<Set<string>>(new Set());
-
-const ensureCurrentExpanded = () => {
-  const id = ws.currentId.value;
-  if (id) topExpanded.value = new Set([id]);
-  else topExpanded.value = new Set();
-};
-
 onMounted(async () => {
   if (ws.workspaces.value.length === 0) {
     try { await ws.reload(); } catch { /* noop */ }
   }
-  ensureCurrentExpanded();
-  // 默认展开的当前工作空间不预拉数据;由 WorkspaceNode 在用户展开二级时按需拉取
 });
 
-// 切换当前工作空间:清缓存 + 重置展开
-watch(() => ws.currentId.value, (newId, oldId) => {
-  if (newId === oldId) return;
-  tree.clearCache();
-  ensureCurrentExpanded();
-});
-
-const sortedWorkspaces = computed(() => {
-  return [...ws.workspaces.value].sort((x, y) => {
+const sortedWorkspaces = computed(() =>
+  [...ws.workspaces.value].sort((x, y) => {
     if ((x.isDefault ? 1 : 0) !== (y.isDefault ? 1 : 0)) return (y.isDefault ? 1 : 0) - (x.isDefault ? 1 : 0);
     return (y.updatedAt || 0) - (x.updatedAt || 0);
-  });
-});
-
-const onToggleTop = (id: string) => {
-  const set = new Set(topExpanded.value);
-  if (set.has(id)) set.delete(id);
-  else set.add(id);
-  topExpanded.value = set;
-};
+  })
+);
 
 const onSwitchCurrent = (id: string) => {
   if (id === ws.currentId.value) return;
   ws.setCurrent(id);
   emit('switch-workspace', id);
-};
-
-const onOpenConv = (_wsId: string, convId: string) => {
-  emit('open-conversation', convId);
-};
-
-const onNewConv = (_wsId: string) => {
-  emit('new-conversation');
 };
 
 const openCreate = () => {
@@ -126,8 +96,8 @@ const submitCreate = async () => {
       <div class="logo-text">推演平台</div>
     </div>
     <button v-for="(item, i) in items" :key="i"
-            :class="['sb-item', { active: (item[2] === 'welcome' && view === 'welcome') || (item[2] === 'list' && view === 'list') }]"
-            @click="onPick(i, item[2] as string)">
+            :class="['sb-item', { active: isActive(item[2]) }]"
+            @click="onPick(item[2])">
       <span class="sb-icon">{{ item[0] }}</span><span class="sb-item-label">{{ item[1] }}</span>
     </button>
 
@@ -141,16 +111,16 @@ const submitCreate = async () => {
         <WorkspaceNode v-for="w in sortedWorkspaces" :key="w.id"
                        :workspace="w"
                        :is-current="w.id === ws.currentId.value"
-                       :expanded="topExpanded.has(w.id)"
-                       :ontology-models="w.id === ws.currentId.value ? props.ontologyModels : undefined"
-                       @toggle-expand="onToggleTop"
                        @switch-current="onSwitchCurrent"
-                       @open-conversation="onOpenConv"
-                       @new-conversation="onNewConv"
-                       @open-data-source="(id: string) => emit('open-data-source', id)"
-                       @open-create-data-source="emit('open-create-data-source')"
-                       @open-ontology-model="(_wsId: string, modelId: string) => emit('open-ontology-model', modelId)"
-                       @delete-ontology-model="(_wsId: string, modelId: string) => emit('delete-ontology-model', modelId)" />
+                       @open-conversation="emit('open-conversation', $event)"
+                       @open-graph="emit('open-graph', $event)"
+                       @open-datasource="emit('open-datasource', $event)"
+                       @open-datasources="emit('open-datasources', $event)"
+                       @add-datasource="emit('add-datasource', $event)"
+                       @rename-conversation="(id, title) => emit('rename-conversation', id, title)"
+                       @delete-conversation="emit('delete-conversation', $event)"
+                       @rename-graph="(id, title) => emit('rename-graph', id, title)"
+                       @delete-graph="emit('delete-graph', $event)" />
         <button class="sb-ws-new" @click="openCreate" title="新建工作空间">
           <span class="sb-ws-avatar plus">＋</span>
           <span class="sb-ws-name">新建工作空间</span>
@@ -197,9 +167,17 @@ const submitCreate = async () => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  position: relative;
+}
+.sb-ws::before {
+  content: '';
+  position: absolute;
+  inset: 0 12px auto 12px; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
+  pointer-events: none;
 }
 .sb-ws::-webkit-scrollbar { width: 4px; }
-.sb-ws::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+.sb-ws::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
 .sb-section-head {
   background: none;
   border: none;
@@ -210,11 +188,13 @@ const submitCreate = async () => {
   cursor: pointer;
   color: inherit;
   font-family: inherit;
+  transition: opacity 0.15s ease;
 }
+.sb-section-head:hover { opacity: 0.85; }
 .sb-caret {
   font-size: 9px;
-  color: rgba(255, 255, 255, 0.35);
-  transition: transform .18s;
+  color: rgba(255, 255, 255, 0.40);
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1);
 }
 .sb-caret.open {
   transform: rotate(90deg);
@@ -230,7 +210,7 @@ const submitCreate = async () => {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: 9px;
   cursor: pointer;
   color: var(--text-dim);
   background: none;
@@ -239,7 +219,8 @@ const submitCreate = async () => {
   font-size: 12.5px;
   text-align: left;
   width: 100%;
-  transition: all 0.12s;
+  transition: background 0.15s ease, color 0.15s ease;
+  letter-spacing: 0.15px;
 }
 .sb-ws-new:hover {
   background: rgba(255, 255, 255, 0.05);
@@ -248,18 +229,24 @@ const submitCreate = async () => {
 .sb-ws-avatar {
   width: 22px; height: 22px;
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   font-family: 'Inter', sans-serif;
 }
 .sb-ws-avatar.plus {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
   color: rgba(255, 255, 255, 0.55);
-  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border: 1px dashed rgba(255, 255, 255, 0.20);
+  transition: all 0.18s ease;
+}
+.sb-ws-new:hover .sb-ws-avatar.plus {
+  border-color: rgba(66, 184, 131, 0.5);
+  color: #5fd4a3;
+  background: rgba(66, 184, 131, 0.08);
 }
 .sb-ws-name {
   flex: 1;
@@ -270,10 +257,10 @@ const submitCreate = async () => {
 .sb-section-label {
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 1.2px;
-  color: rgba(255, 255, 255, 0.35);
-  font-family: 'Inter', sans-serif;
-  font-weight: 500;
+  letter-spacing: 1.4px;
+  color: rgba(255, 255, 255, 0.42);
+  font-family: 'JetBrains Mono', 'Inter', sans-serif;
+  font-weight: 600;
 }
 
 /* ---------- 新建对话框 ---------- */
@@ -281,61 +268,78 @@ const submitCreate = async () => {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1500;
 }
 .sb-dialog {
-  background: #141e30;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
+  background: linear-gradient(180deg, #182338 0%, #101729 100%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 16px;
   padding: 22px;
   width: 360px;
   max-width: 90vw;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
 }
-.sb-dialog h3 { margin: 0; font-size: 16px; color: var(--text-main); }
+.sb-dialog h3 {
+  margin: 0; font-size: 16px; color: var(--text-main);
+  font-weight: 600; letter-spacing: 0.3px;
+}
 .sb-dialog input {
-  background: rgba(10, 16, 27, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(8, 13, 22, 0.80);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   color: #e2e8f0;
-  padding: 9px 12px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  border-radius: 9px;
   font-size: 13px;
   outline: none;
   font-family: inherit;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
-.sb-dialog input:focus { border-color: #42b883; }
+.sb-dialog input:focus {
+  border-color: rgba(66, 184, 131, 0.55);
+  box-shadow: 0 0 0 3px rgba(66, 184, 131, 0.10);
+}
 .sb-dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
 }
 .sb-btn-primary {
-  background: #42b883;
-  color: #002418;
+  background: linear-gradient(135deg, #5fd4a3, #42b883);
+  color: #062a1c;
   border: none;
   padding: 9px 20px;
-  border-radius: 8px;
+  border-radius: 9px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 6px 16px rgba(66, 184, 131, 0.30), inset 0 1px 0 rgba(255,255,255,0.32);
+  letter-spacing: 0.2px;
 }
-.sb-btn-primary:hover { background: #50caa3; }
-.sb-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
+.sb-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(66, 184, 131, 0.40), inset 0 1px 0 rgba(255,255,255,0.36);
+}
+.sb-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; }
 .sb-btn-cancel {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.65);
+  color: rgba(255, 255, 255, 0.70);
   padding: 9px 20px;
-  border-radius: 8px;
+  border-radius: 9px;
   font-size: 13px;
   cursor: pointer;
   font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.sb-btn-cancel:hover { background: rgba(255, 255, 255, 0.1); }
+.sb-btn-cancel:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
 </style>

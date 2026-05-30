@@ -4,6 +4,7 @@ import com.tuiyan.backend.config.LlmProperties;
 import org.mybatis.spring.annotation.MapperScan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -27,6 +28,21 @@ public class BackendApplication {
 
     public static void main(String[] args) {
         SpringApplication.run(BackendApplication.class, args);
+    }
+
+    @Bean
+    public ApplicationRunner sqlInitStartupLogger(
+            @Value("${spring.sql.init.enabled:true}") boolean sqlInitEnabled,
+            @Value("${spring.sql.init.mode:embedded}") String sqlInitMode,
+            @Value("${spring.sql.init.schema-locations:}") String sqlInitSchemaLocations) {
+        return args -> {
+            if (sqlInitEnabled) {
+                log.info("[DB-Init] 已执行启动脚本: mode={}, schema-locations={}",
+                        sqlInitMode, sqlInitSchemaLocations);
+            } else {
+                log.warn("[DB-Init] 已跳过启动脚本 (spring.sql.init.enabled=false / DB_INIT_SCHEMA=false)");
+            }
+        };
     }
 
     @Bean
