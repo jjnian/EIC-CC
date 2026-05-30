@@ -472,16 +472,9 @@ const formatFileSize = (bytes: number) => {
     <Sidebar
       :expanded="sbExp"
       :view="view"
-      :ontology-models="models"
       @toggle="sbExp = !sbExp"
       @nav="onNav"
-      @open-conversation="onOpenConversation"
-      @new-conversation="onNewConversation"
       @switch-workspace="onWorkspaceSwitched"
-      @open-data-source="(id: string) => { currentDataSourceId = id; view = 'datasource'; }"
-      @open-create-data-source="dsCreateOpen = true"
-      @open-ontology-model="onOpenOntologyModel"
-      @delete-ontology-model="deleteOntologyModel"
     />
     <div class="main">
       <div class="topbar">

@@ -1,52 +1,36 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useWorkspaces } from '../composables/useWorkspaces';
-import { useSidebarTree } from '../composables/useSidebarTree';
 import WorkspaceNode from './WorkspaceNode.vue';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
-import type { OntologyModel } from '../types';
 
 const props = defineProps<{
   expanded: boolean;
   view: string;
-  ontologyModels?: OntologyModel[];
 }>();
 
 const emit = defineEmits<{
   (e: 'toggle'): void;
   (e: 'nav', route: string): void;
-  (e: 'open-conversation', id: string): void;
-  (e: 'new-conversation'): void;
   (e: 'switch-workspace', id: string): void;
-  (e: 'open-data-source', id: string): void;
-  (e: 'open-create-data-source'): void;
-  (e: 'open-ontology-model', id: string): void;
-  (e: 'delete-ontology-model', id: string): void;
 }>();
 
-// 左侧顶级功能菜单：点击后右侧切换到对应内容
+// 左侧顶级功能菜单：只保留「新对话」和「数据源」
 const items: [string, string, string][] = [
   ['✦', '新对话', 'welcome'],
-  ['🧬', '血缘图', 'graph-list'],
-  ['💬', '历史对话', 'conv-list'],
   ['◈', '数据源', 'datasource'],
 ];
 
-// 每个菜单项在当前 view 下是否高亮
 const isActive = (route: string): boolean => {
   switch (route) {
-    case 'welcome': return props.view === 'welcome';
-    case 'graph-list': return props.view === 'list' || props.view === 'graph';
-    case 'conv-list': return props.view === 'conv-list' || props.view === 'chat';
+    case 'welcome': return props.view === 'welcome' || props.view === 'chat';
     case 'datasource': return props.view === 'datasource-list' || props.view === 'datasource';
     default: return false;
   }
 };
 
-const onPick = (route: string) => {
-  emit('nav', route);
-};
+const onPick = (route: string) => emit('nav', route);
 
 // ---------- 工作空间 ----------
 const ws = useWorkspaces();
@@ -55,58 +39,23 @@ const showCreate = ref(false);
 const creating = ref(false);
 const newName = ref('');
 
-const tree = useSidebarTree();
-
-// 顶级展开状态(按 workspaceId);默认仅当前工作空间展开
-const topExpanded = ref<Set<string>>(new Set());
-
-const ensureCurrentExpanded = () => {
-  const id = ws.currentId.value;
-  if (id) topExpanded.value = new Set([id]);
-  else topExpanded.value = new Set();
-};
-
 onMounted(async () => {
   if (ws.workspaces.value.length === 0) {
     try { await ws.reload(); } catch { /* noop */ }
   }
-  ensureCurrentExpanded();
-  // 默认展开的当前工作空间不预拉数据;由 WorkspaceNode 在用户展开二级时按需拉取
 });
 
-// 切换当前工作空间:清缓存 + 重置展开
-watch(() => ws.currentId.value, (newId, oldId) => {
-  if (newId === oldId) return;
-  tree.clearCache();
-  ensureCurrentExpanded();
-});
-
-const sortedWorkspaces = computed(() => {
-  return [...ws.workspaces.value].sort((x, y) => {
+const sortedWorkspaces = computed(() =>
+  [...ws.workspaces.value].sort((x, y) => {
     if ((x.isDefault ? 1 : 0) !== (y.isDefault ? 1 : 0)) return (y.isDefault ? 1 : 0) - (x.isDefault ? 1 : 0);
     return (y.updatedAt || 0) - (x.updatedAt || 0);
-  });
-});
-
-const onToggleTop = (id: string) => {
-  const set = new Set(topExpanded.value);
-  if (set.has(id)) set.delete(id);
-  else set.add(id);
-  topExpanded.value = set;
-};
+  })
+);
 
 const onSwitchCurrent = (id: string) => {
   if (id === ws.currentId.value) return;
   ws.setCurrent(id);
   emit('switch-workspace', id);
-};
-
-const onOpenConv = (_wsId: string, convId: string) => {
-  emit('open-conversation', convId);
-};
-
-const onNewConv = (_wsId: string) => {
-  emit('new-conversation');
 };
 
 const openCreate = () => {
@@ -153,16 +102,7 @@ const submitCreate = async () => {
         <WorkspaceNode v-for="w in sortedWorkspaces" :key="w.id"
                        :workspace="w"
                        :is-current="w.id === ws.currentId.value"
-                       :expanded="topExpanded.has(w.id)"
-                       :ontology-models="w.id === ws.currentId.value ? props.ontologyModels : undefined"
-                       @toggle-expand="onToggleTop"
-                       @switch-current="onSwitchCurrent"
-                       @open-conversation="onOpenConv"
-                       @new-conversation="onNewConv"
-                       @open-data-source="(id: string) => emit('open-data-source', id)"
-                       @open-create-data-source="emit('open-create-data-source')"
-                       @open-ontology-model="(_wsId: string, modelId: string) => emit('open-ontology-model', modelId)"
-                       @delete-ontology-model="(modelId: string) => emit('delete-ontology-model', modelId)" />
+                       @switch-current="onSwitchCurrent" />
         <button class="sb-ws-new" @click="openCreate" title="新建工作空间">
           <span class="sb-ws-avatar plus">＋</span>
           <span class="sb-ws-name">新建工作空间</span>
