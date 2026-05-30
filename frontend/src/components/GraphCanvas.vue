@@ -8,10 +8,15 @@
  *   <li>拖拽 / 缩放都基于 zoom 反算，避免在缩放时累计漂移。</li>
  * </ul>
  */
-import { ref, computed, watch, reactive, onMounted, onUnmounted, nextTick } from 'vue';
-import { NT, NW, NH, getPath } from '../constants';
+import { reactive, onMounted, onUnmounted } from 'vue';
+import { NW, getPath } from '../constants';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { useGraphSearch } from '../composables/useGraphSearch';
+import { useCanvasViewport } from '../composables/useCanvasViewport';
+import { useNodeColoring } from '../composables/useNodeColoring';
+import { useNodeDrag } from '../composables/useNodeDrag';
+import { useBoxSelect } from '../composables/useBoxSelect';
+import { useCanvasContextMenu } from '../composables/useCanvasContextMenu';
 
 const props = defineProps<{
   nodes: OntologyNode[];
@@ -49,30 +54,30 @@ const emit = defineEmits<{
   (e: 'select-edge', edgeId: string): void;
 }>();
 
-/* ── 节点类型筛选（图例点击） ── */
-// 当前筛选的节点 type；null 表示不筛选，'_edge_' 表示筛选关系（边）
-const typeFilter = ref<string | null>(null);
-const toggleTypeFilter = (k: string) => {
-  typeFilter.value = typeFilter.value === k ? null : k;
-};
-const toggleEdgeFilter = () => {
-  typeFilter.value = typeFilter.value === '_edge_' ? null : '_edge_';
-};
-const matchesFilter = (n: any) => {
-  if (!typeFilter.value) return true;
-  if (typeFilter.value === '_edge_') return false;
-  return n.type === typeFilter.value;
-};
-const edgeMatchesFilter = (e: any) => {
-  if (!typeFilter.value) return true;
-  if (typeFilter.value === '_edge_') return true;
-  const fn = nmap.value[e.from];
-  const tn = nmap.value[e.to];
-  return (fn && fn.type === typeFilter.value) || (tn && tn.type === typeFilter.value);
-};
+/* ── 多选集合：留在组件内,以引用方式传给需要它的 composable ── */
+// 多选集合：Ctrl+点击 或 Shift+框选 后聚集的节点 id
+const multiSel = reactive(new Set<string>());
 
-/* ── 搜索功能 ── */
-/* ── 搜索（抽到 useGraphSearch composable） ── */
+/* ── 视口与缩放（useCanvasViewport，地基：持有 cvRef / zoom / isAutoFit / pan）── */
+const viewport = useCanvasViewport({
+  getNodes: () => props.nodes,
+  getEdges: () => props.edges,
+});
+const cvRef = viewport.cvRef;
+const zoom = viewport.zoom;
+const isAutoFit = viewport.isAutoFit;
+const graphNodes = viewport.graphNodes;
+const legendTypes = viewport.legendTypes;
+const visibleNodes = viewport.visibleNodes;
+const visibleEdges = viewport.visibleEdges;
+const nmap = viewport.nmap;
+const bounds = viewport.bounds;
+const fitView = viewport.fitView;
+const onWheel = viewport.onWheel;
+const focusNode = viewport.focusNode;
+const onScroll = viewport.onScroll;
+
+/* ── 搜索（useGraphSearch composable） ── */
 const search = useGraphSearch({
   nodes: () => props.nodes,
   selectNode: (id) => emit('select', id),
@@ -88,337 +93,84 @@ const clearSearch = search.clearSearch;
 const isSearchMatch = search.isSearchMatch;
 const isCurrentSearchTarget = search.isCurrentSearchTarget;
 
-/* ── 热力图 / 差异着色 ── */
-const heatmapMode = ref(false);
-
-/** 热力图模式下，预测节点根据 effectiveProbability 在绿→黄→红之间渐变。 */
-const heatColor = (n: any) => {
-  if (!heatmapMode.value || n.source !== 'predicted') return null;
-  const p = n.effectiveProbability || n.confidence || 0;
-  // HSL 色相：0=红，60=黄，120=绿；线性映射 p∈[0,1] → h∈[0,120]
-  const h = p * 120;
-  return `hsl(${h}, 80%, 45%)`;
-};
-
-/** 分支对比着色：蓝=A 独有，橙=B 独有，紫=共同；优先级高于热力图。 */
-const diffColor = (n: any) => {
-  if (!props.diffHighlight) return null;
-  if (props.diffHighlight.uniqueAIds.includes(n.id)) return '#3b82f6'; // 蓝色 = A 独有
-  if (props.diffHighlight.uniqueBIds.includes(n.id)) return '#f97316'; // 橙色 = B 独有
-  if (props.diffHighlight.sharedIds.includes(n.id)) return '#a855f7';  // 紫色 = 共同
-  return null;
-};
-
-/* ── 右键菜单 ── */
-const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null);
-/* ── 添加节点/关系表单 ── */
-const addNodeForm = ref<{
-  mode: 'object' | 'relation';
-  canvasX: number;
-  canvasY: number;
-  label: string;
-  inputs: string[];
-  outputs: string[];
-  inputLabels: Record<string, string>;
-  outputLabels: Record<string, string>;
-} | null>(null);
-const addNodeInputRef = ref<HTMLInputElement | null>(null);
-const onNodeContext = (e: MouseEvent, id: string) => {
-  e.preventDefault();
-  e.stopPropagation();
-  if (props.readonly) return;
-  emit('select', id);
-  addNodeForm.value = null;
-  ctxMenu.value = { x: e.clientX, y: e.clientY, id };
-};
-const onCanvasContext = (e: MouseEvent) => {
-  e.preventDefault();
-  e.stopPropagation();
-  if (props.readonly) return;
-  if ((e.target as HTMLElement).closest('.node') || (e.target as HTMLElement).closest('.hud-overlay')) return;
-  ctxMenu.value = null;
-  const rect = cvRef.value!.getBoundingClientRect();
-  const canvasX = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
-  const canvasY = (e.clientY - rect.top + cvRef.value!.scrollTop) / zoom.value;
-  addNodeForm.value = {
-    mode: 'object',
-    canvasX, canvasY,
-    label: '',
-    inputs: [],
-    outputs: [],
-    inputLabels: {},
-    outputLabels: {},
-  };
-  nextTick(() => addNodeInputRef.value?.focus());
-};
-const closeCtx = () => { ctxMenu.value = null; addNodeForm.value = null; };
-const triggerPredict = () => {
-  if (ctxMenu.value) {
-    emit('predict-from', ctxMenu.value.id);
-    ctxMenu.value = null;
-  }
-};
-
-const triggerEdit = () => {
-  if (ctxMenu.value) {
-    emit('edit-node', ctxMenu.value.id);
-    ctxMenu.value = null;
-  }
-};
-
-// P1-7：对预测节点请求详细解释（依据 / 假设 / 反例）
-const triggerExplain = () => {
-  if (ctxMenu.value) {
-    emit('explain-node', ctxMenu.value.id);
-    ctxMenu.value = null;
-  }
-};
-
-/** 当前右键菜单作用的节点是否为推演节点（用于决定是否显示"为什么"项）。 */
-const ctxNodeIsPredicted = computed(() => {
-  if (!ctxMenu.value) return false;
-  const node = props.nodes.find(n => n.id === ctxMenu.value!.id);
-  return node?.source === 'predicted';
+/* ── 节点着色 / 类型筛选（useNodeColoring） ── */
+const coloring = useNodeColoring({
+  getNodes: () => props.nodes,
+  getEdges: () => props.edges,
+  getSelId: () => props.selId,
+  getDiffHighlight: () => props.diffHighlight,
+  getNmap: () => nmap.value,
 });
+const typeFilter = coloring.typeFilter;
+const toggleTypeFilter = coloring.toggleTypeFilter;
+const toggleEdgeFilter = coloring.toggleEdgeFilter;
+const matchesFilter = coloring.matchesFilter;
+const edgeMatchesFilter = coloring.edgeMatchesFilter;
+const heatmapMode = coloring.heatmapMode;
+const heatColor = coloring.heatColor;
+const diffColor = coloring.diffColor;
+const getT = coloring.getT;
+const neighborIds = coloring.neighborIds;
 
-const triggerDelete = () => {
-  if (ctxMenu.value) {
-    emit('delete-node', ctxMenu.value.id);
-    ctxMenu.value = null;
-  }
-};
-
-const triggerBatchDelete = () => {
-  if (multiSel.size > 0) {
-    emit('delete-nodes', [...multiSel]);
-    multiSel.clear();
-    ctxMenu.value = null;
-  }
-};
-
-const submitAddNode = () => {
-  if (!addNodeForm.value) return;
-  const f = addNodeForm.value;
-  if (f.mode === 'object') {
-    if (!f.label.trim()) return;
-    emit('add-node', {
-      mode: 'object',
-      label: f.label.trim(),
-      x: f.canvasX,
-      y: f.canvasY,
-      inputs: f.inputs.map(id => ({ nodeId: id, edgeLabel: f.inputLabels[id] || '' })),
-      outputs: f.outputs.map(id => ({ nodeId: id, edgeLabel: f.outputLabels[id] || '' })),
-    });
-  } else {
-    if (f.inputs.length === 0 || f.outputs.length === 0) return;
-    emit('add-edges', {
-      label: f.label.trim(),
-      inputs: f.inputs,
-      outputs: f.outputs,
-    });
-  }
-  addNodeForm.value = null;
-};
-
-const toggleAddNodeInput = (nodeId: string) => {
-  if (!addNodeForm.value) return;
-  const idx = addNodeForm.value.inputs.indexOf(nodeId);
-  if (idx >= 0) {
-    addNodeForm.value.inputs.splice(idx, 1);
-    delete addNodeForm.value.inputLabels[nodeId];
-  } else {
-    addNodeForm.value.inputs.push(nodeId);
-    addNodeForm.value.inputLabels[nodeId] = '';
-  }
-};
-
-const toggleAddNodeOutput = (nodeId: string) => {
-  if (!addNodeForm.value) return;
-  const idx = addNodeForm.value.outputs.indexOf(nodeId);
-  if (idx >= 0) {
-    addNodeForm.value.outputs.splice(idx, 1);
-    delete addNodeForm.value.outputLabels[nodeId];
-  } else {
-    addNodeForm.value.outputs.push(nodeId);
-    addNodeForm.value.outputLabels[nodeId] = '';
-  }
-};
-
-/* ── 多选 / 框选 ── */
-// 多选集合：Ctrl+点击 或 Shift+框选 后聚集的节点 id
-const multiSel = reactive(new Set<string>());
-// 框选状态：sx,sy 起点，cx,cy 当前点（画布坐标系，已除掉 zoom）
-const boxSel = ref<{ sx: number; sy: number; cx: number; cy: number } | null>(null);
-
-/* ── 视口与缩放 ── */
-const cvRef = ref<HTMLElement | null>(null);
-const zoom = ref(1);
-// 节点拖拽状态：含起始坐标、起始鼠标位置、是否触发批量等
-const drag = ref<any>(null);
-// 画布平移状态：滚动条位置 + 鼠标起点
-const pan = ref<any>(null);
-// 是否处于"自适应屏幕"模式：true 时窗口尺寸变化会自动 fitView
-const isAutoFit = ref(true);
-
-/* ── 视口裁剪（viewport culling）── */
-const scrollLeft = ref(0);
-const scrollTop = ref(0);
-
-const updateScroll = () => {
-  if (!cvRef.value) return;
-  scrollLeft.value = cvRef.value.scrollLeft;
-  scrollTop.value = cvRef.value.scrollTop;
-};
-
-// 用 rAF 节流滚动事件，避免高频滚动导致 visibleNodes 重算阻塞主线程
-let rafId = 0;
-const onScroll = () => {
-  if (rafId) return;
-  rafId = requestAnimationFrame(() => {
-    updateScroll();
-    rafId = 0;
-  });
-};
-
-// 视口外扩裁剪边距，避免滚动时节点突然出现 / 消失造成视觉跳变
-const CULL_MARGIN = 200;
-
-// TBox: attribute 和 constraint 这两类只在 Schema 面板里展示,不上图。
-// 其它类型(class / 以及老数据里的 entity/process/event 等)统统当成"图上的节点"渲染,
-// 这样既能展示静态本体的类,也不会让用户已有的非 class 数据突然全部消失。
-const SCHEMA_ONLY_TYPES = new Set(['attribute', 'constraint']);
-const graphNodes = computed(() =>
-  props.nodes.filter(n => !SCHEMA_ONLY_TYPES.has(n.type))
-);
-// Legend 只列出图上真正会出现的节点类型 (按出现频次)。class 永远显示,
-// 即便整个图还没有任何节点,用户也能看到"这是类节点的颜色"这个语义。
-const legendTypes = computed(() => {
-  const present = new Set<string>(['class']);
-  for (const n of graphNodes.value) present.add(n.type);
-  const out: Record<string, any> = {};
-  for (const k of Object.keys(NT)) {
-    if (present.has(k)) out[k] = (NT as any)[k];
-  }
-  return out;
+/* ── 节点拖拽（useNodeDrag，drag 状态在此 composable 内）── */
+const drag = useNodeDrag({
+  getZoom: () => zoom.value,
+  getNmap: () => nmap.value,
+  multiSel,
+  getReadonly: () => props.readonly,
+  setAutoFit: (v) => { isAutoFit.value = v; },
+  emitSelect: (id) => emit('select', id),
+  emitMove: (id, x, y) => emit('move', id, x, y),
+  emitDragStart: (id) => emit('drag-start', id),
 });
+const startDrag = drag.startDrag;
 
-
-const visibleNodes = computed(() => {
-  // 小图谱不做裁剪，省下计算开销 + 避免裁剪带来的复杂度
-  if (!cvRef.value || graphNodes.value.length < 80) return graphNodes.value;
-
-  // 视口换算到内容坐标系：除以 zoom 即可
-  const z = zoom.value;
-  const vl = scrollLeft.value / z;
-  const vt = scrollTop.value / z;
-  const vr = vl + cvRef.value.clientWidth / z;
-  const vb = vt + cvRef.value.clientHeight / z;
-
-  const margin = CULL_MARGIN / z;
-
-  // 节点矩形与视口（含 margin）相交即保留
-  return graphNodes.value.filter(n => {
-    const nx = n.x || 0;
-    const ny = n.y || 0;
-    return nx + NW >= vl - margin && nx <= vr + margin &&
-           ny + 52 >= vt - margin && ny <= vb + margin;
-  });
+/* ── 框选（useBoxSelect，boxSel 状态在此 composable 内）── */
+const box = useBoxSelect({
+  getZoom: () => zoom.value,
+  getCvEl: () => cvRef.value,
+  multiSel,
+  getNodes: () => props.nodes,
+  getReadonly: () => props.readonly,
 });
+const boxSel = box.boxSel;
 
-const visibleNodeIds = computed(() => new Set(visibleNodes.value.map(n => n.id)));
-
-const visibleEdges = computed(() => {
-  if (!cvRef.value || props.edges.length < 100) return props.edges; // 小图谱不裁剪
-
-  // 边只要有一端在可见集合内就保留，避免边跨视口被错误裁掉
-  return props.edges.filter(e => {
-    return visibleNodeIds.value.has(e.from) || visibleNodeIds.value.has(e.to);
-  });
+/* ── 右键菜单 / 添加表单（useCanvasContextMenu） ── */
+const menu = useCanvasContextMenu({
+  getZoom: () => zoom.value,
+  getCvEl: () => cvRef.value,
+  getNodes: () => props.nodes,
+  multiSel,
+  getReadonly: () => props.readonly,
+  emitSelect: (id) => emit('select', id),
+  emitPredictFrom: (id) => emit('predict-from', id),
+  emitEditNode: (id) => emit('edit-node', id),
+  emitExplainNode: (id) => emit('explain-node', id),
+  emitDeleteNode: (id) => emit('delete-node', id),
+  emitDeleteNodes: (ids) => emit('delete-nodes', ids),
+  emitAddNode: (payload) => emit('add-node', payload),
+  emitAddEdges: (payload) => emit('add-edges', payload),
 });
+const ctxMenu = menu.ctxMenu;
+const addNodeForm = menu.addNodeForm;
+const addNodeInputRef = menu.addNodeInputRef;
+const onNodeContext = menu.onNodeContext;
+const onCanvasContext = menu.onCanvasContext;
+const closeCtx = menu.closeCtx;
+const triggerPredict = menu.triggerPredict;
+const triggerEdit = menu.triggerEdit;
+const triggerExplain = menu.triggerExplain;
+const ctxNodeIsPredicted = menu.ctxNodeIsPredicted;
+const triggerDelete = menu.triggerDelete;
+const triggerBatchDelete = menu.triggerBatchDelete;
+const submitAddNode = menu.submitAddNode;
+const toggleAddNodeInput = menu.toggleAddNodeInput;
+const toggleAddNodeOutput = menu.toggleAddNodeOutput;
 
-// id → node 索引，给边查端点、菜单查类型用；改用 Object 而非 Map 是因为模板里直接 nmap[xxx] 更顺手
-const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])));
-
-/** 计算所有节点的包围盒，给 fitView 和外层容器尺寸用。 */
-const bounds = computed(() => {
-  if (props.nodes.length === 0) return { minX: 0, w: 1000, minY: 0, h: 800 };
-  let minX = Infinity, minY = Infinity;
-  let maxX = -Infinity, maxY = -Infinity;
-  props.nodes.forEach(n => {
-    if (n.x < minX) minX = n.x;
-    if (n.y < minY) minY = n.y;
-    if (n.x > maxX) maxX = n.x;
-    if (n.y > maxY) maxY = n.y;
-  });
-  if (minX === Infinity) return { minX: 0, w: 1000, minY: 0, h: 800 };
-  return {
-    minX: minX - 100,
-    minY: minY - 100,
-    w: maxX - minX + Math.max(NW, 200) + 200,
-    h: maxY - minY + 200 + 100
-  };
-});
-
-/** 自动缩放并居中显示所有节点。窗口 resize 时若处于 isAutoFit 状态会自动重新调用。 */
-const fitView = () => {
-  if (!cvRef.value || props.nodes.length === 0) return;
-  const cw = cvRef.value.clientWidth;
-  const ch = cvRef.value.clientHeight;
-  const b = bounds.value;
-
-  // 取宽高方向所需缩放比的较小者，并钳制到 [0.1, 2.0]
-  const sX = (cw - 80) / Math.max(b.w, 1);
-  const sY = (ch - 80) / Math.max(b.h, 1);
-  const targetZoom = Math.max(0.1, Math.min(2.0, sX, sY));
-
-  zoom.value = targetZoom;
-  isAutoFit.value = true;
-
-  const cx = b.minX + b.w / 2;
-  const cy = b.minY + b.h / 2;
-
-  // 等 zoom 应用后再设置滚动位置，否则 scrollLeft 会被旧 size clamp
-  nextTick(() => {
-    if (cvRef.value) {
-      cvRef.value.scrollLeft = Math.max(0, (cx * targetZoom) - cw / 2);
-      cvRef.value.scrollTop = Math.max(0, (cy * targetZoom) - ch / 2);
-    }
-  });
-};
-
-/* ── 拖拽 ── */
-const startDrag = (e: MouseEvent, id: string) => {
-  e.stopPropagation();
-
-  if (e.ctrlKey || e.metaKey) {
-    // Ctrl + 点击：切换该节点在多选集合中的状态
-    if (multiSel.has(id)) {
-      multiSel.delete(id);
-    } else {
-      multiSel.add(id);
-    }
-    emit('select', id);
-    return;
-  }
-
-  // 非 Ctrl 点击：如果点的是多选集中的节点，保留多选准备批量拖拽
-  if (!multiSel.has(id)) {
-    multiSel.clear(); // 点击未选中的节点，清空多选
-  }
-
-  emit('select', id);
-  if (props.readonly) return;
-  const n = nmap.value[id];
-  if (n) {
-    // 批量拖拽：当被拖节点在多选集合中且集合 >1，记录所有选中节点的初始坐标
-    const batchOrigins = multiSel.has(id) && multiSel.size > 1
-      ? Object.fromEntries([...multiSel].map(sid => [sid, { x: nmap.value[sid]?.x || 0, y: nmap.value[sid]?.y || 0 }]))
-      : null;
-    drag.value = { id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y, moved: false, batchOrigins };
-  }
-};
-
-/** 在画布空白处按下：进入平移或框选模式。 */
+/**
+ * 在画布空白处按下:进入平移或框选模式。
+ * 入口分派:先尝试框选(Shift+非只读),否则交给 viewport 平移。
+ */
 const startPan = (e: MouseEvent) => {
   // 点击落在节点 / 浮层上时不进入 pan，让对应控件优先响应
   if ((e.target as HTMLElement).closest('.node') || (e.target as HTMLElement).closest('.hud-overlay')) {
@@ -427,87 +179,31 @@ const startPan = (e: MouseEvent) => {
   isAutoFit.value = false;
 
   // Shift + 拖拽：框选模式（只读时禁用）
-  if (e.shiftKey && !props.readonly) {
-    const rect = cvRef.value!.getBoundingClientRect();
-    // 把客户端坐标换算到内容坐标系（含滚动 + zoom）
-    const x = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
-    const y = (e.clientY - rect.top + cvRef.value!.scrollTop) / zoom.value;
-    boxSel.value = { sx: x, sy: y, cx: x, cy: y };
-    return;
-  }
+  if (box.tryStart(e)) return;
 
-  // 普通：记录滚动起点 + 鼠标起点，mousemove 阶段差值反向应用到 scroll
-  pan.value = {
-    sx: e.clientX,
-    sy: e.clientY,
-    sl: cvRef.value!.scrollLeft,
-    st: cvRef.value!.scrollTop
-  };
+  // 普通：交给 viewport 记录滚动起点 + 鼠标起点
+  viewport.startPan(e);
 };
 
 let ro: ResizeObserver | null = null;
 
+/**
+ * 唯一的 window mousemove 分派:按原始优先级顺序 框选 → 拖拽 → 平移。
+ * 各 handler 内部自行判断对应状态是否激活,返回 true 表示已处理应 return。
+ */
 const onWindowMouseMove = (e: MouseEvent) => {
-  // 框选拖拽中：实时更新当前角点，模板用它绘制虚线矩形
-  if (boxSel.value) {
-    const rect = cvRef.value!.getBoundingClientRect();
-    const x = (e.clientX - rect.left + cvRef.value!.scrollLeft) / zoom.value;
-    const y = (e.clientY - rect.top + cvRef.value!.scrollTop) / zoom.value;
-    boxSel.value.cx = x;
-    boxSel.value.cy = y;
-    return;
-  }
-
-  if (drag.value) {
-    const { id, sx, sy, ox, oy, batchOrigins } = drag.value;
-    // 把屏幕位移换算到内容坐标系
-    const dx = (e.clientX - sx) / zoom.value;
-    const dy = (e.clientY - sy) / zoom.value;
-
-    // 超过 2px 才视为真正的拖拽，否则当成点击；避免选中态被微抖动覆盖
-    if (!drag.value.moved && (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy)) > 2) {
-      drag.value.moved = true;
-      emit('drag-start', id);
-    }
-
-    // 批量移动：所有被选节点应用相同位移；单选则只移动当前节点
-    if (batchOrigins) {
-      for (const [selId, origin] of Object.entries(batchOrigins) as [string, { x: number; y: number }][]) {
-        emit('move', selId, Math.max(0, origin.x + dx), Math.max(0, origin.y + dy));
-      }
-    } else {
-      emit('move', id, Math.max(0, ox + dx), Math.max(0, oy + dy));
-    }
-    isAutoFit.value = false;
-  } else if (pan.value && cvRef.value) {
-    // 平移：滚动条反向跟随鼠标位移
-    cvRef.value.scrollLeft = pan.value.sl - (e.clientX - pan.value.sx);
-    cvRef.value.scrollTop = pan.value.st - (e.clientY - pan.value.sy);
-  }
+  if (box.handleMouseMove(e)) return;
+  if (drag.handleMouseMove(e)) return;
+  viewport.handlePanMove(e);
 };
-const onWindowMouseUp = () => {
-  // 框选结束：把矩形内的节点全部加入 multiSel
-  if (boxSel.value) {
-    const { sx, sy, cx, cy } = boxSel.value;
-    const left = Math.min(sx, cx);
-    const top = Math.min(sy, cy);
-    const right = Math.max(sx, cx);
-    const bottom = Math.max(sy, cy);
 
-    multiSel.clear();
-    for (const n of props.nodes) {
-      // 节点矩形完全落在选框内才算选中（部分相交不计），避免误选
-      const nx = n.x ?? 0;
-      const ny = n.y ?? 0;
-      if (nx >= left && nx + NW <= right && ny >= top && ny + NH <= bottom) {
-        multiSel.add(n.id);
-      }
-    }
-    boxSel.value = null;
-    return;
-  }
-  drag.value = null;
-  pan.value = null;
+/**
+ * 唯一的 window mouseup 分派:框选结束优先填充 multiSel;否则结束拖拽与平移。
+ */
+const onWindowMouseUp = () => {
+  if (box.handleMouseUp()) return;
+  drag.end();
+  viewport.endPan();
 };
 
 /* Ctrl+F 快捷键唤起搜索框 */
@@ -560,75 +256,10 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onSearchKeydown);
   window.removeEventListener('keydown', onDeleteKey);
   cvRef.value?.removeEventListener('scroll', onScroll);
-  if (rafId) cancelAnimationFrame(rafId);
+  viewport.cancelScrollRaf();
   ro?.disconnect();
   ro = null;
 });
-
-/** Ctrl + 滚轮缩放：以鼠标位置为中心，避免缩放后内容偏移。 */
-const onWheel = (e: WheelEvent) => {
-  if (e.ctrlKey || e.metaKey) {
-    e.preventDefault();
-    isAutoFit.value = false;
-    if (!cvRef.value) return;
-
-    const rect = cvRef.value.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-
-    // 缩放前先把鼠标处对应的内容坐标记录下来
-    const contentX = (cvRef.value.scrollLeft + mouseX) / zoom.value;
-    const contentY = (cvRef.value.scrollTop + mouseY) / zoom.value;
-
-    // 滚轮向上 deltaY<0 → 放大 1.12 倍；向下 → 0.9 倍；钳制到 [0.1, 3]
-    const f = e.deltaY < 0 ? 1.12 : 0.9;
-    const ns = Math.max(0.1, Math.min(3, zoom.value * f));
-
-    zoom.value = ns;
-
-    // 用新的 zoom 反推滚动位置，使得鼠标处的内容坐标保持不变
-    nextTick(() => {
-      if (cvRef.value) {
-        cvRef.value.scrollLeft = contentX * ns - mouseX;
-        cvRef.value.scrollTop = contentY * ns - mouseY;
-      }
-    });
-  } else {
-    // 普通滚轮（无 Ctrl）让浏览器原生滚动；只是关闭自适应标志
-    isAutoFit.value = false;
-  }
-};
-
-const getT = (n: any) => (NT as any)[n.type] || NT.class;
-
-const neighborIds = computed(() => {
-  if (!props.selId) return null;
-  const ids = new Set<string>();
-  ids.add(props.selId);
-  for (const e of props.edges) {
-    if (e.from === props.selId) ids.add(e.to);
-    if (e.to === props.selId) ids.add(e.from);
-  }
-  return ids;
-});
-
-/** 平滑滚动让指定节点居中显示，用于搜索跳转。 */
-const focusNode = (id: string) => {
-  const n = nmap.value[id];
-  if (!n || !cvRef.value) return;
-  isAutoFit.value = false;
-  const cw = cvRef.value.clientWidth;
-  const ch = cvRef.value.clientHeight;
-  const z = zoom.value;
-  // 节点中心点（已乘 zoom）→ 把它移到视口中心
-  const cx = (n.x + NW / 2) * z;
-  const cy = (n.y + 22) * z;
-  cvRef.value.scrollTo({
-    left: Math.max(0, cx - cw / 2),
-    top: Math.max(0, cy - ch / 2),
-    behavior: 'smooth'
-  });
-};
 
 // 暴露给父组件：fitView 在推演完成等场景手动调用，focusNode 给节点定位用
 defineExpose({ fitView, focusNode });
