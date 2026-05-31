@@ -867,10 +867,12 @@ body::after {
 }
 .ni-kv tr:last-child td { border-bottom: none; }
 .ni-kv tr.missing .ni-kv-v { opacity: 0.55; }
-.ni-kv-k {
+/* 用 `td.ni-kv-k` 提升特异性：否则上面 `.ni-kv td{padding:8px 0}` 的简写会把
+   padding-right 重置为 0，导致标签和值/输入框贴在一起。 */
+.ni-kv td.ni-kv-k {
   width: 1%;
   white-space: nowrap;
-  padding-right: 32px;
+  padding-right: 28px;
   font-size: 11px;
   color: var(--text-dim);
   text-transform: uppercase;
