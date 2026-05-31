@@ -8,6 +8,7 @@ import com.tuiyan.backend.service.DataSourceService;
 import com.tuiyan.backend.service.SchemaOntologyService;
 import com.tuiyan.backend.support.SsePushUtils;
 import com.tuiyan.backend.support.WorkspaceContext;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
@@ -43,7 +44,7 @@ public class DataSourceController {
     public DataSourceController(DataSourceRepository repo,
                                 DataSourceService service,
                                 SchemaOntologyService schemaOntology,
-                                AsyncTaskExecutor taskExecutor) {
+                                @Qualifier("predictionExecutor") AsyncTaskExecutor taskExecutor) {
         this.repo = repo;
         this.service = service;
         this.schemaOntology = schemaOntology;
