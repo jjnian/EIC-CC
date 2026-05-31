@@ -212,6 +212,19 @@ const startResize = (e: MouseEvent) => {
                     <div class="ni-cell"><div class="ni-cell-k">状态</div><div class="ni-cell-v"><span class="ni-chip ok">● 已激活</span></div></div>
                   </div>
                 </div>
+                <div v-if="node.derived_source || node.derived_database || (node.derived_tables || []).length" class="ni-card">
+                  <div class="ni-card-title">数据来源</div>
+                  <div class="ni-grid">
+                    <div class="ni-cell"><div class="ni-cell-k">数据源</div><div class="ni-cell-v">{{ node.derived_source || '—' }}</div></div>
+                    <div class="ni-cell"><div class="ni-cell-k">数据库</div><div class="ni-cell-v mono">{{ node.derived_database || '—' }}</div></div>
+                    <div class="ni-cell ni-cell-wide"><div class="ni-cell-k">来源表</div>
+                      <div class="ni-cell-v">
+                        <span v-for="(tb, i) in (node.derived_tables || [])" :key="'dt'+i" class="ni-src-chip">{{ tb }}</span>
+                        <span v-if="!(node.derived_tables || []).length" class="ni-dim">暂无来源表</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </template>
               <template v-if="tab === 1">
                 <!-- TBox 属性: 类节点上的属性定义 -->
@@ -413,3 +426,18 @@ const startResize = (e: MouseEvent) => {
     </template>
   </div>
 </template>
+
+<style scoped>
+.ni-src-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 2px 4px 2px 0;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #22dd88;
+  background: rgba(34, 221, 136, 0.12);
+  border-radius: 6px;
+}
+.ni-dim { color: rgba(255,255,255,0.4); font-size: 12px; }
+.ni-cell-wide { grid-column: 1 / -1; }
+</style>
