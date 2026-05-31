@@ -673,11 +673,12 @@ public class GraphPromptBuilder {
         sb.append("现在输出 JSON。必须满足：\n");
         sb.append("  - 每张表 → 1 个节点（type 按系统规则分类）；\n");
         sb.append("  - 每个外键 → 1 条边（rel_type 按系统规则选择）；\n");
-        sb.append("  - 每个节点的 attributes 必须覆盖业务列（含 PK/FK/unique/status/_at/amount 等）；\n");
-        sb.append("  - 每个节点的 constraints 至少包含主键、唯一键摘要；\n");
+        sb.append("  - attributes 只能列出 SCHEMA 中真实出现的列（H2 反幻觉规则）；\n");
+        sb.append("  - constraints 只能基于真实 PK / 唯一键 / NOT NULL / 声明的 FK（H5）；\n");
         sb.append("  - 节点 id 用 `t_<table>`，边 id 用 `e_fk_<child>_<col>__<parent>`，保证幂等；\n");
         sb.append("  - 不要输出 `question` 字段；\n");
-        sb.append("  - 不允许出现 add_nodes 之外的 from/to 引用（无悬空边）。\n");
+        sb.append("  - 不允许出现 add_nodes 之外的 from/to 引用（无悬空边）；\n");
+        sb.append("  - ⚠ 服务端会做事实校验：编造的表/列/FK 会被自动删除。宁可少写也不要多写。\n");
         return new SchemaExtractPrompt(LlmPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
     }
 

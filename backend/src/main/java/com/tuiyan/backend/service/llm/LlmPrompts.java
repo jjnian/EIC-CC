@@ -106,9 +106,35 @@ public final class LlmPrompts {
         3. Ask: "What properties would you need to fully describe an instance of this concept?" Include quantitative metrics, states, classifications, and temporal properties.
         4. Distinguish between definitional attributes (always present) and optional attributes.
 
-        **Source Tracking:**
-        - Mark everything 'derived' if explicitly stated in the user's text; 'inferred' if you are filling gaps with world knowledge.
-        - This applies to nodes, edges, properties, attributes, and constraints alike.
+        **Source Tracking — FACT-FIRST PRINCIPLE (this is the most important rule):**
+        Your job is to faithfully model what the user TOLD YOU, not what you THINK is
+        normally true in this domain. The graph must be a mirror of the user's stated facts,
+        not a textbook.
+
+        - `source = "derived"` ONLY when the concept is EXPLICITLY mentioned in the user's
+          latest message OR in the prior conversation history. Set `evidence` to a short
+          quote from that text (≤30 chars).
+        - `source = "inferred"` is allowed ONLY for connecting nodes the user explicitly
+          named — e.g. "用户说 A produces B" → A and B are derived, the produces edge can
+          be inferred if user didn't name the verb. NEVER use inferred to introduce a NEW
+          concept the user hasn't mentioned.
+        - HARD RULE: at least 80% of `add_nodes` MUST be source="derived". If you can't
+          ground 80%+ of nodes in user text, the user probably wants you to ask a
+          clarifying question instead (see below).
+        - Confidence calibration: derived ≥ 0.85, inferred ≤ 0.55. Never claim high
+          confidence on guessed content.
+
+        **ANTI-HALLUCINATION GUARDRAILS:**
+        - DO NOT add "common sense" entities like 客户 / 订单 / 商品 to enrich the picture
+          when the user is talking about something else entirely. Stay narrowly on topic.
+        - DO NOT invent attributes like "amount" / "status" / "created_at" for a node
+          unless the user mentioned them.
+        - DO NOT invent constraints like "1:N" or "exactly one" unless the user said so
+          or it's a logical consequence of explicit user statements.
+        - DO NOT invent rule nodes representing regulations / SOPs the user didn't mention.
+        - PREFER returning fewer nodes/edges with high confidence over many speculative ones.
+        - If the user's message is very short (e.g. "添加一个客户实体"), output JUST that
+          one node — do NOT speculate about its neighbors.
 
         **Interactive Clarification (very important):**
         When the user's description has genuine ambiguity that would lead to materially different ontology choices, INSTEAD of guessing silently you SHOULD set the optional `question` field with 2–4 concrete options the user can click. Examples of when to ask:
@@ -191,6 +217,44 @@ public final class LlmPrompts {
            emit ONE node.
         5. You MUST output attributes and constraints — an extraction without them is incomplete.
         6. Return ONLY a JSON object exactly matching SCHEMA. No markdown wrapping.
+
+        ============================================================
+        ANTI-HALLUCINATION GUARDRAILS — strictly enforced:
+        ============================================================
+        H1. **Every derived node MUST have non-empty `evidence`** — a short quote (≤30 chars)
+            COPIED VERBATIM from the source text. If you can't quote it, it's not derived.
+
+        H2. **DO NOT add "common sense" entities not mentioned in the source.** If the
+            document discusses 采购流程 but never mentions 客户, do NOT add a 客户 node
+            even if customers usually appear in business processes.
+
+        H3. **DO NOT invent attributes**: only emit an attribute if the document explicitly
+            lists it (e.g. "订单包含金额、状态、下单时间"). Generic guesses like adding
+            `created_at` to every entity are forbidden.
+
+        H4. **DO NOT invent constraints from world knowledge**: only emit constraints that
+            the document explicitly states or that are logical consequences of explicit
+            statements (e.g. "每张订单恰好一个客户" → cardinality "1:1" is OK).
+
+        H5. **DO NOT invent rule nodes**: only emit type="rule" when the document literally
+            describes a regulation / policy / SOP step. Common business assumptions don't
+            count.
+
+        H6. **Inferred quota**: at most 30% of `add_nodes` may be source="inferred", and
+            inferred nodes MUST connect explicitly-named (derived) nodes — never introduce
+            a brand-new concept as inferred.
+
+        H7. **Confidence calibration**: derived ≥ 0.85 (default 1.0 when quote is exact),
+            inferred ≤ 0.55. Be honest — overconfident hallucinations are worse than
+            humble admissions.
+
+        H8. **Prefer fewer high-quality items over many speculative ones.** A 5-node graph
+            that exactly mirrors the document is BETTER than a 30-node graph half-invented.
+
+        Reject example: source says "ERP 系统生成出库单" — you must NOT also emit nodes
+            for 入库单 / 库存盘点 / 财务对账 just because they "usually go with ERP".
+        Reject example: source says "客户提交订单" — you must NOT add attribute
+            `customer_email` to 客户 unless the source mentions it.
 
         ---
         WORKED EXAMPLE (study the level of precision, then apply to the real input):
@@ -291,13 +355,20 @@ public final class LlmPrompts {
           - `source = "derived"`, `confidence = 1.0`, `evidence` = constraint name (≤30 chars).
           - Add a `constraints` array with `{kind: "cardinality", note: "N:1 (FK)", source: "derived"}`.
 
-        **Rule 4 — Inferred lineage (when FK is missing but naming strongly implies it):**
-        If table A has column `xxx_id` (or `xxx_code`/`xxx_no`) AND table B exists named `xxx` or `xxxs`
-        AND there is NO formal FK between them, emit an INFERRED edge:
-          - direction: `from = t_<A>`, `to = t_<B>`
-          - `rel_type = "derived_from"`, `source = "inferred"`, `confidence = 0.5`
-          - `evidence = ""`, `label = "<A>.<col> ≈ <B>.id (按命名推断)"`.
-        These edges are critical for legacy databases without declared FKs.
+        **Rule 4 — Inferred lineage (STRICTLY RESTRICTED — apply ONLY when ALL conditions hold):**
+        Default is OFF — DO NOT emit inferred edges unless every single condition below is satisfied:
+          (a) child column EXACTLY equals `<parent_table>_id` or `<parent_table>_code` or `<parent_table>_no`
+              (NOT a vague match like `cust_id` ≈ `customers`; the prefix MUST literally equal the parent table name);
+          (b) the parent table actually exists in the input table list;
+          (c) the parent table has an `id` (or `code`/`no`) column whose name matches the suffix in step (a);
+          (d) there is NO formal FK declared between them;
+          (e) at most ONE such inferred edge per child column — never speculate multiple parents.
+        When emitted, format strictly as:
+          - `from = t_<A>`, `to = t_<B>`, `rel_type = "derived_from"`,
+            `source = "inferred"`, `confidence = 0.4` (低,因为这是猜的),
+            `evidence = "naming:<col>↔<parent>.id"`,
+            `label = "<A>.<col> ≈ <B>.<col> (按命名推断,未声明 FK)"`.
+        If any condition (a)~(e) fails, DO NOT emit the edge — leave it out. Missing > wrong.
 
         **Rule 5 — Columns become ATTRIBUTES on the table node (do NOT create column nodes):**
         For each table node, the `attributes` array MUST include every column that is meaningful
@@ -319,6 +390,58 @@ public final class LlmPrompts {
               `{kind:"custom", note:"业务唯一键: <idx_name>(<cols>)", source:"derived"}`.
           - Required NOT NULL groups when 3+ columns are NOT NULL: summary only,
               `{kind:"custom", note:"必填字段: <col1>,<col2>,<col3>...", source:"derived"}`.
+
+        ============================================================
+        ANTI-HALLUCINATION GUARDRAILS — VIOLATING THESE IS A HARD FAILURE:
+        ============================================================
+        The schema is the ONLY source of truth. Any node, edge, attribute, or constraint
+        whose grounding cannot be traced back to a concrete schema element is a HALLUCINATION
+        and will be deleted by post-processing. To minimize wasted output:
+
+        H1. **Do NOT invent tables**: every node MUST correspond to a table in the input.
+            If you can't point to an exact `TABLE <name>` line for it, do NOT emit the node.
+
+        H2. **Do NOT invent columns**: every entry in a node's `attributes` array MUST be a
+            column that actually appears in the input under that table. Do NOT add "common
+            fields" like `created_at` / `updated_at` / `status` / `is_deleted` unless they
+            are LITERALLY in the column list. If a column is not listed, it does not exist.
+
+        H3. **Do NOT invent FKs**: every "derived" edge MUST correspond to an `FK ...` line
+            from the input. If the input does NOT declare a FK between two tables, you MUST
+            NOT emit a `source="derived"` edge between them — only Rule 4 (with all conditions
+            met) can produce an `inferred` edge.
+
+        H4. **Do NOT enrich business semantics from world knowledge**: if the table is named
+            `t_xyz_blob` and has no comment, do NOT guess what business "xyz" represents.
+            Use the literal table name as the label and `type="entity"`. Educated guesses
+            about business meaning belong in the human's head, not in the graph.
+
+        H5. **Do NOT add constraints not derivable from schema**: only PK / unique index /
+            NOT NULL clusters / declared FK cardinality. Never write things like
+            "客户必须先注册" — that's a business rule the schema doesn't enforce.
+
+        H6. **NO inferred attributes**: every attribute entry MUST be `source="derived"` and
+            grounded in a real column line. If a comment is missing, write `description=""`
+            or just `[FK→...]`/`[PK]` markers — do NOT guess what the column means.
+
+        H7. **Confidence calibration**: derived → 1.0. Inferred (Rule 4 only) → max 0.4.
+            Never claim high confidence on inferred items.
+
+        H8. **Prefer fewer high-quality items over many speculative ones**: an empty
+            `add_edges` for a schema with no FKs is CORRECT. A graph with 20 made-up
+            edges is WRONG, no matter how plausible they look.
+
+        ============================================================
+        WHAT NOT TO DO — concrete reject examples:
+        ============================================================
+        Reject: emitting a `triggers` edge between `orders` and `payments` just because
+                you know payments usually follow orders, when no FK or _log table connects them.
+        Reject: adding attribute `total_amount` to `orders` when the column list only
+                contains `id, customer_id, status, created_at`.
+        Reject: classifying `t_abc_xyz` as type="event" when there is no `_log/_history`
+                suffix and no comment about events.
+        Reject: writing constraint "每个订单必须关联一个客户" when `customer_id` is
+                actually NULLABLE in the schema.
 
         ============================================================
         OUTPUT QUALITY REQUIREMENTS:

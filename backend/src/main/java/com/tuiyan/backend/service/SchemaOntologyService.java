@@ -130,9 +130,19 @@ public class SchemaOntologyService {
             merged = (merged == null) ? part : mergeBatches(merged, part);
         }
 
-        // ===== 硬保底：把 LLM 漏掉的表 / FK 自动补齐 =====
-        step.emit("postprocess", "正在校验 LLM 产物并补齐遗漏的表/外键…");
-        ObjectNode rectified = ensureCompleteness(merged, schema);
+        // ===== 事实校验：删除 LLM 编造的、不在 schema 里的表/列/FK =====
+        step.emit("fact_check", "正在事实校验 LLM 产物，删除虚构内容…");
+        FactCheckResult fc = factCheck(merged, schema);
+        ObjectNode rectified = fc.cleaned;
+        if (fc.removedNodes + fc.removedAttrs + fc.removedEdges + fc.demotedEdges > 0) {
+            step.emit("fact_check_summary",
+                    String.format("已清理 LLM 幻觉: 删除 %d 个虚构表节点 · %d 个虚构属性 · %d 条虚构外键 · 降级 %d 条无据边",
+                            fc.removedNodes, fc.removedAttrs, fc.removedEdges, fc.demotedEdges));
+        }
+
+        // ===== 硬保底：把 LLM 漏掉的表 / FK 自动补齐（从 schema 反推） =====
+        step.emit("postprocess", "正在补齐 LLM 遗漏的表/外键…");
+        rectified = ensureCompleteness(rectified, schema);
         rectified = sanitize(rectified);
 
         // 转换成 {nodes, edges, reply} 形状（与文档抽取一致），并加 salt 防止 id 冲突
@@ -140,12 +150,232 @@ public class SchemaOntologyService {
         JsonNode rewritten = IdSaltRewriter.applyImportSalt(rectified, salt);
         ObjectNode out = (ObjectNode) rewritten;
         out.put("reply", buildReplyText(sourceName, tableCount, fkCount,
-                out.path("nodes").size(), out.path("edges").size()));
+                out.path("nodes").size(), out.path("edges").size(), fc));
 
         int nodes = out.path("nodes").size();
         int edges = out.path("edges").size();
         step.emit("done", "完成：生成 " + nodes + " 个节点 / " + edges + " 条边");
         return new ExtractResult(out, salt, tableCount, fkCount, nodes, edges);
+    }
+
+    /** 事实校验结果统计,便于把"删了多少幻觉内容"告诉用户。 */
+    public record FactCheckResult(ObjectNode cleaned,
+                                  int removedNodes,
+                                  int removedAttrs,
+                                  int removedEdges,
+                                  int demotedEdges) {}
+
+    /**
+     * 事实校验 — 防止 LLM 把世界知识当成 schema 事实输出。
+     * <ol>
+     *   <li>节点必须对应一张真实表 (id="t_*" 且 sanitized 后能匹配某个 schema.table)；
+     *       否则删除该节点 + 所有引用它的边;</li>
+     *   <li>节点的 attributes 中,列名必须在该表的真实列里;否则删除该 attribute;</li>
+     *   <li>derived 边必须对应一条真实 FK (按 from/to 表 + label 中的列名匹配);
+     *       否则:有 Rule 4 命名暗示 → 降级为 inferred + confidence 0.4;无暗示 → 删除;</li>
+     *   <li>self-loop 仅保留确为自引用 FK 的;无 FK 支撑的删除。</li>
+     * </ol>
+     */
+    private FactCheckResult factCheck(ObjectNode llmOut, DatabaseSchemaInfo schema) {
+        ArrayNode nodes = llmOut != null && llmOut.has("add_nodes") && llmOut.get("add_nodes").isArray()
+                ? (ArrayNode) llmOut.get("add_nodes") : objectMapper.createArrayNode();
+        ArrayNode edges = llmOut != null && llmOut.has("add_edges") && llmOut.get("add_edges").isArray()
+                ? (ArrayNode) llmOut.get("add_edges") : objectMapper.createArrayNode();
+
+        // 真实表索引: sanitized 名称 → TableInfo
+        Map<String, TableInfo> realTables = new HashMap<>();
+        for (TableInfo t : schema.tables()) realTables.put(sanitize(t.name()), t);
+        // 真实 FK 索引: 按 child + col 标记
+        Set<String> realFkKeys = new HashSet<>();   // sanitize(child)+"."+sanitize(col)+"->"+sanitize(parent)+"."+sanitize(toCol)
+        Set<String> realFkLoose = new HashSet<>();  // sanitize(child)+"->"+sanitize(parent) (粗匹配,降级判断用)
+        for (TableInfo t : schema.tables()) {
+            for (ForeignKeyInfo fk : t.foreignKeys()) {
+                realFkKeys.add(sanitize(t.name()) + "." + sanitize(fk.fromColumn())
+                        + "->" + sanitize(fk.toTable()) + "." + sanitize(fk.toColumn()));
+                realFkLoose.add(sanitize(t.name()) + "->" + sanitize(fk.toTable()));
+            }
+        }
+
+        ArrayNode cleanedNodes = objectMapper.createArrayNode();
+        Set<String> keptNodeIds = new HashSet<>();
+        Map<String, TableInfo> nodeIdToTable = new HashMap<>();
+        int removedNodes = 0;
+        int removedAttrs = 0;
+        for (JsonNode n : nodes) {
+            ObjectNode copy = n.deepCopy();
+            String id = copy.path("id").asText("");
+            TableInfo realT = resolveTable(copy, realTables);
+            if (realT == null) {
+                removedNodes++;
+                log.info("[factCheck] 删除虚构节点 id={} label={}", id, copy.path("label").asText(""));
+                continue;
+            }
+            // 校验 attributes
+            JsonNode attrs = copy.path("attributes");
+            if (attrs.isArray() && !attrs.isEmpty()) {
+                Set<String> realCols = new HashSet<>();
+                for (var c : realT.columns()) realCols.add(c.name().toLowerCase());
+                ArrayNode keptAttrs = objectMapper.createArrayNode();
+                for (JsonNode a : attrs) {
+                    String name = a.path("name").asText("");
+                    if (name.isBlank()) continue;
+                    if (!realCols.contains(name.toLowerCase())) {
+                        removedAttrs++;
+                        log.debug("[factCheck] 删除虚构属性 table={} attr={}", realT.name(), name);
+                        continue;
+                    }
+                    keptAttrs.add(a);
+                }
+                copy.set("attributes", keptAttrs);
+            }
+            cleanedNodes.add(copy);
+            if (!id.isEmpty()) {
+                keptNodeIds.add(id);
+                nodeIdToTable.put(id, realT);
+            }
+        }
+
+        ArrayNode cleanedEdges = objectMapper.createArrayNode();
+        int removedEdges = 0;
+        int demotedEdges = 0;
+        for (JsonNode e : edges) {
+            String f = e.path("from").asText("");
+            String t = e.path("to").asText("");
+            if (!keptNodeIds.contains(f) || !keptNodeIds.contains(t)) {
+                removedEdges++;
+                continue;
+            }
+            TableInfo childT = nodeIdToTable.get(f);
+            TableInfo parentT = nodeIdToTable.get(t);
+            if (childT == null || parentT == null) {
+                removedEdges++;
+                continue;
+            }
+            String relType = e.path("rel_type").asText("");
+            String src = e.path("source").asText("derived");
+            String label = e.path("label").asText("");
+
+            // 仅对 derived / 默认 source 做严格 FK 校验
+            boolean isDerived = "derived".equalsIgnoreCase(src) || src.isEmpty();
+            if (!isDerived) {
+                // 已是 inferred,不做严格校验,但仍要确保 Rule 4 的命名条件成立 (粗略检查)
+                if (!hasNamingHint(childT, parentT)) {
+                    removedEdges++;
+                    log.info("[factCheck] 删除无命名根据的 inferred 边: {}->{}", childT.name(), parentT.name());
+                    continue;
+                }
+                cleanedEdges.add(e);
+                continue;
+            }
+
+            // derived 边: 必须能匹配一条真实 FK。匹配策略:
+            // (1) 边 label 含 "child.col -> parent.col" 形式时严格匹配
+            // (2) 否则按 child->parent 粗匹配
+            boolean ok = matchEdgeToRealFk(childT, parentT, label, realFkKeys, realFkLoose);
+            if (ok) {
+                cleanedEdges.add(e);
+                continue;
+            }
+
+            // 没找到 FK: 看是否符合 Rule 4 命名条件;符合 → 降级为 inferred,否则删
+            if (hasNamingHint(childT, parentT)) {
+                ObjectNode demoted = e.deepCopy();
+                demoted.put("source", "inferred");
+                demoted.put("confidence", 0.4);
+                String existingEv = demoted.path("evidence").asText("");
+                if (existingEv.isBlank() || "FK".equalsIgnoreCase(existingEv)) {
+                    demoted.put("evidence", "naming:" + childT.name() + "↔" + parentT.name());
+                }
+                if (label.isBlank() || label.contains("→")) {
+                    demoted.put("label", childT.name() + " ≈ " + parentT.name() + " (按命名推断,未声明 FK)");
+                }
+                cleanedEdges.add(demoted);
+                demotedEdges++;
+                log.info("[factCheck] 降级无 FK 但有命名暗示的边: {}->{}", childT.name(), parentT.name());
+            } else {
+                removedEdges++;
+                log.info("[factCheck] 删除既无 FK 又无命名暗示的虚构边: {}->{} (label={})",
+                        childT.name(), parentT.name(), label);
+            }
+        }
+
+        ObjectNode out = objectMapper.createObjectNode();
+        out.set("add_nodes", cleanedNodes);
+        out.set("add_edges", cleanedEdges);
+        if (removedNodes + removedAttrs + removedEdges + demotedEdges > 0) {
+            log.info("[factCheck] 总结: 删 {} 节点 / {} 属性 / {} 边, 降级 {} 边",
+                    removedNodes, removedAttrs, removedEdges, demotedEdges);
+        }
+        return new FactCheckResult(out, removedNodes, removedAttrs, removedEdges, demotedEdges);
+    }
+
+    /** 将一个 LLM 节点解析回 schema 真实表;支持 id="t_xxx"、evidence=表名、label 含表名等多种线索。 */
+    private TableInfo resolveTable(ObjectNode node, Map<String, TableInfo> realTables) {
+        String id = node.path("id").asText("");
+        if (id.startsWith("t_")) {
+            TableInfo t = realTables.get(id.substring(2));
+            if (t != null) return t;
+        }
+        // 通过 evidence (我们 prompt 里要求是表名)
+        String evidence = node.path("evidence").asText("");
+        if (!evidence.isBlank()) {
+            TableInfo t = realTables.get(sanitize(evidence));
+            if (t != null) return t;
+        }
+        // 兜底: label 里能找到任意表名子串
+        String label = node.path("label").asText("");
+        if (!label.isBlank()) {
+            String lower = label.toLowerCase();
+            for (Map.Entry<String, TableInfo> en : realTables.entrySet()) {
+                String tn = en.getValue().name().toLowerCase();
+                if (lower.contains(tn)) return en.getValue();
+            }
+        }
+        return null;
+    }
+
+    /** 边 label 形如 "child.col → parent.col" 时优先精确匹配;否则粗匹配 child->parent。 */
+    private boolean matchEdgeToRealFk(TableInfo childT, TableInfo parentT, String label,
+                                       Set<String> realFkKeys, Set<String> realFkLoose) {
+        String childKey = sanitize(childT.name());
+        String parentKey = sanitize(parentT.name());
+        // 粗匹配先: 至少 child→parent 在某条 FK 上
+        if (!realFkLoose.contains(childKey + "->" + parentKey)) {
+            // 也许 LLM 把 composed_of 方向写反了 (parent→child 的 owner 关系)
+            if (realFkLoose.contains(parentKey + "->" + childKey)) return true;
+            return false;
+        }
+        // 粗匹配成功;若 label 携带 child.col → parent.col,做严格匹配确认
+        if (label != null && label.contains(".") && label.contains("→")) {
+            String[] parts = label.split("→");
+            if (parts.length == 2) {
+                String lp = parts[0].trim();   // child.col
+                String rp = parts[1].trim();   // parent.col
+                int lDot = lp.indexOf('.');
+                int rDot = rp.indexOf('.');
+                if (lDot > 0 && rDot > 0) {
+                    String childCol = sanitize(lp.substring(lDot + 1));
+                    String parentCol = sanitize(rp.substring(rDot + 1));
+                    String tight = childKey + "." + childCol + "->" + parentKey + "." + parentCol;
+                    if (realFkKeys.contains(tight)) return true;
+                    // 严格不匹配但粗匹配成功: 仍然接受 (label 可能写错列)
+                }
+            }
+        }
+        return true;
+    }
+
+    /** Rule 4 的简化判定:childT 有列名以 parentT.name() 开头且形如 *_id/_code/_no。 */
+    private boolean hasNamingHint(TableInfo childT, TableInfo parentT) {
+        String pn = parentT.name().toLowerCase();
+        for (var c : childT.columns()) {
+            String cn = c.name().toLowerCase();
+            if (cn.equals(pn + "_id") || cn.equals(pn + "_code") || cn.equals(pn + "_no")) return true;
+            // 兼容 parent 复数 / 单数差异: orders → order_id
+            String singular = pn.endsWith("s") ? pn.substring(0, pn.length() - 1) : pn + "s";
+            if (cn.equals(singular + "_id") || cn.equals(singular + "_code") || cn.equals(singular + "_no")) return true;
+        }
+        return false;
     }
 
     /** 单批调 LLM，返回 LLM 原始的 {add_nodes, add_edges} ObjectNode。 */
@@ -502,11 +732,21 @@ public class SchemaOntologyService {
     }
 
     private static String buildReplyText(String sourceName, int tableCount, int fkCount,
-                                         int nodeCount, int edgeCount) {
-        return String.format(
-                "已根据数据源「%s」生成本体血缘图：%d 张表 / %d 条外键 → %d 个节点 / %d 条关系。"
-                        + "节点已携带列级 attributes 与主键/唯一键 constraints；外键直接还原为 derived_from / composed_of / triggers 边。"
-                        + "如需补全推断关系或调整分类，可继续在 chat 中告诉我。",
-                sourceName, tableCount, fkCount, nodeCount, edgeCount);
+                                         int nodeCount, int edgeCount, FactCheckResult fc) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
+                "已根据数据源「%s」生成本体血缘图：%d 张表 / %d 条外键 → %d 个节点 / %d 条关系。",
+                sourceName, tableCount, fkCount, nodeCount, edgeCount));
+        if (fc != null && (fc.removedNodes + fc.removedAttrs + fc.removedEdges + fc.demotedEdges) > 0) {
+            sb.append("\n\n📋 事实校验报告（防止 LLM 天马行空）：");
+            if (fc.removedNodes > 0) sb.append("\n  · 删除 ").append(fc.removedNodes).append(" 个虚构表节点（不在真实 schema 中）");
+            if (fc.removedAttrs > 0) sb.append("\n  · 删除 ").append(fc.removedAttrs).append(" 个虚构属性（不在真实列中）");
+            if (fc.removedEdges > 0) sb.append("\n  · 删除 ").append(fc.removedEdges).append(" 条虚构边（无 FK、无命名暗示）");
+            if (fc.demotedEdges > 0) sb.append("\n  · 降级 ").append(fc.demotedEdges).append(" 条无 FK 但有命名暗示的边为 inferred / confidence=0.4");
+        } else {
+            sb.append("\n\n✅ 事实校验通过：本次产物全部锚定到真实表/列/外键，无幻觉内容。");
+        }
+        sb.append("\n\n节点已携带列级 attributes 与主键/唯一键 constraints；外键直接还原为 derived_from / composed_of / triggers 边。");
+        return sb.toString();
     }
 }

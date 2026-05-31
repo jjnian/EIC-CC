@@ -117,6 +117,16 @@ const onBackdrop = (e: MouseEvent) => {
   if ((e.target as HTMLElement).classList.contains('dbo-backdrop')) emit('close');
 };
 
+/** 把 reply 里的换行和列表前缀渲染成 HTML,让事实校验报告分行可读。 */
+const formattedReply = computed(() => {
+  if (!result.value?.reply) return '';
+  const escaped = result.value.reply
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return escaped.replace(/\n/g, '<br/>');
+});
+
 const typeStats = computed(() => {
   if (!result.value) return [] as { type: string; count: number }[];
   const m = new Map<string, number>();
@@ -200,7 +210,7 @@ const relStats = computed(() => {
               → 抽出 <strong>{{ result.nodes.length }}</strong> 个节点 /
               <strong>{{ result.edges.length }}</strong> 条关系
             </div>
-            <div v-if="result.reply" class="dbo-reply">{{ result.reply }}</div>
+            <div v-if="result.reply" class="dbo-reply" v-html="formattedReply"></div>
           </div>
 
           <div class="dbo-stats">
