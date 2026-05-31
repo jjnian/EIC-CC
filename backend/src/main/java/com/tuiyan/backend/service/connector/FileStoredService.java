@@ -1,6 +1,7 @@
 package com.tuiyan.backend.service.connector;
 
 import com.tuiyan.backend.config.AppPaths;
+import com.tuiyan.backend.support.DocxTextExtractor;
 import com.tuiyan.backend.support.FileSniffer;
 import com.tuiyan.backend.support.PdfTextExtractor;
 import org.apache.pdfbox.Loader;
@@ -23,7 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 文件数据源服务：PDF/TXT/MD 落盘到 ~/.tuiyan/datasource-files/<id>/ 下，
+ * 文件数据源服务：PDF/Word(.docx)/TXT/MD 落盘到 ~/.tuiyan/datasource-files/<id>/ 下，
  * 同步抽出纯文本旁挂 .txt。
  */
 @Service
@@ -31,6 +32,7 @@ public class FileStoredService {
 
     private static final Logger log = LoggerFactory.getLogger(FileStoredService.class);
     public static final long PDF_LIMIT_BYTES = 12L * 1024 * 1024;
+    public static final long DOCX_LIMIT_BYTES = 12L * 1024 * 1024;
     public static final long TEXT_LIMIT_BYTES = 4L * 1024 * 1024;
     public static final int TEXT_CHAR_BUDGET = 200_000;
 
@@ -48,13 +50,18 @@ public class FileStoredService {
         byte[] head = FileSniffer.readHead(mf, 12);
 
         boolean isPdf = FileSniffer.isPdfMagic(head) || lname.endsWith(".pdf");
+        // .docx 是 ZIP 容器：扩展名命中即接收，损坏/伪装文件会在抽取时优雅降级为空文本
+        boolean isDocx = lname.endsWith(".docx");
         boolean isTxt = lname.endsWith(".txt") || lname.endsWith(".md");
-        if (!isPdf && !isTxt) {
-            throw new IllegalArgumentException("仅支持 PDF / TXT / MD 文件");
+        if (!isPdf && !isDocx && !isTxt) {
+            throw new IllegalArgumentException("仅支持 PDF / Word(.docx) / TXT / MD 文件");
         }
         long size = mf.getSize();
         if (isPdf && size > PDF_LIMIT_BYTES) {
             throw new IllegalArgumentException("PDF 超过 " + (PDF_LIMIT_BYTES / 1024 / 1024) + " MB 限制");
+        }
+        if (isDocx && size > DOCX_LIMIT_BYTES) {
+            throw new IllegalArgumentException("Word 文档超过 " + (DOCX_LIMIT_BYTES / 1024 / 1024) + " MB 限制");
         }
         if (isTxt && size > TEXT_LIMIT_BYTES) {
             throw new IllegalArgumentException("TXT/MD 超过 " + (TEXT_LIMIT_BYTES / 1024 / 1024) + " MB 限制");
@@ -72,12 +79,24 @@ public class FileStoredService {
 
         String text;
         int pages = 0;
+        int paragraphs = 0;
+        int tables = 0;
         if (isPdf) {
             try (PDDocument doc = Loader.loadPDF(rawFile)) {
                 pages = doc.getNumberOfPages();
                 text = PdfTextExtractor.extractText(doc);
             } catch (Exception e) {
                 log.warn("PDF 抽文本失败: {}", e.toString());
+                text = "";
+            }
+        } else if (isDocx) {
+            try (var in = Files.newInputStream(rawFile.toPath())) {
+                DocxTextExtractor.Result r = DocxTextExtractor.extract(in);
+                text = r.text;
+                paragraphs = r.paragraphs;
+                tables = r.tables;
+            } catch (Exception e) {
+                log.warn("DOCX 抽文本失败: {}", e.toString());
                 text = "";
             }
         } else {
@@ -101,6 +120,9 @@ public class FileStoredService {
         cfg.put("extractedTextPath", relTxt);
         cfg.put("chars", chars);
         cfg.put("pages", pages);
+        // Word 文档没有"页"的概念，用段落 / 表格数量代替，给前端概览展示
+        if (paragraphs > 0) cfg.put("paragraphs", paragraphs);
+        if (tables > 0) cfg.put("tables", tables);
         cfg.put("originalName", safe);
         cfg.put("sizeBytes", size);
         return cfg;

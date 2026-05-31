@@ -74,7 +74,7 @@ const testMsg = ref('');
 const TYPES: { kind: DataSourceKind; icon: string; label: string; desc: string }[] = [
   { kind: 'mysql',       icon: '🗄', label: 'MySQL',       desc: '连接 MySQL 数据库，查表写 SQL' },
   { kind: 'pgsql',       icon: '🐘', label: 'PostgreSQL',  desc: '连接 PgSQL 数据库，查表写 SQL' },
-  { kind: 'file_stored', icon: '📄', label: '文件',         desc: '上传 PDF / TXT / MD' },
+  { kind: 'file_stored', icon: '📄', label: '文件',         desc: '上传 PDF / Word / TXT / MD' },
   { kind: 'https_api',   icon: '🌐', label: 'HTTPS 接口',  desc: 'REST API，可定时拉取' },
 ];
 
@@ -173,8 +173,8 @@ const submit = async () => {
             <input v-model="name" placeholder="数据源名称" />
           </label>
           <label class="row block">
-            <span>文件 (PDF / TXT / MD)</span>
-            <input type="file" accept=".pdf,.txt,.md" @change="onFilePick" />
+            <span>文件 (PDF / Word / TXT / MD)</span>
+            <input type="file" accept=".pdf,.docx,.txt,.md" @change="onFilePick" />
             <small v-if="fileToUpload">{{ fileToUpload.name }} ({{ (fileToUpload.size / 1024).toFixed(1) }} KB)</small>
           </label>
         </template>

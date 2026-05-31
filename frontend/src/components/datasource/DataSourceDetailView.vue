@@ -117,6 +117,10 @@ watch(() => props.dsId, load);
             <dt>大小</dt><dd>{{ ((ds.config as any)?.sizeBytes / 1024).toFixed(1) }} KB</dd>
             <dt v-if="(ds.config as any)?.pages">页数</dt>
             <dd v-if="(ds.config as any)?.pages">{{ (ds.config as any).pages }}</dd>
+            <dt v-if="(ds.config as any)?.paragraphs">段落数</dt>
+            <dd v-if="(ds.config as any)?.paragraphs">{{ (ds.config as any).paragraphs }}</dd>
+            <dt v-if="(ds.config as any)?.tables">表格数</dt>
+            <dd v-if="(ds.config as any)?.tables">{{ (ds.config as any).tables }}</dd>
             <dt>字符数</dt><dd>{{ (ds.config as any)?.chars }}</dd>
             <dt>上传时间</dt><dd>{{ new Date(ds.createdAt).toLocaleString() }}</dd>
           </dl>
