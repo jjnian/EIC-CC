@@ -16,8 +16,6 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -25,6 +23,8 @@ import java.util.Map;
  * 本体模型聚合根仓储：负责 OntologyModel 与底层 4 张表（model + node + prop + edge）之间的读写编排。
  * <p>save 走"先删后插"的覆盖式策略，实现简单且与现有"全量保存"语义一致。
  * 业务方法签名与原 OntologyModelService 兼容，保持 controller 层无感知。
+ * <p>node/edge/props 的逐行 PO↔Map 映射、props 拆行与 N+1 规避读取委派给 {@link OntologyRowMapper}；
+ * 本类只保留聚合编排、workspace 校验、级联删除与 {@code @Transactional} 事务边界。
  */
 @Repository
 public class OntologyModelRepository {
@@ -33,17 +33,20 @@ public class OntologyModelRepository {
     private final OntologyNodeMapper nodeMapper;
     private final OntologyNodePropMapper propMapper;
     private final OntologyEdgeMapper edgeMapper;
+    private final OntologyRowMapper rowMapper;
     private final JsonCodec codec;
 
     public OntologyModelRepository(OntologyModelMapper modelMapper,
                                    OntologyNodeMapper nodeMapper,
                                    OntologyNodePropMapper propMapper,
                                    OntologyEdgeMapper edgeMapper,
+                                   OntologyRowMapper rowMapper,
                                    ObjectMapper objectMapper) {
         this.modelMapper = modelMapper;
         this.nodeMapper = nodeMapper;
         this.propMapper = propMapper;
         this.edgeMapper = edgeMapper;
+        this.rowMapper = rowMapper;
         this.codec = new JsonCodec(objectMapper);
     }
 
@@ -102,13 +105,13 @@ public class OntologyModelRepository {
             List<Map<String, Object>> nodes = m.getGraphData().getNodes();
             if (nodes != null) {
                 for (Map<String, Object> n : nodes) {
-                    insertNode(m.getId(), n);
+                    rowMapper.insertNode(m.getId(), n);
                 }
             }
             List<Map<String, Object>> edges = m.getGraphData().getEdges();
             if (edges != null) {
                 for (Map<String, Object> e : edges) {
-                    insertEdge(m.getId(), e);
+                    rowMapper.insertEdge(m.getId(), e);
                 }
             }
         }
@@ -134,7 +137,7 @@ public class OntologyModelRepository {
                 .eq(OntologyEdgePO::getModelId, modelId));
     }
 
-    // ---------- 内部转换 ----------
+    // ---------- 内部编排 ----------
 
     private OntologyModelPO toPO(OntologyModel m) {
         OntologyModelPO po = new OntologyModelPO();
@@ -157,177 +160,15 @@ public class OntologyModelRepository {
         m.setUpdatedAt(po.getUpdatedAt() == null ? 0L : po.getUpdatedAt());
 
         OntologyModel.GraphData g = new OntologyModel.GraphData();
-        g.setNodes(loadNodes(po.getId()));
-        g.setEdges(loadEdges(po.getId()));
+        g.setNodes(rowMapper.loadNodes(po.getId()));
+        g.setEdges(rowMapper.loadEdges(po.getId()));
         m.setGraphData(g);
         return m;
     }
 
-    private List<Map<String, Object>> loadNodes(String modelId) {
-        List<OntologyNodePO> nodes = nodeMapper.selectList(
-                new LambdaQueryWrapper<OntologyNodePO>().eq(OntologyNodePO::getModelId, modelId));
-        // 一次性把该模型的所有 props 加载，按 (nodeId) 分组，避免 N+1
-        List<OntologyNodePropPO> allProps = propMapper.selectList(
-                new LambdaQueryWrapper<OntologyNodePropPO>().eq(OntologyNodePropPO::getModelId, modelId)
-                        .orderByAsc(OntologyNodePropPO::getSortNo));
-        Map<String, List<OntologyNodePropPO>> propsByNode = new LinkedHashMap<>();
-        for (OntologyNodePropPO p : allProps) {
-            propsByNode.computeIfAbsent(p.getNodeId(), k -> new ArrayList<>()).add(p);
-        }
-        List<Map<String, Object>> out = new ArrayList<>(nodes.size());
-        for (OntologyNodePO n : nodes) {
-            out.add(nodeToMap(n, propsByNode.getOrDefault(n.getId(), List.of())));
-        }
-        return out;
-    }
-
-    private List<Map<String, Object>> loadEdges(String modelId) {
-        List<OntologyEdgePO> edges = edgeMapper.selectList(
-                new LambdaQueryWrapper<OntologyEdgePO>().eq(OntologyEdgePO::getModelId, modelId));
-        List<Map<String, Object>> out = new ArrayList<>(edges.size());
-        for (OntologyEdgePO e : edges) {
-            out.add(edgeToMap(e));
-        }
-        return out;
-    }
-
-    private Map<String, Object> nodeToMap(OntologyNodePO n, List<OntologyNodePropPO> props) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", n.getId());
-        if (n.getLabel() != null) m.put("label", n.getLabel());
-        if (n.getType() != null) m.put("type", n.getType());
-        if (n.getSource() != null) m.put("source", n.getSource());
-        if (n.getDerivedTablesJson() != null && !n.getDerivedTablesJson().isBlank()) {
-            m.put("derived_tables", codec.readStringList(n.getDerivedTablesJson()));
-        }
-        if (n.getDerivedSource() != null) m.put("derived_source", n.getDerivedSource());
-        if (n.getDerivedDatabase() != null) m.put("derived_database", n.getDerivedDatabase());
-        if (n.getAttributesJson() != null && !n.getAttributesJson().isBlank()) {
-            m.put("attributes", codec.readMapList(n.getAttributesJson()));
-        }
-        if (n.getConstraintsJson() != null && !n.getConstraintsJson().isBlank()) {
-            m.put("constraints", codec.readMapList(n.getConstraintsJson()));
-        }
-        if (n.getX() != null) m.put("x", n.getX());
-        if (n.getY() != null) m.put("y", n.getY());
-        if (n.getPredictedStep() != null) m.put("predictedStep", n.getPredictedStep());
-        if (n.getPredictedIntent() != null) m.put("predictedIntent", n.getPredictedIntent());
-        if (n.getConfidence() != null) m.put("confidence", n.getConfidence());
-        if (n.getEffectiveProbability() != null) m.put("effectiveProbability", n.getEffectiveProbability());
-        if (n.getExplanation() != null) m.put("explanation", n.getExplanation());
-        if (!props.isEmpty()) {
-            // 还原成原始 props 数组形式：[{key, value, source}, ...]
-            List<Map<String, Object>> arr = new ArrayList<>(props.size());
-            for (OntologyNodePropPO p : props) {
-                Map<String, Object> one = new LinkedHashMap<>();
-                one.put("key", p.getPropKey());
-                one.put("value", codec.decode(p.getPropValue(), p.getValueType()));
-                if (p.getSource() != null) one.put("source", p.getSource());
-                arr.add(one);
-            }
-            m.put("props", arr);
-        }
-        return m;
-    }
-
-    private Map<String, Object> edgeToMap(OntologyEdgePO e) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", e.getId());
-        m.put("from", e.getFromNodeId());
-        m.put("to", e.getToNodeId());
-        if (e.getLabel() != null) m.put("label", e.getLabel());
-        if (e.getSource() != null) m.put("source", e.getSource());
-        if (e.getDerivedTablesJson() != null && !e.getDerivedTablesJson().isBlank()) {
-            m.put("derived_tables", codec.readStringList(e.getDerivedTablesJson()));
-        }
-        if (e.getDerivedSource() != null) m.put("derived_source", e.getDerivedSource());
-        if (e.getDerivedDatabase() != null) m.put("derived_database", e.getDerivedDatabase());
-        if (e.getConstraintsJson() != null && !e.getConstraintsJson().isBlank()) {
-            m.put("constraints", codec.readMapList(e.getConstraintsJson()));
-        }
-        if (Boolean.TRUE.equals(e.getRuleDriven())) m.put("rule_driven", true);
-        if (e.getRuleId() != null) m.put("ruleId", e.getRuleId());
-        return m;
-    }
-
-    private void insertNode(String modelId, Map<String, Object> n) {
-        OntologyNodePO po = new OntologyNodePO();
-        po.setId(asString(n.get("id")));
-        po.setModelId(modelId);
-        po.setLabel(asString(n.get("label")));
-        po.setType(asString(n.get("type")));
-        po.setSource(asString(n.get("source")));
-        po.setDerivedTablesJson(codec.toJson(n.get("derived_tables")));
-        po.setDerivedSource(asString(n.get("derived_source")));
-        po.setDerivedDatabase(asString(n.get("derived_database")));
-        po.setAttributesJson(codec.toJson(n.get("attributes")));
-        po.setConstraintsJson(codec.toJson(n.get("constraints")));
-        po.setX(asDouble(n.get("x")));
-        po.setY(asDouble(n.get("y")));
-        po.setPredictedStep(asInt(n.get("predictedStep")));
-        po.setPredictedIntent(asString(n.get("predictedIntent")));
-        po.setConfidence(asDouble(n.get("confidence")));
-        po.setEffectiveProbability(asDouble(n.get("effectiveProbability")));
-        po.setExplanation(asString(n.get("explanation")));
-        nodeMapper.insert(po);
-
-        // 节点的 props 数组拆为多行写入子表；保留 sortNo 用于回读时还原顺序
-        Object propsObj = n.get("props");
-        if (propsObj instanceof List<?> list) {
-            int sortNo = 0;
-            for (Object item : list) {
-                if (!(item instanceof Map)) continue;
-                @SuppressWarnings("unchecked")
-                Map<String, Object> p = (Map<String, Object>) item;
-                OntologyNodePropPO ppo = new OntologyNodePropPO();
-                ppo.setModelId(modelId);
-                ppo.setNodeId(po.getId());
-                ppo.setPropKey(asString(p.get("key")));
-                JsonCodec.ValueAndType vt = codec.encode(p.get("value"));
-                ppo.setPropValue(vt.value());
-                ppo.setValueType(vt.valueType());
-                ppo.setSource(asString(p.get("source")));
-                ppo.setSortNo(sortNo++);
-                propMapper.insert(ppo);
-            }
-        }
-    }
-
-    private void insertEdge(String modelId, Map<String, Object> e) {
-        OntologyEdgePO po = new OntologyEdgePO();
-        po.setId(asString(e.get("id")));
-        po.setModelId(modelId);
-        po.setFromNodeId(asString(e.get("from")));
-        po.setToNodeId(asString(e.get("to")));
-        po.setLabel(asString(e.get("label")));
-        po.setSource(asString(e.get("source")));
-        po.setDerivedTablesJson(codec.toJson(e.get("derived_tables")));
-        po.setDerivedSource(asString(e.get("derived_source")));
-        po.setDerivedDatabase(asString(e.get("derived_database")));
-        po.setConstraintsJson(codec.toJson(e.get("constraints")));
-        Object rd = e.get("rule_driven");
-        po.setRuleDriven(rd instanceof Boolean ? (Boolean) rd : Boolean.FALSE);
-        po.setRuleId(asString(e.get("ruleId")));
-        edgeMapper.insert(po);
-    }
-
-    private static String asString(Object v) { return v == null ? null : String.valueOf(v); }
-
-    private static Double asDouble(Object v) {
-        if (v == null) return null;
-        if (v instanceof Number n) return n.doubleValue();
-        try { return Double.parseDouble(v.toString()); } catch (Exception ex) { return null; }
-    }
-
-    private static Integer asInt(Object v) {
-        if (v == null) return null;
-        if (v instanceof Number n) return n.intValue();
-        try { return Integer.parseInt(v.toString()); } catch (Exception ex) { return null; }
-    }
-
     /** 工具：取 model 子节点的工具方法供 OntologyVersionRepository 共用（按 modelId 拉节点 + props + 边）。 */
     public NodesAndEdges loadGraphForVersion(String modelId) {
-        return new NodesAndEdges(loadNodes(modelId), loadEdges(modelId));
+        return new NodesAndEdges(rowMapper.loadNodes(modelId), rowMapper.loadEdges(modelId));
     }
 
     /** 节点 + 边的快照容器，用于版本快照导入。 */

@@ -33,6 +33,16 @@ public class JdbcConnectorService {
             Pattern.compile("^\\s*(SELECT|SHOW|DESC|DESCRIBE|EXPLAIN)\\b.*",
                     Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
+    // 方言专用内省协作类：introspectSchema 按 kind 委派给它们
+    private final MysqlSchemaIntrospector mysqlSchemaIntrospector;
+    private final PgsqlSchemaIntrospector pgsqlSchemaIntrospector;
+
+    public JdbcConnectorService(MysqlSchemaIntrospector mysqlSchemaIntrospector,
+                                PgsqlSchemaIntrospector pgsqlSchemaIntrospector) {
+        this.mysqlSchemaIntrospector = mysqlSchemaIntrospector;
+        this.pgsqlSchemaIntrospector = pgsqlSchemaIntrospector;
+    }
+
     // ============================================================
     // Schema 内省专用 record：列、外键、表、整库 schema
     // ============================================================
@@ -162,282 +172,14 @@ public class JdbcConnectorService {
         try (HikariDataSource ds = (HikariDataSource) buildTempDataSource(kind, cfg);
              Connection conn = ds.getConnection()) {
             if ("mysql".equals(kind)) {
-                return introspectMysql(conn, dbName, safeLimit);
+                return mysqlSchemaIntrospector.introspect(conn, dbName, safeLimit);
             }
             if ("pgsql".equals(kind)) {
-                return introspectPgsql(conn, dbName, safeLimit);
+                return pgsqlSchemaIntrospector.introspect(conn, dbName, safeLimit);
             }
             throw new IllegalArgumentException("不支持的 kind: " + kind);
         } catch (SQLException e) {
             throw new IllegalStateException("内省 schema 失败: " + e.getMessage(), e);
-        }
-    }
-
-    /** MySQL schema 内省：用 information_schema 一次性拉完表/列/键/FK。 */
-    private DatabaseSchemaInfo introspectMysql(Connection conn, String dbName, int tableLimit) throws SQLException {
-        // 1) 表 + 注释 + 行数估算
-        Map<String, TableBuilder> tables = new LinkedHashMap<>();
-        String tablesSql = """
-                SELECT TABLE_NAME, IFNULL(TABLE_COMMENT,''), IFNULL(TABLE_ROWS,0)
-                FROM information_schema.tables
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE='BASE TABLE'
-                ORDER BY TABLE_NAME
-                LIMIT ?
-                """;
-        try (PreparedStatement ps = conn.prepareStatement(tablesSql)) {
-            ps.setInt(1, tableLimit);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String name = rs.getString(1);
-                    String comment = rs.getString(2);
-                    long rows = rs.getLong(3);
-                    tables.put(name, new TableBuilder(name, comment, rows));
-                }
-            }
-        }
-        if (tables.isEmpty()) {
-            return new DatabaseSchemaInfo("mysql", dbName, List.of());
-        }
-
-        // 2) 列：name, type, nullable, default, comment, ordinal
-        String colsSql = """
-                SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE,
-                       IFNULL(COLUMN_DEFAULT,''), IFNULL(COLUMN_COMMENT,''),
-                       ORDINAL_POSITION, COLUMN_KEY
-                FROM information_schema.columns
-                WHERE TABLE_SCHEMA = DATABASE()
-                ORDER BY TABLE_NAME, ORDINAL_POSITION
-                """;
-        try (PreparedStatement ps = conn.prepareStatement(colsSql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                String t = rs.getString(1);
-                TableBuilder tb = tables.get(t);
-                if (tb == null) continue;
-                ColumnInfo ci = new ColumnInfo(
-                        rs.getString(2),
-                        rs.getString(3),
-                        "YES".equalsIgnoreCase(rs.getString(4)),
-                        rs.getString(5),
-                        rs.getString(6),
-                        "PRI".equalsIgnoreCase(rs.getString(8)),
-                        rs.getInt(7));
-                tb.columns.add(ci);
-            }
-        }
-
-        // 3) 外键：information_schema.key_column_usage 里 REFERENCED_TABLE_NAME 非空的行
-        String fkSql = """
-                SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME,
-                       REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
-                FROM information_schema.key_column_usage
-                WHERE TABLE_SCHEMA = DATABASE()
-                  AND REFERENCED_TABLE_NAME IS NOT NULL
-                ORDER BY TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION
-                """;
-        try (PreparedStatement ps = conn.prepareStatement(fkSql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                String t = rs.getString(1);
-                TableBuilder tb = tables.get(t);
-                if (tb == null) continue;
-                tb.foreignKeys.add(new ForeignKeyInfo(
-                        rs.getString(2),
-                        rs.getString(3),
-                        rs.getString(4),
-                        rs.getString(5)));
-            }
-        }
-
-        // 4) 唯一约束（去掉 PRIMARY，因为已经在 columns.primaryKey 标了）
-        String uniqSql = """
-                SELECT s.TABLE_NAME, s.INDEX_NAME, s.COLUMN_NAME, s.SEQ_IN_INDEX
-                FROM information_schema.statistics s
-                WHERE s.TABLE_SCHEMA = DATABASE()
-                  AND s.NON_UNIQUE = 0
-                  AND s.INDEX_NAME <> 'PRIMARY'
-                ORDER BY s.TABLE_NAME, s.INDEX_NAME, s.SEQ_IN_INDEX
-                """;
-        try (PreparedStatement ps = conn.prepareStatement(uniqSql);
-             ResultSet rs = ps.executeQuery()) {
-            // index_name -> 累积 columns
-            Map<String, List<String>> tmp = new LinkedHashMap<>();
-            Map<String, String> idxToTable = new HashMap<>();
-            while (rs.next()) {
-                String t = rs.getString(1);
-                if (!tables.containsKey(t)) continue;
-                String idx = rs.getString(2);
-                String key = t + "::" + idx;
-                tmp.computeIfAbsent(key, k -> new ArrayList<>()).add(rs.getString(3));
-                idxToTable.put(key, t);
-            }
-            for (Map.Entry<String, List<String>> e : tmp.entrySet()) {
-                String table = idxToTable.get(e.getKey());
-                String idxName = e.getKey().substring(table.length() + 2);
-                tables.get(table).uniqueKeys.add(new UniqueKeyInfo(idxName, e.getValue()));
-            }
-        }
-
-        return new DatabaseSchemaInfo("mysql", dbName,
-                tables.values().stream().map(TableBuilder::build).toList());
-    }
-
-    /** PgSQL schema 内省：用 pg_catalog + information_schema 拼装。 */
-    private DatabaseSchemaInfo introspectPgsql(Connection conn, String dbName, int tableLimit) throws SQLException {
-        Map<String, TableBuilder> tables = new LinkedHashMap<>();
-
-        // 1) 表 + 注释（只取 public schema 下 BASE TABLE；用户用其它 schema 时可以扩展）
-        String tablesSql = """
-                SELECT c.relname,
-                       COALESCE(obj_description(c.oid, 'pg_class'), '') AS comment,
-                       COALESCE(c.reltuples::bigint, 0) AS row_est
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relkind = 'r'
-                  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-                ORDER BY n.nspname, c.relname
-                LIMIT ?
-                """;
-        try (PreparedStatement ps = conn.prepareStatement(tablesSql)) {
-            ps.setInt(1, tableLimit);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    String name = rs.getString(1);
-                    tables.put(name, new TableBuilder(name, rs.getString(2), rs.getLong(3)));
-                }
-            }
-        }
-        if (tables.isEmpty()) {
-            return new DatabaseSchemaInfo("pgsql", dbName, List.of());
-        }
-
-        // 2) 列：从 information_schema.columns 拉，再 join pg_description 取 comment
-        String colsSql = """
-                SELECT c.table_name,
-                       c.column_name,
-                       c.udt_name AS data_type,
-                       c.is_nullable,
-                       COALESCE(c.column_default, '') AS default_val,
-                       COALESCE(pgd.description, '') AS comment,
-                       c.ordinal_position,
-                       CASE WHEN pk.column_name IS NOT NULL THEN 'PRI' ELSE '' END AS col_key
-                FROM information_schema.columns c
-                LEFT JOIN pg_catalog.pg_statio_all_tables st
-                       ON st.schemaname = c.table_schema AND st.relname = c.table_name
-                LEFT JOIN pg_catalog.pg_description pgd
-                       ON pgd.objoid = st.relid AND pgd.objsubid = c.ordinal_position
-                LEFT JOIN (
-                    SELECT kcu.table_name, kcu.column_name
-                    FROM information_schema.table_constraints tc
-                    JOIN information_schema.key_column_usage kcu
-                      ON tc.constraint_name = kcu.constraint_name
-                     AND tc.table_schema = kcu.table_schema
-                    WHERE tc.constraint_type = 'PRIMARY KEY'
-                ) pk ON pk.table_name = c.table_name AND pk.column_name = c.column_name
-                WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
-                ORDER BY c.table_name, c.ordinal_position
-                """;
-        try (PreparedStatement ps = conn.prepareStatement(colsSql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                String t = rs.getString(1);
-                TableBuilder tb = tables.get(t);
-                if (tb == null) continue;
-                tb.columns.add(new ColumnInfo(
-                        rs.getString(2),
-                        rs.getString(3),
-                        "YES".equalsIgnoreCase(rs.getString(4)),
-                        rs.getString(5),
-                        rs.getString(6),
-                        "PRI".equals(rs.getString(8)),
-                        rs.getInt(7)));
-            }
-        }
-
-        // 3) 外键
-        String fkSql = """
-                SELECT tc.table_name, tc.constraint_name, kcu.column_name,
-                       ccu.table_name AS foreign_table, ccu.column_name AS foreign_column
-                FROM information_schema.table_constraints tc
-                JOIN information_schema.key_column_usage kcu
-                  ON tc.constraint_name = kcu.constraint_name
-                 AND tc.table_schema = kcu.table_schema
-                JOIN information_schema.constraint_column_usage ccu
-                  ON ccu.constraint_name = tc.constraint_name
-                 AND ccu.table_schema = tc.table_schema
-                WHERE tc.constraint_type = 'FOREIGN KEY'
-                  AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
-                ORDER BY tc.table_name, tc.constraint_name, kcu.ordinal_position
-                """;
-        try (PreparedStatement ps = conn.prepareStatement(fkSql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                String t = rs.getString(1);
-                TableBuilder tb = tables.get(t);
-                if (tb == null) continue;
-                tb.foreignKeys.add(new ForeignKeyInfo(
-                        rs.getString(2),
-                        rs.getString(3),
-                        rs.getString(4),
-                        rs.getString(5)));
-            }
-        }
-
-        // 4) 唯一索引（排除主键）
-        String uniqSql = """
-                SELECT t.relname AS table_name,
-                       i.relname AS index_name,
-                       a.attname AS column_name,
-                       array_position(ix.indkey, a.attnum) AS seq
-                FROM pg_class t
-                JOIN pg_index ix ON t.oid = ix.indrelid
-                JOIN pg_class i ON i.oid = ix.indexrelid
-                JOIN pg_namespace n ON n.oid = t.relnamespace
-                JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
-                WHERE ix.indisunique = true AND ix.indisprimary = false
-                  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-                ORDER BY t.relname, i.relname, seq
-                """;
-        try (PreparedStatement ps = conn.prepareStatement(uniqSql);
-             ResultSet rs = ps.executeQuery()) {
-            Map<String, List<String>> tmp = new LinkedHashMap<>();
-            Map<String, String> idxToTable = new HashMap<>();
-            while (rs.next()) {
-                String t = rs.getString(1);
-                if (!tables.containsKey(t)) continue;
-                String idx = rs.getString(2);
-                String key = t + "::" + idx;
-                tmp.computeIfAbsent(key, k -> new ArrayList<>()).add(rs.getString(3));
-                idxToTable.put(key, t);
-            }
-            for (Map.Entry<String, List<String>> e : tmp.entrySet()) {
-                String table = idxToTable.get(e.getKey());
-                String idxName = e.getKey().substring(table.length() + 2);
-                tables.get(table).uniqueKeys.add(new UniqueKeyInfo(idxName, e.getValue()));
-            }
-        }
-
-        return new DatabaseSchemaInfo("pgsql", dbName,
-                tables.values().stream().map(TableBuilder::build).toList());
-    }
-
-    /** 内部 builder：边拉数据边累加，最后 build() 成不可变 TableInfo。 */
-    private static final class TableBuilder {
-        final String name;
-        final String comment;
-        final long rows;
-        final List<ColumnInfo> columns = new ArrayList<>();
-        final List<ForeignKeyInfo> foreignKeys = new ArrayList<>();
-        final List<UniqueKeyInfo> uniqueKeys = new ArrayList<>();
-
-        TableBuilder(String name, String comment, long rows) {
-            this.name = name;
-            this.comment = comment;
-            this.rows = rows;
-        }
-
-        TableInfo build() {
-            return new TableInfo(name, comment, columns, foreignKeys, uniqueKeys, rows);
         }
     }
 

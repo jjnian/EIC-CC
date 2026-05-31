@@ -1,7 +1,6 @@
 package com.tuiyan.backend.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.entity.ScenarioChainStepPO;
 import com.tuiyan.backend.entity.ScenarioConstraintPO;
 import com.tuiyan.backend.entity.ScenarioEdgePO;
@@ -16,7 +15,6 @@ import com.tuiyan.backend.mapper.ScenarioMapper;
 import com.tuiyan.backend.mapper.ScenarioNodeExplanationMapper;
 import com.tuiyan.backend.mapper.ScenarioNodeMapper;
 import com.tuiyan.backend.mapper.ScenarioSeedMapper;
-import com.tuiyan.backend.model.Constraint;
 import com.tuiyan.backend.model.NodeExplanation;
 import com.tuiyan.backend.model.PredictionDag;
 import com.tuiyan.backend.model.Scenario;
@@ -26,13 +24,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * 推演分支聚合根仓储：负责 Scenario 与底层 7 张表的读写编排。
  * <p>save 走覆盖式策略：删除该 scenario 下所有子表行后重新插入。
+ * <p>子表的逐行 PO↔Map/Domain 映射委派给 {@link ScenarioRowMapper}；本类只保留聚合编排、
+ * workspace 校验、级联删除与 {@code @Transactional} 事务边界。
  */
 @Repository
 public class ScenarioRepository {
@@ -44,7 +43,7 @@ public class ScenarioRepository {
     private final ScenarioChainStepMapper chainStepMapper;
     private final ScenarioConstraintMapper constraintMapper;
     private final ScenarioNodeExplanationMapper explanationMapper;
-    private final JsonCodec codec;
+    private final ScenarioRowMapper rowMapper;
 
     public ScenarioRepository(ScenarioMapper scenarioMapper,
                               ScenarioSeedMapper seedMapper,
@@ -53,7 +52,7 @@ public class ScenarioRepository {
                               ScenarioChainStepMapper chainStepMapper,
                               ScenarioConstraintMapper constraintMapper,
                               ScenarioNodeExplanationMapper explanationMapper,
-                              ObjectMapper objectMapper) {
+                              ScenarioRowMapper rowMapper) {
         this.scenarioMapper = scenarioMapper;
         this.seedMapper = seedMapper;
         this.nodeMapper = nodeMapper;
@@ -61,7 +60,7 @@ public class ScenarioRepository {
         this.chainStepMapper = chainStepMapper;
         this.constraintMapper = constraintMapper;
         this.explanationMapper = explanationMapper;
-        this.codec = new JsonCodec(objectMapper);
+        this.rowMapper = rowMapper;
     }
 
     /** 列出所有分支；modelId 为 null 时返回当前 ws 全部。 */
@@ -115,15 +114,7 @@ public class ScenarioRepository {
         explanationMapper.delete(new LambdaQueryWrapper<ScenarioNodeExplanationPO>()
                 .eq(ScenarioNodeExplanationPO::getScenarioId, scenarioId)
                 .eq(ScenarioNodeExplanationPO::getNodeId, nodeId));
-        ScenarioNodeExplanationPO po = new ScenarioNodeExplanationPO();
-        po.setScenarioId(scenarioId);
-        po.setNodeId(nodeId);
-        po.setEvidence(explanation.getEvidence());
-        po.setAssumptions(explanation.getAssumptions());
-        po.setCounterexamples(explanation.getCounterexamples());
-        po.setGeneratedAt(explanation.getGeneratedAt());
-        po.setModelName(explanation.getModelName());
-        explanationMapper.insert(po);
+        rowMapper.insertExplanation(scenarioId, nodeId, explanation);
     }
 
     /**
@@ -166,8 +157,9 @@ public class ScenarioRepository {
         return total;
     }
 
-    // ---------- 内部 ----------
+    // ---------- 内部编排 ----------
 
+    /** 覆盖式删除：清空该 scenario 下全部子表行。事务边界由调用方 {@code @Transactional} 方法持有。 */
     private void deleteAllChildren(String scenarioId) {
         seedMapper.delete(new LambdaQueryWrapper<ScenarioSeedPO>().eq(ScenarioSeedPO::getScenarioId, scenarioId));
         nodeMapper.delete(new LambdaQueryWrapper<ScenarioNodePO>().eq(ScenarioNodePO::getScenarioId, scenarioId));
@@ -177,56 +169,16 @@ public class ScenarioRepository {
         explanationMapper.delete(new LambdaQueryWrapper<ScenarioNodeExplanationPO>().eq(ScenarioNodeExplanationPO::getScenarioId, scenarioId));
     }
 
+    /** 插新行：编排各子表写入顺序，逐行映射委派给 {@link ScenarioRowMapper}。 */
     private void insertChildren(Scenario s) {
-        // seeds
-        if (s.getSeeds() != null) {
-            int sortNo = 0;
-            for (String seed : s.getSeeds()) {
-                ScenarioSeedPO po = new ScenarioSeedPO();
-                po.setScenarioId(s.getId());
-                po.setNodeId(seed);
-                po.setSortNo(sortNo++);
-                seedMapper.insert(po);
-            }
-        }
-        // dag
+        rowMapper.insertSeeds(s.getId(), s.getSeeds());
         PredictionDag dag = s.getDag();
         if (dag != null) {
-            if (dag.getNodes() != null) {
-                for (Map<String, Object> n : dag.getNodes()) {
-                    insertScenarioNode(s.getId(), n);
-                }
-            }
-            if (dag.getEdges() != null) {
-                for (Map<String, Object> e : dag.getEdges()) {
-                    insertScenarioEdge(s.getId(), e);
-                }
-            }
-            if (dag.getChain() != null) {
-                for (Map<String, Object> step : dag.getChain()) {
-                    insertChainStep(s.getId(), step);
-                }
-            }
-            if (dag.getConstraints() != null) {
-                for (Constraint c : dag.getConstraints()) {
-                    insertConstraint(s.getId(), c);
-                }
-            }
-            if (dag.getExplanations() != null) {
-                for (Map.Entry<String, NodeExplanation> entry : dag.getExplanations().entrySet()) {
-                    NodeExplanation ne = entry.getValue();
-                    if (ne == null) continue;
-                    ScenarioNodeExplanationPO po = new ScenarioNodeExplanationPO();
-                    po.setScenarioId(s.getId());
-                    po.setNodeId(entry.getKey());
-                    po.setEvidence(ne.getEvidence());
-                    po.setAssumptions(ne.getAssumptions());
-                    po.setCounterexamples(ne.getCounterexamples());
-                    po.setGeneratedAt(ne.getGeneratedAt());
-                    po.setModelName(ne.getModelName());
-                    explanationMapper.insert(po);
-                }
-            }
+            rowMapper.insertNodes(s.getId(), dag.getNodes());
+            rowMapper.insertEdges(s.getId(), dag.getEdges());
+            rowMapper.insertChainSteps(s.getId(), dag.getChain());
+            rowMapper.insertConstraints(s.getId(), dag.getConstraints());
+            rowMapper.insertExplanations(s.getId(), dag.getExplanations());
         }
     }
 
@@ -256,189 +208,17 @@ public class ScenarioRepository {
         s.setRawPrompt(po.getRawPrompt());
         s.setCreatedAt(po.getCreatedAt() == null ? 0L : po.getCreatedAt());
 
-        // seeds
-        List<ScenarioSeedPO> seeds = seedMapper.selectList(
-                new LambdaQueryWrapper<ScenarioSeedPO>()
-                        .eq(ScenarioSeedPO::getScenarioId, po.getId())
-                        .orderByAsc(ScenarioSeedPO::getSortNo));
-        List<String> seedIds = new ArrayList<>(seeds.size());
-        for (ScenarioSeedPO sp : seeds) seedIds.add(sp.getNodeId());
-        s.setSeeds(seedIds);
+        s.setSeeds(rowMapper.loadSeeds(po.getId()));
 
         // dag
         PredictionDag dag = new PredictionDag();
         dag.setIntent(po.getIntent());
-        dag.setNodes(loadScenarioNodes(po.getId()));
-        dag.setEdges(loadScenarioEdges(po.getId()));
-        dag.setChain(loadChainSteps(po.getId()));
-        dag.setConstraints(loadConstraints(po.getId()));
-        dag.setExplanations(loadExplanations(po.getId()));
+        dag.setNodes(rowMapper.loadNodes(po.getId()));
+        dag.setEdges(rowMapper.loadEdges(po.getId()));
+        dag.setChain(rowMapper.loadChainSteps(po.getId()));
+        dag.setConstraints(rowMapper.loadConstraints(po.getId()));
+        dag.setExplanations(rowMapper.loadExplanations(po.getId()));
         s.setDag(dag);
         return s;
-    }
-
-    private List<Map<String, Object>> loadScenarioNodes(String scenarioId) {
-        List<ScenarioNodePO> nodes = nodeMapper.selectList(
-                new LambdaQueryWrapper<ScenarioNodePO>().eq(ScenarioNodePO::getScenarioId, scenarioId));
-        List<Map<String, Object>> out = new ArrayList<>(nodes.size());
-        for (ScenarioNodePO n : nodes) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", n.getNodeId());
-            if (n.getLabel() != null) m.put("label", n.getLabel());
-            if (n.getType() != null) m.put("type", n.getType());
-            if (n.getSource() != null) m.put("source", n.getSource());
-            if (n.getX() != null) m.put("x", n.getX());
-            if (n.getY() != null) m.put("y", n.getY());
-            if (n.getPredictedStep() != null) m.put("predictedStep", n.getPredictedStep());
-            if (n.getConfidence() != null) m.put("confidence", n.getConfidence());
-            if (n.getEffectiveProbability() != null) m.put("effectiveProbability", n.getEffectiveProbability());
-            if (n.getExplanation() != null) m.put("explanation", n.getExplanation());
-            out.add(m);
-        }
-        return out;
-    }
-
-    private List<Map<String, Object>> loadScenarioEdges(String scenarioId) {
-        List<ScenarioEdgePO> edges = edgeMapper.selectList(
-                new LambdaQueryWrapper<ScenarioEdgePO>().eq(ScenarioEdgePO::getScenarioId, scenarioId));
-        List<Map<String, Object>> out = new ArrayList<>(edges.size());
-        for (ScenarioEdgePO e : edges) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", e.getEdgeId());
-            m.put("from", e.getFromNodeId());
-            m.put("to", e.getToNodeId());
-            if (e.getLabel() != null) m.put("label", e.getLabel());
-            if (e.getSource() != null) m.put("source", e.getSource());
-            if (Boolean.TRUE.equals(e.getRuleDriven())) m.put("rule_driven", true);
-            if (e.getRuleId() != null) m.put("ruleId", e.getRuleId());
-            out.add(m);
-        }
-        return out;
-    }
-
-    private List<Map<String, Object>> loadChainSteps(String scenarioId) {
-        List<ScenarioChainStepPO> steps = chainStepMapper.selectList(
-                new LambdaQueryWrapper<ScenarioChainStepPO>()
-                        .eq(ScenarioChainStepPO::getScenarioId, scenarioId)
-                        .orderByAsc(ScenarioChainStepPO::getStepNo));
-        List<Map<String, Object>> out = new ArrayList<>(steps.size());
-        for (ScenarioChainStepPO s : steps) {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("step", s.getStepNo());
-            m.put("nodeId", s.getNodeId());
-            // triggered_by_json 还原为字符串列表
-            if (s.getTriggeredByJson() != null) {
-                m.put("triggeredBy", codec.readStringList(s.getTriggeredByJson()));
-            }
-            if (s.getRuleId() != null) m.put("ruleId", s.getRuleId());
-            if (s.getExplanation() != null) m.put("explanation", s.getExplanation());
-            if (s.getConfidence() != null) m.put("confidence", s.getConfidence());
-            if (s.getEffectiveProbability() != null) m.put("effectiveProbability", s.getEffectiveProbability());
-            if (s.getCumulativeCredibility() != null) m.put("cumulativeCredibility", s.getCumulativeCredibility());
-            out.add(m);
-        }
-        return out;
-    }
-
-    private List<Constraint> loadConstraints(String scenarioId) {
-        List<ScenarioConstraintPO> rows = constraintMapper.selectList(
-                new LambdaQueryWrapper<ScenarioConstraintPO>().eq(ScenarioConstraintPO::getScenarioId, scenarioId));
-        if (rows.isEmpty()) return null;
-        List<Constraint> out = new ArrayList<>(rows.size());
-        for (ScenarioConstraintPO p : rows) {
-            Constraint c = new Constraint();
-            c.setNodeId(p.getNodeId());
-            c.setMode(p.getMode());
-            c.setNote(p.getNote());
-            c.setProbability(p.getProbability());
-            out.add(c);
-        }
-        return out;
-    }
-
-    private Map<String, NodeExplanation> loadExplanations(String scenarioId) {
-        List<ScenarioNodeExplanationPO> rows = explanationMapper.selectList(
-                new LambdaQueryWrapper<ScenarioNodeExplanationPO>().eq(ScenarioNodeExplanationPO::getScenarioId, scenarioId));
-        if (rows.isEmpty()) return null;
-        Map<String, NodeExplanation> out = new HashMap<>();
-        for (ScenarioNodeExplanationPO p : rows) {
-            NodeExplanation ne = new NodeExplanation();
-            ne.setEvidence(p.getEvidence());
-            ne.setAssumptions(p.getAssumptions());
-            ne.setCounterexamples(p.getCounterexamples());
-            ne.setGeneratedAt(p.getGeneratedAt() == null ? 0L : p.getGeneratedAt());
-            ne.setModelName(p.getModelName());
-            out.put(p.getNodeId(), ne);
-        }
-        return out;
-    }
-
-    private void insertScenarioNode(String scenarioId, Map<String, Object> n) {
-        ScenarioNodePO po = new ScenarioNodePO();
-        po.setScenarioId(scenarioId);
-        po.setNodeId(asString(n.get("id")));
-        po.setLabel(asString(n.get("label")));
-        po.setType(asString(n.get("type")));
-        po.setSource(asString(n.get("source")));
-        po.setX(asDouble(n.get("x")));
-        po.setY(asDouble(n.get("y")));
-        po.setPredictedStep(asInt(n.get("predictedStep")));
-        po.setConfidence(asDouble(n.get("confidence")));
-        po.setEffectiveProbability(asDouble(n.get("effectiveProbability")));
-        po.setExplanation(asString(n.get("explanation")));
-        nodeMapper.insert(po);
-    }
-
-    private void insertScenarioEdge(String scenarioId, Map<String, Object> e) {
-        ScenarioEdgePO po = new ScenarioEdgePO();
-        po.setScenarioId(scenarioId);
-        po.setEdgeId(asString(e.get("id")));
-        po.setFromNodeId(asString(e.get("from")));
-        po.setToNodeId(asString(e.get("to")));
-        po.setLabel(asString(e.get("label")));
-        po.setSource(asString(e.get("source")));
-        Object rd = e.get("rule_driven");
-        po.setRuleDriven(rd instanceof Boolean ? (Boolean) rd : Boolean.FALSE);
-        po.setRuleId(asString(e.get("ruleId")));
-        edgeMapper.insert(po);
-    }
-
-    private void insertChainStep(String scenarioId, Map<String, Object> step) {
-        ScenarioChainStepPO po = new ScenarioChainStepPO();
-        po.setScenarioId(scenarioId);
-        po.setStepNo(asInt(step.get("step")));
-        po.setNodeId(asString(step.get("nodeId")));
-        Object triggeredBy = step.get("triggeredBy");
-        po.setTriggeredByJson(triggeredBy == null ? null : codec.toJson(triggeredBy));
-        po.setRuleId(asString(step.get("ruleId")));
-        po.setExplanation(asString(step.get("explanation")));
-        po.setConfidence(asDouble(step.get("confidence")));
-        po.setEffectiveProbability(asDouble(step.get("effectiveProbability")));
-        po.setCumulativeCredibility(asDouble(step.get("cumulativeCredibility")));
-        chainStepMapper.insert(po);
-    }
-
-    private void insertConstraint(String scenarioId, Constraint c) {
-        ScenarioConstraintPO po = new ScenarioConstraintPO();
-        po.setScenarioId(scenarioId);
-        po.setNodeId(c.getNodeId());
-        po.setMode(c.getMode());
-        po.setNote(c.getNote());
-        po.setProbability(c.getProbability());
-        constraintMapper.insert(po);
-    }
-
-    private static String asString(Object v) { return v == null ? null : String.valueOf(v); }
-
-    private static Double asDouble(Object v) {
-        if (v == null) return null;
-        if (v instanceof Number n) return n.doubleValue();
-        try { return Double.parseDouble(v.toString()); } catch (Exception ex) { return null; }
-    }
-
-    private static Integer asInt(Object v) {
-        if (v == null) return null;
-        if (v instanceof Number n) return n.intValue();
-        try { return Integer.parseInt(v.toString()); } catch (Exception ex) { return null; }
     }
 }
