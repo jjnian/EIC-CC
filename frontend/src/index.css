@@ -1037,6 +1037,10 @@ body::after {
   font-family: inherit;
   cursor: pointer;
 }
+.ni-inline-select option {
+  background: #1a1f2e;
+  color: var(--text-main);
+}
 .ni-prop-save {
   background: var(--accent);
   border: none;

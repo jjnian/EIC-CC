@@ -102,31 +102,6 @@ const displayTable = (a: any, node: any): string => {
   return tables.length === 1 ? String(tables[0]) : '';
 };
 
-// 属性编辑状态
-const editableProps = ref<{ key: string; value: any; source?: string }[]>([]);
-
-watch(() => props.node, (n) => {
-  editableProps.value = n?.props ? n.props.map((p: any) => ({ ...p })) : [];
-}, { immediate: true });
-
-const propsChanged = computed(() => {
-  return JSON.stringify(editableProps.value) !== JSON.stringify(props.node?.props || []);
-});
-
-const addEditableProp = () => {
-  editableProps.value.push({ key: '', value: '', source: 'manual' });
-};
-
-const removeEditableProp = (i: number) => {
-  editableProps.value.splice(i, 1);
-};
-
-const saveProps = () => {
-  if (!props.node) return;
-  const cleaned = editableProps.value.filter(p => p.key.trim());
-  emit('update-node-props', props.node.id, cleaned);
-};
-
 const addAttribute = () => {
   if (!props.node) return;
   const attrs = [...(props.node.attributes || []), { name: '', valueSpace: '', source: 'manual' }];
@@ -300,40 +275,6 @@ const startResize = (e: MouseEvent) => {
                     </div>
                   </div>
                   <div v-else class="ni-empty">暂无本体属性</div>
-                </div>
-
-                <!-- 自定义 K-V 属性: 用户在此处编辑 -->
-                <div class="ni-card ni-card-full">
-                  <div class="ni-card-head">
-                    <div class="ni-card-title">自定义属性 <span class="ni-card-count">{{ editableProps.length }}</span></div>
-                    <div class="ni-card-head-actions">
-                      <button v-if="propsChanged" class="ni-prop-save" @click="saveProps">保存属性</button>
-                      <button class="ni-prop-add ni-prop-add--head" @click="addEditableProp">+ 新增属性</button>
-                    </div>
-                  </div>
-                  <div v-if="editableProps.length" class="ni-attr-table ni-attr-table--kv">
-                    <div class="ni-attr-thead">
-                      <div class="ni-attr-th ni-col-name">键</div>
-                      <div class="ni-attr-th ni-col-type">值</div>
-                      <div class="ni-attr-th ni-col-source">来源</div>
-                      <div class="ni-attr-th ni-col-act"></div>
-                    </div>
-                    <div v-for="(p, i) in editableProps" :key="i" class="ni-attr-row">
-                      <div class="ni-attr-cell ni-col-name">
-                        <input v-model="p.key" class="ni-inline-input" placeholder="键" />
-                      </div>
-                      <div class="ni-attr-cell ni-col-type">
-                        <input v-model="p.value" class="ni-inline-input" placeholder="值" />
-                      </div>
-                      <div class="ni-attr-cell ni-col-source">
-                        <span class="ni-badge" :style="{color: sourceBadge(p.source).color, background: sourceBadge(p.source).bg}">{{ sourceBadge(p.source).text }}</span>
-                      </div>
-                      <div class="ni-attr-cell ni-col-act">
-                        <button class="ni-prop-del" @click="removeEditableProp(i)" title="删除">✕</button>
-                      </div>
-                    </div>
-                  </div>
-                  <div v-else class="ni-empty">暂无自定义属性</div>
                 </div>
               </template>
               <template v-if="tab === 2">
