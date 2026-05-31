@@ -289,10 +289,10 @@ const startResize = (e: MouseEvent) => {
                         </select>
                       </div>
                       <div class="ni-attr-cell ni-col-ptable">
-                        <input class="ni-inline-input mono" :value="displayTable(a, node)" :placeholder="sourceMethodOf(a) === 'db' ? '物理表' : '—'" :disabled="sourceMethodOf(a) !== 'db'" @change="(e: any) => updateAttribute(i, 'table', e.target.value)" />
+                        <input class="ni-inline-input mono" :value="displayTable(a, node)" placeholder="物理表" @change="(e: any) => updateAttribute(i, 'table', e.target.value)" />
                       </div>
                       <div class="ni-attr-cell ni-col-pcol">
-                        <input class="ni-inline-input mono" :value="a.column" :placeholder="sourceMethodOf(a) === 'db' ? '物理字段' : '—'" :disabled="sourceMethodOf(a) !== 'db'" @change="(e: any) => updateAttribute(i, 'column', e.target.value)" />
+                        <input class="ni-inline-input mono" :value="a.column" placeholder="物理字段" @change="(e: any) => updateAttribute(i, 'column', e.target.value)" />
                       </div>
                       <div class="ni-attr-cell ni-col-act">
                         <button class="ni-prop-del" @click="removeAttribute(i)" title="删除">✕</button>
@@ -568,11 +568,6 @@ const startResize = (e: MouseEvent) => {
 .ni-col-act { justify-content: flex-end; }
 /* 单元格内的输入/下拉占满列宽 */
 .ni-col-method .ni-inline-select { width: 100%; }
-.ni-inline-input:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  background: rgba(255,255,255,0.02);
-}
 
 /* 分区标题栏：标题在左，操作按钮（新增/保存）靠右上 */
 .ni-card-head {
