@@ -196,6 +196,27 @@ const onSelectQuestionOption = (messageIndex: number, option: { label: string; v
   nextTick(() => { onSend(); });
 };
 
+// 用户点「自己输入回答」→ 不发送,只把光标聚焦到输入框,由 useChatSend 在 send() 时根据 input 内容标记 answered
+const onCustomAnswer = (_messageIndex: number) => {
+  if (loading.value) return;
+  nextTick(() => { inputRef.value?.focus(); });
+};
+
+// 当存在最近未回答的问题时,在输入框上方显示提示横条
+const hasPendingQuestion = computed(() =>
+  msgs.value.some(m => m.role === 'a' && m.question && !m.question.answered),
+);
+// 让用户主动忽略问题(标记为已答,横条收起,问题选项也变 disabled 灰态),便于继续别的话题
+const dismissPendingQuestion = () => {
+  for (let i = msgs.value.length - 1; i >= 0; i--) {
+    const m = msgs.value[i];
+    if (m.role === 'a' && m.question && !m.question.answered) {
+      m.question.answered = '(已跳过)';
+      break;
+    }
+  }
+};
+
 // ===== 启动:加载模型 + 恢复/接收 seed =====
 const consumeSeed = (seed: { text: string; files: File[] }) => {
   seed.files.forEach(f => addFile(f));
@@ -369,6 +390,7 @@ watch(() => ws.currentId.value, (wsId) => {
       @focus-node="(id) => emit('focus-node', id)"
       @abort-prediction="emit('abort-prediction')"
       @select-option="onSelectQuestionOption"
+      @custom-answer="onCustomAnswer"
       @view-graph="(id) => emit('view-graph', id)"
     />
     <AttachmentPreview :attachment="previewAtt" @close="previewAtt = null" />
@@ -395,6 +417,13 @@ watch(() => ws.currentId.value, (wsId) => {
       </span>
     </div>
     <div class="ch-input-area">
+      <div v-if="hasPendingQuestion" class="answering-hint">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>正在回答上方问题,或继续提问</span>
+        <button class="answering-dismiss" type="button" title="忽略这个问题" @click="dismissPendingQuestion">跳过</button>
+      </div>
       <div class="input-box">
         <!-- @ mention dropdown -->
         <div ref="mentionListRef" class="mention-dropdown" v-if="mentionOpen && mentionItems.length > 0">
@@ -610,6 +639,36 @@ watch(() => ws.currentId.value, (wsId) => {
 }
 .mc-x:hover { opacity: 1; }
 .ch-input-area { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.06); }
+.answering-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  border-radius: 8px;
+  line-height: 1.4;
+}
+.answering-hint > span { flex: 1; }
+.answering-dismiss {
+  background: transparent;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fde68a;
+  padding: 2px 8px;
+  border-radius: 100px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.answering-dismiss:hover {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.55);
+  color: #fff;
+}
 .ctx-token-bar {
   display: flex;
   align-items: center;
