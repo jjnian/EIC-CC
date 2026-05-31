@@ -14,6 +14,11 @@ public class OntologyNodePO {
     private String label;
     private String type;
     private String source;
+    private String derivedTablesJson;
+    private String derivedSource;
+    private String derivedDatabase;
+    private String attributesJson;
+    private String constraintsJson;
     private Double x;
     private Double y;
     private Integer predictedStep;
@@ -32,6 +37,16 @@ public class OntologyNodePO {
     public void setType(String type) { this.type = type; }
     public String getSource() { return source; }
     public void setSource(String source) { this.source = source; }
+    public String getDerivedTablesJson() { return derivedTablesJson; }
+    public void setDerivedTablesJson(String derivedTablesJson) { this.derivedTablesJson = derivedTablesJson; }
+    public String getDerivedSource() { return derivedSource; }
+    public void setDerivedSource(String derivedSource) { this.derivedSource = derivedSource; }
+    public String getDerivedDatabase() { return derivedDatabase; }
+    public void setDerivedDatabase(String derivedDatabase) { this.derivedDatabase = derivedDatabase; }
+    public String getAttributesJson() { return attributesJson; }
+    public void setAttributesJson(String attributesJson) { this.attributesJson = attributesJson; }
+    public String getConstraintsJson() { return constraintsJson; }
+    public void setConstraintsJson(String constraintsJson) { this.constraintsJson = constraintsJson; }
     public Double getX() { return x; }
     public void setX(Double x) { this.x = x; }
     public Double getY() { return y; }

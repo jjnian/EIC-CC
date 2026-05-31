@@ -14,6 +14,10 @@ public class OntologyEdgePO {
     private String toNodeId;
     private String label;
     private String source;
+    private String derivedTablesJson;
+    private String derivedSource;
+    private String derivedDatabase;
+    private String constraintsJson;
     private Boolean ruleDriven;
     private String ruleId;
 
@@ -29,6 +33,14 @@ public class OntologyEdgePO {
     public void setLabel(String label) { this.label = label; }
     public String getSource() { return source; }
     public void setSource(String source) { this.source = source; }
+    public String getDerivedTablesJson() { return derivedTablesJson; }
+    public void setDerivedTablesJson(String derivedTablesJson) { this.derivedTablesJson = derivedTablesJson; }
+    public String getDerivedSource() { return derivedSource; }
+    public void setDerivedSource(String derivedSource) { this.derivedSource = derivedSource; }
+    public String getDerivedDatabase() { return derivedDatabase; }
+    public void setDerivedDatabase(String derivedDatabase) { this.derivedDatabase = derivedDatabase; }
+    public String getConstraintsJson() { return constraintsJson; }
+    public void setConstraintsJson(String constraintsJson) { this.constraintsJson = constraintsJson; }
     public Boolean getRuleDriven() { return ruleDriven; }
     public void setRuleDriven(Boolean ruleDriven) { this.ruleDriven = ruleDriven; }
     public String getRuleId() { return ruleId; }
