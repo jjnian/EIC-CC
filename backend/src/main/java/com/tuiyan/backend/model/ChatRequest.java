@@ -20,6 +20,8 @@ public class ChatRequest {
     private List<Map<String, Object>> edges;
     // 附件列表（图片 base64 / 文档抽取后的文本等）
     private List<Map<String, Object>> attachments;
+    // 用户用 @ 引用的对象（数据源/节点/关系/图谱），后端据此做定向上下文
+    private List<MentionRef> mentions;
 
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
@@ -31,6 +33,8 @@ public class ChatRequest {
     public void setEdges(List<Map<String, Object>> edges) { this.edges = edges; }
     public List<Map<String, Object>> getAttachments() { return attachments; }
     public void setAttachments(List<Map<String, Object>> attachments) { this.attachments = attachments; }
+    public List<MentionRef> getMentions() { return mentions; }
+    public void setMentions(List<MentionRef> mentions) { this.mentions = mentions; }
     public String getModelOverride() { return modelOverride; }
     public void setModelOverride(String modelOverride) { this.modelOverride = modelOverride; }
     public String getConfigId() { return configId; }

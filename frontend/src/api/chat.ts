@@ -3,6 +3,12 @@ import { request, sse, type SseHandle } from './http';
 export interface ChatHistoryItem { role: 'user' | 'assistant'; content: string }
 export interface ChatAttachment   { type: string; dataUrl?: string; [k: string]: unknown }
 
+export interface ChatMentionRef {
+  kind: 'graph' | 'node' | 'relation' | 'datasource';
+  id: string;
+  label: string;
+}
+
 export interface ChatPayload {
   message: string;
   nodes?: unknown[];
@@ -11,6 +17,8 @@ export interface ChatPayload {
   configId?: string;
   history?: ChatHistoryItem[];
   attachments?: ChatAttachment[];
+  /** 用户用 @ 引用的对象,后端据此做定向上下文(过滤数据源、聚焦子图等)。 */
+  mentions?: ChatMentionRef[];
 }
 
 export interface ChatQuestionOption {

@@ -8,6 +8,19 @@ export interface MentionItem {
   sub: string;
 }
 
+/**
+ * 已经被用户选中并插入到输入框的引用记录。
+ * <p>token 是插入到输入框里的可见字符串(如 "@节点名"),
+ * 输入框文本变化时,我们通过子串匹配来检测哪些 active 引用已被用户手动删除,
+ * 从而保持 mentions 与 input 文本同步。
+ */
+export interface ActiveMention {
+  kind: 'graph' | 'relation' | 'node' | 'datasource';
+  id: string;
+  label: string;
+  token: string;
+}
+
 export interface MentionTreeItem {
   item: MentionItem;
   index: number;
@@ -44,6 +57,8 @@ export function useMention(ctx: MentionCtx) {
   const mentionQuery = ref('');
   const mentionIndex = ref(0);
   const mentionStart = ref(-1);
+  // 用户已经选中并插入到输入框的所有 @ 引用 — 后端据此做定向上下文
+  const activeMentions = ref<ActiveMention[]>([]);
 
   const mentionItems = computed<MentionItem[]>(() => {
     const q = mentionQuery.value.toLowerCase().trim();
@@ -158,6 +173,11 @@ export function useMention(ctx: MentionCtx) {
       : `@${it.label}`;
     ctx.input.value = before + token + ' ' + after;
     mentionOpen.value = false;
+    // 记录这次引用 (按 token + kind + id 三元组去重,允许同 label 不同 id 共存)
+    const sig = `${it.kind}|${it.id}|${token}`;
+    if (!activeMentions.value.some(m => `${m.kind}|${m.id}|${m.token}` === sig)) {
+      activeMentions.value.push({ kind: it.kind, id: it.id, label: it.label, token });
+    }
     nextTick(() => {
       if (ta) {
         ta.focus();
@@ -165,6 +185,23 @@ export function useMention(ctx: MentionCtx) {
         ta.setSelectionRange(pos, pos);
       }
     });
+  };
+
+  /**
+   * 输入文本变化时调用,把已经被用户手动删除 token 的 mention 清出 activeMentions。
+   * <p>简单匹配 token 是否还在 input 中即可;同一 token 出现多次时也只保留一份引用。
+   */
+  const syncActiveMentions = () => {
+    if (activeMentions.value.length === 0) return;
+    const txt = ctx.input.value;
+    activeMentions.value = activeMentions.value.filter(m => txt.includes(m.token));
+  };
+
+  /** 发送后清空已激活的 mentions（与 input 一起清掉）。 */
+  const consumeActiveMentions = (): ActiveMention[] => {
+    const out = activeMentions.value.slice();
+    activeMentions.value = [];
+    return out;
   };
 
   const mentionListRef = ref<HTMLElement | null>(null);
@@ -216,9 +253,12 @@ export function useMention(ctx: MentionCtx) {
     mentionItems,
     mentionTree,
     mentionListRef,
+    activeMentions,
     checkMention,
     selectMention,
     handleKeydown,
     closeMention,
+    syncActiveMentions,
+    consumeActiveMentions,
   };
 }

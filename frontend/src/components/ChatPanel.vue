@@ -69,9 +69,12 @@ const {
   mentionItems,
   mentionTree,
   mentionListRef,
+  activeMentions,
   checkMention,
   selectMention,
   handleKeydown: handleMentionKeydown,
+  syncActiveMentions,
+  consumeActiveMentions,
 } = mention;
 
 const models = useChatModels();
@@ -108,6 +111,7 @@ const sender = useChatSend({
   currentModelId: () => props.modelId || '',
   emit: (event, addNodes, addEdges) => emit(event, addNodes, addEdges),
   closeMention: () => mention.closeMention(),
+  consumeMentions: () => consumeActiveMentions(),
 });
 const { send, abortChat } = sender;
 
@@ -186,6 +190,7 @@ onMounted(() => {
 });
 
 watch(input, () => {
+  syncActiveMentions();
   nextTick(() => checkMention());
 });
 
@@ -329,6 +334,23 @@ watch(() => ws.currentId.value, (wsId) => {
       @remove="(i) => atts = atts.filter((_, j) => j !== i)"
       @preview="(a) => previewAtt = { name: a.name, type: a.type, kind: a.kind, size: a.size, content: a.content, error: a.error, truncated: a.truncated }"
     />
+    <div v-if="activeMentions.length" class="mention-chips" :title="'@ 引用会让 LLM 只参考这些数据源 / 锚定到这些节点'">
+      <span class="mention-chips-label">🎯 已 @ 引用</span>
+      <span
+        v-for="(m, i) in activeMentions"
+        :key="m.kind + ':' + m.id + ':' + i"
+        class="mention-chip"
+        :class="'mc-' + m.kind"
+      >
+        <span class="mc-kind">{{ m.kind === 'graph' ? '图' : m.kind === 'datasource' ? '源' : m.kind === 'relation' ? '关' : '点' }}</span>
+        <span class="mc-label">{{ m.label }}</span>
+        <button
+          class="mc-x"
+          title="从引用列表移除 (同时删掉输入框里的 token)"
+          @click="() => { input = input.split(m.token).join('').replace(/\s{2,}/g, ' ').trim(); syncActiveMentions(); }"
+        >×</button>
+      </span>
+    </div>
     <div class="ch-input-area">
       <div class="input-box">
         <!-- @ mention dropdown -->
@@ -518,6 +540,32 @@ watch(() => ws.currentId.value, (wsId) => {
   color: #fff; font-size: 10px; font-weight: 700; display: inline-flex;
   align-items: center; justify-content: center;
 }
+.mention-chips {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 6px 20px 0; font-size: 11.5px; color: #c0c4cf;
+}
+.mention-chips-label { color: #888; font-size: 11px; margin-right: 2px; }
+.mention-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 4px 2px 6px; border-radius: 10px;
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.08);
+  line-height: 1.4;
+}
+.mention-chip.mc-graph { background: rgba(184,134,255,.12); border-color: rgba(184,134,255,.3); color: #d8c4ff; }
+.mention-chip.mc-datasource { background: rgba(34,221,136,.12); border-color: rgba(34,221,136,.3); color: #9febc6; }
+.mention-chip.mc-relation { background: rgba(255,191,73,.12); border-color: rgba(255,191,73,.3); color: #ffd99b; }
+.mention-chip.mc-node { background: rgba(74,141,240,.15); border-color: rgba(74,141,240,.35); color: #b9d4ff; }
+.mc-kind {
+  font-size: 10px; padding: 0 4px; border-radius: 4px;
+  background: rgba(0,0,0,.25); color: inherit; font-weight: 600;
+}
+.mc-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-x {
+  border: none; background: transparent; color: inherit; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 4px; opacity: .65;
+}
+.mc-x:hover { opacity: 1; }
 .ch-input-area { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.06); }
 .ctx-token-bar {
   display: flex;

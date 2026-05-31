@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.entity.DataSourcePO;
 import com.tuiyan.backend.model.ChatRequest;
+import com.tuiyan.backend.model.MentionRef;
 import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.service.connector.JdbcConnectorService;
 import com.tuiyan.backend.service.indexing.DataSourceIndexService;
@@ -178,11 +179,15 @@ public class ChatLlmService {
                 }
             }
 
-            // 数据库类数据源：枚举工作空间下已接入的 MySQL / PostgreSQL，拉表清单交给 LLM 作为结构化上下文
-            List<GraphPromptBuilder.DbSchema> dbSchemas = collectDbSchemas(wsId, emitter);
+            // 数据库类数据源：默认枚举工作空间下的全部，但用户用 @ 显式引用了数据源时只拉那些
+            List<MentionRef> mentions = request.getMentions();
+            List<String> explicitDsIds = pickMentionIds(mentions, "datasource");
+            List<GraphPromptBuilder.DbSchema> dbSchemas = explicitDsIds.isEmpty()
+                    ? collectDbSchemas(wsId, emitter)
+                    : collectDbSchemasByIds(explicitDsIds, emitter);
 
             String prompt = promptBuilder.buildChatPrompt(request.getNodes(), request.getEdges(),
-                    request.getMessage(), ragChunks, dbSchemas);
+                    request.getMessage(), ragChunks, dbSchemas, mentions);
             callLogger.logConversation("LLM-chat-sse", cfg.modelName(), LlmPrompts.CHAT_SYSTEM,
                     request.getHistory(), prompt, request.getAttachments());
 
@@ -474,5 +479,61 @@ public class ChatLlmService {
             }
         }
         return out;
+    }
+
+    /**
+     * 按 @ 引用指定的 id 集合精确拉数据源,跳过全部"5 个上限"等启发式策略。
+     * <p>用户明确 @ 了哪个库,就只把哪个库的完整 schema 注入上下文 —
+     * 这才是"@真正影响上下文范围"的体现。
+     */
+    private List<GraphPromptBuilder.DbSchema> collectDbSchemasByIds(List<String> dsIds, SseEmitter emitter) {
+        List<GraphPromptBuilder.DbSchema> out = new java.util.ArrayList<>();
+        if (dsIds == null || dsIds.isEmpty()) return out;
+        for (String id : dsIds) {
+            DataSourcePO po;
+            try { po = dsRepo.findById(id); }
+            catch (Exception e) { log.warn("[LLM-chat-sse] @ 引用的数据源 {} 查询失败: {}", id, e.getMessage()); continue; }
+            if (po == null) {
+                emitStep(emitter, "missing_ref_ds_" + id, "@ 引用的数据源 " + id + " 不存在,已忽略");
+                continue;
+            }
+            String kind = po.getKind();
+            if (!"mysql".equals(kind) && !"pgsql".equals(kind)) {
+                emitStep(emitter, "skip_ref_ds_" + id,
+                        "@ 引用的数据源「" + po.getName() + "」非数据库类型,跳过 schema 注入");
+                continue;
+            }
+            Map<String, Object> cfg = dsRepo.readConfig(po);
+            String database = String.valueOf(cfg.getOrDefault("database", "?"));
+            String name = po.getName() == null ? id : po.getName();
+            try {
+                // 用户明确引用 → 限额可以适当放宽到 200 张
+                var schemaInfo = jdbcConnector.introspectSchema(kind, cfg, 200);
+                List<String> tables = schemaInfo.tables().stream()
+                        .map(t -> t.name()).toList();
+                int fkCount = schemaInfo.tables().stream()
+                        .mapToInt(t -> t.foreignKeys().size()).sum();
+                emitStep(emitter, "reading_ref_db_" + id,
+                        "🎯 按 @ 引用读取数据库「" + name + "」(" + kind + ":" + database
+                                + ") 共 " + tables.size() + " 张表 / " + fkCount + " 条外键");
+                out.add(new GraphPromptBuilder.DbSchema(name, kind, database, tables, schemaInfo));
+            } catch (Exception e) {
+                log.warn("[LLM-chat-sse] 读取 @ 引用的数据库 {} 失败: {}", name, e.getMessage());
+                emitStep(emitter, "reading_ref_db_" + id + "_err",
+                        "数据库「" + name + "」读取失败,跳过 (" + e.getMessage() + ")");
+            }
+        }
+        return out;
+    }
+
+    /** 从 mentions 列表中按 kind 过滤出 id 列表。 */
+    private static List<String> pickMentionIds(List<MentionRef> mentions, String kind) {
+        if (mentions == null || mentions.isEmpty()) return List.of();
+        java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
+        for (MentionRef m : mentions) {
+            if (m == null || m.getKind() == null || m.getId() == null) continue;
+            if (kind.equalsIgnoreCase(m.getKind())) set.add(m.getId());
+        }
+        return new java.util.ArrayList<>(set);
     }
 }

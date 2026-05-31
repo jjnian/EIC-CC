@@ -1,11 +1,12 @@
 import { type Ref } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
-import { chatStream, type ChatPayload, type ChatResult, type BuildStep } from '../api/chat';
+import { chatStream, type ChatPayload, type ChatResult, type BuildStep, type ChatMentionRef } from '../api/chat';
 import type { SseHandle } from '../api/http';
 import { toast } from './useToast';
 import type { ChatMsg, ChatMsgAttachment, ChatBuildStep } from './useConversations';
 import type { Attachment } from './useAttachments';
 import type { ModelOption } from './useChatModels';
+import type { ActiveMention } from './useMention';
 
 export interface ChatSendCtx {
   msgs: Ref<ChatMsg[]>;
@@ -23,6 +24,8 @@ export interface ChatSendCtx {
   currentModelId: () => string;
   emit: (event: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[]) => void;
   closeMention: () => void;
+  /** 取走并清空当前已激活的 @ 引用，与 input 一起送给后端 */
+  consumeMentions?: () => ActiveMention[];
 }
 
 const PERSIST_TEXT_MAX = 100_000;
@@ -80,6 +83,10 @@ export function useChatSend(ctx: ChatSendCtx) {
     const failed = ctx.atts.value.filter(a => a.error);
 
     const txt = ctx.input.value;
+    // 取走当前已激活的 @ 引用，与本次 message 一起送给后端；先取再清，避免发送中途用户又点
+    const refsForRequest: ChatMentionRef[] = (ctx.consumeMentions?.() || []).map(m => ({
+      kind: m.kind, id: m.id, label: m.label,
+    }));
     const uaDisplay: ChatMsgAttachment[] = ctx.atts.value.map(a => {
       const out: ChatMsgAttachment = {
         name: a.name, type: a.type, kind: a.kind, size: a.size, error: a.error,
@@ -128,6 +135,16 @@ export function useChatSend(ctx: ChatSendCtx) {
       if (refNodes || refEdges) {
         parts.push(`当前图谱 ${refNodes} 节点 / ${refEdges} 关系`);
       }
+      if (refsForRequest.length) {
+        const dsCount = refsForRequest.filter(r => r.kind === 'datasource').length;
+        const nodeCount = refsForRequest.filter(r => r.kind === 'node').length;
+        const relCount = refsForRequest.filter(r => r.kind === 'relation').length;
+        const sub: string[] = [];
+        if (dsCount) sub.push(`${dsCount} 个数据源`);
+        if (nodeCount) sub.push(`${nodeCount} 个节点`);
+        if (relCount) sub.push(`${relCount} 条关系`);
+        if (sub.length) parts.push(`🎯 @ 引用 ${sub.join('/')}`);
+      }
       initialSteps.push({
         key: 'fe_input_summary',
         label: parts.length ? '正在分析依据:' + parts.join(' · ') : '正在根据用户描述构建本体…',
@@ -167,6 +184,7 @@ export function useChatSend(ctx: ChatSendCtx) {
         body.edges = edgesNow.map(e => ({ id: e.id, from: e.from, to: e.to, label: e.label || '' }));
       }
       if (imageAtts.length) body.attachments = imageAtts;
+      if (refsForRequest.length) body.mentions = refsForRequest;
       const cm = ctx.currentModel.value;
       if (cm?.configId) {
         body.configId = cm.configId;
