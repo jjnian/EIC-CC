@@ -247,7 +247,7 @@ const startResize = (e: MouseEvent) => {
                       </div>
                       <div class="ni-attr-meta">
                         <input class="ni-inline-input mono ni-attr-vs" :value="a.valueSpace" placeholder="取值空间" @change="(e: any) => updateAttribute(i, 'valueSpace', e.target.value)" />
-                        <span v-if="a.column" class="ni-attr-col">· {{ attrColumnText(a, node) }}</span>
+                        <span v-if="a.column" class="ni-attr-col" :title="attrColumnText(a, node)">· {{ attrColumnText(a, node) }}</span>
                       </div>
                     </div>
                     <div v-if="(node.attributes || []).length === 0" class="ni-empty">暂无本体属性</div>
@@ -454,9 +454,13 @@ const startResize = (e: MouseEvent) => {
 .ni-attr-meta { display: flex; align-items: center; gap: 8px; }
 .ni-attr-vs { flex: 0 1 auto; }
 .ni-attr-col {
+  flex: 0 1 auto;
+  min-width: 0;
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   color: rgba(255,255,255,0.45);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

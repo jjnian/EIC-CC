@@ -197,14 +197,14 @@ const startResize = (e: MouseEvent) => {
                     <div class="ni-cell-k">约束数</div>
                     <div class="ni-cell-v strong">{{ (edge.constraints || []).length }} <span class="ni-unit">条</span></div>
                   </div>
+                  <div class="ni-cell"><div class="ni-cell-k">数据源</div><div class="ni-cell-v">{{ edge.derived_source || '—' }}</div></div>
+                  <div class="ni-cell"><div class="ni-cell-k">数据库</div><div class="ni-cell-v mono">{{ edge.derived_database || '—' }}</div></div>
                   <div class="ni-cell ni-cell-wide"><div class="ni-cell-k">来源表</div>
                     <div class="ni-cell-v">
                       <span v-for="(tb, i) in (edge.derived_tables || [])" :key="'edt'+i" class="ei-src-chip">{{ tb }}</span>
                       <span v-if="!(edge.derived_tables || []).length" class="ni-dim">暂无来源表</span>
                     </div>
                   </div>
-                  <div class="ni-cell"><div class="ni-cell-k">数据源</div><div class="ni-cell-v">{{ edge.derived_source || '—' }}</div></div>
-                  <div class="ni-cell"><div class="ni-cell-k">数据库</div><div class="ni-cell-v mono">{{ edge.derived_database || '—' }}</div></div>
                 </div>
               </div>
 
