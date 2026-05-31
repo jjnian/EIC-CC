@@ -83,12 +83,12 @@ const sourceBadge = (s?: string) => {
   return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
 };
 
-// 属性物理列来源：有来源表时显示 "表.列"，否则 "列"
-const attrColumnText = (a: any, node: any): string => {
-  if (!a?.column) return '';
+// 属性物理来源：单表时回退到节点的来源表，多表时只能给出列名
+const attrSource = (a: any, node: any): { table: string; column: string } | null => {
+  if (!a?.column) return null;
   const tables = node?.derived_tables || [];
-  const table = tables.length === 1 ? tables[0] : '';
-  return table ? `${table}.${a.column}` : a.column;
+  const table = (a.table && String(a.table)) || (tables.length === 1 ? tables[0] : '');
+  return { table: table || '', column: String(a.column) };
 };
 
 // 属性编辑状态
@@ -220,15 +220,39 @@ const startResize = (e: MouseEvent) => {
                     <div class="ni-cell"><div class="ni-cell-k">状态</div><div class="ni-cell-v"><span class="ni-chip ok">● 已激活</span></div></div>
                   </div>
                 </div>
-                <div v-if="node.derived_source || node.derived_database || (node.derived_tables || []).length" class="ni-card">
-                  <div class="ni-card-title">数据来源</div>
-                  <div class="ni-grid">
-                    <div class="ni-cell"><div class="ni-cell-k">数据源</div><div class="ni-cell-v">{{ node.derived_source || '—' }}</div></div>
-                    <div class="ni-cell"><div class="ni-cell-k">数据库</div><div class="ni-cell-v mono">{{ node.derived_database || '—' }}</div></div>
-                    <div class="ni-cell ni-cell-wide"><div class="ni-cell-k">来源表</div>
-                      <div class="ni-cell-v">
-                        <span v-for="(tb, i) in (node.derived_tables || [])" :key="'dt'+i" class="ni-src-chip">{{ tb }}</span>
-                        <span v-if="!(node.derived_tables || []).length" class="ni-dim">暂无来源表</span>
+                <div v-if="node.derived_source || node.derived_database || (node.derived_tables || []).length" class="ni-card ni-card-lineage">
+                  <div class="ni-card-title">数据来源血缘</div>
+                  <div class="ni-lineage">
+                    <div class="ni-lineage-step" :class="{ missing: !node.derived_source }">
+                      <span class="ni-lineage-icon" aria-hidden="true">🗄</span>
+                      <div class="ni-lineage-meta">
+                        <div class="ni-lineage-k">数据源</div>
+                        <div class="ni-lineage-v" :title="node.derived_source || ''">
+                          <template v-if="node.derived_source">{{ node.derived_source }}</template>
+                          <span v-else class="ni-lineage-empty">未关联</span>
+                        </div>
+                      </div>
+                    </div>
+                    <span class="ni-lineage-arrow" aria-hidden="true">›</span>
+                    <div class="ni-lineage-step" :class="{ missing: !node.derived_database }">
+                      <span class="ni-lineage-icon" aria-hidden="true">🛢</span>
+                      <div class="ni-lineage-meta">
+                        <div class="ni-lineage-k">数据库</div>
+                        <div class="ni-lineage-v mono" :title="node.derived_database || ''">
+                          <template v-if="node.derived_database">{{ node.derived_database }}</template>
+                          <span v-else class="ni-lineage-empty">未关联</span>
+                        </div>
+                      </div>
+                    </div>
+                    <span class="ni-lineage-arrow" aria-hidden="true">›</span>
+                    <div class="ni-lineage-step ni-lineage-tables" :class="{ missing: !(node.derived_tables || []).length }">
+                      <span class="ni-lineage-icon" aria-hidden="true">📋</span>
+                      <div class="ni-lineage-meta">
+                        <div class="ni-lineage-k">来源表 <span v-if="(node.derived_tables || []).length" class="ni-lineage-count">{{ node.derived_tables.length }}</span></div>
+                        <div class="ni-lineage-v">
+                          <span v-for="(tb, i) in (node.derived_tables || [])" :key="'dt'+i" class="ni-src-chip">{{ tb }}</span>
+                          <span v-if="!(node.derived_tables || []).length" class="ni-lineage-empty">未关联</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -238,22 +262,41 @@ const startResize = (e: MouseEvent) => {
                 <!-- TBox 属性: 类节点上的属性定义 -->
                 <div class="ni-card">
                   <div class="ni-card-title">本体属性 <span class="ni-card-count">{{ (node.attributes || []).length }}</span></div>
-                  <div class="ni-attr-list">
-                    <div v-for="(a, i) in (node.attributes || [])" :key="'tba'+i" class="ni-attr-item">
-                      <div class="ni-attr-name">
+                  <div v-if="(node.attributes || []).length" class="ni-attr-table">
+                    <div class="ni-attr-thead">
+                      <div class="ni-attr-th ni-col-name">属性名</div>
+                      <div class="ni-attr-th ni-col-type">类型 / 取值</div>
+                      <div class="ni-attr-th ni-col-source">物理来源（表 · 字段）</div>
+                      <div class="ni-attr-th ni-col-act"></div>
+                    </div>
+                    <div v-for="(a, i) in (node.attributes || [])" :key="'tba'+i" class="ni-attr-row">
+                      <div class="ni-attr-cell ni-col-name">
                         <input class="ni-inline-input" :value="a.name" placeholder="属性名" @change="(e: any) => updateAttribute(i, 'name', e.target.value)" />
-                        <span class="ni-badge" :style="{color: sourceBadge(a.source).color, background: sourceBadge(a.source).bg}">{{ sourceBadge(a.source).text }}</span>
+                        <span class="ni-badge ni-attr-badge" :style="{color: sourceBadge(a.source).color, background: sourceBadge(a.source).bg}">{{ sourceBadge(a.source).text }}</span>
+                      </div>
+                      <div class="ni-attr-cell ni-col-type">
+                        <input class="ni-inline-input mono" :value="a.valueSpace" placeholder="取值空间" @change="(e: any) => updateAttribute(i, 'valueSpace', e.target.value)" />
+                      </div>
+                      <div class="ni-attr-cell ni-col-source">
+                        <template v-if="attrSource(a, node)">
+                          <span class="ni-attr-src">
+                            <span class="ni-attr-src-icon" aria-hidden="true">📋</span>
+                            <span v-if="attrSource(a, node)!.table" class="ni-attr-src-table mono">{{ attrSource(a, node)!.table }}</span>
+                            <span v-else class="ni-attr-src-unknown">表未指定</span>
+                            <span class="ni-attr-src-sep">·</span>
+                            <span class="ni-attr-src-col mono">{{ attrSource(a, node)!.column }}</span>
+                          </span>
+                        </template>
+                        <span v-else class="ni-attr-src-empty">手填属性，无物理来源</span>
+                      </div>
+                      <div class="ni-attr-cell ni-col-act">
                         <button class="ni-prop-del" @click="removeAttribute(i)" title="删除">✕</button>
                       </div>
-                      <div class="ni-attr-meta">
-                        <input class="ni-inline-input mono ni-attr-vs" :value="a.valueSpace" placeholder="取值空间" @change="(e: any) => updateAttribute(i, 'valueSpace', e.target.value)" />
-                        <span v-if="a.column" class="ni-attr-col" :title="attrColumnText(a, node)">· {{ attrColumnText(a, node) }}</span>
-                      </div>
                     </div>
-                    <div v-if="(node.attributes || []).length === 0" class="ni-empty">暂无本体属性</div>
-                    <div class="ni-prop-actions">
-                      <button class="ni-prop-add" @click="addAttribute">+ 新增属性</button>
-                    </div>
+                  </div>
+                  <div v-else class="ni-empty">暂无本体属性</div>
+                  <div class="ni-prop-actions">
+                    <button class="ni-prop-add" @click="addAttribute">+ 新增属性</button>
                   </div>
                 </div>
 
@@ -442,25 +485,101 @@ const startResize = (e: MouseEvent) => {
 .ni-src-chip {
   display: inline-block;
   padding: 2px 8px;
-  margin: 2px 4px 2px 0;
   font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
   color: #22dd88;
   background: rgba(34, 221, 136, 0.12);
   border-radius: 6px;
 }
-.ni-dim { color: rgba(255,255,255,0.4); font-size: 12px; }
-.ni-cell-wide { grid-column: 1 / -1; }
-.ni-attr-meta { display: flex; align-items: center; gap: 8px; }
-.ni-attr-vs { flex: 0 1 auto; }
-.ni-attr-col {
-  flex: 0 1 auto;
-  min-width: 0;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  color: rgba(255,255,255,0.45);
-  white-space: nowrap;
+
+/* ===== 本体属性表格 ===== */
+.ni-attr-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+.ni-attr-thead,
+.ni-attr-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.4fr) minmax(120px, 1fr) minmax(180px, 1.6fr) 32px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+}
+.ni-attr-thead {
+  background: rgba(255,255,255,0.025);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  padding: 6px 10px;
+}
+.ni-attr-th {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.45);
+}
+.ni-attr-row {
+  border-bottom: 1px dashed rgba(255,255,255,0.05);
+}
+.ni-attr-row:last-child { border-bottom: none; }
+.ni-attr-row:hover { background: rgba(255,255,255,0.02); }
+.ni-attr-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ni-col-act { justify-content: flex-end; }
+.ni-attr-badge { flex-shrink: 0; }
+.ni-attr-src {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px 8px;
+  background: rgba(34, 221, 136, 0.08);
+  border: 1px solid rgba(34, 221, 136, 0.18);
+  border-radius: 6px;
+  font-size: 12px;
+  max-width: 100%;
+  word-break: break-all;
+}
+.ni-attr-src-icon { font-size: 12px; opacity: 0.85; flex-shrink: 0; }
+.ni-attr-src-table {
+  color: #22dd88;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+}
+.ni-attr-src-sep { color: rgba(255,255,255,0.4); }
+.ni-attr-src-col {
+  color: var(--text-main);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+}
+.ni-attr-src-unknown,
+.ni-attr-src-empty {
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* 紧凑面板下让属性表自适应竖排，避免水平挤压 */
+@media (max-width: 720px) {
+  .ni-attr-thead { display: none; }
+  .ni-attr-row {
+    grid-template-columns: 1fr 32px;
+    grid-template-areas:
+      'name act'
+      'type act'
+      'src  act';
+    row-gap: 6px;
+  }
+  .ni-col-name { grid-area: name; }
+  .ni-col-type { grid-area: type; }
+  .ni-col-source { grid-area: src; }
+  .ni-col-act { grid-area: act; align-self: start; }
 }
 </style>
