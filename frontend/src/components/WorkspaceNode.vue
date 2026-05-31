@@ -38,6 +38,30 @@ const ctxMenu = ref<null | {
   y: number;
 }>(null);
 
+// 三个区段(历史对话/血缘图/数据源)独立折叠;状态用 localStorage 持久化,
+// 全局共享(所有工作空间共用一份偏好,避免每个 ws 都要单独点开)。
+type SectionKey = 'convs' | 'ontologies' | 'ds';
+const SECTIONS_KEY = 'tuiyan.sidebar-sections';
+const defaultSections = (): Record<SectionKey, boolean> => ({ convs: true, ontologies: true, ds: true });
+const readSections = (): Record<SectionKey, boolean> => {
+  try {
+    const raw = localStorage.getItem(SECTIONS_KEY);
+    if (!raw) return defaultSections();
+    const parsed = JSON.parse(raw) as Partial<Record<SectionKey, boolean>>;
+    return {
+      convs: parsed.convs !== false,
+      ontologies: parsed.ontologies !== false,
+      ds: parsed.ds !== false,
+    };
+  } catch { return defaultSections(); }
+};
+const sections = ref<Record<SectionKey, boolean>>(readSections());
+const toggleSection = (key: SectionKey, e: Event) => {
+  e.stopPropagation();
+  sections.value = { ...sections.value, [key]: !sections.value[key] };
+  try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(sections.value)); } catch { /* noop */ }
+};
+
 watch(() => props.isCurrent, (v) => {
   if (v) expanded.value = true;
 });
@@ -201,64 +225,87 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 
     <div v-if="expanded" class="ws-children">
       <div class="ws-section">
-        <span class="ws-section-lbl">历史对话</span>
-        <span v-if="tree.isLoadingConv(workspace.id)" class="ws-loading">加载中...</span>
-        <template v-else-if="tree.getConversations(workspace.id).length">
-          <button
-            v-for="c in tree.getConversations(workspace.id).slice(0, 10)"
-            :key="c.id"
-            class="ws-item"
-            @click.stop="emit('open-conversation', c.id)"
-            @contextmenu="openCtxMenu('conversation', c.id, c.title, $event)"
-            :title="c.title"
-          >
-            <span class="ws-item-label">{{ c.title || '新对话' }}</span>
-            <span v-if="c.updatedAt" class="ws-item-time">{{ fmtTime(c.updatedAt) }}</span>
-          </button>
+        <button type="button" class="ws-section-head" @click="toggleSection('convs', $event)">
+          <span class="ws-section-caret" :class="{ open: sections.convs }">▸</span>
+          <span class="ws-section-lbl">历史对话</span>
+          <span v-if="tree.getConversations(workspace.id).length" class="ws-section-count">{{ tree.getConversations(workspace.id).length }}</span>
+        </button>
+        <template v-if="sections.convs">
+          <span v-if="tree.isLoadingConv(workspace.id)" class="ws-loading">加载中...</span>
+          <template v-else-if="tree.getConversations(workspace.id).length">
+            <button
+              v-for="c in tree.getConversations(workspace.id).slice(0, 10)"
+              :key="c.id"
+              class="ws-item"
+              @click.stop="emit('open-conversation', c.id)"
+              @contextmenu="openCtxMenu('conversation', c.id, c.title, $event)"
+              :title="c.title"
+            >
+              <span class="ws-item-label">{{ c.title || '新对话' }}</span>
+              <span v-if="c.updatedAt" class="ws-item-time">{{ fmtTime(c.updatedAt) }}</span>
+            </button>
+          </template>
+          <span v-else class="ws-empty">暂无对话</span>
         </template>
-        <span v-else class="ws-empty">暂无对话</span>
       </div>
 
       <div class="ws-section">
-        <span class="ws-section-lbl">血缘图</span>
-        <span v-if="tree.isLoadingOntology(workspace.id)" class="ws-loading">加载中...</span>
-        <template v-else-if="tree.getOntologies(workspace.id).length">
-          <button
-            v-for="m in tree.getOntologies(workspace.id)"
-            :key="m.id"
-            class="ws-item"
-            @click.stop="emit('open-graph', m.id)"
-            @contextmenu="openCtxMenu('graph', m.id, m.name, $event)"
-            :title="m.name"
-          >
-            <span class="ws-item-label">{{ m.name }}</span>
-            <span v-if="m.updatedAt" class="ws-item-time">{{ fmtTime(m.updatedAt) }}</span>
-          </button>
+        <button type="button" class="ws-section-head" @click="toggleSection('ontologies', $event)">
+          <span class="ws-section-caret" :class="{ open: sections.ontologies }">▸</span>
+          <span class="ws-section-lbl">血缘图</span>
+          <span v-if="tree.getOntologies(workspace.id).length" class="ws-section-count">{{ tree.getOntologies(workspace.id).length }}</span>
+        </button>
+        <template v-if="sections.ontologies">
+          <span v-if="tree.isLoadingOntology(workspace.id)" class="ws-loading">加载中...</span>
+          <template v-else-if="tree.getOntologies(workspace.id).length">
+            <button
+              v-for="m in tree.getOntologies(workspace.id)"
+              :key="m.id"
+              class="ws-item"
+              @click.stop="emit('open-graph', m.id)"
+              @contextmenu="openCtxMenu('graph', m.id, m.name, $event)"
+              :title="m.name"
+            >
+              <span class="ws-item-label">{{ m.name }}</span>
+              <span v-if="m.updatedAt" class="ws-item-time">{{ fmtTime(m.updatedAt) }}</span>
+            </button>
+          </template>
+          <span v-else class="ws-empty">暂无图谱</span>
         </template>
-        <span v-else class="ws-empty">暂无图谱</span>
       </div>
 
       <div class="ws-section">
         <button
           type="button"
-          class="ws-section-lbl ws-section-btn"
-          @click.stop="openDataSourceSection"
+          class="ws-section-head"
+          @click="toggleSection('ds', $event)"
           @contextmenu="openCtxMenu('datasource-section', workspace.id, '数据源', $event)"
-        >数据源</button>
-        <span v-if="tree.isLoadingDS(workspace.id)" class="ws-loading">加载中...</span>
-        <template v-else-if="tree.getDataSources(workspace.id).length">
-          <button
-            v-for="d in tree.getDataSources(workspace.id)"
-            :key="d.id"
-            class="ws-item"
-            @click.stop="emit('open-datasource', d.id)"
-            :title="d.name"
-          >
-            <span class="ws-item-label">{{ d.name }}</span>
-            <span class="ws-item-kind">{{ kindLabel[d.kind] || d.kind }}</span>
-          </button>
+        >
+          <span class="ws-section-caret" :class="{ open: sections.ds }">▸</span>
+          <span class="ws-section-lbl">数据源</span>
+          <span v-if="tree.getDataSources(workspace.id).length" class="ws-section-count">{{ tree.getDataSources(workspace.id).length }}</span>
+          <span
+            class="ws-section-open"
+            title="打开数据源列表"
+            @click.stop="openDataSourceSection"
+          >↗</span>
+        </button>
+        <template v-if="sections.ds">
+          <span v-if="tree.isLoadingDS(workspace.id)" class="ws-loading">加载中...</span>
+          <template v-else-if="tree.getDataSources(workspace.id).length">
+            <button
+              v-for="d in tree.getDataSources(workspace.id)"
+              :key="d.id"
+              class="ws-item"
+              @click.stop="emit('open-datasource', d.id)"
+              :title="d.name"
+            >
+              <span class="ws-item-label">{{ d.name }}</span>
+              <span class="ws-item-kind">{{ kindLabel[d.kind] || d.kind }}</span>
+            </button>
+          </template>
+          <span v-else class="ws-empty">暂无数据源</span>
         </template>
-        <span v-else class="ws-empty">暂无数据源</span>
       </div>
     </div>
 
@@ -353,20 +400,61 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 .ws-del-btn:hover { background: rgba(255,102,68,.20); color: #ff8a6f; }
 .ws-children { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px; }
 .ws-section { display: flex; flex-direction: column; gap: 0; }
-.ws-section-lbl {
-  font-size: 10px; letter-spacing: 1.2px;
-  color: rgba(255,255,255,.42); padding: 6px 10px 3px 24px;
-  font-family: 'JetBrains Mono', 'Inter',sans-serif; font-weight: 600;
-  user-select: none; text-transform: uppercase;
-}
-.ws-section-btn {
+.ws-section-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 6px 10px 4px 16px;
   background: none;
   border: none;
-  width: 100%;
+  cursor: pointer;
+  font-family: inherit;
   text-align: left;
+  user-select: none;
+  border-radius: 6px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.ws-section-head:hover { background: rgba(255,255,255,.04); }
+.ws-section-head:hover .ws-section-lbl { color: rgba(255,255,255,.62); }
+.ws-section-caret {
+  font-size: 8px;
+  color: rgba(255,255,255,.32);
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1);
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+}
+.ws-section-caret.open { transform: rotate(90deg); }
+.ws-section-lbl {
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  color: rgba(255,255,255,.42);
+  font-family: 'JetBrains Mono', 'Inter', sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  transition: color 0.12s ease;
+}
+.ws-section-count {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 100px;
+  background: rgba(255,255,255,.06);
+  color: rgba(255,255,255,.40);
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.2px;
+  margin-left: 2px;
+}
+.ws-section-open {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(255,255,255,.32);
+  padding: 0 6px;
+  border-radius: 4px;
+  transition: background 0.12s ease, color 0.12s ease;
   cursor: pointer;
 }
-.ws-section-btn:hover { color: #5fd4a3; }
+.ws-section-open:hover { color: #5fd4a3; background: rgba(66,184,131,.10); }
 .ws-loading { font-size: 11px; color: rgba(255,255,255,.32); padding: 2px 10px 2px 28px; font-style: italic; }
 .ws-empty { font-size: 11px; color: rgba(255,255,255,.22); padding: 2px 10px 4px 28px; font-style: italic; }
 .ws-item {

@@ -7,7 +7,12 @@ import {
 import type { DataSource, DataSourceKind } from '../../api/dataSources';
 import { ApiError } from '../../api/http';
 import { toast } from '../../composables/useToast';
+import { useSidebarTree } from '../../composables/useSidebarTree';
+import { useWorkspaces } from '../../composables/useWorkspaces';
 import DataSourceConfigForm from '../datasource/DataSourceConfigForm.vue';
+
+const tree = useSidebarTree();
+const ws = useWorkspaces();
 
 const emit = defineEmits<{
   (e: 'open', id: string): void;
@@ -45,6 +50,12 @@ const doDelete = async (d: DataSource) => {
   try {
     await deleteDataSource(d.id);
     items.value = items.value.filter(x => x.id !== d.id);
+    // 同步从侧栏缓存里移除,避免刷新前侧栏仍显示已删的数据源。
+    const wsId = ws.currentId.value;
+    if (wsId && tree.getDataSources(wsId).some(x => x.id === d.id)) {
+      // 用一次强制重载最简单稳;也可手写过滤,这里选稳。
+      tree.loadDataSources(wsId, true);
+    }
     toast('已删除');
   } catch (e) { toast(`删除失败：${(e as Error).message}`); }
 };
@@ -116,6 +127,9 @@ const submit = async () => {
     }
     toast('已创建');
     items.value.unshift(created);
+    // 让侧栏立刻看到新数据源,无需等下次刷新或工作空间切换。
+    const wsId = ws.currentId.value;
+    if (wsId) tree.upsertDataSource(wsId, created);
     showForm.value = false;
   } catch (e) {
     const msg = e instanceof ApiError ? e.message : (e as Error).message;

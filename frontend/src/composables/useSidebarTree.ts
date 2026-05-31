@@ -44,6 +44,11 @@ const toSidebar = (d: ConversationDto): SidebarConversation => ({
 
 /** 侧栏树:按 workspaceId 索引懒加载对话/数据源,跨工作空间互不影响。 */
 export function useSidebarTree() {
+  // 历史改造前 ChatPanel 会把仅含欢迎语的空会话也持久化进 DB(每次新建对话/切换工作空间都留一条)。
+  // 现在持久化端已经修正,但 DB 里残留的「新对话」记录还在 — 这里在侧栏直接过滤掉,只显示用户真正发过话的会话。
+  const hasUserMessage = (d: ConversationDto): boolean =>
+    !!(d.msgs && d.msgs.some((m: any) => m && m.role === 'u'));
+
   const loadConversations = async (wsId: string, force = false): Promise<void> => {
     if (!wsId) return;
     if (!force && loadedConv.value[wsId]) return;
@@ -52,6 +57,7 @@ export function useSidebarTree() {
     try {
       const list = (await listConversations({ workspaceId: wsId })) || [];
       cacheConvs.value[wsId] = list
+        .filter(hasUserMessage)
         .map(toSidebar)
         .sort((a, b) => b.updatedAt - a.updatedAt);
       loadedConv.value[wsId] = true;

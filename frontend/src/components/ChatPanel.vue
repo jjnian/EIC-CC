@@ -99,6 +99,7 @@ const {
   setConversationTitle,
   persistCurrent,
   flushPersist,
+  cancelPersist,
   initConversation,
   restoreLatestOrNew,
 } = conv;
@@ -330,6 +331,7 @@ defineExpose({
   currentConversationId: () => conv.conversationId.value,
   setConversationTitle: (title: string) => setConversationTitle(title),
   flushPersist,
+  cancelPersist,
   focusInput: () => { inputRef.value?.focus(); nextTick(() => checkMention()); },
   /** 把示例文本直接写入输入框(供欢迎横幅的示例按钮用)。 */
   setInput: (text: string) => {

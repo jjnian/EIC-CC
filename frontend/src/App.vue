@@ -19,7 +19,7 @@ import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import './app.css';
 import { toast, mountToastRoot } from './composables/useToast';
 import { updateOntology, deleteOntology } from './api/ontology';
-import { getConversation, updateConversation, deleteConversation as apiDeleteConversation } from './api/conversations';
+import { getConversation, updateConversation } from './api/conversations';
 import { ApiError } from './api/http';
 import { useDivider } from './composables/useDivider';
 import { useImportFlow } from './composables/useImportFlow';
@@ -510,13 +510,16 @@ const renameConversation = async (id: string, title: string) => {
 const deleteConversation = async (id: string) => {
   const wsId = wsManager.currentId.value;
   if (!wsId) return;
+  const isActive = chatRef.value?.currentConversationId?.() === id;
   try {
-    await apiDeleteConversation(id);
-    sidebarTree.removeConversation(wsId, id);
-    if (chatRef.value?.currentConversationId?.() === id) {
+    // 先把 ChatPanel 从被删会话切走,并取消其防抖里的旧 PUT;否则旧 PUT 会
+    // 在 DELETE 之后到达 backend,save() 看 id 不存在就 INSERT,造成"删了又出来"。
+    if (isActive) {
+      await chatRef.value?.cancelPersist?.();
       await chatRef.value?.newConversation?.();
-      goWelcome();
     }
+    await sidebarTree.removeConversation(wsId, id);
+    if (isActive) goWelcome();
     toast.success('已删除');
   } catch (e) {
     toast.warn(e instanceof ApiError ? e.message : '删除失败');

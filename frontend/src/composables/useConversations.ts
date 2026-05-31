@@ -176,18 +176,16 @@ export function useConversations(ctx: ConversationsCtx) {
 
   let persistTimer: number | null = null;
   let persistInFlight = false;
-  /** 当前 msgs 是否仅包含初始欢迎消息(避免给空会话分配 id)。 */
+  /** 当前 msgs 是否仅包含初始欢迎消息(欢迎语会话永不持久化,避免 DB 里堆"空对话")。 */
   const isWelcomeOnly = () => {
     const list = ctx.msgs.value;
     if (list.length !== 1) return false;
     const m = list[0];
     return m.role === 'a' && (!m.atts || m.atts.length === 0);
   };
-  /** 把当前 msgs 写回后端,带 600ms 抖动节流。 */
+  /** 把当前 msgs 写回后端,带 600ms 抖动节流。欢迎语会话直接跳过(连 id 都不分配),避免空对话流入 DB。 */
   const persistCurrent = () => {
-    // 还没分配 id 且仅是欢迎语,不持久化空会话。
-    if (!conversationId.value && isWelcomeOnly()) return;
-    // 用户首次发言时为新会话分配 id。
+    if (isWelcomeOnly()) return;
     if (!conversationId.value) {
       conversationId.value = 'conv_' + Date.now();
     }
@@ -228,7 +226,7 @@ export function useConversations(ctx: ConversationsCtx) {
       persistTimer = null;
     }
     if (persistInFlight) return;
-    if (!conversationId.value && isWelcomeOnly()) return;
+    if (isWelcomeOnly()) return;
     if (!conversationId.value) {
       conversationId.value = 'conv_' + Date.now();
     }
@@ -251,6 +249,22 @@ export function useConversations(ctx: ConversationsCtx) {
       console.warn('flush conversation failed', e);
     } finally {
       persistInFlight = false;
+    }
+  };
+
+  /**
+   * 停掉一切对当前会话的写回。删除会话前必须调用,否则 600ms 防抖里的旧 PUT 会
+   * 在 DELETE 后到达 backend,触发 save() 里的「不存在则 INSERT」分支,把刚删的
+   * 会话又一次原样写回 — 这就是用户看到的「删了又出来」。
+   */
+  const cancelPersist = async () => {
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    const start = Date.now();
+    while (persistInFlight && Date.now() - start < 3000) {
+      await new Promise(r => setTimeout(r, 30));
     }
   };
 
@@ -360,6 +374,7 @@ export function useConversations(ctx: ConversationsCtx) {
     },
     persistCurrent,
     flushPersist,
+    cancelPersist,
     initConversation,
     newConversation,
     switchConversation,
