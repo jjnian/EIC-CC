@@ -197,12 +197,42 @@ const startResize = (e: MouseEvent) => {
                     <div class="ni-cell-k">约束数</div>
                     <div class="ni-cell-v strong">{{ (edge.constraints || []).length }} <span class="ni-unit">条</span></div>
                   </div>
-                  <div class="ni-cell"><div class="ni-cell-k">数据源</div><div class="ni-cell-v">{{ edge.derived_source || '—' }}</div></div>
-                  <div class="ni-cell"><div class="ni-cell-k">数据库</div><div class="ni-cell-v mono">{{ edge.derived_database || '—' }}</div></div>
-                  <div class="ni-cell ni-cell-wide"><div class="ni-cell-k">来源表</div>
-                    <div class="ni-cell-v">
-                      <span v-for="(tb, i) in (edge.derived_tables || [])" :key="'edt'+i" class="ei-src-chip">{{ tb }}</span>
-                      <span v-if="!(edge.derived_tables || []).length" class="ni-dim">暂无来源表</span>
+                </div>
+              </div>
+
+              <div v-if="edge.derived_source || edge.derived_database || (edge.derived_tables || []).length" class="ni-card ni-card-lineage">
+                <div class="ni-card-title">数据来源血缘</div>
+                <div class="ni-lineage">
+                  <div class="ni-lineage-step" :class="{ missing: !edge.derived_source }">
+                    <span class="ni-lineage-icon" aria-hidden="true">🗄</span>
+                    <div class="ni-lineage-meta">
+                      <div class="ni-lineage-k">数据源</div>
+                      <div class="ni-lineage-v" :title="edge.derived_source || ''">
+                        <template v-if="edge.derived_source">{{ edge.derived_source }}</template>
+                        <span v-else class="ni-lineage-empty">未关联</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="ni-lineage-arrow" aria-hidden="true">›</span>
+                  <div class="ni-lineage-step" :class="{ missing: !edge.derived_database }">
+                    <span class="ni-lineage-icon" aria-hidden="true">🛢</span>
+                    <div class="ni-lineage-meta">
+                      <div class="ni-lineage-k">数据库</div>
+                      <div class="ni-lineage-v mono" :title="edge.derived_database || ''">
+                        <template v-if="edge.derived_database">{{ edge.derived_database }}</template>
+                        <span v-else class="ni-lineage-empty">未关联</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="ni-lineage-arrow" aria-hidden="true">›</span>
+                  <div class="ni-lineage-step ni-lineage-tables" :class="{ missing: !(edge.derived_tables || []).length }">
+                    <span class="ni-lineage-icon" aria-hidden="true">📋</span>
+                    <div class="ni-lineage-meta">
+                      <div class="ni-lineage-k">来源表 <span v-if="(edge.derived_tables || []).length" class="ni-lineage-count">{{ edge.derived_tables.length }}</span></div>
+                      <div class="ni-lineage-v">
+                        <span v-for="(tb, i) in (edge.derived_tables || [])" :key="'edt'+i" class="ei-src-chip">{{ tb }}</span>
+                        <span v-if="!(edge.derived_tables || []).length" class="ni-lineage-empty">未关联</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -396,13 +426,10 @@ const startResize = (e: MouseEvent) => {
 .ei-src-chip {
   display: inline-block;
   padding: 2px 8px;
-  margin: 2px 4px 2px 0;
   font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
   color: #22dd88;
   background: rgba(34, 221, 136, 0.12);
   border-radius: 6px;
 }
-.ni-dim { color: rgba(255,255,255,0.4); font-size: 12px; }
-.ni-cell-wide { grid-column: 1 / -1; }
 </style>

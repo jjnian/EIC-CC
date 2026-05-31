@@ -24,6 +24,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -198,9 +199,12 @@ public class ChatLlmService {
             HttpRequest httpRequest = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
 
             final String modelForMetrics = cfg.modelName();
+            // 把本次会话用到的数据库 schema 透传给 handleResponse，
+            // 让 LLM 输出里只填了 derived_tables 的节点/边也能被补齐 derived_source / derived_database
+            final List<GraphPromptBuilder.DbSchema> dbSchemasForStamp = dbSchemas;
 
             http.httpClient().sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(resp -> handleResponse(resp, emitter, anthropic, startMs, modelForMetrics))
+                    .thenAccept(resp -> handleResponse(resp, emitter, anthropic, startMs, modelForMetrics, dbSchemasForStamp))
                     .exceptionally(ex -> {
                         long elapsed = System.currentTimeMillis() - startMs;
                         log.error("[LLM-chat-sse] 网络异常 耗时={}ms error={}", elapsed, ex.getMessage());
@@ -227,7 +231,8 @@ public class ChatLlmService {
     }
 
     private void handleResponse(HttpResponse<String> resp, SseEmitter emitter,
-                                boolean anthropic, long startMs, String modelName) {
+                                boolean anthropic, long startMs, String modelName,
+                                List<GraphPromptBuilder.DbSchema> dbSchemas) {
         long elapsed = System.currentTimeMillis() - startMs;
 
         if (resp.statusCode() != 200) {
@@ -285,6 +290,11 @@ public class ChatLlmService {
             int nodeCount = addNodes.size();
             int edgeCount = addEdges.size();
 
+            // 根据 derived_tables → schema 反查,把缺失的 derived_source / derived_database 补齐,
+            // 保证前端在节点/关系上始终能看到"数据源 + 数据库 + 来源表"三段血缘
+            stampDerivedSourceFromSchemas(addNodes, dbSchemas);
+            stampDerivedSourceFromSchemas(addEdges, dbSchemas);
+
             // 逐个实体 / 关系上报，让用户看到本体被一步步"构建"出来，而不是只看到一个总数
             emitBuildSteps(emitter, addNodes, addEdges);
 
@@ -293,8 +303,8 @@ public class ChatLlmService {
 
             ObjectNode finalEvent = objectMapper.createObjectNode();
             finalEvent.put("reply", reply);
-            finalEvent.set("add_nodes", result.path("add_nodes"));
-            finalEvent.set("add_edges", result.path("add_edges"));
+            finalEvent.set("add_nodes", addNodes);
+            finalEvent.set("add_edges", addEdges);
             // 透传 LLM 返回的 clarifying question(如果有),前端会渲染为可点击选项
             JsonNode question = result.path("question");
             if (question != null && !question.isMissingNode() && !question.isNull()
@@ -391,6 +401,45 @@ public class ChatLlmService {
                 if (!emitStep(emitter, "build_edge_" + (j++), text)) return; // emitter 已关闭，停止逐步推送
                 budget--;
                 sleepQuiet(BUILD_STEP_DELAY_MS);
+            }
+        }
+    }
+
+    /**
+     * 用本次对话注入的 dbSchemas 反查每个节点/边的 derived_tables，把缺失的
+     * derived_source / derived_database 补齐。LLM 在 chat 流里只被要求填 derived_tables，
+     * 数据源名和库名要在服务端按表名兜底，否则前端"数据来源"卡片就会只显示来源表。
+     */
+    private void stampDerivedSourceFromSchemas(JsonNode arr,
+                                               List<GraphPromptBuilder.DbSchema> dbSchemas) {
+        if (arr == null || !arr.isArray() || dbSchemas == null || dbSchemas.isEmpty()) return;
+        // 表名（小写）→ {数据源名, 库名}；多个数据源含同名表时先到先得，避免误标
+        Map<String, String[]> tableIndex = new HashMap<>();
+        for (GraphPromptBuilder.DbSchema s : dbSchemas) {
+            if (s == null || s.tables() == null) continue;
+            for (String t : s.tables()) {
+                if (t == null || t.isBlank()) continue;
+                tableIndex.putIfAbsent(t.toLowerCase(Locale.ROOT),
+                        new String[] { s.sourceName(), s.database() });
+            }
+        }
+        if (tableIndex.isEmpty()) return;
+        for (JsonNode node : arr) {
+            if (!(node instanceof ObjectNode obj)) continue;
+            JsonNode tables = obj.path("derived_tables");
+            if (!tables.isArray() || tables.isEmpty()) continue;
+            for (JsonNode tn : tables) {
+                String t = tn.asText("");
+                if (t.isBlank()) continue;
+                String[] hit = tableIndex.get(t.toLowerCase(Locale.ROOT));
+                if (hit == null) continue;
+                if (obj.path("derived_source").asText("").isBlank() && hit[0] != null) {
+                    obj.put("derived_source", hit[0]);
+                }
+                if (obj.path("derived_database").asText("").isBlank() && hit[1] != null) {
+                    obj.put("derived_database", hit[1]);
+                }
+                break;
             }
         }
     }

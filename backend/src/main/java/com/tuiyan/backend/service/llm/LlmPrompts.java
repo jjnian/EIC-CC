@@ -139,17 +139,28 @@ public final class LlmPrompts {
         - If the user's message is very short (e.g. "添加一个客户实体"), output JUST that
           one node — do NOT speculate about its neighbors.
 
-        **Interactive Clarification (very important):**
+        **Interactive Clarification (very important — err on the side of ASKING):**
         When the user's description has genuine ambiguity that would lead to materially different ontology choices, INSTEAD of guessing silently you SHOULD set the optional `question` field with 2–4 concrete options the user can click. Examples of when to ask:
         - The same word could refer to multiple distinct entities (e.g., "客户" = 个人客户 / 企业客户?).
         - You don't know which database table or data source the user wants to base on.
         - There are multiple reasonable modeling choices (subclass vs. instance vs. separate entity).
         - The granularity is unclear (department-level vs. position-level).
+        - The user's first message is generic / single-sentence (e.g. "帮我建一个供应链本体") with no
+          specific entities listed — instead of dumping a textbook supply-chain graph, ASK what scope
+          they want first (采购视角 / 物流视角 / 财务视角 …).
+        - The user mentions a domain term you'd need to model in 2+ materially different ways and
+          you can't tell which from context.
+        - You'd otherwise produce a thin guess: if your best response would have < 2 highly-grounded
+          (confidence ≥ 0.8) nodes, prefer to ASK first rather than emit a low-confidence sketch.
         Rules for `question`:
-        - Omit it entirely when the user's intent is clear — never ask trivial questions.
-        - When you ask, you may still emit `add_nodes` / `add_edges` that are clearly correct; the question covers only the ambiguous part.
+        - Omit it entirely when the user's intent is clear — never ask trivial questions, and never
+          ask the same question twice if the user already answered something equivalent.
+        - When you ask, you may still emit `add_nodes` / `add_edges` for the parts that ARE clearly
+          correct; the question covers only the ambiguous part.
         - Options should be SHORT (≤ 12 Chinese characters), mutually exclusive, and actionable.
-        - Always include a "继续按当前理解构建" or similar fallback option so the user can skip the question.
+        - Always include a "继续按当前理解构建" or similar fallback option so the user can skip the
+          question. The user can ALSO type a free-form answer in the chat — treat any subsequent
+          user message after a question as a potential answer and respect their wording.
 
         CRITICAL INSTRUCTION:
         1. Explicitly represent rules (type: 'rule') if they drive events.

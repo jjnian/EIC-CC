@@ -83,6 +83,15 @@ export function useChatSend(ctx: ChatSendCtx) {
     const failed = ctx.atts.value.filter(a => a.error);
 
     const txt = ctx.input.value;
+    // 用户在「问答中」直接打字发送 → 把这次输入当作对最近一个未回答 question 的自由回答,
+    // 这样问题卡片才会从「未答」切到「已答」,不会一直挂着误导用户
+    const pendingQ = [...ctx.msgs.value].reverse().find(
+      m => m.role === 'a' && m.question && !m.question.answered,
+    );
+    if (pendingQ?.question && txt.trim()) {
+      const trimmed = txt.trim();
+      pendingQ.question.answered = trimmed.length > 40 ? trimmed.slice(0, 40) + '…' : trimmed;
+    }
     // 取走当前已激活的 @ 引用，与本次 message 一起送给后端；先取再清，避免发送中途用户又点
     const refsForRequest: ChatMentionRef[] = (ctx.consumeMentions?.() || []).map(m => ({
       kind: m.kind, id: m.id, label: m.label,

@@ -14,6 +14,7 @@ const emit = defineEmits<{
   (e: 'focus-node', id: string): void;
   (e: 'abort-prediction'): void;
   (e: 'select-option', messageIndex: number, option: { label: string; value?: string }): void;
+  (e: 'custom-answer', messageIndex: number): void;
   (e: 'view-graph', modelId: string): void;
 }>();
 
@@ -96,6 +97,15 @@ defineExpose({ scrollToBottom });
                       :disabled="!!m.question.answered"
                       @click="emit('select-option', i, opt)">
                 {{ opt.label }}
+              </button>
+              <button type="button"
+                      class="question-option question-option-custom"
+                      :class="{ selected: !!m.question.answered && !m.question.options.some(o => o.label === m.question?.answered) }"
+                      :disabled="!!m.question.answered"
+                      :title="m.question.answered ? '已用自定义文本回答' : '在下方输入框里写自己的答案'"
+                      @click="emit('custom-answer', i)">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                {{ m.question.answered && !m.question.options.some(o => o.label === m.question?.answered) ? m.question.answered : '自己输入回答' }}
               </button>
             </div>
           </div>
@@ -189,6 +199,26 @@ defineExpose({ scrollToBottom });
   border-color: rgba(66, 184, 131, 0.45);
   color: #6dd4a7;
   opacity: 1;
+}
+.question-option-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(125, 211, 252, 0.08);
+  border-color: rgba(125, 211, 252, 0.28);
+  color: #bae6fd;
+  border-style: dashed;
+}
+.question-option-custom:hover:not(:disabled) {
+  background: rgba(125, 211, 252, 0.18);
+  border-color: rgba(125, 211, 252, 0.5);
+  color: #fff;
+}
+.question-option-custom.selected {
+  background: rgba(125, 211, 252, 0.2);
+  border-color: rgba(125, 211, 252, 0.55);
+  border-style: solid;
+  color: #e0f2fe;
 }
 
 .view-graph-btn {
