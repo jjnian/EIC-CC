@@ -177,68 +177,53 @@ const startResize = (e: MouseEvent) => {
             <template v-if="tab === 0">
               <div class="ni-card">
                 <div class="ni-card-title">关系详情</div>
-                <div class="ni-grid">
-                  <div class="ni-cell"><div class="ni-cell-k">ID</div><div class="ni-cell-v mono">{{ edge.id }}</div></div>
-                  <div class="ni-cell"><div class="ni-cell-k">名称</div><div class="ni-cell-v strong">{{ edge.label || '(未命名)' }}</div></div>
-                  <div class="ni-cell">
-                    <div class="ni-cell-k">来源</div>
-                    <div class="ni-cell-v">
-                      <span class="ni-badge" :style="{color: sourceBadge(edge.source).color, background: sourceBadge(edge.source).bg}">{{ sourceBadge(edge.source).text }}</span>
-                    </div>
-                  </div>
-                  <div class="ni-cell">
-                    <div class="ni-cell-k">规则驱动</div>
-                    <div class="ni-cell-v">
-                      <span v-if="edge.rule_driven" class="ni-chip" style="color:#ff3399;background:rgba(255,51,153,0.12)">⚡ 是</span>
-                      <span v-else class="ni-chip">否</span>
-                    </div>
-                  </div>
-                  <div class="ni-cell">
-                    <div class="ni-cell-k">约束数</div>
-                    <div class="ni-cell-v strong">{{ (edge.constraints || []).length }} <span class="ni-unit">条</span></div>
-                  </div>
-                </div>
+                <table class="ni-kv">
+                  <tbody>
+                    <tr><td class="ni-kv-k">ID</td><td class="ni-kv-v mono">{{ edge.id }}</td></tr>
+                    <tr><td class="ni-kv-k">名称</td><td class="ni-kv-v strong">{{ edge.label || '(未命名)' }}</td></tr>
+                    <tr><td class="ni-kv-k">来源</td><td class="ni-kv-v"><span class="ni-badge" :style="{color: sourceBadge(edge.source).color, background: sourceBadge(edge.source).bg}">{{ sourceBadge(edge.source).text }}</span></td></tr>
+                    <tr>
+                      <td class="ni-kv-k">规则驱动</td>
+                      <td class="ni-kv-v">
+                        <span v-if="edge.rule_driven" class="ni-chip" style="color:#ff3399;background:rgba(255,51,153,0.12)">⚡ 是</span>
+                        <span v-else class="ni-chip">否</span>
+                      </td>
+                    </tr>
+                    <tr><td class="ni-kv-k">约束数</td><td class="ni-kv-v strong">{{ (edge.constraints || []).length }} <span class="ni-unit">条</span></td></tr>
+                  </tbody>
+                </table>
               </div>
 
-              <div v-if="edge.derived_source || edge.derived_database || (edge.derived_tables || []).length" class="ni-card ni-card-lineage">
+              <div v-if="edge.derived_source || edge.derived_database || (edge.derived_tables || []).length" class="ni-card ni-card-full">
                 <div class="ni-card-title">数据来源血缘</div>
-                <div class="ni-lineage">
-                  <div class="ni-lineage-step" :class="{ missing: !edge.derived_source }">
-                    <span class="ni-lineage-icon" aria-hidden="true">🗄</span>
-                    <div class="ni-lineage-meta">
-                      <div class="ni-lineage-k">数据源</div>
-                      <div class="ni-lineage-v" :title="edge.derived_source || ''">
-                        <template v-if="edge.derived_source">{{ edge.derived_source }}</template>
-                        <span v-else class="ni-lineage-empty">未关联</span>
-                      </div>
-                    </div>
-                  </div>
-                  <span class="ni-lineage-arrow" aria-hidden="true">›</span>
-                  <div class="ni-lineage-step" :class="{ missing: !edge.derived_database }">
-                    <span class="ni-lineage-icon" aria-hidden="true">🛢</span>
-                    <div class="ni-lineage-meta">
-                      <div class="ni-lineage-k">数据库</div>
-                      <div class="ni-lineage-v mono" :title="edge.derived_database || ''">
-                        <template v-if="edge.derived_database">{{ edge.derived_database }}</template>
-                        <span v-else class="ni-lineage-empty">未关联</span>
-                      </div>
-                    </div>
-                  </div>
-                  <span class="ni-lineage-arrow" aria-hidden="true">›</span>
-                  <div class="ni-lineage-step ni-lineage-tables" :class="{ missing: !(edge.derived_tables || []).length }">
-                    <span class="ni-lineage-icon" aria-hidden="true">📋</span>
-                    <div class="ni-lineage-meta">
-                      <div class="ni-lineage-k">来源表 <span v-if="(edge.derived_tables || []).length" class="ni-lineage-count">{{ edge.derived_tables.length }}</span></div>
-                      <div class="ni-lineage-v">
+                <table class="ni-kv">
+                  <tbody>
+                    <tr :class="{ missing: !edge.derived_source }">
+                      <td class="ni-kv-k">数据源</td>
+                      <td class="ni-kv-v">
+                        <span v-if="edge.derived_source" class="ni-src-val">{{ edge.derived_source }}</span>
+                        <span v-else class="ni-kv-empty">未关联</span>
+                      </td>
+                    </tr>
+                    <tr :class="{ missing: !edge.derived_database }">
+                      <td class="ni-kv-k">数据库</td>
+                      <td class="ni-kv-v">
+                        <span v-if="edge.derived_database" class="ni-src-val mono">{{ edge.derived_database }}</span>
+                        <span v-else class="ni-kv-empty">未关联</span>
+                      </td>
+                    </tr>
+                    <tr :class="{ missing: !(edge.derived_tables || []).length }">
+                      <td class="ni-kv-k">来源表 <span v-if="(edge.derived_tables || []).length" class="ni-kv-count">{{ edge.derived_tables.length }}</span></td>
+                      <td class="ni-kv-v">
                         <span v-for="(tb, i) in (edge.derived_tables || [])" :key="'edt'+i" class="ei-src-chip">{{ tb }}</span>
-                        <span v-if="!(edge.derived_tables || []).length" class="ni-lineage-empty">未关联</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                        <span v-if="!(edge.derived_tables || []).length" class="ni-kv-empty">未关联</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
 
-              <div class="ni-card">
+              <div class="ni-card ni-card-full">
                 <div class="ni-card-title">边方向</div>
                 <div class="ei-flow">
                   <div class="ei-endpoint" v-if="fromNode">
@@ -330,7 +315,7 @@ const startResize = (e: MouseEvent) => {
                   </template>
                 </div>
               </div>
-              <div class="ni-card" v-if="siblingEdges.length > 1">
+              <div class="ni-card ni-card-full" v-if="siblingEdges.length > 1">
                 <div class="ni-card-title">同名边明细 <span class="ni-card-count">{{ siblingEdges.length }}</span></div>
                 <table class="ni-rel-table">
                   <thead>

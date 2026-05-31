@@ -798,28 +798,28 @@ body::after {
   overflow-y:auto;
   padding: 16px 20px 20px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 8px 36px;
   align-content: start;
 }
 .ni-body::-webkit-scrollbar { width:6px; }
 .ni-body::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.08); border-radius: 3px; }
 .ni-body::-webkit-scrollbar-thumb:hover { background:rgba(255,255,255,0.16); }
 
-/* ── Card ── */
+/* ── Section（去卡片化：扁平分区，仅靠标题分隔）── */
 .ni-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.015));
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 14px;
-  padding: 14px 16px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 14px 0 6px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
-  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,0.03);
-  transition: border-color .15s var(--ease-out), background .15s var(--ease-out);
+  box-shadow: none;
 }
-.ni-card:hover { border-color: rgba(255,255,255,0.10); }
+/* 跨整行的分区（数据来源血缘 / 属性表 / 关系表等需要更宽的内容）*/
+.ni-card-full { grid-column: 1 / -1; }
 .ni-card-title {
   font-size: 11px;
   font-weight: 600;
@@ -830,6 +830,18 @@ body::after {
   align-items: center;
   gap: 8px;
   font-family: var(--font-mono);
+  padding-bottom: 9px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.ni-card-title::before {
+  content: '';
+  width: 3px;
+  height: 11px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(66, 184, 131, 0.45);
+  flex-shrink: 0;
 }
 .ni-card-count {
   font-size: 10px;
@@ -842,37 +854,47 @@ body::after {
   font-family: var(--font-mono);
 }
 
-/* ── Detail Grid (概览) ── */
-.ni-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 4px 16px;
+/* ── 详情表（概览/血缘/概要）：一行一个数据，键 + 值 ── */
+.ni-kv {
+  width: 100%;
+  max-width: 560px;
+  border-collapse: collapse;
 }
-.ni-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.ni-kv td {
   padding: 8px 0;
-  border-bottom: 1px dashed rgba(255,255,255,0.05);
-  min-width: 0;
+  border-bottom: 1px dashed rgba(255,255,255,0.06);
+  vertical-align: middle;
 }
-.ni-cell-k {
+.ni-kv tr:last-child td { border-bottom: none; }
+.ni-kv tr.missing .ni-kv-v { opacity: 0.55; }
+.ni-kv-k {
+  width: 1%;
+  white-space: nowrap;
+  padding-right: 32px;
   font-size: 11px;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
-.ni-cell-v {
+.ni-kv-count {
+  margin-left: 6px;
+  font-size: 10px;
+  color: rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.08);
+  padding: 0 6px;
+  border-radius: 100px;
+  letter-spacing: 0;
+}
+.ni-kv-v {
   font-size: 13px;
   color: var(--text-main);
-  word-break: break-all;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 22px;
+  word-break: break-word;
 }
-.ni-cell-v.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--text-dim); }
-.ni-cell-v.strong { font-weight: 600; font-size: 14px; }
+.ni-kv-v.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: var(--text-dim); }
+.ni-kv-v.strong { font-weight: 600; font-size: 14px; }
+.ni-kv-empty { color: rgba(255,255,255,0.35); font-style: italic; font-size: 12px; }
+.ni-src-val { color: #22dd88; font-size: 13px; }
+.ni-src-val.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
 .ni-unit { font-size: 11px; color: var(--text-dim); font-weight: 400; }
 
 /* ── Chip / Badge ── */
@@ -904,82 +926,6 @@ body::after {
 }
 .ni-dim { color: rgba(255,255,255,0.4); font-size: 12px; }
 
-/* ── 数据来源血缘卡片（节点/边共用）── */
-.ni-card-lineage { grid-column: 1 / -1; }
-.ni-lineage {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.ni-lineage-step {
-  flex: 1 1 200px;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: linear-gradient(180deg, rgba(34,221,136,0.06), rgba(34,221,136,0.02));
-  border: 1px solid rgba(34,221,136,0.18);
-  border-radius: 10px;
-  transition: border-color .15s, background .15s;
-}
-.ni-lineage-step.missing {
-  background: rgba(255,255,255,0.02);
-  border: 1px dashed rgba(255,255,255,0.12);
-}
-.ni-lineage-tables { flex: 2 1 280px; }
-.ni-lineage-icon {
-  font-size: 18px;
-  line-height: 1;
-  filter: saturate(0.85);
-  flex-shrink: 0;
-}
-.ni-lineage-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-  flex: 1;
-}
-.ni-lineage-k {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.5);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.ni-lineage-count {
-  font-size: 10px;
-  color: rgba(255,255,255,0.55);
-  background: rgba(255,255,255,0.08);
-  padding: 0 6px;
-  border-radius: 100px;
-  font-weight: 500;
-  letter-spacing: 0;
-}
-.ni-lineage-v {
-  font-size: 13px;
-  color: var(--text-main);
-  word-break: break-all;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-}
-.ni-lineage-v.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
-.ni-lineage-empty { color: rgba(255,255,255,0.35); font-style: italic; font-size: 12px; }
-.ni-lineage-arrow {
-  align-self: center;
-  font-size: 18px;
-  color: rgba(255,255,255,0.25);
-  font-weight: 300;
-  user-select: none;
-}
-
 /* ── 本体属性列表 ── */
 .ni-attr-list { display: flex; flex-direction: column; gap: 2px; }
 .ni-attr-item {
@@ -1010,22 +956,6 @@ body::after {
 .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
 /* ── 自定义属性 ── */
-.ni-prop-list { display: flex; flex-direction: column; gap: 6px; }
-.ni-prop-row { display: flex; gap: 6px; align-items: center; }
-.ni-prop-key-input, .ni-prop-val-input {
-  flex: 1;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 6px;
-  padding: 6px 10px;
-  color: var(--text-main);
-  font-size: 12px;
-  outline: none;
-  font-family: inherit;
-  transition: border-color .15s, background .15s;
-}
-.ni-prop-key-input { max-width: 120px; }
-.ni-prop-key-input:focus, .ni-prop-val-input:focus { border-color: var(--accent); background: rgba(255,255,255,0.06); }
 .ni-prop-del, .ni-edge-del {
   background: transparent;
   border: none;
