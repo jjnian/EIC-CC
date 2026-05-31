@@ -33,7 +33,7 @@ const items: [string, string, string][] = [
 
 const isActive = (route: string): boolean => {
   switch (route) {
-    case 'welcome': return props.view === 'welcome' || props.view === 'chat';
+    case 'welcome': return props.view === 'chat';
     case 'datasource': return props.view === 'datasource-list' || props.view === 'datasource';
     default: return false;
   }

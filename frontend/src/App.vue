@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import SettingsView from './components/SettingsView.vue';
-import WelcomeChat from './components/WelcomeChat.vue';
 import WorkspacePickerView from './components/WorkspacePickerView.vue';
 import PredictDialog from './components/PredictDialog.vue';
 import BranchCompareDialog from './components/BranchCompareDialog.vue';
@@ -68,7 +67,7 @@ const { chatW, startDivider, isDragging } = useDivider(
   () => sbExp.value ? sidebarW.value : 72,
 );
 
-const view = ref<'welcome' | 'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource' | 'datasource-list' | 'conv-list'>('workspace-picker');
+const view = ref<'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource' | 'datasource-list' | 'conv-list'>('workspace-picker');
 
 // 左侧顶级菜单导航：把菜单 route 映射到对应的 view
 const onNav = (r: string) => {
@@ -241,7 +240,7 @@ onMounted(async () => {
       return;
     }
     await loadOntologyModels();
-    view.value = 'welcome';
+    view.value = 'chat';
   } catch (e) {
     console.error('init workspace failed', e);
     view.value = 'workspace-picker';
@@ -399,32 +398,69 @@ const createNewModel = async () => {
   }
 };
 
-const onWelcomeSubmit = async (payload: { text: string; files: File[] }) => {
-  if (isCreating.value) return;
-  isCreating.value = true;
-  try {
-    const title = payload.text.slice(0, 18).trim() || '新建本体图';
-    const draft: OntologyModel = {
-      id: 'om_' + Date.now(),
-      title: title.length > 16 ? title.slice(0, 16) + '…' : title,
-      desc: payload.text || '通过对话生成的本体模型',
-      graphData: { nodes: [], edges: [] }
-    };
-    const saved = await createOnBackend(draft);
-    models.value.unshift(saved);
-    pendingChatSeed.value = payload;
-    // 全程居中:分析过程留在中心聊天视图,生成的图存到血缘图文件夹由用户主动点击打开
-    await openModel(saved, 'chat');
-  } finally {
-    isCreating.value = false;
-  }
+/**
+ * 「新对话」首次发言时由 ChatPanel 通过 ensure-model 回调进来,惰性创建一个新的
+ * 本体模型并把当前模型上下文切到它。并发去重用单例 Promise 兜底。
+ */
+let ensuringModelPromise: Promise<void> | null = null;
+const ensureCurrentModel = (titleHint: string): Promise<void> => {
+  if (currentModelId.value) return Promise.resolve();
+  if (ensuringModelPromise) return ensuringModelPromise;
+  ensuringModelPromise = (async () => {
+    try {
+      const raw = (titleHint || '').trim();
+      const base = raw.slice(0, 18) || '新建本体图';
+      const draft: OntologyModel = {
+        id: 'om_' + Date.now(),
+        title: base.length > 16 ? base.slice(0, 16) + '…' : base,
+        desc: raw || '通过对话生成的本体模型',
+        graphData: { nodes: [], edges: [] },
+      };
+      const saved = await createOnBackend(draft);
+      models.value.unshift(saved);
+      currentModelTitle.value = saved.title || saved.name || '';
+      currentModelId.value = saved.id;
+      nodes.value = saved.graphData?.nodes || [];
+      edges.value = saved.graphData?.edges || [];
+      sel.value = null;
+      activeBranchId.value = 'trunk';
+      history.reset(nodes.value, edges.value);
+      await scenarios.loadBranches(saved.id);
+      const wsId = wsManager.currentId.value;
+      if (wsId) sidebarTree.upsertOntology(wsId, {
+        id: saved.id,
+        name: saved.name || saved.title || '未命名图谱',
+        updatedAt: Date.now(),
+      });
+    } finally {
+      ensuringModelPromise = null;
+    }
+  })();
+  return ensuringModelPromise;
 };
 
-const welcomeResetTick = ref(0);
-const goWelcome = () => {
-  view.value = 'welcome';
+/**
+ * 「新对话」入口:清空当前本体模型上下文,切到中心聊天视图,并在 ChatPanel 里
+ * 新建一个空白会话。欢迎横幅由 ChatCenterView 根据「会话是否还没有用户消息」自动
+ * 决定显隐。首条用户消息发送时,ChatPanel 会通过 ensure-model 回调让我们落地新模型。
+ */
+const goWelcome = async () => {
+  if (currentModelId.value && activeBranchId.value === 'trunk') {
+    persistCurrentModel(true);
+  }
+  await chatRef.value?.flushPersist?.();
+  prediction.abortLiveStream();
+  currentModelId.value = '';
+  currentModelTitle.value = '';
+  nodes.value = [];
+  edges.value = [];
   sel.value = null;
-  welcomeResetTick.value++;
+  activeBranchId.value = 'trunk';
+  prediction.resetLiveState();
+  view.value = 'chat';
+  await nextTick();
+  chatRef.value?.newConversation?.();
+  chatRef.value?.focusInput?.();
 };
 
 const findConversationModelId = async (id: string): Promise<string | null> => {
@@ -683,9 +719,6 @@ const formatFileSize = (bytes: number) => {
       <!-- Workspace Picker -->
       <WorkspacePickerView v-if="view === 'workspace-picker'" @enter="onWorkspaceEntered" />
 
-      <!-- Welcome / Chat-first View -->
-      <WelcomeChat v-else-if="view === 'welcome'" :resetTick="welcomeResetTick" @submit="onWelcomeSubmit" />
-
       <!-- List View -->
       <div class="model-list-view" v-if="view === 'list'">
         <div class="ml-header">
@@ -808,6 +841,7 @@ const formatFileSize = (bytes: number) => {
         :pending-chat-seed="pendingChatSeed"
         :model-title="currentModelTitle"
         :model-id="currentModelId"
+        :ensure-model="ensureCurrentModel"
         @update="merger.onUpdate"
         @clear-graph="editor.clearCanvas"
         @seed-consumed="pendingChatSeed = null"

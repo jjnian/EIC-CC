@@ -25,6 +25,12 @@ const props = defineProps<{
    */
   livePrediction?: LivePrediction | null;
   modelId?: string;
+  /**
+   * 在发送前确保有当前本体模型。无 modelId 时调用,App.vue 负责创建模型并把
+   * currentModelId 写回,等待此 Promise resolve 后再走 send。用于「新对话」入口
+   * 由用户首次发言时才落地一个模型。
+   */
+  ensureModel?: (titleHint: string) => Promise<void>;
 }>();
 
 const emit = defineEmits<{
@@ -34,6 +40,7 @@ const emit = defineEmits<{
   (e: 'focus-node', id: string): void;
   (e: 'abort-prediction'): void;
   (e: 'view-graph', modelId: string): void;
+  (e: 'user-msg-changed', hasUserMsg: boolean): void;
 }>();
 
 // ===== 消息/输入 状态 =====
@@ -115,6 +122,25 @@ const sender = useChatSend({
 });
 const { send, abortChat } = sender;
 
+/**
+ * 实际触发发送的入口。若父级声明了 ensureModel(用于「新对话」首次发言时
+ * 才创建本体模型的延迟落地),先 await 它再 send。
+ */
+const onSend = async () => {
+  if (!input.value.trim() && !atts.value.length) return;
+  if (props.ensureModel && !props.modelId) {
+    try {
+      await props.ensureModel(input.value);
+      await nextTick();
+    } catch (e) {
+      console.error('ensureModel failed', e);
+      toast.warn('创建本体模型失败');
+      return;
+    }
+  }
+  await send();
+};
+
 // ===== 推演消息同步 =====
 usePredictionSync({
   msgs,
@@ -127,7 +153,7 @@ const onInputKeydown = (e: KeyboardEvent) => {
   if (handleMentionKeydown(e)) return;
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
-    send();
+    onSend();
   }
 };
 const onInputEvent = () => { nextTick(() => checkMention()); };
@@ -166,7 +192,7 @@ const onSelectQuestionOption = (messageIndex: number, option: { label: string; v
   if (!m || !m.question || m.question.answered) return;
   m.question.answered = option.label;
   input.value = option.value || option.label;
-  nextTick(() => { send(); });
+  nextTick(() => { onSend(); });
 };
 
 // ===== 启动:加载模型 + 恢复/接收 seed =====
@@ -174,7 +200,7 @@ const consumeSeed = (seed: { text: string; files: File[] }) => {
   seed.files.forEach(f => addFile(f));
   input.value = seed.text;
   emit('seed-consumed');
-  nextTick(() => { send(); });
+  nextTick(() => { onSend(); });
 };
 
 onMounted(() => {
@@ -203,11 +229,12 @@ watch(() => props.seed, (newSeed) => {
 
 onBeforeUnmount(() => abortChat());
 
-// 每次消息变化:滚到底 + localStorage 持久化
+// 每次消息变化:滚到底 + localStorage 持久化 + 通知父级用户消息状态(用于切换欢迎横幅)
 watch(msgs, () => {
   msgListRef.value?.scrollToBottom();
   persistCurrent();
-}, { deep: true });
+  emit('user-msg-changed', msgs.value.some(m => m.role === 'u'));
+}, { deep: true, immediate: true });
 
 watch(loading, (now, prev) => {
   if (!now && prev) {
@@ -304,6 +331,20 @@ defineExpose({
   setConversationTitle: (title: string) => setConversationTitle(title),
   flushPersist,
   focusInput: () => { inputRef.value?.focus(); nextTick(() => checkMention()); },
+  /** 把示例文本直接写入输入框(供欢迎横幅的示例按钮用)。 */
+  setInput: (text: string) => {
+    input.value = text;
+    nextTick(() => {
+      inputRef.value?.focus();
+      const len = text.length;
+      try { inputRef.value?.setSelectionRange(len, len); } catch { /* noop */ }
+    });
+  },
+  /** 取当前会话里首条用户消息的文本,供 App.vue 用于本体模型标题。 */
+  getFirstUserText: (): string => {
+    const first = msgs.value.find(m => m.role === 'u');
+    return first?.text || '';
+  },
 });
 
 watch(() => ws.currentId.value, (wsId) => {
@@ -398,7 +439,7 @@ watch(() => ws.currentId.value, (wsId) => {
             :class="{ 'send-btn-stop': loading }"
             type="button"
             :title="loading ? '停止生成' : '发送'"
-            @click="loading ? abortChat() : send()"
+            @click="loading ? abortChat() : onSend()"
           >
             <svg v-if="loading" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
               <rect x="6" y="6" width="12" height="12" rx="2"></rect>
