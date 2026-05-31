@@ -43,6 +43,11 @@ CREATE TABLE IF NOT EXISTS ontology_node (
     label                   VARCHAR(255),
     type                    VARCHAR(32),
     source                  VARCHAR(32),
+    derived_tables_json     TEXT,
+    attributes_json         TEXT,
+    constraints_json        TEXT,
+    derived_source          VARCHAR(255),
+    derived_database        VARCHAR(255),
     x                       DOUBLE PRECISION,
     y                       DOUBLE PRECISION,
     predicted_step          INTEGER,
@@ -52,6 +57,12 @@ CREATE TABLE IF NOT EXISTS ontology_node (
     explanation             TEXT,
     PRIMARY KEY (model_id, id)
 );
+ALTER TABLE ontology_node
+    ADD COLUMN IF NOT EXISTS derived_tables_json TEXT,
+    ADD COLUMN IF NOT EXISTS attributes_json TEXT,
+    ADD COLUMN IF NOT EXISTS constraints_json TEXT,
+    ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
 CREATE INDEX IF NOT EXISTS idx_ontology_node_model
     ON ontology_node (model_id);
 
@@ -78,10 +89,19 @@ CREATE TABLE IF NOT EXISTS ontology_edge (
     to_node_id     VARCHAR(64)  NOT NULL,
     label          VARCHAR(255),
     source         VARCHAR(32),
+    derived_tables_json TEXT,
+    constraints_json    TEXT,
+    derived_source      VARCHAR(255),
+    derived_database    VARCHAR(255),
     rule_driven    BOOLEAN      NOT NULL DEFAULT FALSE,
     rule_id        VARCHAR(64),
     PRIMARY KEY (model_id, id)
 );
+ALTER TABLE ontology_edge
+    ADD COLUMN IF NOT EXISTS derived_tables_json TEXT,
+    ADD COLUMN IF NOT EXISTS constraints_json TEXT,
+    ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
 CREATE INDEX IF NOT EXISTS idx_ontology_edge_model
     ON ontology_edge (model_id);
 CREATE INDEX IF NOT EXISTS idx_ontology_edge_from
@@ -111,6 +131,11 @@ CREATE TABLE IF NOT EXISTS ontology_version_node (
     label                   VARCHAR(255),
     type                    VARCHAR(32),
     source                  VARCHAR(32),
+    derived_tables_json     TEXT,
+    attributes_json         TEXT,
+    constraints_json        TEXT,
+    derived_source          VARCHAR(255),
+    derived_database        VARCHAR(255),
     x                       DOUBLE PRECISION,
     y                       DOUBLE PRECISION,
     predicted_step          INTEGER,
@@ -120,6 +145,12 @@ CREATE TABLE IF NOT EXISTS ontology_version_node (
     explanation             TEXT,
     PRIMARY KEY (version_id, node_id)
 );
+ALTER TABLE ontology_version_node
+    ADD COLUMN IF NOT EXISTS derived_tables_json TEXT,
+    ADD COLUMN IF NOT EXISTS attributes_json TEXT,
+    ADD COLUMN IF NOT EXISTS constraints_json TEXT,
+    ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
 
 -- 版本节点属性
 CREATE TABLE IF NOT EXISTS ontology_version_node_prop (
@@ -144,10 +175,19 @@ CREATE TABLE IF NOT EXISTS ontology_version_edge (
     to_node_id     VARCHAR(64)  NOT NULL,
     label          VARCHAR(255),
     source         VARCHAR(32),
+    derived_tables_json TEXT,
+    constraints_json    TEXT,
+    derived_source      VARCHAR(255),
+    derived_database    VARCHAR(255),
     rule_driven    BOOLEAN      NOT NULL DEFAULT FALSE,
     rule_id        VARCHAR(64),
     PRIMARY KEY (version_id, edge_id)
 );
+ALTER TABLE ontology_version_edge
+    ADD COLUMN IF NOT EXISTS derived_tables_json TEXT,
+    ADD COLUMN IF NOT EXISTS constraints_json TEXT,
+    ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
 
 -- ---------------------------------------------------------------------------
 -- 3. 推演分支（Scenario）
