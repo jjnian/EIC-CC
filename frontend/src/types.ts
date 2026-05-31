@@ -14,6 +14,10 @@ export interface OntologyNode {
   // 静态本体 TBox: 类节点上的属性定义与约束(不渲染为图节点,只在 Schema 面板里)
   attributes?: OntologyAttribute[];
   constraints?: OntologyConstraint[];
+  // 数据来源（DB schema 抽取时打标）
+  derived_tables?: string[];
+  derived_source?: string;
+  derived_database?: string;
   predictedStep?: number;
   predictedIntent?: 'forward' | 'backward';
   confidence?: number;
@@ -33,6 +37,9 @@ export interface OntologyEdge {
   ruleId?: string;
   // 关系类型上的约束: 基数/对称/传递…(不渲染在边上,只在 Schema 面板里 + 边上一个🔒)
   constraints?: OntologyConstraint[];
+  derived_tables?: string[];
+  derived_source?: string;
+  derived_database?: string;
   isNew?: boolean;
   [k: string]: any;
 }
@@ -41,6 +48,7 @@ export interface OntologyEdge {
 export interface OntologyAttribute {
   name: string;
   valueSpace?: string;
+  column?: string;
   description?: string;
   source?: NodeSource;
 }
