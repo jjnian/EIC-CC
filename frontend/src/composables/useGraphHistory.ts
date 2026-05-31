@@ -16,22 +16,22 @@ export interface GraphHistoryCtx {
 const MAX_HISTORY = 50;
 
 const clone = (s: GraphSnapshot): GraphSnapshot => ({
-  nodes: s.nodes.map(n => ({ ...n, props: n.props ? n.props.map(p => ({ ...p })) : undefined,
-                              properties: n.properties ? { ...n.properties } : undefined })),
+  nodes: s.nodes.map(n => ({
+    ...n,
+    props: n.props ? n.props.map(p => ({ ...p })) : undefined,
+    properties: n.properties ? { ...n.properties } : undefined,
+    attributes: Array.isArray((n as any).attributes)
+      ? (n as any).attributes.map((a: any) => ({ ...a })) : (n as any).attributes,
+    constraints: Array.isArray((n as any).constraints)
+      ? (n as any).constraints.map((c: any) => ({ ...c })) : (n as any).constraints,
+    derived_tables: Array.isArray((n as any).derived_tables)
+      ? [...(n as any).derived_tables] : (n as any).derived_tables,
+  })),
   edges: s.edges.map(e => ({ ...e })),
 });
 
 const eqSnap = (a: GraphSnapshot, b: GraphSnapshot) => {
-  if (a.nodes.length !== b.nodes.length || a.edges.length !== b.edges.length) return false;
-  for (let i = 0; i < a.nodes.length; i++) {
-    const x = a.nodes[i], y = b.nodes[i];
-    if (x.id !== y.id || x.label !== y.label || x.type !== y.type || x.x !== y.x || x.y !== y.y) return false;
-  }
-  for (let i = 0; i < a.edges.length; i++) {
-    const x = a.edges[i], y = b.edges[i];
-    if (x.id !== y.id || x.from !== y.from || x.to !== y.to || x.label !== y.label) return false;
-  }
-  return true;
+  return JSON.stringify(a) === JSON.stringify(b);
 };
 
 export function useGraphHistory(ctx: GraphHistoryCtx) {

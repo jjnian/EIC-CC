@@ -15,18 +15,20 @@ public final class LlmPrompts {
           "add_nodes": [
             {
               "id": "A unique id for the node, e.g., 'n_123'",
-              "label": "The canonical name of the entity, event, or rule (pick ONE preferred form)",
+              "label": "The canonical business concept name (pick ONE preferred form; raw table names may appear only as traceability hints)",
               "aliases": ["Other surface forms / abbreviations referring to the SAME concept, e.g., ['采购单','PO'] for '采购订单'. Used to de-duplicate across chunks. Omit or [] if none."],
               "type": "Must be one of: 'entity', 'event', 'rule', 'process', 'data', 'external'",
               "source": "Must be one of: 'derived' (from text) or 'inferred'",
               "evidence": "≤30-char quote or location from the source that grounds this node. Empty string for purely inferred nodes.",
               "confidence": "Number 0.0-1.0 — how certain this node really exists in the domain (derived≈0.9-1.0, inferred≈0.4-0.7).",
+              "derived_tables": ["Required when schema-backed. The real table name(s) that back this business concept, e.g., ['orders'] or ['orders','order_items'] when multiple physical tables collapse into one semantic node. Omit only outside the schema→ontology flow."],
               "props": [
                 { "key": "string", "value": "string", "source": "Must be one of: 'derived' or 'inferred'" }
               ],
               "attributes": [
                 {
-                  "name": "The attribute name, e.g., 'weight', 'duration', 'status'",
+                  "name": "The attribute name — a BUSINESS-SEMANTIC name, e.g., '订单状态', '下单时间' (not necessarily the raw column name).",
+                  "column": "Required when the attribute is backed by a physical column. The real column name backing this attribute, e.g., 'status'. Omit only outside the schema→ontology flow.",
                   "valueSpace": "The value type or range, e.g., 'number', 'string', '0..1', 'enum(high,medium,low)'",
                   "description": "Optional brief description of this attribute",
                   "source": "Must be one of: 'derived' or 'inferred'"
@@ -51,6 +53,7 @@ public final class LlmPrompts {
               "source": "Must be one of: 'derived' or 'inferred'",
               "evidence": "≤30-char quote or location from the source that grounds this edge. Empty string for purely inferred edges.",
               "confidence": "Number 0.0-1.0 — how certain this relationship holds (derived≈0.9-1.0, inferred≈0.4-0.7).",
+              "derived_tables": ["Required when schema-backed. The real table(s) backing this relationship, e.g., the two FK-linked tables or the single junction table for an N:M relationship. Omit only outside the schema→ontology flow."],
               "rule_driven": true_or_false,
               "constraints": [
                 {
@@ -155,7 +158,7 @@ public final class LlmPrompts {
         4. You MUST return ONLY valid JSON strictly matching this schema. NO markdown wrapping, just the raw JSON object.
 
         SCHEMA:
-        %s""".formatted(SCHEMA_STRING);
+        """ + SCHEMA_STRING;
 
     public static final String EXTRACT_SYSTEM = """
         You are an AI Ontology Developer extracting a static ontology graph (TBox) from documents.
@@ -283,7 +286,7 @@ public final class LlmPrompts {
         ---
 
         SCHEMA:
-        %s""".formatted(SCHEMA_STRING);
+        """ + SCHEMA_STRING;
 
     /**
      * 数据库 schema → 本体血缘图专用 system prompt。
@@ -308,14 +311,17 @@ public final class LlmPrompts {
         MANDATORY MAPPING RULES — these are deterministic, not suggestions:
         ============================================================
 
-        **Rule 1 — Table → Node (one-to-one, no exceptions):**
-        Every table in the input MUST appear as exactly one node.
-          - Use the table name as part of the label; if the table has a Chinese comment,
-            prefer `"<comment>(<table_name>)"` as the label so humans can read it.
-          - The node `id` should be `t_<sanitized_table_name>` (lowercase, non-alphanum → "_").
-          - Set `source = "derived"` — the table is direct evidence.
-          - Set `evidence` to the table name (≤30 chars).
-          - Set `confidence = 1.0` — tables are facts.
+        **Rule 1 — Schema → Semantic Node (many-to-one allowed):**
+        Emit the smallest useful business concepts, not a mechanical table mirror.
+          - A node may be backed by one table or by multiple tightly related tables when they
+            clearly describe one business concept.
+          - Use the business concept name as the label; raw table names may appear only as
+            traceability hints in `derived_tables` or in parentheses.
+          - The node `id` should be stable and machine-friendly (for example `t_<sanitized_name>`).
+          - Set `source = "derived"` when the concept is grounded in the schema.
+          - Set `evidence` to the most concrete schema evidence available.
+          - Set `confidence` according to how directly the schema supports the concept,
+            with semantic aggregation typically below 1.0 unless it is a direct one-table concept.
 
         **Rule 2 — Table type classification (use these heuristics in order):**
           a. `type = "rule"`     — table name matches `^(rule|policy|config|setting|param|dict|enum)s?_?`
@@ -333,8 +339,8 @@ public final class LlmPrompts {
           f. `type = "entity"`   — DEFAULT for everything else (the core business objects:
                                    customer / order / product / account / asset…).
 
-        **Rule 3 — Foreign Key → directed edge (this is the lineage):**
-        Each FK (childTable.childCol → parentTable.parentCol) becomes ONE edge.
+        **Rule 3 — Foreign Key → evidence for semantic edges:**
+        Each FK is evidence for at least one semantic edge when it helps express the model.
           - Edge direction: `from = t_<childTable>`, `to = t_<parentTable>`.
           - `rel_type` MUST be chosen by this lookup table:
               * parent is `dim_*` / lookup / dictionary table → `derived_from`
@@ -370,11 +376,10 @@ public final class LlmPrompts {
             `label = "<A>.<col> ≈ <B>.<col> (按命名推断,未声明 FK)"`.
         If any condition (a)~(e) fails, DO NOT emit the edge — leave it out. Missing > wrong.
 
-        **Rule 5 — Columns become ATTRIBUTES on the table node (do NOT create column nodes):**
-        For each table node, the `attributes` array MUST include every column that is meaningful
-        to the business (PK, FK, unique, status, status_*, type_*, _at timestamps, money/amount/qty
-        fields, name/code/no identifiers). Skip purely technical fields (created_at/updated_at
-        only IF the table is not an event table).
+        **Rule 5 — Columns become ATTRIBUTES on the node (do NOT create column nodes):**
+        For each node, the `attributes` array SHOULD include the meaningful backing columns
+        from the source tables (PK, FK, unique, status, type, timestamps, amount/qty, name/code/no
+        identifiers). Skip purely technical fields when they do not help explain the business concept.
           - `name`: column name.
           - `valueSpace`: simplified SQL type
               (bigint/int/decimal → "number", varchar/text → "string", date/datetime/timestamp → "date",
@@ -383,8 +388,8 @@ public final class LlmPrompts {
               add "[PK]" / "[FK→table.col]" / "[UNIQUE]" prefix where applicable.
           - `source = "derived"` if column comment present, else `"inferred"`.
 
-        **Rule 6 — Table-level CONSTRAINTS:**
-        Each table node's `constraints` array MUST capture:
+        **Rule 6 — Node-level CONSTRAINTS:**
+        Each node's `constraints` array SHOULD capture:
           - PK cardinality: `{kind:"cardinality", note:"主键: <cols>", source:"derived"}` if PK exists.
           - Unique business keys: one entry per unique index,
               `{kind:"custom", note:"业务唯一键: <idx_name>(<cols>)", source:"derived"}`.
@@ -398,18 +403,20 @@ public final class LlmPrompts {
         whose grounding cannot be traced back to a concrete schema element is a HALLUCINATION
         and will be deleted by post-processing. To minimize wasted output:
 
-        H1. **Do NOT invent tables**: every node MUST correspond to a table in the input.
-            If you can't point to an exact `TABLE <name>` line for it, do NOT emit the node.
+        H1. **Do NOT invent unsupported nodes**: every node MUST be grounded in one or more
+            concrete `TABLE` / `COL` / `FK` lines in the input. If you can't point to schema
+            evidence for the concept, do NOT emit the node.
 
         H2. **Do NOT invent columns**: every entry in a node's `attributes` array MUST be a
             column that actually appears in the input under that table. Do NOT add "common
             fields" like `created_at` / `updated_at` / `status` / `is_deleted` unless they
             are LITERALLY in the column list. If a column is not listed, it does not exist.
 
-        H3. **Do NOT invent FKs**: every "derived" edge MUST correspond to an `FK ...` line
-            from the input. If the input does NOT declare a FK between two tables, you MUST
-            NOT emit a `source="derived"` edge between them — only Rule 4 (with all conditions
-            met) can produce an `inferred` edge.
+        H3. **Do NOT invent unsupported edges**: every "derived" edge MUST be grounded in
+            one or more concrete `FK ...` lines or another explicit schema relation among the
+            node's `derived_tables`. If the input does NOT provide such grounding, you MUST
+            NOT emit a `source="derived"` edge — only Rule 4 (with all conditions met) can
+            produce an `inferred` edge.
 
         H4. **Do NOT enrich business semantics from world knowledge**: if the table is named
             `t_xyz_blob` and has no comment, do NOT guess what business "xyz" represents.
@@ -446,8 +453,9 @@ public final class LlmPrompts {
         ============================================================
         OUTPUT QUALITY REQUIREMENTS:
         ============================================================
-        1. **Exhaustive**: every input table → one node, every input FK → at least one edge.
-           Do NOT skip tables or FKs even if they look "boring" (mapping tables, lookups).
+        1. **Exhaustive**: every meaningful schema fragment should be represented by either
+           a node, an edge, or provenance on a merged node. Do NOT drop mapping tables, lookups,
+           or junction tables; either model them semantically or preserve them in derived_tables.
         2. **Deterministic ids**: `t_<sanitized_table_name>` for nodes,
            `e_fk_<child>_<col>__<parent>` for edges (so the same schema always produces the same graph).
         3. **No dangling edges**: every edge's from/to MUST exist in add_nodes.
@@ -459,78 +467,56 @@ public final class LlmPrompts {
         7. Return ONLY valid JSON strictly matching SCHEMA. No markdown wrapping.
 
         ============================================================
-        WORKED EXAMPLE (study and apply to the real input):
+        WORKED EXAMPLE (study the semantic shape, then apply to the real input):
         ============================================================
         Input schema (simplified):
         - table: orders (comment: "销售订单")
-            columns: id BIGINT PK, customer_id BIGINT NOT NULL, status VARCHAR(20),
-                     total_amount DECIMAL(10,2), created_at DATETIME
-            unique: (customer_id, created_at)
+            columns: id BIGINT PK, customer_id BIGINT, status VARCHAR(20), created_at DATETIME
             FK: customer_id → customers.id
-        - table: customers (comment: "客户")
-            columns: id BIGINT PK, name VARCHAR(64), tier_id INT
-            FK: tier_id → dim_customer_tier.id
-        - table: dim_customer_tier (comment: "客户分级字典")
-            columns: id INT PK, name VARCHAR(32), discount_rate DECIMAL(4,2)
         - table: order_items (comment: "订单明细")
-            columns: order_id BIGINT NOT NULL, product_id BIGINT NOT NULL, qty INT, PRIMARY KEY(order_id, product_id)
+            columns: order_id BIGINT, product_id BIGINT, qty INT
             FK: order_id → orders.id, FK: product_id → products.id
-        - table: products (comment: "商品主数据")
-            columns: id BIGINT PK, sku VARCHAR(32) UNIQUE, name VARCHAR(128)
-        - table: order_audit_log (comment: "订单变更日志")
-            columns: id BIGINT PK, order_id BIGINT, action VARCHAR(20), at DATETIME
+        - table: customers (comment: "客户")
+            columns: id BIGINT PK, name VARCHAR(64)
+        - table: products (comment: "商品")
+            columns: id BIGINT PK, sku VARCHAR(32), name VARCHAR(128)
 
-        Expected output (excerpt):
+        Good output shape (excerpt):
         {
           "add_nodes": [
-            {"id":"t_orders","label":"销售订单(orders)","type":"entity","source":"derived","evidence":"orders","confidence":1.0,
+            {"id":"t_sales_order","label":"销售订单","type":"entity","source":"derived","evidence":"orders + order_items","confidence":0.95,
+             "derived_tables":["orders","order_items"],
              "attributes":[
-               {"name":"id","valueSpace":"number","description":"[PK]","source":"derived"},
-               {"name":"customer_id","valueSpace":"number","description":"[FK→customers.id] 下单客户","source":"derived"},
-               {"name":"status","valueSpace":"string","description":"订单状态","source":"inferred"},
-               {"name":"total_amount","valueSpace":"number","description":"订单金额","source":"inferred"},
-               {"name":"created_at","valueSpace":"date","description":"创建时间","source":"inferred"}
+               {"name":"订单ID","column":"id","valueSpace":"number","description":"[PK]","source":"derived"},
+               {"name":"订单状态","column":"status","valueSpace":"string","description":"","source":"derived"},
+               {"name":"下单时间","column":"created_at","valueSpace":"date","description":"","source":"derived"},
+               {"name":"明细数量","column":"qty","valueSpace":"number","description":"来自订单明细","source":"derived"}
              ],
              "constraints":[
-               {"kind":"cardinality","note":"主键: id","source":"derived"},
-               {"kind":"custom","note":"业务唯一键: uk_customer_time(customer_id,created_at)","source":"derived"}
+               {"kind":"cardinality","note":"orders 主键: id","source":"derived"}
              ]},
-            {"id":"t_customers","label":"客户(customers)","type":"entity","source":"derived","evidence":"customers","confidence":1.0,
-             "attributes":[ /* ... */ ]},
-            {"id":"t_dim_customer_tier","label":"客户分级字典(dim_customer_tier)","type":"data","source":"derived","evidence":"dim_customer_tier","confidence":1.0,
-             "attributes":[ /* ... */ ]},
-            {"id":"t_order_items","label":"订单明细(order_items)","type":"data","source":"derived","evidence":"order_items","confidence":1.0,
-             "attributes":[ /* ... */ ],
-             "constraints":[{"kind":"cardinality","note":"主键: order_id,product_id (复合主键，纯关联表)","source":"derived"}]},
-            {"id":"t_products","label":"商品主数据(products)","type":"entity","source":"derived","evidence":"products","confidence":1.0,
-             "attributes":[ /* ... */ ]},
-            {"id":"t_order_audit_log","label":"订单变更日志(order_audit_log)","type":"event","source":"derived","evidence":"order_audit_log","confidence":1.0,
-             "attributes":[ /* ... */ ]}
+            {"id":"t_customer","label":"客户","type":"entity","source":"derived","evidence":"customers","confidence":1.0,
+             "derived_tables":["customers"],"attributes":[{"name":"客户名称","column":"name","valueSpace":"string","description":"","source":"derived"}]},
+            {"id":"t_product","label":"商品","type":"entity","source":"derived","evidence":"products","confidence":1.0,
+             "derived_tables":["products"],"attributes":[{"name":"SKU","column":"sku","valueSpace":"string","description":"","source":"derived"}]}
           ],
           "add_edges": [
-            {"id":"e_fk_orders_customer_id__customers","from":"t_orders","to":"t_customers","rel_type":"derived_from",
-             "label":"orders.customer_id → customers.id","source":"derived","confidence":1.0,"evidence":"FK","rule_driven":false,
-             "constraints":[{"kind":"cardinality","note":"N:1 (FK)","source":"derived"}]},
-            {"id":"e_fk_customers_tier_id__dim_customer_tier","from":"t_customers","to":"t_dim_customer_tier","rel_type":"derived_from",
-             "label":"customers.tier_id → dim_customer_tier.id","source":"derived","confidence":1.0,"evidence":"FK","rule_driven":false},
-            {"id":"e_compose_orders__order_items","from":"t_orders","to":"t_order_items","rel_type":"composed_of",
-             "label":"orders 包含 order_items (聚合根→明细)","source":"derived","confidence":1.0,"evidence":"FK aggregate","rule_driven":false,
-             "constraints":[{"kind":"cardinality","note":"1:N","source":"derived"}]},
-            {"id":"e_fk_order_items_product_id__products","from":"t_order_items","to":"t_products","rel_type":"derived_from",
-             "label":"order_items.product_id → products.id","source":"derived","confidence":1.0,"evidence":"FK","rule_driven":false},
-            {"id":"e_trigger_order_audit_log__orders","from":"t_order_audit_log","to":"t_orders","rel_type":"triggers",
-             "label":"order_audit_log.order_id ↔ orders.id (日志触发自订单)","source":"inferred","confidence":0.7,"evidence":"naming","rule_driven":false}
+            {"id":"e_order_customer","from":"t_sales_order","to":"t_customer","rel_type":"derived_from",
+             "label":"销售订单由客户发起","source":"derived","confidence":1.0,"evidence":"orders.customer_id → customers.id",
+             "derived_tables":["orders","customers"],"rule_driven":false},
+            {"id":"e_order_product","from":"t_sales_order","to":"t_product","rel_type":"composed_of",
+             "label":"销售订单包含商品明细","source":"derived","confidence":1.0,"evidence":"order_items.product_id → products.id",
+             "derived_tables":["order_items","products"],"rule_driven":false}
           ]
         }
         Note how the example:
-          - merges order_items into a `composed_of` edge from the aggregate root (orders);
-          - classifies `dim_*` as `data` type and uses `derived_from`;
-          - classifies `*_log` as `event` type;
-          - infers a triggers edge for the log table even though FK direction is N:1;
-          - keeps every attribute / constraint / evidence grounded in the input.
+          - merges orders + order_items into one business node because they form one order concept;
+          - keeps physical lineage in `derived_tables`;
+          - uses business-semantic attribute names while preserving raw `column`;
+          - keeps every edge grounded in real FK evidence.
 
         SCHEMA:
-        %s""".formatted(SCHEMA_STRING);
+        """ + SCHEMA_STRING;
 
     public static final String PREDICT_SCHEMA = """
         {
@@ -564,7 +550,7 @@ public final class LlmPrompts {
         8. 步骤数严格等于用户指定的 N；不足时尽量补足，超出请截断。
 
         SCHEMA:
-        %s""".formatted(PREDICT_SCHEMA);
+        """ + PREDICT_SCHEMA;
 
     public static final String PREDICT_BACKWARD_SCHEMA = """
         {
@@ -598,7 +584,7 @@ public final class LlmPrompts {
         8. 只输出严格符合 schema 的 JSON，禁止 markdown 包裹。
 
         SCHEMA:
-        %s""".formatted(PREDICT_BACKWARD_SCHEMA);
+        """ + PREDICT_BACKWARD_SCHEMA;
 
     public static final String EXPLAIN_SCHEMA = """
         {
@@ -619,5 +605,5 @@ public final class LlmPrompts {
         5. 只输出严格符合 schema 的 JSON，禁止 markdown 包裹。
 
         SCHEMA:
-        %s""".formatted(EXPLAIN_SCHEMA);
+        """ + EXPLAIN_SCHEMA;
 }

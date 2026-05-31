@@ -166,9 +166,9 @@ const relStats = computed(() => {
           <div class="dbo-desc">
             将根据当前数据库的 <strong>表 / 列 / 主键 / 外键 / 唯一键 / 注释</strong>
             自动生成本体血缘图。<br/>
-            • 每张表 → 1 个节点，列 → attributes，主键/唯一键 → constraints<br/>
-            • 每条外键 → 1 条 derived_from / composed_of / triggers 边<br/>
-            • 命名相关性强但缺 FK 时，会推断 inferred 关系
+            • 会按业务概念合并表，节点保留 `derived_tables` 来源<br/>
+            • 列会映射为 attributes，并保留物理 `column` 追溯<br/>
+            • 外键和命名相关性只作为证据，不会强行一表一节点
           </div>
           <label class="dbo-row">
             <span>额外提示（可选）</span>

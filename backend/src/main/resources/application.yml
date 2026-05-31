@@ -51,7 +51,7 @@ app:
         provider: deepseek
         base-url: https://api.deepseek.com
         model-name: deepseek-v4-flash
-        api-key: ${DEEPSEEK_API_KEY:sk-}
+        api-key: ${DEEPSEEK_API_KEY:sk-8fc96b5d37f5431b8392988afd9181f2}
         protocol: openai
         enabled: true
         context-window: 128000
@@ -66,7 +66,7 @@ app:
         provider: deepseek
         base-url: https://api.deepseek.com
         model-name: deepseek-v4-pro
-        api-key: ${DEEPSEEK_API_KEY:sk-}
+        api-key: ${DEEPSEEK_API_KEY:sk-8fc96b5d37f5431b8392988afd9181f2}
         protocol: openai
         enabled: true
         context-window: 128000
