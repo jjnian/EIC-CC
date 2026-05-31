@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { NT } from '../constants';
+import type { AttrSourceMethod } from '../types';
 
 const props = defineProps<{
   node: any | null;
@@ -83,12 +84,22 @@ const sourceBadge = (s?: string) => {
   return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
 };
 
-// 属性物理来源：单表时回退到节点的来源表，多表时只能给出列名
-const attrSource = (a: any, node: any): { table: string; column: string } | null => {
-  if (!a?.column) return null;
+// 来源方式：显式 sourceMethod 优先；否则由物理字段 / 来源推断
+//   有物理列 → 数据库提取；文本/AI 提取 → 文件提取；其余 → 自定义
+const sourceMethodOf = (a: any): AttrSourceMethod => {
+  if (a?.sourceMethod) return a.sourceMethod;
+  if (a?.column) return 'db';
+  if (a?.source === 'derived' || a?.source === 'inferred') return 'file';
+  return 'custom';
+};
+
+// 物理表展示值：属性自身未显式标表时，回退到节点单一来源表（DB 抽取的表名挂在节点的
+// derived_tables 上，而非逐属性记录），多表/无表则留空让用户手填。
+const displayTable = (a: any, node: any): string => {
+  if (a?.table) return String(a.table);
+  if (sourceMethodOf(a) !== 'db') return '';
   const tables = node?.derived_tables || [];
-  const table = (a.table && String(a.table)) || (tables.length === 1 ? tables[0] : '');
-  return { table: table || '', column: String(a.column) };
+  return tables.length === 1 ? String(tables[0]) : '';
 };
 
 // 属性编辑状态
@@ -129,7 +140,7 @@ const removeAttribute = (i: number) => {
   emit('update-node-schema', props.node.id, { attributes: attrs });
 };
 
-const updateAttribute = (i: number, field: 'name' | 'valueSpace', value: string) => {
+const updateAttribute = (i: number, field: 'name' | 'valueSpace' | 'table' | 'column' | 'sourceMethod', value: string) => {
   if (!props.node) return;
   const attrs = (props.node.attributes || []).map((a: any, idx: number) =>
     idx === i ? { ...a, [field]: value } : { ...a }
@@ -250,33 +261,38 @@ const startResize = (e: MouseEvent) => {
               <template v-if="tab === 1">
                 <!-- TBox 属性: 类节点上的属性定义 -->
                 <div class="ni-card ni-card-full">
-                  <div class="ni-card-title">本体属性 <span class="ni-card-count">{{ (node.attributes || []).length }}</span></div>
-                  <div v-if="(node.attributes || []).length" class="ni-attr-table">
+                  <div class="ni-card-head">
+                    <div class="ni-card-title">本体属性 <span class="ni-card-count">{{ (node.attributes || []).length }}</span></div>
+                    <button class="ni-prop-add ni-prop-add--head" @click="addAttribute">+ 新增属性</button>
+                  </div>
+                  <div v-if="(node.attributes || []).length" class="ni-attr-table ni-attr-table--onto">
                     <div class="ni-attr-thead">
-                      <div class="ni-attr-th ni-col-name">属性名</div>
-                      <div class="ni-attr-th ni-col-type">类型 / 取值</div>
-                      <div class="ni-attr-th ni-col-source">物理来源（表 · 字段）</div>
+                      <div class="ni-attr-th ni-col-name">名称</div>
+                      <div class="ni-attr-th ni-col-type">类型</div>
+                      <div class="ni-attr-th ni-col-method">来源方式</div>
+                      <div class="ni-attr-th ni-col-ptable">物理表</div>
+                      <div class="ni-attr-th ni-col-pcol">物理字段</div>
                       <div class="ni-attr-th ni-col-act"></div>
                     </div>
                     <div v-for="(a, i) in (node.attributes || [])" :key="'tba'+i" class="ni-attr-row">
                       <div class="ni-attr-cell ni-col-name">
                         <input class="ni-inline-input" :value="a.name" placeholder="属性名" @change="(e: any) => updateAttribute(i, 'name', e.target.value)" />
-                        <span class="ni-badge ni-attr-badge" :style="{color: sourceBadge(a.source).color, background: sourceBadge(a.source).bg}">{{ sourceBadge(a.source).text }}</span>
                       </div>
                       <div class="ni-attr-cell ni-col-type">
-                        <input class="ni-inline-input mono" :value="a.valueSpace" placeholder="取值空间" @change="(e: any) => updateAttribute(i, 'valueSpace', e.target.value)" />
+                        <input class="ni-inline-input mono" :value="a.valueSpace" placeholder="类型" @change="(e: any) => updateAttribute(i, 'valueSpace', e.target.value)" />
                       </div>
-                      <div class="ni-attr-cell ni-col-source">
-                        <template v-if="attrSource(a, node)">
-                          <span class="ni-attr-src">
-                            <span class="ni-attr-src-icon" aria-hidden="true">📋</span>
-                            <span v-if="attrSource(a, node)!.table" class="ni-attr-src-table mono">{{ attrSource(a, node)!.table }}</span>
-                            <span v-else class="ni-attr-src-unknown">表未指定</span>
-                            <span class="ni-attr-src-sep">·</span>
-                            <span class="ni-attr-src-col mono">{{ attrSource(a, node)!.column }}</span>
-                          </span>
-                        </template>
-                        <span v-else class="ni-attr-src-empty">手填属性，无物理来源</span>
+                      <div class="ni-attr-cell ni-col-method">
+                        <select class="ni-inline-select" :value="sourceMethodOf(a)" @change="(e: any) => updateAttribute(i, 'sourceMethod', e.target.value)">
+                          <option value="db">数据库提取</option>
+                          <option value="file">文件提取</option>
+                          <option value="custom">自定义</option>
+                        </select>
+                      </div>
+                      <div class="ni-attr-cell ni-col-ptable">
+                        <input class="ni-inline-input mono" :value="displayTable(a, node)" :placeholder="sourceMethodOf(a) === 'db' ? '物理表' : '—'" :disabled="sourceMethodOf(a) !== 'db'" @change="(e: any) => updateAttribute(i, 'table', e.target.value)" />
+                      </div>
+                      <div class="ni-attr-cell ni-col-pcol">
+                        <input class="ni-inline-input mono" :value="a.column" :placeholder="sourceMethodOf(a) === 'db' ? '物理字段' : '—'" :disabled="sourceMethodOf(a) !== 'db'" @change="(e: any) => updateAttribute(i, 'column', e.target.value)" />
                       </div>
                       <div class="ni-attr-cell ni-col-act">
                         <button class="ni-prop-del" @click="removeAttribute(i)" title="删除">✕</button>
@@ -284,14 +300,17 @@ const startResize = (e: MouseEvent) => {
                     </div>
                   </div>
                   <div v-else class="ni-empty">暂无本体属性</div>
-                  <div class="ni-prop-actions">
-                    <button class="ni-prop-add" @click="addAttribute">+ 新增属性</button>
-                  </div>
                 </div>
 
                 <!-- 自定义 K-V 属性: 用户在此处编辑 -->
                 <div class="ni-card ni-card-full">
-                  <div class="ni-card-title">自定义属性 <span class="ni-card-count">{{ editableProps.length }}</span></div>
+                  <div class="ni-card-head">
+                    <div class="ni-card-title">自定义属性 <span class="ni-card-count">{{ editableProps.length }}</span></div>
+                    <div class="ni-card-head-actions">
+                      <button v-if="propsChanged" class="ni-prop-save" @click="saveProps">保存属性</button>
+                      <button class="ni-prop-add ni-prop-add--head" @click="addEditableProp">+ 新增属性</button>
+                    </div>
+                  </div>
                   <div v-if="editableProps.length" class="ni-attr-table ni-attr-table--kv">
                     <div class="ni-attr-thead">
                       <div class="ni-attr-th ni-col-name">键</div>
@@ -315,10 +334,6 @@ const startResize = (e: MouseEvent) => {
                     </div>
                   </div>
                   <div v-else class="ni-empty">暂无自定义属性</div>
-                  <div class="ni-prop-actions">
-                    <button class="ni-prop-add" @click="addEditableProp">+ 新增属性</button>
-                    <button v-if="propsChanged" class="ni-prop-save" @click="saveProps">保存属性</button>
-                  </div>
                 </div>
               </template>
               <template v-if="tab === 2">
@@ -513,10 +528,14 @@ const startResize = (e: MouseEvent) => {
 .ni-attr-thead,
 .ni-attr-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1.4fr) minmax(120px, 1fr) minmax(180px, 1.6fr) 32px;
   gap: 8px;
   align-items: center;
   padding: 8px 10px;
+}
+/* 本体属性表：名称 / 类型 / 来源方式 / 物理表 / 物理字段 / 操作 */
+.ni-attr-table--onto .ni-attr-thead,
+.ni-attr-table--onto .ni-attr-row {
+  grid-template-columns: minmax(96px, 1.2fr) minmax(72px, 0.8fr) minmax(94px, 0.9fr) minmax(90px, 1fr) minmax(90px, 1fr) 32px;
 }
 /* 自定义属性表：键 / 值 / 来源 / 操作 */
 .ni-attr-table--kv .ni-attr-thead,
@@ -547,43 +566,64 @@ const startResize = (e: MouseEvent) => {
   min-width: 0;
 }
 .ni-col-act { justify-content: flex-end; }
-.ni-attr-badge { flex-shrink: 0; }
-.ni-attr-src {
-  display: inline-flex;
+/* 单元格内的输入/下拉占满列宽 */
+.ni-col-method .ni-inline-select { width: 100%; }
+.ni-inline-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: rgba(255,255,255,0.02);
+}
+
+/* 分区标题栏：标题在左，操作按钮（新增/保存）靠右上 */
+.ni-card-head {
+  display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 3px 8px;
-  background: rgba(34, 221, 136, 0.08);
-  border: 1px solid rgba(34, 221, 136, 0.18);
-  border-radius: 6px;
-  font-size: 12px;
-  max-width: 100%;
-  word-break: break-all;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 9px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
 }
-.ni-attr-src-icon { font-size: 12px; opacity: 0.85; flex-shrink: 0; }
-.ni-attr-src-table {
-  color: #22dd88;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11.5px;
+.ni-card-head .ni-card-title {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
 }
-.ni-attr-src-sep { color: rgba(255,255,255,0.4); }
-.ni-attr-src-col {
-  color: var(--text-main);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11.5px;
+.ni-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
-.ni-attr-src-unknown,
-.ni-attr-src-empty {
-  color: rgba(255,255,255,0.4);
-  font-size: 12px;
-  font-style: italic;
+/* 标题栏里的"新增属性"按钮：不再拉伸占整行 */
+.ni-prop-add--head {
+  flex: none;
+  padding: 4px 12px;
+  white-space: nowrap;
 }
 
 /* 紧凑面板下让属性表自适应竖排，避免水平挤压 */
 @media (max-width: 720px) {
   .ni-attr-thead { display: none; }
-  .ni-attr-row {
+  /* 本体属性表竖排 */
+  .ni-attr-table--onto .ni-attr-row {
+    grid-template-columns: 1fr 32px;
+    grid-template-areas:
+      'name   act'
+      'type   act'
+      'method act'
+      'ptable act'
+      'pcol   act';
+    row-gap: 6px;
+  }
+  .ni-attr-table--onto .ni-col-name { grid-area: name; }
+  .ni-attr-table--onto .ni-col-type { grid-area: type; }
+  .ni-attr-table--onto .ni-col-method { grid-area: method; }
+  .ni-attr-table--onto .ni-col-ptable { grid-area: ptable; }
+  .ni-attr-table--onto .ni-col-pcol { grid-area: pcol; }
+  .ni-attr-table--onto .ni-col-act { grid-area: act; align-self: start; }
+  /* 自定义属性表竖排 */
+  .ni-attr-table--kv .ni-attr-row {
     grid-template-columns: 1fr 32px;
     grid-template-areas:
       'name act'
@@ -591,9 +631,9 @@ const startResize = (e: MouseEvent) => {
       'src  act';
     row-gap: 6px;
   }
-  .ni-col-name { grid-area: name; }
-  .ni-col-type { grid-area: type; }
-  .ni-col-source { grid-area: src; }
-  .ni-col-act { grid-area: act; align-self: start; }
+  .ni-attr-table--kv .ni-col-name { grid-area: name; }
+  .ni-attr-table--kv .ni-col-type { grid-area: type; }
+  .ni-attr-table--kv .ni-col-source { grid-area: src; }
+  .ni-attr-table--kv .ni-col-act { grid-area: act; align-self: start; }
 }
 </style>
