@@ -397,7 +397,10 @@ const startResize = (e: MouseEvent) => {
               </template>
               <template v-if="tab === 3">
                 <div class="ni-card ni-card-full">
-                  <div class="ni-card-title">节点约束 <span class="ni-card-count">{{ (node.constraints || []).length }}</span></div>
+                  <div class="ni-card-head">
+                    <div class="ni-card-title">节点约束 <span class="ni-card-count">{{ (node.constraints || []).length }}</span></div>
+                    <button class="ni-prop-add ni-prop-add--head" @click="addConstraint">+ 新增约束</button>
+                  </div>
                   <div v-if="(node.constraints?.length || 0) > 0" class="ni-cons-list">
                     <div v-for="(c, i) in (node.constraints || [])" :key="'c'+i" class="ni-cons-item">
                       <div class="ni-cons-head">
@@ -415,9 +418,6 @@ const startResize = (e: MouseEvent) => {
                     </div>
                   </div>
                   <div v-else class="ni-empty">暂无节点约束</div>
-                  <div class="ni-prop-actions">
-                    <button class="ni-prop-add" @click="addConstraint">+ 新增约束</button>
-                  </div>
                 </div>
 
                 <div v-if="relatedEdgeConstraints.length > 0" class="ni-card ni-card-full">

@@ -993,6 +993,25 @@ body::after {
   transition: all .15s;
 }
 .ni-prop-add:hover { border-color: var(--accent); color: var(--accent); background: rgba(66, 184, 131, 0.04); }
+.ni-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 9px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.ni-card-head .ni-card-title {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+.ni-prop-add--head {
+  flex: none;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
 .ni-inline-input {
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.1);
