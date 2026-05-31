@@ -130,25 +130,29 @@ public class SchemaOntologyService {
             merged = (merged == null) ? part : mergeBatches(merged, part);
         }
 
-        // ===== 事实校验：删除 LLM 编造的、不在 schema 里的表/列/FK =====
-        step.emit("fact_check", "正在事实校验 LLM 产物，删除虚构内容…");
+        // ===== 事实校验：保留语义节点，但要求能追溯到真实表 / 列 / FK =====
+        step.emit("fact_check", "正在校验语义节点来源，删除无法追溯到 schema 的内容…");
         FactCheckResult fc = factCheck(merged, schema);
         ObjectNode rectified = fc.cleaned;
         if (fc.removedNodes + fc.removedAttrs + fc.removedEdges + fc.demotedEdges > 0) {
             step.emit("fact_check_summary",
-                    String.format("已清理 LLM 幻觉: 删除 %d 个虚构表节点 · %d 个虚构属性 · %d 条虚构外键 · 降级 %d 条无据边",
+                    String.format("已清理 LLM 幻觉: 删除 %d 个无来源节点 · %d 个无来源属性 · %d 条无来源关系 · 降级 %d 条弱证据关系",
                             fc.removedNodes, fc.removedAttrs, fc.removedEdges, fc.demotedEdges));
         }
 
-        // ===== 硬保底：把 LLM 漏掉的表 / FK 自动补齐（从 schema 反推） =====
-        step.emit("postprocess", "正在补齐 LLM 遗漏的表/外键…");
-        rectified = ensureCompleteness(rectified, schema);
+        // ===== 覆盖保底：补齐完全未被任何语义节点/关系覆盖的表与 FK =====
+        step.emit("postprocess", "正在检查 schema 覆盖率并补齐遗漏来源…");
+        rectified = ensureCoverage(rectified, schema);
         rectified = sanitize(rectified);
 
         // 转换成 {nodes, edges, reply} 形状（与文档抽取一致），并加 salt 防止 id 冲突
         String salt = Long.toString(System.currentTimeMillis(), 36);
         JsonNode rewritten = IdSaltRewriter.applyImportSalt(rectified, salt);
         ObjectNode out = (ObjectNode) rewritten;
+        // 给每个节点/边打上数据源 + 库名来源（整张图同源，统一 stamp）
+        String derivedDatabase = schema.database();
+        stampSource(out.path("nodes"), sourceName, derivedDatabase);
+        stampSource(out.path("edges"), sourceName, derivedDatabase);
         out.put("reply", buildReplyText(sourceName, tableCount, fkCount,
                 out.path("nodes").size(), out.path("edges").size(), fc));
 
@@ -156,6 +160,16 @@ public class SchemaOntologyService {
         int edges = out.path("edges").size();
         step.emit("done", "完成：生成 " + nodes + " 个节点 / " + edges + " 条边");
         return new ExtractResult(out, salt, tableCount, fkCount, nodes, edges);
+    }
+
+    /** 给 nodes/edges 数组里每个对象补 derived_source / derived_database。整张图同源时统一打标。 */
+    private void stampSource(JsonNode arr, String source, String database) {
+        if (!(arr instanceof ArrayNode list)) return;
+        for (JsonNode n : list) {
+            if (!(n instanceof ObjectNode obj)) continue;
+            if (source != null && !source.isBlank()) obj.put("derived_source", source);
+            if (database != null && !database.isBlank()) obj.put("derived_database", database);
+        }
     }
 
     /** 事实校验结果统计,便于把"删了多少幻觉内容"告诉用户。 */
@@ -166,14 +180,12 @@ public class SchemaOntologyService {
                                   int demotedEdges) {}
 
     /**
-     * 事实校验 — 防止 LLM 把世界知识当成 schema 事实输出。
+     * 事实校验 — 允许 LLM 做语义合并/改名,但必须保留可追溯的 schema 来源。
      * <ol>
-     *   <li>节点必须对应一张真实表 (id="t_*" 且 sanitized 后能匹配某个 schema.table)；
-     *       否则删除该节点 + 所有引用它的边;</li>
-     *   <li>节点的 attributes 中,列名必须在该表的真实列里;否则删除该 attribute;</li>
-     *   <li>derived 边必须对应一条真实 FK (按 from/to 表 + label 中的列名匹配);
-     *       否则:有 Rule 4 命名暗示 → 降级为 inferred + confidence 0.4;无暗示 → 删除;</li>
-     *   <li>self-loop 仅保留确为自引用 FK 的;无 FK 支撑的删除。</li>
+     *   <li>节点必须通过 {@code derived_tables} / evidence / 旧式 t_ id 至少命中一张真实表;</li>
+     *   <li>attributes 可以使用业务名,但 {@code column} 必须命中该节点来源表中的真实列;</li>
+     *   <li>derived 边必须能由两端来源表之间的真实 FK,或一张真实关联表支撑;</li>
+     *   <li>无法追溯到 schema 的内容删除,弱命名证据降级为 inferred。</li>
      * </ol>
      */
     private FactCheckResult factCheck(ObjectNode llmOut, DatabaseSchemaInfo schema) {
@@ -185,53 +197,45 @@ public class SchemaOntologyService {
         // 真实表索引: sanitized 名称 → TableInfo
         Map<String, TableInfo> realTables = new HashMap<>();
         for (TableInfo t : schema.tables()) realTables.put(sanitize(t.name()), t);
-        // 真实 FK 索引: 按 child + col 标记
-        Set<String> realFkKeys = new HashSet<>();   // sanitize(child)+"."+sanitize(col)+"->"+sanitize(parent)+"."+sanitize(toCol)
-        Set<String> realFkLoose = new HashSet<>();  // sanitize(child)+"->"+sanitize(parent) (粗匹配,降级判断用)
-        for (TableInfo t : schema.tables()) {
-            for (ForeignKeyInfo fk : t.foreignKeys()) {
-                realFkKeys.add(sanitize(t.name()) + "." + sanitize(fk.fromColumn())
-                        + "->" + sanitize(fk.toTable()) + "." + sanitize(fk.toColumn()));
-                realFkLoose.add(sanitize(t.name()) + "->" + sanitize(fk.toTable()));
-            }
-        }
-
         ArrayNode cleanedNodes = objectMapper.createArrayNode();
         Set<String> keptNodeIds = new HashSet<>();
-        Map<String, TableInfo> nodeIdToTable = new HashMap<>();
+        Map<String, List<TableInfo>> nodeIdToTables = new HashMap<>();
         int removedNodes = 0;
         int removedAttrs = 0;
         for (JsonNode n : nodes) {
             ObjectNode copy = n.deepCopy();
             String id = copy.path("id").asText("");
-            TableInfo realT = resolveTable(copy, realTables);
-            if (realT == null) {
+            List<TableInfo> sourceTables = resolveTables(copy, realTables);
+            if (sourceTables.isEmpty()) {
                 removedNodes++;
                 log.info("[factCheck] 删除虚构节点 id={} label={}", id, copy.path("label").asText(""));
                 continue;
             }
+            setDerivedTables(copy, sourceTables);
             // 校验 attributes
             JsonNode attrs = copy.path("attributes");
             if (attrs.isArray() && !attrs.isEmpty()) {
-                Set<String> realCols = new HashSet<>();
-                for (var c : realT.columns()) realCols.add(c.name().toLowerCase());
+                Set<String> realCols = columnNames(sourceTables);
                 ArrayNode keptAttrs = objectMapper.createArrayNode();
                 for (JsonNode a : attrs) {
-                    String name = a.path("name").asText("");
-                    if (name.isBlank()) continue;
-                    if (!realCols.contains(name.toLowerCase())) {
+                    if (!(a instanceof ObjectNode attr)) continue;
+                    String col = attr.path("column").asText("");
+                    String legacyName = attr.path("name").asText("");
+                    String backingCol = col.isBlank() ? legacyName : col;
+                    if (backingCol.isBlank() || !realCols.contains(backingCol.toLowerCase())) {
                         removedAttrs++;
-                        log.debug("[factCheck] 删除虚构属性 table={} attr={}", realT.name(), name);
+                        log.debug("[factCheck] 删除无来源属性 node={} attr={} column={}", id, legacyName, col);
                         continue;
                     }
-                    keptAttrs.add(a);
+                    if (col.isBlank()) attr.put("column", backingCol);
+                    keptAttrs.add(attr);
                 }
                 copy.set("attributes", keptAttrs);
             }
             cleanedNodes.add(copy);
             if (!id.isEmpty()) {
                 keptNodeIds.add(id);
-                nodeIdToTable.put(id, realT);
+                nodeIdToTables.put(id, sourceTables);
             }
         }
 
@@ -245,57 +249,56 @@ public class SchemaOntologyService {
                 removedEdges++;
                 continue;
             }
-            TableInfo childT = nodeIdToTable.get(f);
-            TableInfo parentT = nodeIdToTable.get(t);
-            if (childT == null || parentT == null) {
+            List<TableInfo> fromTables = nodeIdToTables.getOrDefault(f, List.of());
+            List<TableInfo> toTables = nodeIdToTables.getOrDefault(t, List.of());
+            if (fromTables.isEmpty() || toTables.isEmpty()) {
                 removedEdges++;
                 continue;
             }
-            String relType = e.path("rel_type").asText("");
             String src = e.path("source").asText("derived");
             String label = e.path("label").asText("");
+            ObjectNode copy = e.deepCopy();
 
             // 仅对 derived / 默认 source 做严格 FK 校验
             boolean isDerived = "derived".equalsIgnoreCase(src) || src.isEmpty();
             if (!isDerived) {
-                // 已是 inferred,不做严格校验,但仍要确保 Rule 4 的命名条件成立 (粗略检查)
-                if (!hasNamingHint(childT, parentT)) {
+                if (!hasNamingHint(fromTables, toTables)) {
                     removedEdges++;
-                    log.info("[factCheck] 删除无命名根据的 inferred 边: {}->{}", childT.name(), parentT.name());
+                    log.info("[factCheck] 删除无命名根据的 inferred 边: {}->{}", f, t);
                     continue;
                 }
-                cleanedEdges.add(e);
+                ensureEdgeDerivedTables(copy, fromTables, toTables);
+                cleanedEdges.add(copy);
                 continue;
             }
 
-            // derived 边: 必须能匹配一条真实 FK。匹配策略:
-            // (1) 边 label 含 "child.col -> parent.col" 形式时严格匹配
-            // (2) 否则按 child->parent 粗匹配
-            boolean ok = matchEdgeToRealFk(childT, parentT, label, realFkKeys, realFkLoose);
+            boolean ok = isSupportedByRealFk(fromTables, toTables)
+                    || isSupportedByJunctionTable(copy, realTables);
             if (ok) {
-                cleanedEdges.add(e);
+                ensureEdgeDerivedTables(copy, fromTables, toTables);
+                cleanedEdges.add(copy);
                 continue;
             }
 
             // 没找到 FK: 看是否符合 Rule 4 命名条件;符合 → 降级为 inferred,否则删
-            if (hasNamingHint(childT, parentT)) {
-                ObjectNode demoted = e.deepCopy();
-                demoted.put("source", "inferred");
-                demoted.put("confidence", 0.4);
-                String existingEv = demoted.path("evidence").asText("");
+            if (hasNamingHint(fromTables, toTables)) {
+                copy.put("source", "inferred");
+                copy.put("confidence", 0.4);
+                ensureEdgeDerivedTables(copy, fromTables, toTables);
+                String existingEv = copy.path("evidence").asText("");
                 if (existingEv.isBlank() || "FK".equalsIgnoreCase(existingEv)) {
-                    demoted.put("evidence", "naming:" + childT.name() + "↔" + parentT.name());
+                    copy.put("evidence", "naming");
                 }
                 if (label.isBlank() || label.contains("→")) {
-                    demoted.put("label", childT.name() + " ≈ " + parentT.name() + " (按命名推断,未声明 FK)");
+                    copy.put("label", copy.path("label").asText("按命名推断的关系"));
                 }
-                cleanedEdges.add(demoted);
+                cleanedEdges.add(copy);
                 demotedEdges++;
-                log.info("[factCheck] 降级无 FK 但有命名暗示的边: {}->{}", childT.name(), parentT.name());
+                log.info("[factCheck] 降级无 FK 但有命名暗示的边: {}->{}", f, t);
             } else {
                 removedEdges++;
                 log.info("[factCheck] 删除既无 FK 又无命名暗示的虚构边: {}->{} (label={})",
-                        childT.name(), parentT.name(), label);
+                        f, t, label);
             }
         }
 
@@ -309,69 +312,161 @@ public class SchemaOntologyService {
         return new FactCheckResult(out, removedNodes, removedAttrs, removedEdges, demotedEdges);
     }
 
-    /** 将一个 LLM 节点解析回 schema 真实表;支持 id="t_xxx"、evidence=表名、label 含表名等多种线索。 */
-    private TableInfo resolveTable(ObjectNode node, Map<String, TableInfo> realTables) {
+    /** 将一个 LLM 节点解析回 schema 真实表集合;优先使用 derived_tables,兼容旧式 t_<table> 节点。 */
+    private List<TableInfo> resolveTables(ObjectNode node, Map<String, TableInfo> realTables) {
+        LinkedHashMap<String, TableInfo> out = new LinkedHashMap<>();
+        JsonNode derived = node.path("derived_tables");
+        if (derived.isArray()) {
+            for (JsonNode one : derived) {
+                TableInfo t = realTables.get(sanitize(one.asText("")));
+                if (t != null) out.putIfAbsent(sanitize(t.name()), t);
+            }
+        }
         String id = node.path("id").asText("");
         if (id.startsWith("t_")) {
             TableInfo t = realTables.get(id.substring(2));
-            if (t != null) return t;
+            if (t != null) out.putIfAbsent(sanitize(t.name()), t);
         }
-        // 通过 evidence (我们 prompt 里要求是表名)
         String evidence = node.path("evidence").asText("");
         if (!evidence.isBlank()) {
             TableInfo t = realTables.get(sanitize(evidence));
-            if (t != null) return t;
+            if (t != null) out.putIfAbsent(sanitize(t.name()), t);
         }
-        // 兜底: label 里能找到任意表名子串
         String label = node.path("label").asText("");
         if (!label.isBlank()) {
             String lower = label.toLowerCase();
             for (Map.Entry<String, TableInfo> en : realTables.entrySet()) {
                 String tn = en.getValue().name().toLowerCase();
-                if (lower.contains(tn)) return en.getValue();
+                if (lower.contains(tn)) out.putIfAbsent(en.getKey(), en.getValue());
             }
         }
-        return null;
+        return new ArrayList<>(out.values());
     }
 
-    /** 边 label 形如 "child.col → parent.col" 时优先精确匹配;否则粗匹配 child->parent。 */
-    private boolean matchEdgeToRealFk(TableInfo childT, TableInfo parentT, String label,
-                                       Set<String> realFkKeys, Set<String> realFkLoose) {
-        String childKey = sanitize(childT.name());
-        String parentKey = sanitize(parentT.name());
-        // 粗匹配先: 至少 child→parent 在某条 FK 上
-        if (!realFkLoose.contains(childKey + "->" + parentKey)) {
-            // 也许 LLM 把 composed_of 方向写反了 (parent→child 的 owner 关系)
-            if (realFkLoose.contains(parentKey + "->" + childKey)) return true;
-            return false;
+    private void setDerivedTables(ObjectNode node, List<TableInfo> tables) {
+        ArrayNode arr = objectMapper.createArrayNode();
+        for (TableInfo t : tables) arr.add(t.name());
+        node.set("derived_tables", arr);
+    }
+
+    private Set<String> columnNames(List<TableInfo> tables) {
+        Set<String> cols = new HashSet<>();
+        for (TableInfo t : tables) {
+            for (var c : t.columns()) cols.add(c.name().toLowerCase());
         }
-        // 粗匹配成功;若 label 携带 child.col → parent.col,做严格匹配确认
-        if (label != null && label.contains(".") && label.contains("→")) {
-            String[] parts = label.split("→");
-            if (parts.length == 2) {
-                String lp = parts[0].trim();   // child.col
-                String rp = parts[1].trim();   // parent.col
-                int lDot = lp.indexOf('.');
-                int rDot = rp.indexOf('.');
-                if (lDot > 0 && rDot > 0) {
-                    String childCol = sanitize(lp.substring(lDot + 1));
-                    String parentCol = sanitize(rp.substring(rDot + 1));
-                    String tight = childKey + "." + childCol + "->" + parentKey + "." + parentCol;
-                    if (realFkKeys.contains(tight)) return true;
-                    // 严格不匹配但粗匹配成功: 仍然接受 (label 可能写错列)
-                }
+        return cols;
+    }
+
+    private boolean isSupportedByRealFk(List<TableInfo> a, List<TableInfo> b) {
+        for (TableInfo left : a) {
+            for (TableInfo right : b) {
+                if (hasDeclaredFk(left, right) || hasDeclaredFk(right, left)) return true;
             }
         }
-        return true;
+        return false;
     }
 
-    /** Rule 4 的简化判定:childT 有列名以 parentT.name() 开头且形如 *_id/_code/_no。 */
+    private boolean hasDeclaredFk(TableInfo child, TableInfo parent) {
+        for (ForeignKeyInfo fk : child.foreignKeys()) {
+            if (fk.toTable().equalsIgnoreCase(parent.name())) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 纯关联 / junction 表判断：
+     * <ul>
+     *   <li>主键列数量不少于 2，且主键列全部都是外键列；</li>
+     *   <li>表中没有额外的业务列，最多只保留极少量元数据列；</li>
+     *   <li>这类表通常用于 N:M 关联或映射，不应被当作独立业务实体。</li>
+     * </ul>
+     */
+    private boolean isPureJunctionTable(TableInfo t) {
+        if (t == null) return false;
+
+        Set<String> fkCols = new HashSet<>();
+        for (ForeignKeyInfo fk : t.foreignKeys()) {
+            if (fk.fromColumn() != null) fkCols.add(fk.fromColumn().toLowerCase());
+        }
+
+        List<String> pkCols = new ArrayList<>();
+        for (var c : t.columns()) {
+            if (c.primaryKey()) pkCols.add(c.name().toLowerCase());
+        }
+
+        if (pkCols.size() < 2) return false;
+
+        // 复合主键必须全部是外键列
+        for (String pk : pkCols) {
+            if (!fkCols.contains(pk)) return false;
+        }
+
+        // 允许少量常见元数据列，但不能出现明显业务扩展列
+        int nonTechnicalCols = 0;
+        for (var c : t.columns()) {
+            String cn = c.name().toLowerCase();
+            boolean technical = c.primaryKey()
+                    || fkCols.contains(cn)
+                    || cn.equals("created_at")
+                    || cn.equals("updated_at")
+                    || cn.equals("deleted_at")
+                    || cn.equals("tenant_id")
+                    || cn.equals("remark")
+                    || cn.equals("remarks")
+                    || cn.equals("sort")
+                    || cn.equals("sort_order");
+            if (!technical) nonTechnicalCols++;
+        }
+        return nonTechnicalCols == 0;
+    }
+
+    private boolean isSupportedByJunctionTable(ObjectNode edge, Map<String, TableInfo> realTables) {
+        List<TableInfo> edgeTables = resolveEdgeTables(edge, realTables);
+        for (TableInfo t : edgeTables) {
+            if (isPureJunctionTable(t) || t.foreignKeys().size() >= 2) return true;
+        }
+        return false;
+    }
+
+    private List<TableInfo> resolveEdgeTables(ObjectNode edge, Map<String, TableInfo> realTables) {
+        LinkedHashMap<String, TableInfo> out = new LinkedHashMap<>();
+        JsonNode derived = edge.path("derived_tables");
+        if (derived.isArray()) {
+            for (JsonNode one : derived) {
+                TableInfo t = realTables.get(sanitize(one.asText("")));
+                if (t != null) out.putIfAbsent(sanitize(t.name()), t);
+            }
+        }
+        return new ArrayList<>(out.values());
+    }
+
+    private void ensureEdgeDerivedTables(ObjectNode edge, List<TableInfo> fromTables, List<TableInfo> toTables) {
+        if (edge.has("derived_tables") && edge.get("derived_tables").isArray() && !edge.get("derived_tables").isEmpty()) {
+            return;
+        }
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        for (TableInfo t : fromTables) names.add(t.name());
+        for (TableInfo t : toTables) names.add(t.name());
+        ArrayNode arr = objectMapper.createArrayNode();
+        for (String name : names) arr.add(name);
+        edge.set("derived_tables", arr);
+    }
+
+    /** 命名暗示:任一来源表含有另一来源表的 *_id/_code/_no 风格列。 */
+    private boolean hasNamingHint(List<TableInfo> a, List<TableInfo> b) {
+        for (TableInfo left : a) {
+            for (TableInfo right : b) {
+                if (hasNamingHint(left, right) || hasNamingHint(right, left)) return true;
+            }
+        }
+        return false;
+    }
+
     private boolean hasNamingHint(TableInfo childT, TableInfo parentT) {
         String pn = parentT.name().toLowerCase();
         for (var c : childT.columns()) {
             String cn = c.name().toLowerCase();
             if (cn.equals(pn + "_id") || cn.equals(pn + "_code") || cn.equals(pn + "_no")) return true;
-            // 兼容 parent 复数 / 单数差异: orders → order_id
             String singular = pn.endsWith("s") ? pn.substring(0, pn.length() - 1) : pn + "s";
             if (cn.equals(singular + "_id") || cn.equals(singular + "_code") || cn.equals(singular + "_no")) return true;
         }
@@ -455,79 +550,73 @@ public class SchemaOntologyService {
     }
 
     /**
-     * 硬保底：保证每张表都有节点、每条 FK 都有边。LLM 出错或漏掉的，本方法用 schema 本身补齐。
-     * <p>这是质量的最后一道防线——即使 LLM 完全失败，输出至少是一个朴素的"表+FK"图。
+     * 覆盖保底：允许语义节点合并多张表,只补齐完全没有被任何节点/边覆盖的 schema 来源。
+     * <p>FK 不再强制一条 FK 一条边；若 FK 两端已经被同一语义节点合并,视为已覆盖。
      */
-    private ObjectNode ensureCompleteness(ObjectNode llmOut, DatabaseSchemaInfo schema) {
+    private ObjectNode ensureCoverage(ObjectNode llmOut, DatabaseSchemaInfo schema) {
         if (llmOut == null) llmOut = objectMapper.createObjectNode();
         ArrayNode nodes = llmOut.has("add_nodes") && llmOut.get("add_nodes").isArray()
                 ? (ArrayNode) llmOut.get("add_nodes") : objectMapper.createArrayNode();
         ArrayNode edges = llmOut.has("add_edges") && llmOut.get("add_edges").isArray()
                 ? (ArrayNode) llmOut.get("add_edges") : objectMapper.createArrayNode();
 
-        // 已有节点的 id 集合，及 tableName → nodeId 映射（用于补 FK 边时引用）
+        Map<String, TableInfo> realTables = new HashMap<>();
+        for (TableInfo t : schema.tables()) realTables.put(sanitize(t.name()), t);
+
         Set<String> existingNodeIds = new HashSet<>();
         Map<String, String> tableToNodeId = new HashMap<>();
+        Set<String> coveredTables = new HashSet<>();
         for (JsonNode n : nodes) {
             String id = n.path("id").asText("");
             if (!id.isEmpty()) existingNodeIds.add(id);
-            String evidence = n.path("evidence").asText("");
-            // 优先用 evidence/label 推断对应的表名（LLM 可能改写过 label，但 evidence 我们要求是表名）
-            for (TableInfo t : schema.tables()) {
-                if (t.name().equalsIgnoreCase(evidence)
-                        || (n.path("label").asText("").contains(t.name()))) {
-                    tableToNodeId.putIfAbsent(t.name(), id);
-                    break;
+            if (n instanceof ObjectNode obj) {
+                for (TableInfo t : resolveTables(obj, realTables)) {
+                    coveredTables.add(sanitize(t.name()));
+                    if (!id.isEmpty()) tableToNodeId.putIfAbsent(t.name(), id);
                 }
             }
+        }
+        for (JsonNode e : edges) {
+            if (!(e instanceof ObjectNode obj)) continue;
+            for (TableInfo t : resolveEdgeTables(obj, realTables)) coveredTables.add(sanitize(t.name()));
         }
 
         int fixedNodes = 0;
         int fixedEdges = 0;
 
-        // 1) 补齐缺失的表节点
+        // 1) 只补齐完全没被节点/边覆盖的表
         for (TableInfo t : schema.tables()) {
             String stableId = "t_" + sanitize(t.name());
-            if (tableToNodeId.containsKey(t.name())) continue;
+            if (coveredTables.contains(sanitize(t.name()))) continue;
             if (existingNodeIds.contains(stableId)) {
                 tableToNodeId.put(t.name(), stableId);
+                coveredTables.add(sanitize(t.name()));
                 continue;
             }
-            // 真的缺：本地构造一个完整节点
             nodes.add(buildFallbackNode(t, stableId));
             existingNodeIds.add(stableId);
             tableToNodeId.put(t.name(), stableId);
+            coveredTables.add(sanitize(t.name()));
             fixedNodes++;
         }
 
-        // 2) 补齐缺失的 FK 边（按 fromTable + fromCol + toTable + toCol 唯一性判断）
-        Set<String> existingEdgeKeys = new HashSet<>();
-        for (JsonNode e : edges) {
-            String f = e.path("from").asText("");
-            String tNode = e.path("to").asText("");
-            String label = e.path("label").asText("");
-            existingEdgeKeys.add(f + "->" + tNode + "#" + label);
-        }
+        // 2) FK 覆盖：两端被同一语义节点合并则跳过；不同节点之间无关系时补兜底边
         for (TableInfo t : schema.tables()) {
             for (ForeignKeyInfo fk : t.foreignKeys()) {
                 String fromNode = tableToNodeId.get(t.name());
                 String toNode = tableToNodeId.get(fk.toTable());
                 if (fromNode == null || toNode == null) continue;
-                // 我们的 FK 边 label 约定：childTable.childCol → parentTable.parentCol
-                String label = t.name() + "." + fk.fromColumn()
-                        + " → " + fk.toTable() + "." + fk.toColumn();
-                String key = fromNode + "->" + toNode + "#" + label;
-                // LLM 可能用更复杂的 label，无法严格命中，所以再用更宽松的 from+to+col 启发式判断
-                if (existingEdgeKeys.contains(key)) continue;
-                if (hasFkEdge(edges, fromNode, toNode, fk.fromColumn(), fk.toColumn())) continue;
+                if (fromNode.equals(toNode)) continue;
+                if (hasFkCoverageEdge(edges, fromNode, toNode, t.name(), fk.toTable(), fk.fromColumn(), fk.toColumn())) {
+                    continue;
+                }
                 edges.add(buildFallbackFkEdge(t, fk, fromNode, toNode));
-                existingEdgeKeys.add(key);
                 fixedEdges++;
             }
         }
 
         if (fixedNodes > 0 || fixedEdges > 0) {
-            log.info("[schema-ontology] 保底补齐: 节点 +{} / 边 +{}", fixedNodes, fixedEdges);
+            log.info("[schema-ontology] 覆盖保底补齐: 节点 +{} / 边 +{}", fixedNodes, fixedEdges);
         }
 
         // 转换字段名：本服务上游期望 {add_nodes, add_edges}（兼容 ExtractionLlmService），
@@ -538,16 +627,27 @@ public class SchemaOntologyService {
         return out;
     }
 
-    /** 启发式判断 LLM 是否已经用别的 label/id 表示了同一条 FK 边。 */
-    private boolean hasFkEdge(ArrayNode edges, String fromId, String toId,
-                              String fromCol, String toCol) {
+    /** 启发式判断 LLM 是否已经用语义关系覆盖了同一条 FK。 */
+    private boolean hasFkCoverageEdge(ArrayNode edges, String fromId, String toId,
+                                      String fromTable, String toTable,
+                                      String fromCol, String toCol) {
         for (JsonNode e : edges) {
-            if (!fromId.equals(e.path("from").asText(""))) continue;
-            if (!toId.equals(e.path("to").asText(""))) continue;
+            String from = e.path("from").asText("");
+            String to = e.path("to").asText("");
+            if (!((fromId.equals(from) && toId.equals(to)) || (fromId.equals(to) && toId.equals(from)))) continue;
+            if (edgeDerivedTablesContain(e, fromTable, toTable)) return true;
             String label = e.path("label").asText("");
             if (label.contains(fromCol) && label.contains(toCol)) return true;
         }
         return false;
+    }
+
+    private boolean edgeDerivedTablesContain(JsonNode edge, String a, String b) {
+        JsonNode arr = edge.path("derived_tables");
+        if (!arr.isArray()) return false;
+        Set<String> names = new HashSet<>();
+        for (JsonNode one : arr) names.add(sanitize(one.asText("")));
+        return names.contains(sanitize(a)) && names.contains(sanitize(b));
     }
 
     /** 给缺失的表构造一个朴素但完整的节点。 */
@@ -562,20 +662,24 @@ public class SchemaOntologyService {
         n.put("source", "derived");
         n.put("evidence", t.name());
         n.put("confidence", 1.0);
+        ArrayNode derivedTables = objectMapper.createArrayNode();
+        derivedTables.add(t.name());
+        n.set("derived_tables", derivedTables);
         // attributes：把每一列都列出来（最多 30 列防爆炸）
         ArrayNode attrs = objectMapper.createArrayNode();
         int max = Math.min(t.columns().size(), 30);
         for (int i = 0; i < max; i++) {
             var c = t.columns().get(i);
             ObjectNode a = objectMapper.createObjectNode();
-            a.put("name", c.name());
+            String attrName = c.comment() != null && !c.comment().isBlank() ? c.comment() : c.name();
+            a.put("name", attrName);
+            a.put("column", c.name());
             a.put("valueSpace", normalizeType(c.dataType()));
             StringBuilder desc = new StringBuilder();
             if (c.primaryKey()) desc.append("[PK] ");
             if (c.comment() != null && !c.comment().isBlank()) desc.append(c.comment());
             a.put("description", desc.toString().trim());
-            a.put("source", c.comment() != null && !c.comment().isBlank()
-                    ? "derived" : "inferred");
+            a.put("source", "derived");
             attrs.add(a);
         }
         n.set("attributes", attrs);
@@ -680,6 +784,10 @@ public class SchemaOntologyService {
         e.put("evidence", fk.constraintName() == null ? "FK" : fk.constraintName());
         e.put("confidence", 1.0);
         e.put("rule_driven", false);
+        ArrayNode derivedTables = objectMapper.createArrayNode();
+        derivedTables.add(child.name());
+        derivedTables.add(fk.toTable());
+        e.set("derived_tables", derivedTables);
         ArrayNode cons = objectMapper.createArrayNode();
         ObjectNode c = objectMapper.createObjectNode();
         c.put("kind", "cardinality");
