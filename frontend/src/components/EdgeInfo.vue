@@ -197,6 +197,14 @@ const startResize = (e: MouseEvent) => {
                     <div class="ni-cell-k">约束数</div>
                     <div class="ni-cell-v strong">{{ (edge.constraints || []).length }} <span class="ni-unit">条</span></div>
                   </div>
+                  <div class="ni-cell ni-cell-wide"><div class="ni-cell-k">来源表</div>
+                    <div class="ni-cell-v">
+                      <span v-for="(tb, i) in (edge.derived_tables || [])" :key="'edt'+i" class="ei-src-chip">{{ tb }}</span>
+                      <span v-if="!(edge.derived_tables || []).length" class="ni-dim">暂无来源表</span>
+                    </div>
+                  </div>
+                  <div class="ni-cell"><div class="ni-cell-k">数据源</div><div class="ni-cell-v">{{ edge.derived_source || '—' }}</div></div>
+                  <div class="ni-cell"><div class="ni-cell-k">数据库</div><div class="ni-cell-v mono">{{ edge.derived_database || '—' }}</div></div>
                 </div>
               </div>
 
@@ -385,4 +393,16 @@ const startResize = (e: MouseEvent) => {
 .ei-add-picker-tt { font-size: 11px; color: var(--text-dim); }
 .ei-add-picker-x { background: transparent; border: none; color: var(--text-dim); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px; }
 .ei-add-picker-x:hover { color: var(--text-main); }
+.ei-src-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 2px 4px 2px 0;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #22dd88;
+  background: rgba(34, 221, 136, 0.12);
+  border-radius: 6px;
+}
+.ni-dim { color: rgba(255,255,255,0.4); font-size: 12px; }
+.ni-cell-wide { grid-column: 1 / -1; }
 </style>
