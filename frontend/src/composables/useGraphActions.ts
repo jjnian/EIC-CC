@@ -37,9 +37,10 @@ export function useGraphActions(ctx: GraphActionsCtx) {
   const layoutDirection = ref<LayoutDirection>('LR');
 
   /**
-   * 血缘分层布局(Sugiyama 风格简化版):
+   * 层次分层布局(BFS 风格):
    *   1. 检测 DAG 中的回边,布局时忽略掉(避免无限层级)。
-   *   2. 用「最长路径」给每个节点定层 lvl(沿因果/血缘流向)。
+   *   2. 多源 BFS 给每个节点定层 lvl = 到最近根节点的距离。
+   *      这样「同一父辈下的子节点」都恰好下沉一层,不会因为某条迂回的长路径被推到更深层。
    *   3. 多轮 barycenter 排序减少线交叉。
    *   4. 每一层垂直于流向方向居中,整体观感平衡。
    *   5. 孤立节点放到末尾,按网格平铺。
@@ -87,21 +88,40 @@ export function useGraphActions(ctx: GraphActionsCtx) {
     const effectiveChildren = (id: string) =>
       outgoing[id].filter(c => !reverseEdges.has(edgeKey(id, c)));
 
-    // 3. 最长路径分层(后向 DP,带 memo)
+    // 3. 多源 BFS 分层:层级 = 距最近根节点(无有效父节点)的最短距离。
+    //    这样一个节点不会因为还有一条更长的间接路径就被推到更深的层。
     const levels: Record<string, number> = {};
-    const computeLevel = (id: string, stack: Set<string>): number => {
+    const queue: string[] = [];
+    for (const n of nodes) {
+      if (effectiveParents(n.id).length === 0) {
+        levels[n.id] = 0;
+        queue.push(n.id);
+      }
+    }
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      const lvl = levels[id];
+      for (const child of effectiveChildren(id)) {
+        if (!(child in levels)) {
+          levels[child] = lvl + 1;
+          queue.push(child);
+        }
+      }
+    }
+    // 兜底:若仍有节点未被覆盖(可能在反向边剥离后形成孤岛),用入度回退按最长路径补一遍。
+    const fallbackLevel = (id: string, stack: Set<string>): number => {
       if (id in levels) return levels[id];
-      if (stack.has(id)) return 0; // 防御:残留环
+      if (stack.has(id)) return 0;
       stack.add(id);
       let max = 0;
       for (const parent of effectiveParents(id)) {
-        max = Math.max(max, computeLevel(parent, stack) + 1);
+        max = Math.max(max, fallbackLevel(parent, stack) + 1);
       }
       stack.delete(id);
       levels[id] = max;
       return max;
     };
-    nodes.forEach(n => computeLevel(n.id, new Set()));
+    nodes.forEach(n => { if (!(n.id in levels)) fallbackLevel(n.id, new Set()); });
 
     // 4. 区分孤立 vs 已连通节点
     const groups: Record<number, OntologyNode[]> = {};
