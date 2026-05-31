@@ -83,6 +83,14 @@ const sourceBadge = (s?: string) => {
   return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
 };
 
+// 属性物理列来源：有来源表时显示 "表.列"，否则 "列"
+const attrColumnText = (a: any, node: any): string => {
+  if (!a?.column) return '';
+  const tables = node?.derived_tables || [];
+  const table = tables.length === 1 ? tables[0] : '';
+  return table ? `${table}.${a.column}` : a.column;
+};
+
 // 属性编辑状态
 const editableProps = ref<{ key: string; value: any; source?: string }[]>([]);
 
@@ -237,7 +245,10 @@ const startResize = (e: MouseEvent) => {
                         <span class="ni-badge" :style="{color: sourceBadge(a.source).color, background: sourceBadge(a.source).bg}">{{ sourceBadge(a.source).text }}</span>
                         <button class="ni-prop-del" @click="removeAttribute(i)" title="删除">✕</button>
                       </div>
-                      <input class="ni-inline-input mono" :value="a.valueSpace" placeholder="取值空间" @change="(e: any) => updateAttribute(i, 'valueSpace', e.target.value)" />
+                      <div class="ni-attr-meta">
+                        <input class="ni-inline-input mono ni-attr-vs" :value="a.valueSpace" placeholder="取值空间" @change="(e: any) => updateAttribute(i, 'valueSpace', e.target.value)" />
+                        <span v-if="a.column" class="ni-attr-col">· {{ attrColumnText(a, node) }}</span>
+                      </div>
                     </div>
                     <div v-if="(node.attributes || []).length === 0" class="ni-empty">暂无本体属性</div>
                     <div class="ni-prop-actions">
@@ -440,4 +451,12 @@ const startResize = (e: MouseEvent) => {
 }
 .ni-dim { color: rgba(255,255,255,0.4); font-size: 12px; }
 .ni-cell-wide { grid-column: 1 / -1; }
+.ni-attr-meta { display: flex; align-items: center; gap: 8px; }
+.ni-attr-vs { flex: 0 1 auto; }
+.ni-attr-col {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: rgba(255,255,255,0.45);
+  white-space: nowrap;
+}
 </style>
