@@ -197,6 +197,17 @@ public class OntologyModelRepository {
         if (n.getLabel() != null) m.put("label", n.getLabel());
         if (n.getType() != null) m.put("type", n.getType());
         if (n.getSource() != null) m.put("source", n.getSource());
+        if (n.getDerivedTablesJson() != null && !n.getDerivedTablesJson().isBlank()) {
+            m.put("derived_tables", codec.readStringList(n.getDerivedTablesJson()));
+        }
+        if (n.getDerivedSource() != null) m.put("derived_source", n.getDerivedSource());
+        if (n.getDerivedDatabase() != null) m.put("derived_database", n.getDerivedDatabase());
+        if (n.getAttributesJson() != null && !n.getAttributesJson().isBlank()) {
+            m.put("attributes", codec.readMapList(n.getAttributesJson()));
+        }
+        if (n.getConstraintsJson() != null && !n.getConstraintsJson().isBlank()) {
+            m.put("constraints", codec.readMapList(n.getConstraintsJson()));
+        }
         if (n.getX() != null) m.put("x", n.getX());
         if (n.getY() != null) m.put("y", n.getY());
         if (n.getPredictedStep() != null) m.put("predictedStep", n.getPredictedStep());
@@ -226,6 +237,14 @@ public class OntologyModelRepository {
         m.put("to", e.getToNodeId());
         if (e.getLabel() != null) m.put("label", e.getLabel());
         if (e.getSource() != null) m.put("source", e.getSource());
+        if (e.getDerivedTablesJson() != null && !e.getDerivedTablesJson().isBlank()) {
+            m.put("derived_tables", codec.readStringList(e.getDerivedTablesJson()));
+        }
+        if (e.getDerivedSource() != null) m.put("derived_source", e.getDerivedSource());
+        if (e.getDerivedDatabase() != null) m.put("derived_database", e.getDerivedDatabase());
+        if (e.getConstraintsJson() != null && !e.getConstraintsJson().isBlank()) {
+            m.put("constraints", codec.readMapList(e.getConstraintsJson()));
+        }
         if (Boolean.TRUE.equals(e.getRuleDriven())) m.put("rule_driven", true);
         if (e.getRuleId() != null) m.put("ruleId", e.getRuleId());
         return m;
@@ -238,6 +257,11 @@ public class OntologyModelRepository {
         po.setLabel(asString(n.get("label")));
         po.setType(asString(n.get("type")));
         po.setSource(asString(n.get("source")));
+        po.setDerivedTablesJson(codec.toJson(n.get("derived_tables")));
+        po.setDerivedSource(asString(n.get("derived_source")));
+        po.setDerivedDatabase(asString(n.get("derived_database")));
+        po.setAttributesJson(codec.toJson(n.get("attributes")));
+        po.setConstraintsJson(codec.toJson(n.get("constraints")));
         po.setX(asDouble(n.get("x")));
         po.setY(asDouble(n.get("y")));
         po.setPredictedStep(asInt(n.get("predictedStep")));
@@ -277,6 +301,10 @@ public class OntologyModelRepository {
         po.setToNodeId(asString(e.get("to")));
         po.setLabel(asString(e.get("label")));
         po.setSource(asString(e.get("source")));
+        po.setDerivedTablesJson(codec.toJson(e.get("derived_tables")));
+        po.setDerivedSource(asString(e.get("derived_source")));
+        po.setDerivedDatabase(asString(e.get("derived_database")));
+        po.setConstraintsJson(codec.toJson(e.get("constraints")));
         Object rd = e.get("rule_driven");
         po.setRuleDriven(rd instanceof Boolean ? (Boolean) rd : Boolean.FALSE);
         po.setRuleId(asString(e.get("ruleId")));
