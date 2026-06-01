@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, reactive } from 'vue';
 import { NT } from '../constants';
+import type { AttrSourceMethod } from '../types';
 
 const props = defineProps<{
   node: any | null;
@@ -48,7 +49,7 @@ const relatedEdgeConstraints = computed(() => {
   return out;
 });
 
-const removeRelatedEdgeConstraint = (edgeId: string, index: number) => {
+const removeRelatedEdgeConstraintLive = (edgeId: string, index: number) => {
   const edge = props.edges.find(e => e.id === edgeId);
   if (!edge) return;
   const cons = [...(edge.constraints || [])];
@@ -63,9 +64,6 @@ const toggleEdgeExpand = (id: string) => {
   s.has(id) ? s.delete(id) : s.add(id);
   expandedEdges.value = s;
 };
-
-// 切换选中节点时,折叠掉之前展开的关系约束
-watch(() => props.node?.id, () => { expandedEdges.value = new Set(); });
 
 const kindLabel = (k?: string) => ({
   cardinality: '基数',
@@ -83,79 +81,159 @@ const sourceBadge = (s?: string) => {
   return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
 };
 
-// 属性物理来源：单表时回退到节点的来源表，多表时只能给出列名
-const attrSource = (a: any, node: any): { table: string; column: string } | null => {
-  if (!a?.column) return null;
-  const tables = node?.derived_tables || [];
-  const table = (a.table && String(a.table)) || (tables.length === 1 ? tables[0] : '');
-  return { table: table || '', column: String(a.column) };
+// 来源方式：显式 sourceMethod 优先；否则由物理字段 / 来源推断
+//   有物理列 → 数据库提取；文本/AI 提取 → 文件提取；其余 → 自定义
+const sourceMethodOf = (a: any): AttrSourceMethod => {
+  if (a?.sourceMethod) return a.sourceMethod;
+  if (a?.column) return 'db';
+  if (a?.source === 'derived' || a?.source === 'inferred') return 'file';
+  return 'custom';
 };
 
-// 属性编辑状态
-const editableProps = ref<{ key: string; value: any; source?: string }[]>([]);
+// 物理表展示值：属性自身未显式标表时，回退到节点单一来源表（DB 抽取的表名挂在节点的
+// derived_tables 上，而非逐属性记录），多表/无表则留空让用户手填。
+const displayTable = (a: any, node: any): string => {
+  if (a?.table) return String(a.table);
+  if (sourceMethodOf(a) !== 'db') return '';
+  const tables = node?.derived_tables || [];
+  return tables.length === 1 ? String(tables[0]) : '';
+};
 
-watch(() => props.node, (n) => {
-  editableProps.value = n?.props ? n.props.map((p: any) => ({ ...p })) : [];
-}, { immediate: true });
+// ===== 编辑模式 / 草稿 =====
+// 每个 tab 独立编辑：未保存时改动只在本地 draft 上；保存才会 emit 给上层去 persist
+const editMode = reactive<Record<number, boolean>>({ 0: false, 1: false, 2: false, 3: false });
+// draft 字段按 tab 复用；切 tab 会清空。一直保持非空，避免模板里到处判 null。
+interface Draft {
+  label: string;
+  type: string;
+  source: string;
+  derived_source: string;
+  derived_database: string;
+  derived_tables: string[];
+  attributes: any[];
+  labels: Record<string, string>;
+  constraints: any[];
+}
+const emptyDraft = (): Draft => ({
+  label: '', type: 'class', source: 'manual',
+  derived_source: '', derived_database: '',
+  derived_tables: [], attributes: [], labels: {}, constraints: [],
+});
+const draft = ref<Draft>(emptyDraft());
 
-const propsChanged = computed(() => {
-  return JSON.stringify(editableProps.value) !== JSON.stringify(props.node?.props || []);
+const isEditing = computed(() => !!editMode[tab.value]);
+
+const startEdit = () => {
+  if (!props.node) return;
+  const n = props.node;
+  const d = emptyDraft();
+  if (tab.value === 0) {
+    d.label = n.label || '';
+    d.type = n.type || 'class';
+    d.source = n.source || 'manual';
+    d.derived_source = n.derived_source || '';
+    d.derived_database = n.derived_database || '';
+    d.derived_tables = [...(n.derived_tables || [])];
+  } else if (tab.value === 1) {
+    d.attributes = (n.attributes || []).map((a: any) => ({ ...a }));
+  } else if (tab.value === 2) {
+    for (const e of props.edges) {
+      if (e.from === n.id || e.to === n.id) d.labels[e.id] = e.label || '';
+    }
+  } else if (tab.value === 3) {
+    d.constraints = (n.constraints || []).map((c: any) => ({ ...c }));
+  }
+  draft.value = d;
+  editMode[tab.value] = true;
+};
+
+const cancelEdit = () => {
+  draft.value = emptyDraft();
+  editMode[tab.value] = false;
+};
+
+const saveEdit = () => {
+  if (!props.node) return;
+  const id = props.node.id;
+  const d = draft.value;
+  if (tab.value === 0) {
+    emit('update-node-schema', id, {
+      label: d.label,
+      type: d.type,
+      source: d.source,
+      derived_source: d.derived_source || undefined,
+      derived_database: d.derived_database || undefined,
+      derived_tables: d.derived_tables.filter((s: string) => !!s),
+    });
+  } else if (tab.value === 1) {
+    emit('update-node-schema', id, { attributes: d.attributes });
+  } else if (tab.value === 2) {
+    for (const [eid, lb] of Object.entries(d.labels)) {
+      const orig = props.edges.find(e => e.id === eid);
+      if (orig && (orig.label || '') !== lb) {
+        emit('update-edge-schema', eid, { label: lb });
+      }
+    }
+  } else if (tab.value === 3) {
+    emit('update-node-schema', id, { constraints: d.constraints });
+  }
+  draft.value = emptyDraft();
+  editMode[tab.value] = false;
+};
+
+// 切换选中节点时,折叠掉之前展开的关系约束 + 退出所有编辑模式
+watch(() => props.node?.id, () => {
+  expandedEdges.value = new Set();
+  for (const k of [0, 1, 2, 3]) editMode[k] = false;
+  draft.value = emptyDraft();
 });
 
-const addEditableProp = () => {
-  editableProps.value.push({ key: '', value: '', source: 'manual' });
-};
+// 切换 tab 时自动取消编辑（避免跨 tab 的草稿丢失歧义）
+watch(tab, () => {
+  draft.value = emptyDraft();
+});
 
-const removeEditableProp = (i: number) => {
-  editableProps.value.splice(i, 1);
+// ===== 草稿层的属性/约束/来源表 增删改 =====
+const dAddAttribute = () => {
+  draft.value.attributes = [...draft.value.attributes, { name: '', valueSpace: '', source: 'manual' }];
 };
-
-const saveProps = () => {
-  if (!props.node) return;
-  const cleaned = editableProps.value.filter(p => p.key.trim());
-  emit('update-node-props', props.node.id, cleaned);
-};
-
-const addAttribute = () => {
-  if (!props.node) return;
-  const attrs = [...(props.node.attributes || []), { name: '', valueSpace: '', source: 'manual' }];
-  emit('update-node-schema', props.node.id, { attributes: attrs });
-};
-
-const removeAttribute = (i: number) => {
-  if (!props.node) return;
-  const attrs = [...(props.node.attributes || [])];
+const dRemoveAttribute = (i: number) => {
+  const attrs = [...draft.value.attributes];
   attrs.splice(i, 1);
-  emit('update-node-schema', props.node.id, { attributes: attrs });
+  draft.value.attributes = attrs;
 };
-
-const updateAttribute = (i: number, field: 'name' | 'valueSpace', value: string) => {
-  if (!props.node) return;
-  const attrs = (props.node.attributes || []).map((a: any, idx: number) =>
-    idx === i ? { ...a, [field]: value } : { ...a }
+const dUpdateAttribute = (i: number, field: 'name' | 'valueSpace' | 'table' | 'column' | 'sourceMethod', value: string) => {
+  draft.value.attributes = draft.value.attributes.map((a: any, idx: number) =>
+    idx === i ? { ...a, [field]: value } : a
   );
-  emit('update-node-schema', props.node.id, { attributes: attrs });
 };
 
-const addConstraint = () => {
-  if (!props.node) return;
-  const cons = [...(props.node.constraints || []), { kind: 'custom', note: '', source: 'manual' }];
-  emit('update-node-schema', props.node.id, { constraints: cons });
+const dAddConstraint = () => {
+  draft.value.constraints = [...draft.value.constraints, { kind: 'custom', note: '', source: 'manual' }];
 };
-
-const removeConstraint = (i: number) => {
-  if (!props.node) return;
-  const cons = [...(props.node.constraints || [])];
+const dRemoveConstraint = (i: number) => {
+  const cons = [...draft.value.constraints];
   cons.splice(i, 1);
-  emit('update-node-schema', props.node.id, { constraints: cons });
+  draft.value.constraints = cons;
+};
+const dUpdateConstraint = (i: number, field: 'kind' | 'note', value: string) => {
+  draft.value.constraints = draft.value.constraints.map((c: any, idx: number) =>
+    idx === i ? { ...c, [field]: value } : c
+  );
 };
 
-const updateConstraint = (i: number, field: 'kind' | 'note', value: string) => {
-  if (!props.node) return;
-  const cons = (props.node.constraints || []).map((c: any, idx: number) =>
-    idx === i ? { ...c, [field]: value } : { ...c }
-  );
-  emit('update-node-schema', props.node.id, { constraints: cons });
+const dAddTable = () => {
+  draft.value.derived_tables = [...draft.value.derived_tables, ''];
+};
+const dRemoveTable = (i: number) => {
+  const ts = [...draft.value.derived_tables];
+  ts.splice(i, 1);
+  draft.value.derived_tables = ts;
+};
+const dUpdateTable = (i: number, value: string) => {
+  const ts = [...draft.value.derived_tables];
+  ts[i] = value;
+  draft.value.derived_tables = ts;
 };
 
 const startResize = (e: MouseEvent) => {
@@ -198,6 +276,14 @@ const startResize = (e: MouseEvent) => {
                 <span class="ni-current-dot" />
                 <span class="ni-current-lb">全局模型</span>
               </span>
+              <!-- 编辑模式按钮组：仅在选中节点时显示 -->
+              <template v-if="node">
+                <template v-if="isEditing">
+                  <button class="ni-edit-btn ni-edit-btn--cancel" @click="cancelEdit" title="放弃修改">取消</button>
+                  <button class="ni-edit-btn ni-edit-btn--save" @click="saveEdit" title="保存修改">保存</button>
+                </template>
+                <button v-else class="ni-edit-btn" @click="startEdit" title="进入编辑模式">✎ 编辑</button>
+              </template>
               <button class="ni-list-close" @click="emit('close')" title="关闭">×</button>
             </div>
           </div>
@@ -205,121 +291,168 @@ const startResize = (e: MouseEvent) => {
           <div class="ni-body">
             <!-- Node Context -->
             <template v-if="node">
+              <!-- ===== 概览 ===== -->
               <template v-if="tab === 0">
                 <div class="ni-card">
                   <div class="ni-card-title">节点详情</div>
-                  <div class="ni-grid">
-                    <div class="ni-cell"><div class="ni-cell-k">ID</div><div class="ni-cell-v mono">{{ node.id }}</div></div>
-                    <div class="ni-cell"><div class="ni-cell-k">名称</div><div class="ni-cell-v strong">{{ node.label }}</div></div>
-                    <div class="ni-cell"><div class="ni-cell-k">类型</div><div class="ni-cell-v"><span class="ni-chip">{{ t?.label || '—' }}</span></div></div>
-                    <div class="ni-cell"><div class="ni-cell-k">来源</div>
-                      <div class="ni-cell-v">
-                        <span class="ni-badge" :style="{color: sourceBadge(node.source).color, background: sourceBadge(node.source).bg}">{{ sourceBadge(node.source).text }}</span>
-                      </div>
-                    </div>
-                    <div class="ni-cell"><div class="ni-cell-k">状态</div><div class="ni-cell-v"><span class="ni-chip ok">● 已激活</span></div></div>
-                  </div>
+                  <table class="ni-kv">
+                    <tbody>
+                      <tr><td class="ni-kv-k">ID</td><td class="ni-kv-v mono">{{ node.id }}</td></tr>
+                      <tr>
+                        <td class="ni-kv-k">名称</td>
+                        <td class="ni-kv-v">
+                          <input v-if="isEditing" class="ni-inline-input" v-model="draft.label" placeholder="节点名称" />
+                          <span v-else class="ni-kv-v strong">{{ node.label }}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td class="ni-kv-k">类型</td>
+                        <td class="ni-kv-v">
+                          <select v-if="isEditing" class="ni-inline-select" v-model="draft.type">
+                            <option v-for="(meta, key) in NT" :key="key" :value="key">{{ meta.label }}</option>
+                          </select>
+                          <span v-else class="ni-chip">{{ t?.label || '—' }}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td class="ni-kv-k">来源</td>
+                        <td class="ni-kv-v">
+                          <select v-if="isEditing" class="ni-inline-select" v-model="draft.source">
+                            <option value="manual">手动</option>
+                            <option value="derived">文本提取</option>
+                            <option value="inferred">AI推理</option>
+                            <option value="preset">预置</option>
+                          </select>
+                          <span v-else class="ni-badge" :style="{color: sourceBadge(node.source).color, background: sourceBadge(node.source).bg}">{{ sourceBadge(node.source).text }}</span>
+                        </td>
+                      </tr>
+                      <tr><td class="ni-kv-k">状态</td><td class="ni-kv-v"><span class="ni-chip ok">● 已激活</span></td></tr>
+                    </tbody>
+                  </table>
                 </div>
-                <div v-if="node.derived_source || node.derived_database || (node.derived_tables || []).length" class="ni-card ni-card-lineage">
+                <div v-if="isEditing || node.derived_source || node.derived_database || (node.derived_tables || []).length" class="ni-card ni-card-full">
                   <div class="ni-card-title">数据来源血缘</div>
-                  <div class="ni-lineage">
-                    <div class="ni-lineage-step" :class="{ missing: !node.derived_source }">
-                      <span class="ni-lineage-icon" aria-hidden="true">🗄</span>
-                      <div class="ni-lineage-meta">
-                        <div class="ni-lineage-k">数据源</div>
-                        <div class="ni-lineage-v" :title="node.derived_source || ''">
-                          <template v-if="node.derived_source">{{ node.derived_source }}</template>
-                          <span v-else class="ni-lineage-empty">未关联</span>
-                        </div>
-                      </div>
-                    </div>
-                    <span class="ni-lineage-arrow" aria-hidden="true">›</span>
-                    <div class="ni-lineage-step" :class="{ missing: !node.derived_database }">
-                      <span class="ni-lineage-icon" aria-hidden="true">🛢</span>
-                      <div class="ni-lineage-meta">
-                        <div class="ni-lineage-k">数据库</div>
-                        <div class="ni-lineage-v mono" :title="node.derived_database || ''">
-                          <template v-if="node.derived_database">{{ node.derived_database }}</template>
-                          <span v-else class="ni-lineage-empty">未关联</span>
-                        </div>
-                      </div>
-                    </div>
-                    <span class="ni-lineage-arrow" aria-hidden="true">›</span>
-                    <div class="ni-lineage-step ni-lineage-tables" :class="{ missing: !(node.derived_tables || []).length }">
-                      <span class="ni-lineage-icon" aria-hidden="true">📋</span>
-                      <div class="ni-lineage-meta">
-                        <div class="ni-lineage-k">来源表 <span v-if="(node.derived_tables || []).length" class="ni-lineage-count">{{ node.derived_tables.length }}</span></div>
-                        <div class="ni-lineage-v">
-                          <span v-for="(tb, i) in (node.derived_tables || [])" :key="'dt'+i" class="ni-src-chip">{{ tb }}</span>
-                          <span v-if="!(node.derived_tables || []).length" class="ni-lineage-empty">未关联</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <table class="ni-kv">
+                    <tbody>
+                      <tr :class="{ missing: !isEditing && !node.derived_source }">
+                        <td class="ni-kv-k">数据源</td>
+                        <td class="ni-kv-v">
+                          <input v-if="isEditing" class="ni-inline-input" v-model="draft.derived_source" placeholder="数据源名称（如 pgsql）" />
+                          <template v-else>
+                            <span v-if="node.derived_source" class="ni-src-val">{{ node.derived_source }}</span>
+                            <span v-else class="ni-kv-empty">未关联</span>
+                          </template>
+                        </td>
+                      </tr>
+                      <tr :class="{ missing: !isEditing && !node.derived_database }">
+                        <td class="ni-kv-k">数据库</td>
+                        <td class="ni-kv-v">
+                          <input v-if="isEditing" class="ni-inline-input mono" v-model="draft.derived_database" placeholder="数据库名" />
+                          <template v-else>
+                            <span v-if="node.derived_database" class="ni-src-val mono">{{ node.derived_database }}</span>
+                            <span v-else class="ni-kv-empty">未关联</span>
+                          </template>
+                        </td>
+                      </tr>
+                      <tr :class="{ missing: !isEditing && !(node.derived_tables || []).length }">
+                        <td class="ni-kv-k">来源表 <span v-if="!isEditing && (node.derived_tables || []).length" class="ni-kv-count">{{ node.derived_tables.length }}</span></td>
+                        <td class="ni-kv-v">
+                          <template v-if="isEditing">
+                            <div class="ni-table-list">
+                              <div v-for="(tb, i) in draft.derived_tables" :key="'dt-edit'+i" class="ni-table-row">
+                                <input class="ni-inline-input mono" :value="tb" placeholder="表名" @input="(ev: any) => dUpdateTable(i, ev.target.value)" />
+                                <button class="ni-prop-del" @click="dRemoveTable(i)" title="删除">✕</button>
+                              </div>
+                              <button class="ni-prop-add ni-prop-add--head" @click="dAddTable">+ 新增表名</button>
+                            </div>
+                          </template>
+                          <template v-else>
+                            <span v-for="(tb, i) in (node.derived_tables || [])" :key="'dt'+i" class="ni-src-chip">{{ tb }}</span>
+                            <span v-if="!(node.derived_tables || []).length" class="ni-kv-empty">未关联</span>
+                          </template>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </template>
+
+              <!-- ===== 属性 ===== -->
               <template v-if="tab === 1">
                 <!-- TBox 属性: 类节点上的属性定义 -->
-                <div class="ni-card">
-                  <div class="ni-card-title">本体属性 <span class="ni-card-count">{{ (node.attributes || []).length }}</span></div>
-                  <div v-if="(node.attributes || []).length" class="ni-attr-table">
-                    <div class="ni-attr-thead">
-                      <div class="ni-attr-th ni-col-name">属性名</div>
-                      <div class="ni-attr-th ni-col-type">类型 / 取值</div>
-                      <div class="ni-attr-th ni-col-source">物理来源（表 · 字段）</div>
-                      <div class="ni-attr-th ni-col-act"></div>
-                    </div>
-                    <div v-for="(a, i) in (node.attributes || [])" :key="'tba'+i" class="ni-attr-row">
-                      <div class="ni-attr-cell ni-col-name">
-                        <input class="ni-inline-input" :value="a.name" placeholder="属性名" @change="(e: any) => updateAttribute(i, 'name', e.target.value)" />
-                        <span class="ni-badge ni-attr-badge" :style="{color: sourceBadge(a.source).color, background: sourceBadge(a.source).bg}">{{ sourceBadge(a.source).text }}</span>
-                      </div>
-                      <div class="ni-attr-cell ni-col-type">
-                        <input class="ni-inline-input mono" :value="a.valueSpace" placeholder="取值空间" @change="(e: any) => updateAttribute(i, 'valueSpace', e.target.value)" />
-                      </div>
-                      <div class="ni-attr-cell ni-col-source">
-                        <template v-if="attrSource(a, node)">
-                          <span class="ni-attr-src">
-                            <span class="ni-attr-src-icon" aria-hidden="true">📋</span>
-                            <span v-if="attrSource(a, node)!.table" class="ni-attr-src-table mono">{{ attrSource(a, node)!.table }}</span>
-                            <span v-else class="ni-attr-src-unknown">表未指定</span>
-                            <span class="ni-attr-src-sep">·</span>
-                            <span class="ni-attr-src-col mono">{{ attrSource(a, node)!.column }}</span>
-                          </span>
-                        </template>
-                        <span v-else class="ni-attr-src-empty">手填属性，无物理来源</span>
-                      </div>
-                      <div class="ni-attr-cell ni-col-act">
-                        <button class="ni-prop-del" @click="removeAttribute(i)" title="删除">✕</button>
-                      </div>
-                    </div>
+                <div class="ni-card ni-card-full">
+                  <div class="ni-card-head">
+                    <div class="ni-card-title">本体属性 <span class="ni-card-count">{{ isEditing ? (draft.attributes || []).length : (node.attributes || []).length }}</span></div>
+                    <button v-if="isEditing" class="ni-prop-add ni-prop-add--head" @click="dAddAttribute">+ 新增属性</button>
                   </div>
-                  <div v-else class="ni-empty">暂无本体属性</div>
-                  <div class="ni-prop-actions">
-                    <button class="ni-prop-add" @click="addAttribute">+ 新增属性</button>
-                  </div>
-                </div>
-
-                <!-- 自定义 K-V 属性: 用户在此处编辑 -->
-                <div class="ni-card">
-                  <div class="ni-card-title">自定义属性 <span class="ni-card-count">{{ editableProps.length }}</span></div>
-                  <div class="ni-prop-list">
-                    <div v-for="(p, i) in editableProps" :key="i" class="ni-prop-row">
-                      <input v-model="p.key" class="ni-prop-key-input" placeholder="键" />
-                      <input v-model="p.value" class="ni-prop-val-input" placeholder="值" />
-                      <span class="ni-badge" :style="{color: sourceBadge(p.source).color, background: sourceBadge(p.source).bg}">{{ sourceBadge(p.source).text }}</span>
-                      <button class="ni-prop-del" @click="removeEditableProp(i)" title="删除">✕</button>
+                  <!-- 编辑模式 -->
+                  <template v-if="isEditing">
+                    <div v-if="(draft.attributes || []).length" class="ni-attr-table ni-attr-table--onto">
+                      <div class="ni-attr-thead">
+                        <div class="ni-attr-th ni-col-name">名称</div>
+                        <div class="ni-attr-th ni-col-type">类型</div>
+                        <div class="ni-attr-th ni-col-method">来源方式</div>
+                        <div class="ni-attr-th ni-col-ptable">物理表</div>
+                        <div class="ni-attr-th ni-col-pcol">物理字段</div>
+                        <div class="ni-attr-th ni-col-act"></div>
+                      </div>
+                      <div v-for="(a, i) in draft.attributes" :key="'tba-edit'+i" class="ni-attr-row">
+                        <div class="ni-attr-cell ni-col-name">
+                          <input class="ni-inline-input" :value="a.name" placeholder="属性名" @input="(e: any) => dUpdateAttribute(i, 'name', e.target.value)" />
+                        </div>
+                        <div class="ni-attr-cell ni-col-type">
+                          <input class="ni-inline-input mono" :value="a.valueSpace" placeholder="类型" @input="(e: any) => dUpdateAttribute(i, 'valueSpace', e.target.value)" />
+                        </div>
+                        <div class="ni-attr-cell ni-col-method">
+                          <select class="ni-inline-select" :value="sourceMethodOf(a)" @change="(e: any) => dUpdateAttribute(i, 'sourceMethod', e.target.value)">
+                            <option value="db">数据库提取</option>
+                            <option value="file">文件提取</option>
+                            <option value="custom">自定义</option>
+                          </select>
+                        </div>
+                        <div class="ni-attr-cell ni-col-ptable">
+                          <input class="ni-inline-input mono" :value="displayTable(a, node)" placeholder="物理表" @input="(e: any) => dUpdateAttribute(i, 'table', e.target.value)" />
+                        </div>
+                        <div class="ni-attr-cell ni-col-pcol">
+                          <input class="ni-inline-input mono" :value="a.column" placeholder="物理字段" @input="(e: any) => dUpdateAttribute(i, 'column', e.target.value)" />
+                        </div>
+                        <div class="ni-attr-cell ni-col-act">
+                          <button class="ni-prop-del" @click="dRemoveAttribute(i)" title="删除">✕</button>
+                        </div>
+                      </div>
                     </div>
-                    <div v-if="editableProps.length === 0" class="ni-empty">暂无自定义属性</div>
-                    <div class="ni-prop-actions">
-                      <button class="ni-prop-add" @click="addEditableProp">+ 新增属性</button>
-                      <button v-if="propsChanged" class="ni-prop-save" @click="saveProps">保存属性</button>
+                    <div v-else class="ni-empty">暂无本体属性，点击「+ 新增属性」开始添加</div>
+                  </template>
+                  <!-- 只读模式 -->
+                  <template v-else>
+                    <div v-if="(node.attributes || []).length" class="ni-attr-table ni-attr-table--onto">
+                      <div class="ni-attr-thead">
+                        <div class="ni-attr-th ni-col-name">名称</div>
+                        <div class="ni-attr-th ni-col-type">类型</div>
+                        <div class="ni-attr-th ni-col-method">来源方式</div>
+                        <div class="ni-attr-th ni-col-ptable">物理表</div>
+                        <div class="ni-attr-th ni-col-pcol">物理字段</div>
+                        <div class="ni-attr-th ni-col-act"></div>
+                      </div>
+                      <div v-for="(a, i) in (node.attributes || [])" :key="'tba'+i" class="ni-attr-row">
+                        <div class="ni-attr-cell ni-col-name"><span class="ni-attr-name">{{ a.name || '—' }}</span></div>
+                        <div class="ni-attr-cell ni-col-type mono">{{ a.valueSpace || '—' }}</div>
+                        <div class="ni-attr-cell ni-col-method">
+                          <span class="ni-chip">{{ ({ db: '数据库提取', file: '文件提取', custom: '自定义' } as any)[sourceMethodOf(a)] }}</span>
+                        </div>
+                        <div class="ni-attr-cell ni-col-ptable mono">{{ displayTable(a, node) || '—' }}</div>
+                        <div class="ni-attr-cell ni-col-pcol mono">{{ a.column || '—' }}</div>
+                        <div class="ni-attr-cell ni-col-act"></div>
+                      </div>
                     </div>
-                  </div>
+                    <div v-else class="ni-empty">暂无本体属性</div>
+                  </template>
                 </div>
               </template>
+
+              <!-- ===== 关系 ===== -->
               <template v-if="tab === 2">
-                <div class="ni-card">
+                <div class="ni-card ni-card-full">
                   <div class="ni-card-title">节点关系 <span class="ni-card-count">{{ outgoing.length + incoming.length }}</span></div>
                   <table v-if="outgoing.length || incoming.length" class="ni-rel-table">
                     <thead>
@@ -339,7 +472,10 @@ const startResize = (e: MouseEvent) => {
                             <span v-if="e.rule_driven" class="ni-rule-icon" title="规则驱动">⚡</span>
                             <span v-if="(e.constraints?.length || 0) > 0" class="ni-lock-inline" :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')">🔒</span>
                           </td>
-                          <td class="ni-td amber">{{ e.label || '(未命名)' }}</td>
+                          <td class="ni-td amber">
+                            <input v-if="isEditing" class="ni-inline-input" :value="draft.labels[e.id]" placeholder="(未命名)" @input="(ev: any) => draft.labels[e.id] = ev.target.value" />
+                            <span v-else>{{ e.label || '(未命名)' }}</span>
+                          </td>
                           <td class="ni-td">
                             <span v-if="e.source === 'inferred'" class="ni-src purple">AI推理</span>
                             <span v-else-if="e.source === 'derived'" class="ni-src green">文本提取</span>
@@ -359,7 +495,10 @@ const startResize = (e: MouseEvent) => {
                             <span v-if="e.rule_driven" class="ni-rule-icon" title="规则驱动">⚡</span>
                             <span v-if="(e.constraints?.length || 0) > 0" class="ni-lock-inline" :title="(e.constraints || []).map((c: any) => kindLabel(c.kind) + ': ' + c.note).join('\n')">🔒</span>
                           </td>
-                          <td class="ni-td amber">{{ e.label || '(未命名)' }}</td>
+                          <td class="ni-td amber">
+                            <input v-if="isEditing" class="ni-inline-input" :value="draft.labels[e.id]" placeholder="(未命名)" @input="(ev: any) => draft.labels[e.id] = ev.target.value" />
+                            <span v-else>{{ e.label || '(未命名)' }}</span>
+                          </td>
                           <td class="ni-td">
                             <span v-if="e.source === 'inferred'" class="ni-src purple">AI推理</span>
                             <span v-else-if="e.source === 'derived'" class="ni-src green">文本提取</span>
@@ -375,34 +514,53 @@ const startResize = (e: MouseEvent) => {
                     </tbody>
                   </table>
                   <div v-if="!outgoing.length && !incoming.length" class="ni-empty">暂无关系</div>
+                  <div v-if="isEditing" class="ni-edit-hint">编辑模式下可修改关系名称，「✎/✕」可即时跳转或删除。保存只提交名称变更。</div>
                 </div>
               </template>
+
+              <!-- ===== 约束 ===== -->
               <template v-if="tab === 3">
-                <div class="ni-card">
-                  <div class="ni-card-title">节点约束 <span class="ni-card-count">{{ (node.constraints || []).length }}</span></div>
-                  <div v-if="(node.constraints?.length || 0) > 0" class="ni-cons-list">
-                    <div v-for="(c, i) in (node.constraints || [])" :key="'c'+i" class="ni-cons-item">
-                      <div class="ni-cons-head">
-                        <select class="ni-inline-select" :value="c.kind || 'custom'" @change="(e: any) => updateConstraint(i, 'kind', e.target.value)">
-                          <option value="cardinality">基数</option>
-                          <option value="exclusive">互斥</option>
-                          <option value="symmetric">对称</option>
-                          <option value="transitive">传递</option>
-                          <option value="custom">自定义</option>
-                        </select>
-                        <span class="ni-badge" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
-                        <button class="ni-prop-del" @click="removeConstraint(i)" title="删除">✕</button>
+                <div class="ni-card ni-card-full">
+                  <div class="ni-card-head">
+                    <div class="ni-card-title">节点约束 <span class="ni-card-count">{{ isEditing ? (draft.constraints || []).length : (node.constraints || []).length }}</span></div>
+                    <button v-if="isEditing" class="ni-prop-add ni-prop-add--head" @click="dAddConstraint">+ 新增约束</button>
+                  </div>
+                  <!-- 编辑模式 -->
+                  <template v-if="isEditing">
+                    <div v-if="(draft.constraints || []).length" class="ni-cons-list">
+                      <div v-for="(c, i) in draft.constraints" :key="'c-edit'+i" class="ni-cons-item">
+                        <div class="ni-cons-head">
+                          <select class="ni-inline-select" :value="c.kind || 'custom'" @change="(e: any) => dUpdateConstraint(i, 'kind', e.target.value)">
+                            <option value="cardinality">基数</option>
+                            <option value="exclusive">互斥</option>
+                            <option value="symmetric">对称</option>
+                            <option value="transitive">传递</option>
+                            <option value="custom">自定义</option>
+                          </select>
+                          <span class="ni-badge" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
+                          <button class="ni-prop-del" @click="dRemoveConstraint(i)" title="删除">✕</button>
+                        </div>
+                        <input class="ni-inline-input" :value="c.note" placeholder="约束说明" @input="(e: any) => dUpdateConstraint(i, 'note', e.target.value)" />
                       </div>
-                      <input class="ni-inline-input" :value="c.note" placeholder="约束说明" @change="(e: any) => updateConstraint(i, 'note', e.target.value)" />
                     </div>
-                  </div>
-                  <div v-else class="ni-empty">暂无节点约束</div>
-                  <div class="ni-prop-actions">
-                    <button class="ni-prop-add" @click="addConstraint">+ 新增约束</button>
-                  </div>
+                    <div v-else class="ni-empty">暂无节点约束，点击「+ 新增约束」开始添加</div>
+                  </template>
+                  <!-- 只读模式 -->
+                  <template v-else>
+                    <div v-if="(node.constraints?.length || 0) > 0" class="ni-cons-list">
+                      <div v-for="(c, i) in (node.constraints || [])" :key="'c'+i" class="ni-cons-item">
+                        <div class="ni-cons-head">
+                          <span class="ni-cons-kind">{{ kindLabel(c.kind) }}</span>
+                          <span class="ni-badge" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
+                        </div>
+                        <div class="ni-cons-note">{{ c.note || '—' }}</div>
+                      </div>
+                    </div>
+                    <div v-else class="ni-empty">暂无节点约束</div>
+                  </template>
                 </div>
 
-                <div v-if="relatedEdgeConstraints.length > 0" class="ni-card">
+                <div v-if="!isEditing && relatedEdgeConstraints.length > 0" class="ni-card ni-card-full">
                   <div class="ni-card-title">所在关系的约束 <span class="ni-card-count">{{ relatedEdgeConstraints.length }}</span></div>
                   <div class="ni-cons-list">
                     <div v-for="(row, i) in relatedEdgeConstraints" :key="'rec'+i" class="ni-cons-item">
@@ -410,7 +568,7 @@ const startResize = (e: MouseEvent) => {
                         <span class="ni-cons-kind">{{ kindLabel(row.c.kind) }}</span>
                         <span class="ni-badge" :style="{color: sourceBadge(row.c.source).color, background: sourceBadge(row.c.source).bg}">{{ sourceBadge(row.c.source).text }}</span>
                         <span class="ni-cons-rel">{{ row.relLabel }}</span>
-                        <button class="ni-prop-del" style="margin-left:auto" @click="removeRelatedEdgeConstraint(row.edgeId, row.index)" title="删除该约束">✕</button>
+                        <button class="ni-prop-del" style="margin-left:auto" @click="removeRelatedEdgeConstraintLive(row.edgeId, row.index)" title="删除该约束">✕</button>
                       </div>
                       <div class="ni-cons-note">{{ row.c.note }}</div>
                     </div>
@@ -424,24 +582,28 @@ const startResize = (e: MouseEvent) => {
               <template v-if="tab === 0">
                 <div class="ni-card">
                   <div class="ni-card-title">全局模型概览</div>
-                  <div class="ni-grid">
-                    <div class="ni-cell"><div class="ni-cell-k">总节点数</div><div class="ni-cell-v strong">{{ nodes.length }} <span class="ni-unit">实体</span></div></div>
-                    <div class="ni-cell"><div class="ni-cell-k">总关系数</div><div class="ni-cell-v strong">{{ edges.length }} <span class="ni-unit">流向</span></div></div>
-                    <div class="ni-cell"><div class="ni-cell-k">推演引擎</div><div class="ni-cell-v"><span class="ni-chip ok">● 实时就绪</span></div></div>
-                  </div>
+                  <table class="ni-kv">
+                    <tbody>
+                      <tr><td class="ni-kv-k">总节点数</td><td class="ni-kv-v strong">{{ nodes.length }} <span class="ni-unit">实体</span></td></tr>
+                      <tr><td class="ni-kv-k">总关系数</td><td class="ni-kv-v strong">{{ edges.length }} <span class="ni-unit">流向</span></td></tr>
+                      <tr><td class="ni-kv-k">推演引擎</td><td class="ni-kv-v"><span class="ni-chip ok">● 实时就绪</span></td></tr>
+                    </tbody>
+                  </table>
                 </div>
               </template>
               <template v-if="tab === 1">
                 <div class="ni-card">
                   <div class="ni-card-title">模型属性概要</div>
-                  <div class="ni-grid">
-                    <div class="ni-cell"><div class="ni-cell-k">节点总数</div><div class="ni-cell-v strong">{{ nodes.length }}</div></div>
-                    <div class="ni-cell"><div class="ni-cell-k">关系总数</div><div class="ni-cell-v strong">{{ edges.length }}</div></div>
-                  </div>
+                  <table class="ni-kv">
+                    <tbody>
+                      <tr><td class="ni-kv-k">节点总数</td><td class="ni-kv-v strong">{{ nodes.length }}</td></tr>
+                      <tr><td class="ni-kv-k">关系总数</td><td class="ni-kv-v strong">{{ edges.length }}</td></tr>
+                    </tbody>
+                  </table>
                 </div>
               </template>
               <template v-if="tab === 2">
-                <div class="ni-card">
+                <div class="ni-card ni-card-full">
                   <div class="ni-card-title">全局拓扑关系表 <span class="ni-card-count">{{ edges.length }}</span></div>
                   <table v-if="edges.length" class="ni-rel-table">
                     <thead>
@@ -467,10 +629,12 @@ const startResize = (e: MouseEvent) => {
               <template v-if="tab === 3">
                 <div class="ni-card">
                   <div class="ni-card-title">全局约束概要</div>
-                  <div class="ni-grid">
-                    <div class="ni-cell"><div class="ni-cell-k">带约束的节点</div><div class="ni-cell-v strong">{{ nodes.filter(n => (n.constraints?.length || 0) > 0).length }} <span class="ni-unit">个</span></div></div>
-                    <div class="ni-cell"><div class="ni-cell-k">带约束的关系</div><div class="ni-cell-v strong">{{ edges.filter(e => (e.constraints?.length || 0) > 0).length }} <span class="ni-unit">条</span></div></div>
-                  </div>
+                  <table class="ni-kv">
+                    <tbody>
+                      <tr><td class="ni-kv-k">带约束的节点</td><td class="ni-kv-v strong">{{ nodes.filter(n => (n.constraints?.length || 0) > 0).length }} <span class="ni-unit">个</span></td></tr>
+                      <tr><td class="ni-kv-k">带约束的关系</td><td class="ni-kv-v strong">{{ edges.filter(e => (e.constraints?.length || 0) > 0).length }} <span class="ni-unit">条</span></td></tr>
+                    </tbody>
+                  </table>
                 </div>
               </template>
             </template>
@@ -492,6 +656,61 @@ const startResize = (e: MouseEvent) => {
   border-radius: 6px;
 }
 
+/* ===== 编辑模式按钮 ===== */
+.ni-edit-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: var(--text-main);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background-color .15s, border-color .15s, color .15s;
+}
+.ni-edit-btn:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.22);
+}
+.ni-edit-btn--save {
+  background: var(--accent, #42b883);
+  border-color: var(--accent, #42b883);
+  color: #064e3b;
+  font-weight: 600;
+}
+.ni-edit-btn--save:hover {
+  opacity: 0.9;
+  background: var(--accent, #42b883);
+}
+.ni-edit-btn--cancel {
+  color: rgba(255,255,255,0.7);
+}
+
+/* ===== 编辑模式提示 ===== */
+.ni-edit-hint {
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.5);
+  background: rgba(255,255,255,0.03);
+  border: 1px dashed rgba(255,255,255,0.1);
+  border-radius: 6px;
+}
+
+/* ===== 来源表草稿列表 ===== */
+.ni-table-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ni-table-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ni-table-row .ni-inline-input { flex: 1; }
+
 /* ===== 本体属性表格 ===== */
 .ni-attr-table {
   display: flex;
@@ -504,10 +723,19 @@ const startResize = (e: MouseEvent) => {
 .ni-attr-thead,
 .ni-attr-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1.4fr) minmax(120px, 1fr) minmax(180px, 1.6fr) 32px;
   gap: 8px;
   align-items: center;
   padding: 8px 10px;
+}
+/* 本体属性表：名称 / 类型 / 来源方式 / 物理表 / 物理字段 / 操作 */
+.ni-attr-table--onto .ni-attr-thead,
+.ni-attr-table--onto .ni-attr-row {
+  grid-template-columns: minmax(96px, 1.2fr) minmax(72px, 0.8fr) minmax(94px, 0.9fr) minmax(90px, 1fr) minmax(90px, 1fr) 32px;
+}
+/* 自定义属性表：键 / 值 / 来源 / 操作 */
+.ni-attr-table--kv .ni-attr-thead,
+.ni-attr-table--kv .ni-attr-row {
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.6fr) auto 32px;
 }
 .ni-attr-thead {
   background: rgba(255,255,255,0.025);
@@ -531,45 +759,65 @@ const startResize = (e: MouseEvent) => {
   align-items: center;
   gap: 6px;
   min-width: 0;
-}
-.ni-col-act { justify-content: flex-end; }
-.ni-attr-badge { flex-shrink: 0; }
-.ni-attr-src {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 3px 8px;
-  background: rgba(34, 221, 136, 0.08);
-  border: 1px solid rgba(34, 221, 136, 0.18);
-  border-radius: 6px;
   font-size: 12px;
-  max-width: 100%;
-  word-break: break-all;
-}
-.ni-attr-src-icon { font-size: 12px; opacity: 0.85; flex-shrink: 0; }
-.ni-attr-src-table {
-  color: #22dd88;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11.5px;
-}
-.ni-attr-src-sep { color: rgba(255,255,255,0.4); }
-.ni-attr-src-col {
   color: var(--text-main);
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11.5px;
 }
-.ni-attr-src-unknown,
-.ni-attr-src-empty {
-  color: rgba(255,255,255,0.4);
-  font-size: 12px;
-  font-style: italic;
+.ni-attr-cell.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: var(--text-dim); }
+.ni-attr-cell .ni-attr-name { color: #ffaa22; font-weight: 500; }
+.ni-col-act { justify-content: flex-end; }
+/* 单元格内的输入/下拉占满列宽 */
+.ni-col-method .ni-inline-select { width: 100%; }
+
+/* 分区标题栏：标题在左，操作按钮（新增/保存）靠右上 */
+.ni-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 9px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.ni-card-head .ni-card-title {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+.ni-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+/* 标题栏里的"新增属性"按钮：不再拉伸占整行 */
+.ni-prop-add--head {
+  flex: none;
+  padding: 4px 12px;
+  white-space: nowrap;
 }
 
 /* 紧凑面板下让属性表自适应竖排，避免水平挤压 */
 @media (max-width: 720px) {
   .ni-attr-thead { display: none; }
-  .ni-attr-row {
+  /* 本体属性表竖排 */
+  .ni-attr-table--onto .ni-attr-row {
+    grid-template-columns: 1fr 32px;
+    grid-template-areas:
+      'name   act'
+      'type   act'
+      'method act'
+      'ptable act'
+      'pcol   act';
+    row-gap: 6px;
+  }
+  .ni-attr-table--onto .ni-col-name { grid-area: name; }
+  .ni-attr-table--onto .ni-col-type { grid-area: type; }
+  .ni-attr-table--onto .ni-col-method { grid-area: method; }
+  .ni-attr-table--onto .ni-col-ptable { grid-area: ptable; }
+  .ni-attr-table--onto .ni-col-pcol { grid-area: pcol; }
+  .ni-attr-table--onto .ni-col-act { grid-area: act; align-self: start; }
+  /* 自定义属性表竖排 */
+  .ni-attr-table--kv .ni-attr-row {
     grid-template-columns: 1fr 32px;
     grid-template-areas:
       'name act'
@@ -577,9 +825,9 @@ const startResize = (e: MouseEvent) => {
       'src  act';
     row-gap: 6px;
   }
-  .ni-col-name { grid-area: name; }
-  .ni-col-type { grid-area: type; }
-  .ni-col-source { grid-area: src; }
-  .ni-col-act { grid-area: act; align-self: start; }
+  .ni-attr-table--kv .ni-col-name { grid-area: name; }
+  .ni-attr-table--kv .ni-col-type { grid-area: type; }
+  .ni-attr-table--kv .ni-col-source { grid-area: src; }
+  .ni-attr-table--kv .ni-col-act { grid-area: act; align-self: start; }
 }
 </style>

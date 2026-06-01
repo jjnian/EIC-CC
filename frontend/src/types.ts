@@ -44,13 +44,21 @@ export interface OntologyEdge {
   [k: string]: any;
 }
 
+/** 属性来源方式: 数据库提取 / 文件提取 / 自定义 */
+export type AttrSourceMethod = 'db' | 'file' | 'custom';
+
 /** TBox 属性定义: 类节点上挂的属性 + 取值范围 */
 export interface OntologyAttribute {
   name: string;
   valueSpace?: string;
+  /** 物理表 */
+  table?: string;
+  /** 物理字段 */
   column?: string;
   description?: string;
   source?: NodeSource;
+  /** 来源方式（数据库提取 / 文件提取 / 自定义），缺省时由 column/source 推断 */
+  sourceMethod?: AttrSourceMethod;
 }
 
 /** TBox 约束: 基数限制 / 互斥 / 对称 / 传递 … */
