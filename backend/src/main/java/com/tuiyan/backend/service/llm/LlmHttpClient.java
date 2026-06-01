@@ -27,6 +27,8 @@ public class LlmHttpClient {
     public static final String ANTHROPIC_VERSION = "2023-06-01";
     // 输出 token 上限默认值；本体抽取等长 JSON 任务 8192 容易被截断，调高到 32768
     public static final int DEFAULT_MAX_OUTPUT_TOKENS = 32768;
+    // 抽取 / schema→本体等"要可复现"的调用使用的温度：0 = 关闭随机采样，避免同样输入每次产出不同
+    public static final double EXTRACT_TEMPERATURE = 0.0;
 
     // 单例 HttpClient；连接超时只覆盖 TCP 建联阶段，业务超时在每个 request 上单独设
     private final HttpClient httpClient = HttpClient.newBuilder()
@@ -92,7 +94,7 @@ public class LlmHttpClient {
                                   List<Map<String, Object>> history,
                                   List<Map<String, Object>> attachments,
                                   boolean stream, boolean jsonMode, int maxTokens) throws IOException {
-        return bodyBuilder.buildOpenAiBody(modelName, systemPrompt, userText, history, attachments, stream, jsonMode, maxTokens);
+        return bodyBuilder.buildOpenAiBody(modelName, systemPrompt, userText, history, attachments, stream, jsonMode, maxTokens, null);
     }
 
     /**
@@ -108,7 +110,7 @@ public class LlmHttpClient {
                                      List<Map<String, Object>> history,
                                      List<Map<String, Object>> attachments,
                                      boolean stream, int maxTokens) throws IOException {
-        return bodyBuilder.buildAnthropicBody(modelName, systemPrompt, userMessage, history, attachments, stream, maxTokens);
+        return bodyBuilder.buildAnthropicBody(modelName, systemPrompt, userMessage, history, attachments, stream, maxTokens, null);
     }
 
     /** 按当前 ResolvedConfig 选择正确的协议体构造方法。 */
@@ -116,6 +118,13 @@ public class LlmHttpClient {
                             List<Map<String, Object>> history, List<Map<String, Object>> attachments,
                             boolean stream, boolean jsonMode) throws IOException {
         return bodyBuilder.buildBody(cfg, systemPrompt, userText, history, attachments, stream, jsonMode);
+    }
+
+    /** 同上，但显式指定温度；抽取 / schema→本体传 {@link #EXTRACT_TEMPERATURE}（0）关闭随机采样，保证可复现。 */
+    public String buildBody(ResolvedConfig cfg, String systemPrompt, String userText,
+                            List<Map<String, Object>> history, List<Map<String, Object>> attachments,
+                            boolean stream, boolean jsonMode, Double temperature) throws IOException {
+        return bodyBuilder.buildBody(cfg, systemPrompt, userText, history, attachments, stream, jsonMode, temperature);
     }
 
     /**

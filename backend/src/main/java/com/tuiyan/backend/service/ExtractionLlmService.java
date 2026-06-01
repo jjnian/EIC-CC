@@ -105,7 +105,7 @@ public class ExtractionLlmService {
                 null, userPrompt.toString(), imageAttachments);
 
         String requestBody = http.buildBody(cfg, LlmPrompts.EXTRACT_SYSTEM, userPrompt.toString(),
-                null, imageAttachments, false, true);
+                null, imageAttachments, false, true, LlmHttpClient.EXTRACT_TEMPERATURE);
 
         HttpRequest httpReq = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
         long startTime = System.currentTimeMillis();

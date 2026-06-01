@@ -485,7 +485,7 @@ public class SchemaOntologyService {
                 prompts.system(), null, prompts.user(), null);
 
         String body = http.buildBody(cfg, prompts.system(), prompts.user(),
-                null, null, false, true);
+                null, null, false, true, LlmHttpClient.EXTRACT_TEMPERATURE);
         HttpRequest req = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, body, cfg.rawUrl());
 
         long t0 = System.currentTimeMillis();
