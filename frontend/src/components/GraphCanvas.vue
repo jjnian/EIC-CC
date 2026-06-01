@@ -172,6 +172,8 @@ const toggleAddNodeOutput = menu.toggleAddNodeOutput;
  * 入口分派:先尝试框选(Shift+非只读),否则交给 viewport 平移。
  */
 const startPan = (e: MouseEvent) => {
+  // 画布背景按下：开启新一轮交互，清掉上一次节点按下遗留的"吞 click"标志
+  suppressCanvasClick = false;
   // 点击落在节点 / 浮层上时不进入 pan，让对应控件优先响应
   if ((e.target as HTMLElement).closest('.node') || (e.target as HTMLElement).closest('.hud-overlay')) {
     return;
@@ -183,6 +185,24 @@ const startPan = (e: MouseEvent) => {
 
   // 普通：交给 viewport 记录滚动起点 + 鼠标起点
   viewport.startPan(e);
+};
+
+/**
+ * 节点按下入口：先打标志再交给拖拽逻辑。
+ * <p>选中节点会让底部信息面板展开，画布随之回流、节点上移脱离指针，导致 mouseup
+ * 落在画布背景上——浏览器据此把这次 click 派发到 .graph-canvas（节点的 @click.stop
+ * 拦不到），清空选中造成"弹窗一闪而过"。用一次性标志吞掉这次画布 click。
+ */
+let suppressCanvasClick = false;
+const onNodeMousedown = (e: MouseEvent, id: string) => {
+  suppressCanvasClick = true;
+  startDrag(e, id);
+};
+const onCanvasClick = () => {
+  if (suppressCanvasClick) { suppressCanvasClick = false; return; }
+  closeCtx();
+  multiSel.clear();
+  emit('select', null);
 };
 
 let ro: ResizeObserver | null = null;
@@ -267,7 +287,7 @@ defineExpose({ fitView, focusNode });
 
 <template>
   <div class="graph-wrapper" style="position: relative; flex: 1; overflow: hidden; display: flex; background: transparent;">
-    <div ref="cvRef" class="graph-canvas" style="flex: 1; overflow: auto; min-width: 0; position: relative;" @mousedown="startPan" @wheel="onWheel" @click="() => { closeCtx(); multiSel.clear(); emit('select', null); }" @contextmenu="onCanvasContext">
+    <div ref="cvRef" class="graph-canvas" style="flex: 1; overflow: auto; min-width: 0; position: relative;" @mousedown="startPan" @wheel="onWheel" @click="onCanvasClick" @contextmenu="onCanvasContext">
       <div :style="{ width: Math.max(3000, bounds.w * zoom) + 'px', height: Math.max(3000, bounds.h * zoom) + 'px', position: 'relative' }">
         <div class="scale-container" :style="{ transform: `scale(${zoom})`, transformOrigin: '0 0', width: '3000px', height: '3000px', position: 'absolute', top: 0, left: 0 }">
           <svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible">
@@ -318,7 +338,7 @@ defineExpose({ fitView, focusNode });
                   borderBottomColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#111c2c',
                   boxShadow: (selId === n.id || (typeFilter && matchesFilter(n))) ? `0 0 0 1px ${getT(n).color}55,0 4px 24px ${getT(n).color}33` : (neighborIds && neighborIds.has(n.id) && selId !== n.id) ? `0 0 0 1px ${getT(n).color}44,0 2px 12px ${getT(n).color}22` : '0 2px 8px rgba(0,0,0,0.4)'
                 }"
-                @mousedown="e => startDrag(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @dblclick.stop="emit('edit-node', n.id)" @click.stop>
+                @mousedown="e => onNodeMousedown(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @dblclick.stop="emit('edit-node', n.id)" @click.stop>
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
               <div class="node-label">{{ n.label }}</div>
               <div class="node-type">{{ getT(n).label }}</div>
