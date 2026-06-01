@@ -83,4 +83,28 @@ public final class FileSniffer {
         }
         return false;
     }
+
+    /**
+     * 常见音频容器 magic bytes：MP3（ID3 标签 / 帧同步）、WAV（RIFF…WAVE）、FLAC、OGG、
+     * M4A/MP4（offset 4 = ftyp）、AMR。
+     * <p>压缩音频的签名不如图片可靠，调用方应再结合 content-type / 扩展名兜底判断。
+     */
+    public static boolean isAudioMagic(byte[] head) {
+        if (head == null || head.length < 4) return false;
+        int b0 = head[0] & 0xff, b1 = head[1] & 0xff, b2 = head[2] & 0xff, b3 = head[3] & 0xff;
+        if (b0 == 0x49 && b1 == 0x44 && b2 == 0x33) return true;                     // MP3 "ID3" 标签头
+        if (b0 == 0xFF && (b1 & 0xE0) == 0xE0) return true;                          // MP3 / AAC(ADTS) 帧同步 FF Ex
+        if (b0 == 0x66 && b1 == 0x4C && b2 == 0x61 && b3 == 0x43) return true;       // FLAC "fLaC"
+        if (b0 == 0x4F && b1 == 0x67 && b2 == 0x67 && b3 == 0x53) return true;       // OGG  "OggS"
+        if (head.length >= 5 && b0 == 0x23 && b1 == 0x21 && b2 == 0x41
+                && b3 == 0x4D && (head[4] & 0xff) == 0x52) return true;              // AMR  "#!AMR"
+        // WAV: RIFF....WAVE（区别于 WebP 的 RIFF....WEBP）
+        if (head.length >= 12 && b0 == 0x52 && b1 == 0x49 && b2 == 0x46 && b3 == 0x46
+                && (head[8] & 0xff) == 0x57 && (head[9] & 0xff) == 0x41
+                && (head[10] & 0xff) == 0x56 && (head[11] & 0xff) == 0x45) return true; // "WAVE"
+        // M4A / MP4 音频: 偏移 4~7 = "ftyp"
+        if (head.length >= 8 && (head[4] & 0xff) == 0x66 && (head[5] & 0xff) == 0x74
+                && (head[6] & 0xff) == 0x79 && (head[7] & 0xff) == 0x70) return true;   // "ftyp"
+        return false;
+    }
 }
