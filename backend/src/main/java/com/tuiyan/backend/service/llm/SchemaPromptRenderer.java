@@ -21,6 +21,8 @@ public class SchemaPromptRenderer {
     // chat 上下文里嵌入 schema 时的预算：列详情每张表只挑前 N 列，避免炸 context
     private static final int CHAT_SCHEMA_COLS_PER_TABLE = 12;
     private static final int CHAT_SCHEMA_TABLES_MAX = 60;
+    // 视图定义体进 prompt 的字符上限：长视图截断，避免炸 context
+    private static final int VIEW_DEF_MAX_CHARS = 1500;
 
     /**
      * Compact 版 schema 渲染：chat 场景用，每张表只列重要列（PK/FK/unique + 前几列），
@@ -137,6 +139,7 @@ public class SchemaPromptRenderer {
         sb.append("  - 外键和列只是证据，只有能表达真实语义时才输出节点/边；\n");
         sb.append("  - attributes 只能列出 SCHEMA 中真实出现的列，且用 `column` 保留物理列追溯；\n");
         sb.append("  - constraints 只能基于真实 PK / 唯一键 / NOT NULL / 声明的 FK；\n");
+        sb.append("  - VIEW 的 DEFINITION 是血缘 ground truth：据其 FROM/JOIN 抽取「视图→来源表」的派生边，据 SELECT 聚合/表达式抽取指标口径；这类边即使无显式 FK 也应输出（服务端会按视图定义保留）；\n");
         sb.append("  - 节点和边的 `derived_tables` 需要明确写出来源表；\n");
         sb.append("  - 节点 id 要稳定、边 id 要幂等；\n");
         sb.append("  - 不要输出 `question` 字段；\n");
@@ -152,11 +155,11 @@ public class SchemaPromptRenderer {
         sb.append("数据库名:   ").append(s.database()).append("\n");
         sb.append("表数量:     ").append(s.tables().size()).append("\n\n");
         for (TableInfo t : s.tables()) {
-            sb.append("TABLE ").append(t.name());
+            sb.append(t.isView() ? "VIEW " : "TABLE ").append(t.name());
             if (t.comment() != null && !t.comment().isBlank()) {
                 sb.append("    -- ").append(t.comment());
             }
-            if (t.estimatedRows() != null && t.estimatedRows() > 0) {
+            if (!t.isView() && t.estimatedRows() != null && t.estimatedRows() > 0) {
                 sb.append("  (~").append(t.estimatedRows()).append(" rows)");
             }
             sb.append("\n");
@@ -185,6 +188,17 @@ public class SchemaPromptRenderer {
             for (UniqueKeyInfo uk : t.uniqueKeys()) {
                 sb.append("  UNQ ").append(uk.name())
                   .append(" (").append(String.join(", ", uk.columns())).append(")\n");
+            }
+            // 视图定义体 = 血缘 ground truth（FROM/JOIN → 派生边，SELECT 聚合 → 指标口径）
+            if (t.isView() && t.definition() != null && !t.definition().isBlank()) {
+                String def = t.definition().strip();
+                if (def.length() > VIEW_DEF_MAX_CHARS) {
+                    def = def.substring(0, VIEW_DEF_MAX_CHARS) + "\n…[定义体截断]";
+                }
+                sb.append("  DEFINITION (该视图的 SQL，FROM/JOIN=血缘来源，SELECT 聚合=口径):\n");
+                for (String line : def.split("\n")) {
+                    sb.append("    ").append(line).append("\n");
+                }
             }
             sb.append("\n");
         }

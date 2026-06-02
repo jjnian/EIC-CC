@@ -65,13 +65,18 @@ public class JdbcConnectorService {
     /** 唯一约束（含 unique index）：方便给 LLM 提示业务键 */
     public record UniqueKeyInfo(String name, List<String> columns) {}
 
-    /** 单表元信息：表名 + 注释 + 列 + 外键 + 唯一约束 + 估算行数 */
+    /** 单表元信息：表名 + 注释 + 列 + 外键 + 唯一约束 + 估算行数 + 类型(table/view) + 视图定义体 */
     public record TableInfo(String name,
                             String comment,
                             List<ColumnInfo> columns,
                             List<ForeignKeyInfo> foreignKeys,
                             List<UniqueKeyInfo> uniqueKeys,
-                            Long estimatedRows) {}
+                            Long estimatedRows,
+                            String kind,
+                            String definition) {
+        /** 是否视图（含物化视图）。视图的 {@link #definition} 是血缘 ground truth。 */
+        public boolean isView() { return "view".equalsIgnoreCase(kind); }
+    }
 
     /** 整库 schema：kind + database + 全表 */
     public record DatabaseSchemaInfo(String kind,

@@ -272,9 +272,16 @@ public class SchemaOntologyService {
                 continue;
             }
 
+            boolean viewDerived = isSupportedByViewDerivation(fromTables, toTables);
             boolean ok = isSupportedByRealFk(fromTables, toTables)
-                    || isSupportedByJunctionTable(copy, realTables);
+                    || isSupportedByJunctionTable(copy, realTables)
+                    || viewDerived;
             if (ok) {
+                if (viewDerived) {
+                    // 视图 SQL 支撑的血缘：标注 evidence=view，便于审核回溯
+                    String ev = copy.path("evidence").asText("");
+                    if (ev.isBlank() || "FK".equalsIgnoreCase(ev)) copy.put("evidence", "view");
+                }
                 ensureEdgeDerivedTables(copy, fromTables, toTables);
                 cleanedEdges.add(copy);
                 continue;
@@ -424,6 +431,27 @@ public class SchemaOntologyService {
         List<TableInfo> edgeTables = resolveEdgeTables(edge, realTables);
         for (TableInfo t : edgeTables) {
             if (isPureJunctionTable(t) || t.foreignKeys().size() >= 2) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 视图派生支撑：任一端是视图、且其定义体（SQL）里引用了另一端的表名 → 这条血缘边由视图 SQL 支撑
+     * （ground truth），即使没有声明 FK 也应保留。
+     */
+    private boolean isSupportedByViewDerivation(List<TableInfo> fromTables, List<TableInfo> toTables) {
+        return viewReferences(fromTables, toTables) || viewReferences(toTables, fromTables);
+    }
+
+    /** maybeViews 中的视图，其定义体是否引用了 targets 中任一表名。 */
+    private boolean viewReferences(List<TableInfo> maybeViews, List<TableInfo> targets) {
+        for (TableInfo v : maybeViews) {
+            if (!v.isView() || v.definition() == null || v.definition().isBlank()) continue;
+            String def = v.definition().toLowerCase();
+            for (TableInfo t : targets) {
+                String tn = t.name() == null ? "" : t.name().toLowerCase();
+                if (!tn.isBlank() && def.contains(tn)) return true;
+            }
         }
         return false;
     }
