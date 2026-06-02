@@ -129,6 +129,17 @@ public class DataSourceRepository {
         return mapper.updateById(po) > 0;
     }
 
+    /** 把数据源移动到指定文件夹（folderId 为 null/空 = 移到工作空间根）。按工作空间隔离。 */
+    @Transactional
+    public boolean moveToFolder(String id, String folderId) {
+        DataSourcePO po = mapper.selectById(id);
+        if (po == null) return false;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
+        po.setFolderId(folderId == null || folderId.isBlank() ? null : folderId.trim());
+        po.setUpdatedAt(System.currentTimeMillis());
+        return mapper.updateById(po) > 0;
+    }
+
     @Transactional
     public void markStatus(String id, String status, String errorMsg) {
         DataSourcePO po = mapper.selectById(id);
@@ -153,6 +164,7 @@ public class DataSourceRepository {
         if (po.getMime() != null) out.put("mime", po.getMime());
         if (po.getSizeBytes() != null) out.put("size", po.getSizeBytes());
         out.put("createdAt", po.getCreatedAt());
+        if (po.getFolderId() != null)      out.put("folderId", po.getFolderId());
         if (po.getStatus() != null)        out.put("status", po.getStatus());
         if (po.getLastTestedAt() != null)  out.put("lastTestedAt", po.getLastTestedAt());
         if (po.getLastError() != null)     out.put("lastError", po.getLastError());

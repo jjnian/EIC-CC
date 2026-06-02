@@ -33,6 +33,8 @@ public class DataSourcePO {
     private Long updatedAt;
     /** 向量索引状态：none | indexing | indexed | error */
     private String indexStatus;
+    /** 所属文件夹 id（NULL = 工作空间根，不在任何文件夹内） */
+    private String folderId;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -62,4 +64,6 @@ public class DataSourcePO {
     public void setUpdatedAt(Long updatedAt) { this.updatedAt = updatedAt; }
     public String getIndexStatus() { return indexStatus; }
     public void setIndexStatus(String indexStatus) { this.indexStatus = indexStatus; }
+    public String getFolderId() { return folderId; }
+    public void setFolderId(String folderId) { this.folderId = folderId; }
 }

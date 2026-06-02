@@ -415,6 +415,23 @@ CREATE INDEX IF NOT EXISTS idx_hypothesis_template_ws ON hypothesis_template (wo
 -- 7.1 数据源新增字段：向量索引状态
 ALTER TABLE data_source ADD COLUMN IF NOT EXISTS index_status VARCHAR(16) DEFAULT 'none';
 
+-- ---------------------------------------------------------------------------
+-- 7.1b 数据源文件夹：工作空间内任意层级归类（parent_id 自引用，NULL=根）
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS data_source_folder (
+    id            VARCHAR(64)  PRIMARY KEY,
+    workspace_id  VARCHAR(64)  NOT NULL,
+    parent_id     VARCHAR(64),                       -- NULL = 工作空间根目录
+    name          VARCHAR(255) NOT NULL,
+    sort_order    INTEGER      DEFAULT 0,
+    created_at    BIGINT       NOT NULL,
+    updated_at    BIGINT
+);
+CREATE INDEX IF NOT EXISTS idx_ds_folder_ws
+    ON data_source_folder (workspace_id, parent_id);
+-- 数据源所属文件夹（NULL = 工作空间根，不在任何文件夹内）
+ALTER TABLE data_source ADD COLUMN IF NOT EXISTS folder_id VARCHAR(64);
+
 -- 7.2 文本块表
 CREATE TABLE IF NOT EXISTS ds_chunk (
     id              VARCHAR(64) PRIMARY KEY,

@@ -86,6 +86,16 @@ public class DataSourceController {
         return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 
+    /** 移动数据源到指定文件夹：{folderId}。folderId 省略/null = 移到工作空间根。 */
+    @PutMapping("/{id}/folder")
+    public ResponseEntity<SuccessCountResponse> moveToFolder(@PathVariable String id,
+                                                             @RequestBody(required = false) Map<String, Object> body) {
+        Object f = body == null ? null : body.get("folderId");
+        String folderId = f == null ? null : String.valueOf(f);
+        boolean ok = repo.moveToFolder(id, folderId);
+        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+    }
+
     @PostMapping("/{id}/test")
     public ResponseEntity<DataSourceTestResponse> test(@PathVariable String id) {
         return ResponseEntity.ok(service.test(id));
