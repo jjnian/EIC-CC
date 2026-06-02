@@ -501,17 +501,49 @@ public class SchemaOntologyService {
         return false;
     }
 
-    /** 单批调 LLM，返回 LLM 原始的 {add_nodes, add_edges} ObjectNode。 */
+    /**
+     * 单批调 LLM，返回 {add_nodes, add_edges}。
+     * <p>任务分解为两阶段（更聚焦、更准）：阶段1 只抽节点（实体+属性+约束），
+     * 阶段2 把已固定的节点集回灌给模型、只抽边（关系+血缘）。
+     * <p>代码层强制只取阶段1 的 add_nodes 与阶段2 的 add_edges，不依赖模型自觉遵守"本轮只输出 X"。
+     */
     private ObjectNode callLlmOnce(DatabaseSchemaInfo batch,
                                    String sourceName,
                                    String userHint,
                                    LlmHttpClient.ResolvedConfig cfg,
                                    boolean anthropic) throws IOException {
-        GraphPromptBuilder.SchemaExtractPrompt prompts =
-                promptBuilder.buildSchemaExtractPrompt(batch, sourceName, userHint);
-        callLogger.logConversation("LLM-schema-extract", cfg.modelName(),
-                prompts.system(), null, prompts.user(), null);
+        ObjectNode out = objectMapper.createObjectNode();
 
+        // 阶段1：仅抽节点（实体 + 属性 + 约束）
+        ObjectNode nodeRes = callSchemaLlm(
+                promptBuilder.buildNodeStagePrompt(batch, sourceName, userHint), cfg, anthropic, "LLM-schema-nodes");
+        ArrayNode nodes = asArray(nodeRes.path("add_nodes"));
+        out.set("add_nodes", nodes);
+
+        // 节点为空（如纯空表批次）→ 无需再抽边，省一次调用
+        if (nodes.isEmpty()) {
+            out.set("add_edges", objectMapper.createArrayNode());
+            return out;
+        }
+
+        // 阶段2：在固定节点集上仅抽边（关系 + 血缘）
+        ObjectNode edgeRes = callSchemaLlm(
+                promptBuilder.buildEdgeStagePrompt(batch, sourceName, userHint, nodes), cfg, anthropic, "LLM-schema-edges");
+        out.set("add_edges", asArray(edgeRes.path("add_edges")));
+        return out;
+    }
+
+    /** 取 JsonNode 下的数组；非数组时返回空数组。 */
+    private ArrayNode asArray(JsonNode n) {
+        return (n != null && n.isArray()) ? (ArrayNode) n : objectMapper.createArrayNode();
+    }
+
+    /** 单次 schema 抽取 LLM 调用：记录会话 + 固定温度发送 + 校验状态 + 解析为 ObjectNode。 */
+    private ObjectNode callSchemaLlm(GraphPromptBuilder.SchemaExtractPrompt prompts,
+                                     LlmHttpClient.ResolvedConfig cfg,
+                                     boolean anthropic,
+                                     String tag) throws IOException {
+        callLogger.logConversation(tag, cfg.modelName(), prompts.system(), null, prompts.user(), null);
         String body = http.buildBody(cfg, prompts.system(), prompts.user(),
                 null, null, false, true, LlmHttpClient.EXTRACT_TEMPERATURE);
         HttpRequest req = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, body, cfg.rawUrl());
@@ -520,8 +552,7 @@ public class SchemaOntologyService {
         HttpResponse<String> resp = http.sendHttp(req, HttpResponse.BodyHandlers.ofString());
         long elapsed = System.currentTimeMillis() - t0;
         if (resp.statusCode() != 200) {
-            log.error("[LLM-schema-extract] HTTP {} elapsed={}ms body={}",
-                    resp.statusCode(), elapsed, resp.body());
+            log.error("[{}] HTTP {} elapsed={}ms body={}", tag, resp.statusCode(), elapsed, resp.body());
             callLogger.logUpstreamError("schema-extract", resp.statusCode(), resp.body());
             http.metrics().recordCall(cfg.modelName(), elapsed, false);
             throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
@@ -529,7 +560,7 @@ public class SchemaOntologyService {
         http.metrics().recordCall(cfg.modelName(), elapsed, true);
         JsonNode root = objectMapper.readTree(resp.body());
         String content = http.stripJsonFence(http.extractContent(root, anthropic));
-        callLogger.logLlmResponse("LLM-schema-extract", cfg.modelName(), elapsed, content);
+        callLogger.logLlmResponse(tag, cfg.modelName(), elapsed, content);
         JsonNode parsed = objectMapper.readTree(content);
         if (!(parsed instanceof ObjectNode)) {
             throw new IllegalStateException("LLM 返回格式非对象，无法处理");

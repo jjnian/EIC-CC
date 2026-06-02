@@ -5,6 +5,7 @@ import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaI
 import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.UniqueKeyInfo;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -145,6 +146,75 @@ public class SchemaPromptRenderer {
         sb.append("  - 不要输出 `question` 字段；\n");
         sb.append("  - 不允许出现 add_nodes 之外的 from/to 引用（无悬空边）；\n");
         sb.append("  - ⚠ 服务端会做事实校验：编造的表/列/FK 会被自动删除。宁可少写也不要多写。\n");
+        return new GraphPromptBuilder.SchemaExtractPrompt(LlmPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
+    }
+
+    /** 两阶段抽取共享的前言：来源说明 + 完整 schema + 用户提示。 */
+    private void appendSchemaPreamble(StringBuilder sb, DatabaseSchemaInfo schema, String sourceName, String extraHint) {
+        sb.append("以下是从数据源「").append(sourceName).append("」 (")
+          .append(schema.kind()).append(", 库: ").append(schema.database())
+          .append(") 内省得到的完整 schema。请严格按 system 中的映射规则处理。\n\n");
+        sb.append("====== SCHEMA START ======\n");
+        sb.append(renderSchemaFull(schema));
+        sb.append("====== SCHEMA END ======\n\n");
+        if (extraHint != null && !extraHint.isBlank()) {
+            sb.append("【用户额外提示】").append(extraHint).append("\n\n");
+        }
+    }
+
+    /**
+     * 任务分解·阶段1（仅节点）：只抽实体 + 属性 + 约束，不抽边。
+     * <p>聚焦"识别业务概念"这一件事，节点 id 用确定式 {@code t_<table>}，供阶段2 引用。
+     */
+    public GraphPromptBuilder.SchemaExtractPrompt buildNodeStagePrompt(DatabaseSchemaInfo schema,
+                                                                       String sourceName,
+                                                                       String extraHint) {
+        StringBuilder sb = new StringBuilder();
+        appendSchemaPreamble(sb, schema, sourceName, extraHint);
+        sb.append("【本轮任务 = 仅抽节点：实体 + 属性 + 约束】\n");
+        sb.append("  - 按 Rule 1/2 识别业务概念节点（可把紧密相关的多张表合并为一个概念）；\n");
+        sb.append("  - 按 Rule 5 填 attributes（只用 SCHEMA 中真实出现的列，并用 `column` 保留物理列追溯）；\n");
+        sb.append("  - 按 Rule 6 填 constraints（PK / 唯一键 / NOT NULL 簇）；\n");
+        sb.append("  - 节点 id 用确定式 t_<sanitized_table_name>，保证同样 schema 同样 id；\n");
+        sb.append("  - ⚠ 本轮只输出 add_nodes；add_edges 必须为空数组 []（关系与血缘下一轮再做）；\n");
+        sb.append("  - 服务端会做事实校验：编造的表/列会被删除，宁可少写也不要多写。\n");
+        sb.append("输出 JSON：{\"add_nodes\":[...], \"add_edges\":[]}\n");
+        return new GraphPromptBuilder.SchemaExtractPrompt(LlmPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
+    }
+
+    /**
+     * 任务分解·阶段2（仅边）：在阶段1 已固定的节点集上，只抽关系 + 血缘。
+     * <p>把已知节点（id + label + 来源表）回灌给模型，让它专注连边、且 from/to 只能引用这些 id。
+     */
+    public GraphPromptBuilder.SchemaExtractPrompt buildEdgeStagePrompt(DatabaseSchemaInfo schema,
+                                                                       String sourceName,
+                                                                       String extraHint,
+                                                                       JsonNode knownNodes) {
+        StringBuilder sb = new StringBuilder();
+        appendSchemaPreamble(sb, schema, sourceName, extraHint);
+        sb.append("【上一轮已确定的节点（id 固定，不可新增 / 改名）】\n");
+        if (knownNodes != null && knownNodes.isArray()) {
+            for (JsonNode n : knownNodes) {
+                String id = n.path("id").asText("");
+                if (id.isEmpty()) continue;
+                sb.append("  - ").append(id).append(" : ").append(n.path("label").asText(""));
+                JsonNode dt = n.path("derived_tables");
+                if (dt.isArray() && !dt.isEmpty()) {
+                    List<String> names = new ArrayList<>();
+                    for (JsonNode one : dt) names.add(one.asText(""));
+                    sb.append("（来源表: ").append(String.join(", ", names)).append("）");
+                }
+                sb.append("\n");
+            }
+        }
+        sb.append("\n【本轮任务 = 仅抽边：关系 + 血缘，节点已固定】\n");
+        sb.append("  - 按 Rule 3（FK→语义边）、Rule 4（命名推断，严格）抽关系；\n");
+        sb.append("  - 按 VIEW 的 DEFINITION 中 FROM/JOIN 抽「视图→来源表」派生血缘、SELECT 聚合抽指标口径（这类边即使无 FK 也应输出）；\n");
+        sb.append("  - 每条边的 from/to 必须是上面列表里的节点 id；不要引用不存在的 id，不要新增 / 修改节点；\n");
+        sb.append("  - 边 id 用确定式 e_fk_<child>_<col>__<parent>；\n");
+        sb.append("  - ⚠ 本轮只输出 add_edges；add_nodes 必须为空数组 []；\n");
+        sb.append("  - 没有 FK / 视图依据就不要硬造边（H8：少而准 > 多而错）。\n");
+        sb.append("输出 JSON：{\"add_nodes\":[], \"add_edges\":[...]}\n");
         return new GraphPromptBuilder.SchemaExtractPrompt(LlmPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
     }
 

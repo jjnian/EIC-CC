@@ -4,6 +4,7 @@ import com.tuiyan.backend.model.Constraint;
 import com.tuiyan.backend.model.MentionRef;
 import com.tuiyan.backend.model.PredictRequest;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -177,6 +178,17 @@ public class GraphPromptBuilder {
                                                        String sourceName,
                                                        String extraHint) {
         return schemaPromptRenderer.buildSchemaExtractPrompt(schema, sourceName, extraHint);
+    }
+
+    /** 任务分解·阶段1（仅节点：实体+属性+约束）。委派 {@link SchemaPromptRenderer}。 */
+    public SchemaExtractPrompt buildNodeStagePrompt(DatabaseSchemaInfo schema, String sourceName, String extraHint) {
+        return schemaPromptRenderer.buildNodeStagePrompt(schema, sourceName, extraHint);
+    }
+
+    /** 任务分解·阶段2（仅边：关系+血缘，基于阶段1 已固定的节点）。委派 {@link SchemaPromptRenderer}。 */
+    public SchemaExtractPrompt buildEdgeStagePrompt(DatabaseSchemaInfo schema, String sourceName,
+                                                    String extraHint, JsonNode knownNodes) {
+        return schemaPromptRenderer.buildEdgeStagePrompt(schema, sourceName, extraHint, knownNodes);
     }
 
     /** Full 版 schema 渲染：extract 场景用，每张表完整列出所有列 + 全部约束 + 全部外键。 */
