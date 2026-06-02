@@ -101,7 +101,10 @@ ALTER TABLE ontology_edge
     ADD COLUMN IF NOT EXISTS derived_tables_json TEXT,
     ADD COLUMN IF NOT EXISTS constraints_json TEXT,
     ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS rel_type   VARCHAR(64),   -- 边语义类型(derived_from/composed_of/triggers/governs…)，上下游遍历据此判方向
+    ADD COLUMN IF NOT EXISTS evidence   TEXT,           -- 该边的证据(FK 列/视图名/命名依据等，粒度尽量细)
+    ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION;
 CREATE INDEX IF NOT EXISTS idx_ontology_edge_model
     ON ontology_edge (model_id);
 CREATE INDEX IF NOT EXISTS idx_ontology_edge_from

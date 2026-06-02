@@ -272,15 +272,21 @@ public class SchemaOntologyService {
                 continue;
             }
 
+            boolean fkOk = isSupportedByRealFk(fromTables, toTables);
             boolean viewDerived = isSupportedByViewDerivation(fromTables, toTables);
-            boolean ok = isSupportedByRealFk(fromTables, toTables)
+            boolean ok = fkOk
                     || isSupportedByJunctionTable(copy, realTables)
                     || viewDerived;
             if (ok) {
+                // 证据粒度增强：尽量写出具体支撑（视图名 / FK 列→列），而非泛化 tag，便于审核回溯
+                String ev = copy.path("evidence").asText("");
+                boolean coarse = ev.isBlank() || "FK".equalsIgnoreCase(ev) || "view".equalsIgnoreCase(ev);
                 if (viewDerived) {
-                    // 视图 SQL 支撑的血缘：标注 evidence=view，便于审核回溯
-                    String ev = copy.path("evidence").asText("");
-                    if (ev.isBlank() || "FK".equalsIgnoreCase(ev)) copy.put("evidence", "view");
+                    String ve = viewEvidence(fromTables, toTables);
+                    if (ve != null && coarse) copy.put("evidence", ve);
+                } else if (fkOk && coarse) {
+                    String fe = fkEvidence(fromTables, toTables);
+                    if (fe != null) copy.put("evidence", fe);
                 }
                 ensureEdgeDerivedTables(copy, fromTables, toTables);
                 cleanedEdges.add(copy);
@@ -454,6 +460,32 @@ public class SchemaOntologyService {
             }
         }
         return false;
+    }
+
+    /** 视图派生边的细化证据："view:<视图名>"（取参与该边的视图表名）。 */
+    private String viewEvidence(List<TableInfo> a, List<TableInfo> b) {
+        for (TableInfo t : a) if (t.isView()) return "view:" + t.name();
+        for (TableInfo t : b) if (t.isView()) return "view:" + t.name();
+        return null;
+    }
+
+    /** FK 支撑边的细化证据："FK:<child>.<col>→<parent>.<col>"（取两侧表间真实声明的外键，两个方向都试）。 */
+    private String fkEvidence(List<TableInfo> a, List<TableInfo> b) {
+        String e = fkBetween(a, b);
+        return e != null ? e : fkBetween(b, a);
+    }
+
+    private String fkBetween(List<TableInfo> children, List<TableInfo> parents) {
+        Set<String> pnames = new HashSet<>();
+        for (TableInfo p : parents) pnames.add(sanitize(p.name()));
+        for (TableInfo c : children) {
+            for (ForeignKeyInfo fk : c.foreignKeys()) {
+                if (fk.toTable() != null && pnames.contains(sanitize(fk.toTable()))) {
+                    return "FK:" + c.name() + "." + fk.fromColumn() + "→" + fk.toTable() + "." + fk.toColumn();
+                }
+            }
+        }
+        return null;
     }
 
     private List<TableInfo> resolveEdgeTables(ObjectNode edge, Map<String, TableInfo> realTables) {

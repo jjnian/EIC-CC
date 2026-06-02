@@ -129,6 +129,9 @@ public class OntologyRowMapper {
         }
         if (Boolean.TRUE.equals(e.getRuleDriven())) m.put("rule_driven", true);
         if (e.getRuleId() != null) m.put("ruleId", e.getRuleId());
+        if (e.getRelType() != null) m.put("rel_type", e.getRelType());
+        if (e.getEvidence() != null) m.put("evidence", e.getEvidence());
+        if (e.getConfidence() != null) m.put("confidence", e.getConfidence());
         return m;
     }
 
@@ -192,6 +195,9 @@ public class OntologyRowMapper {
         Object rd = e.get("rule_driven");
         po.setRuleDriven(rd instanceof Boolean ? (Boolean) rd : Boolean.FALSE);
         po.setRuleId(asString(e.get("ruleId")));
+        po.setRelType(asString(e.get("rel_type")));
+        po.setEvidence(asString(e.get("evidence")));
+        po.setConfidence(asDouble(e.get("confidence")));
         edgeMapper.insert(po);
     }
 }

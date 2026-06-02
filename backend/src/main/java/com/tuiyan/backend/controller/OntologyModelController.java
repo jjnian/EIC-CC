@@ -3,6 +3,7 @@ package com.tuiyan.backend.controller;
 import com.tuiyan.backend.model.OntologyModel;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.service.DocumentExtractionService;
+import com.tuiyan.backend.service.LineageTraversalService;
 import com.tuiyan.backend.service.OntologyModelService;
 import com.tuiyan.backend.service.extraction.UploadedFile;
 import com.tuiyan.backend.support.SsePushUtils;
@@ -23,10 +24,14 @@ public class OntologyModelController {
 
     private final OntologyModelService svc;
     private final DocumentExtractionService extractionService;
+    private final LineageTraversalService lineageService;
 
-    public OntologyModelController(OntologyModelService svc, DocumentExtractionService extractionService) {
+    public OntologyModelController(OntologyModelService svc,
+                                   DocumentExtractionService extractionService,
+                                   LineageTraversalService lineageService) {
         this.svc = svc;
         this.extractionService = extractionService;
+        this.lineageService = lineageService;
     }
 
     @GetMapping
@@ -54,6 +59,23 @@ public class OntologyModelController {
     public ResponseEntity<SuccessCountResponse> delete(@PathVariable String id) {
         boolean ok = svc.delete(id);
         return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+    }
+
+    /**
+     * 血缘上下游遍历：从节点出发，按 rel_type 语义判定的数据流方向遍历（非死按 from→to）。
+     * @param node      起点节点 id
+     * @param direction upstream(上游来源) | downstream(下游派生)，默认 downstream
+     * @param depth     最大跳数，≤0 不限，默认不限
+     */
+    @GetMapping("/{id}/lineage")
+    public ResponseEntity<Map<String, Object>> lineage(@PathVariable String id,
+                                                       @RequestParam String node,
+                                                       @RequestParam(defaultValue = "downstream") String direction,
+                                                       @RequestParam(defaultValue = "0") int depth) {
+        LineageTraversalService.Direction dir = "upstream".equalsIgnoreCase(direction)
+                ? LineageTraversalService.Direction.UPSTREAM
+                : LineageTraversalService.Direction.DOWNSTREAM;
+        return ResponseEntity.ok(lineageService.traverse(id, node, dir, depth));
     }
 
     @GetMapping("/{id}/versions")
