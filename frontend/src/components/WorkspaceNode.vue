@@ -405,7 +405,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   align-items: center;
   gap: 4px;
   width: 100%;
-  padding: 6px 10px 4px 16px;
+  padding: 6px 10px 4px 24px;
   background: none;
   border: none;
   cursor: pointer;
@@ -455,11 +455,11 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   cursor: pointer;
 }
 .ws-section-open:hover { color: #5fd4a3; background: rgba(66,184,131,.10); }
-.ws-loading { font-size: 11px; color: rgba(255,255,255,.32); padding: 2px 10px 2px 28px; font-style: italic; }
-.ws-empty { font-size: 11px; color: rgba(255,255,255,.22); padding: 2px 10px 4px 28px; font-style: italic; }
+.ws-loading { font-size: 11px; color: rgba(255,255,255,.32); padding: 2px 10px 2px 44px; font-style: italic; }
+.ws-empty { font-size: 11px; color: rgba(255,255,255,.22); padding: 2px 10px 4px 44px; font-style: italic; }
 .ws-item {
   display: flex; align-items: center; gap: 6px;
-  padding: 4px 10px 4px 28px; border-radius: 7px; cursor: pointer;
+  padding: 4px 10px 4px 44px; border-radius: 7px; cursor: pointer;
   background: none; border: none; color: rgba(255,255,255,.62);
   font-size: 12px; text-align: left; width: 100%; font-family: inherit;
   transition: background .12s ease, color .12s ease;
@@ -469,7 +469,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 .ws-item::before {
   content: '';
   position: absolute;
-  left: 18px; top: 50%;
+  left: 32px; top: 50%;
   width: 4px; height: 4px;
   border-radius: 50%;
   background: rgba(255,255,255,0.18);

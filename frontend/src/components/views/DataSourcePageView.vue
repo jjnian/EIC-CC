@@ -336,7 +336,7 @@ const submit = async () => {
         v-for="row in flatRows"
         :key="row.kind + ':' + (row.folder?.id || row.ds?.id)"
         class="tree-row"
-        :style="{ paddingLeft: (row.depth * 18 + 8) + 'px' }"
+        :style="{ paddingLeft: (row.depth * 26 + 8) + 'px' }"
       >
         <!-- 文件夹行 -->
         <template v-if="row.kind === 'folder'">
