@@ -191,10 +191,10 @@ public class DataSourceService {
         return fileStored.readText(repo.readConfig(po), offset, length);
     }
 
-    public java.io.File originalFileFor(String id) {
+    public com.tuiyan.backend.service.storage.StoredObject originalObjectFor(String id) {
         DataSourcePO po = ensureOwnership(id);
         requireKindIn(po, "file_stored");
-        return fileStored.originalFile(repo.readConfig(po));
+        return fileStored.originalObject(repo.readConfig(po));
     }
 
     // ---------- HTTPS 专用 ----------

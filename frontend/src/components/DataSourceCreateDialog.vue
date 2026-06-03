@@ -113,8 +113,8 @@ const submit = async () => {
               <input v-model="name" placeholder="数据源名称" />
             </label>
             <label class="row block">
-              <span>文件 (PDF / Word / TXT / MD)</span>
-              <input type="file" accept=".pdf,.docx,.txt,.md" @change="onFilePick" />
+              <span>文件 (PDF / Word / TXT / MD / 音频)</span>
+              <input type="file" accept=".pdf,.docx,.txt,.md,.mp3,.wav,.m4a,.flac,.aac,.ogg,.opus,.wma,.amr,audio/*" @change="onFilePick" />
               <small v-if="fileToUpload">{{ fileToUpload.name }} ({{ (fileToUpload.size / 1024).toFixed(1) }} KB)</small>
             </label>
           </template>

@@ -40,15 +40,6 @@ public class AppPaths {
     /** 用户偏好设置文件（主题、布局方向、当前模型等）。 */
     public File prefsFile() { return new File(rootDir(), "prefs.json"); }
 
-    /** 数据源原文件存储目录（PDF/TXT/MD 等 file_stored 类型的落盘根目录）。 */
-    public File datasourceFilesDir() {
-        File dir = new File(rootDir(), "datasource-files");
-        if (!dir.exists()) {
-            try { Files.createDirectories(dir.toPath()); }
-            catch (IOException e) {
-                log.warn("Failed to create datasource-files dir: {}", e.toString());
-            }
-        }
-        return dir;
-    }
+    // 注：数据源原文件（PDF/Word/TXT/音频等）已改为上传到 MinIO 对象存储，
+    // 不再落本地磁盘，见 ObjectStorageService / FileStoredService。
 }

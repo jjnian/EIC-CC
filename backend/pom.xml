@@ -66,6 +66,12 @@
             <version>8.4.0</version>
             <scope>runtime</scope>
         </dependency>
+        <!-- 对象存储：MinIO（数据源原文件 / 抽取文本 落桶） -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.12</version>
+        </dependency>
     </dependencies>
     <build>
         <plugins>
