@@ -10,6 +10,7 @@ import {
   type DataSource,
 } from '../api/dataSources';
 import { listOntologies } from '../api/ontology';
+import { listFolders, type DataSourceFolder } from '../api/folders';
 import type { OntologyModel } from '../types';
 
 export interface SidebarOntology {
@@ -31,10 +32,13 @@ export interface SidebarConversation {
 // 按 workspaceId 索引的缓存:同一 wsId 只首次拉取一次,除非显式 force 或写后回填
 const cacheConvs = ref<Record<string, SidebarConversation[]>>({});
 const cacheDS = ref<Record<string, DataSource[]>>({});
+const cacheFolders = ref<Record<string, DataSourceFolder[]>>({});
 const loadingConv = ref<Record<string, boolean>>({});
 const loadingDS = ref<Record<string, boolean>>({});
+const loadingFolders = ref<Record<string, boolean>>({});
 const loadedConv = ref<Record<string, boolean>>({});
 const loadedDS = ref<Record<string, boolean>>({});
+const loadedFolders = ref<Record<string, boolean>>({});
 
 const toSidebar = (d: ConversationDto): SidebarConversation => ({
   id: d.id,
@@ -83,6 +87,21 @@ export function useSidebarTree() {
     }
   };
 
+  const loadFolders = async (wsId: string, force = false): Promise<void> => {
+    if (!wsId) return;
+    if (!force && loadedFolders.value[wsId]) return;
+    if (loadingFolders.value[wsId]) return;
+    loadingFolders.value[wsId] = true;
+    try {
+      cacheFolders.value[wsId] = (await listFolders(wsId)) || [];
+      loadedFolders.value[wsId] = true;
+    } catch (e) {
+      console.warn('listFolders failed', wsId, e);
+    } finally {
+      loadingFolders.value[wsId] = false;
+    }
+  };
+
   const loadOntologies = async (wsId: string, force = false): Promise<void> => {
     if (!wsId) return;
     if (!force && loadedOntology.value[wsId]) return;
@@ -107,11 +126,15 @@ export function useSidebarTree() {
   const getDataSources = (wsId: string): DataSource[] =>
     cacheDS.value[wsId] || [];
 
+  const getFolders = (wsId: string): DataSourceFolder[] =>
+    cacheFolders.value[wsId] || [];
+
   const getOntologies = (wsId: string): SidebarOntology[] =>
     cacheOntologies.value[wsId] || [];
 
   const isLoadingConv = (wsId: string): boolean => !!loadingConv.value[wsId];
   const isLoadingDS = (wsId: string): boolean => !!loadingDS.value[wsId];
+  const isLoadingFolders = (wsId: string): boolean => !!loadingFolders.value[wsId];
   const isLoadedConv = (wsId: string): boolean => !!loadedConv.value[wsId];
   const isLoadedDS = (wsId: string): boolean => !!loadedDS.value[wsId];
   const isLoadingOntology = (wsId: string): boolean => !!loadingOntology.value[wsId];
@@ -205,16 +228,20 @@ export function useSidebarTree() {
     if (wsId) {
       delete cacheConvs.value[wsId];
       delete cacheDS.value[wsId];
+      delete cacheFolders.value[wsId];
       delete cacheOntologies.value[wsId];
       delete loadedConv.value[wsId];
       delete loadedDS.value[wsId];
+      delete loadedFolders.value[wsId];
       delete loadedOntology.value[wsId];
     } else {
       cacheConvs.value = {};
       cacheDS.value = {};
+      cacheFolders.value = {};
       cacheOntologies.value = {};
       loadedConv.value = {};
       loadedDS.value = {};
+      loadedFolders.value = {};
       loadedOntology.value = {};
     }
   };
@@ -222,12 +249,15 @@ export function useSidebarTree() {
   return {
     loadConversations,
     loadDataSources,
+    loadFolders,
     loadOntologies,
     getConversations,
     getDataSources,
+    getFolders,
     getOntologies,
     isLoadingConv,
     isLoadingDS,
+    isLoadingFolders,
     isLoadingOntology,
     isLoadedConv,
     isLoadedDS,
