@@ -434,7 +434,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 <template>
   <div class="ws-wrap">
     <div :class="['ws-node', { active: isCurrent }]" @click="toggle">
-      <span class="ws-caret" :class="{ open: expanded }">▶</span>
+      <span class="ws-caret" :class="{ open: expanded }">›</span>
       <span class="ws-avatar">{{ wsInitial(workspace.name) }}</span>
       <span class="ws-name">{{ workspace.name }}</span>
       <span v-if="workspace.isDefault" class="ws-tag">默认</span>
@@ -445,7 +445,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
     <div v-if="expanded" class="ws-children">
       <div class="ws-section">
         <button type="button" class="ws-section-head" @click="toggleSection('convs', $event)">
-          <span class="ws-section-caret" :class="{ open: sections.convs }">▸</span>
+          <span class="ws-section-caret" :class="{ open: sections.convs }">›</span>
           <span class="ws-section-lbl">历史对话</span>
           <span v-if="tree.getConversations(workspace.id).length" class="ws-section-count">{{ tree.getConversations(workspace.id).length }}</span>
         </button>
@@ -470,7 +470,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 
       <div class="ws-section">
         <button type="button" class="ws-section-head" @click="toggleSection('ontologies', $event)">
-          <span class="ws-section-caret" :class="{ open: sections.ontologies }">▸</span>
+          <span class="ws-section-caret" :class="{ open: sections.ontologies }">›</span>
           <span class="ws-section-lbl">血缘图</span>
           <span v-if="tree.getOntologies(workspace.id).length" class="ws-section-count">{{ tree.getOntologies(workspace.id).length }}</span>
         </button>
@@ -500,7 +500,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
           @click="toggleSection('ds', $event)"
           @contextmenu="openCtxMenu('datasource-section', workspace.id, '数据源', $event)"
         >
-          <span class="ws-section-caret" :class="{ open: sections.ds }">▸</span>
+          <span class="ws-section-caret" :class="{ open: sections.ds }">›</span>
           <span class="ws-section-lbl">数据源</span>
           <span v-if="tree.getDataSources(workspace.id).length" class="ws-section-count">{{ tree.getDataSources(workspace.id).length }}</span>
           <span
@@ -523,7 +523,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
               >
                 <span v-for="i in row.depth" :key="'g' + i" class="ws-guide" />
                 <span class="ws-tree-main">
-                  <span class="ws-tw" :class="{ open: isFolderOpen(row.folder!.id) }">▸</span>
+                  <span class="ws-tw" :class="{ open: isFolderOpen(row.folder!.id) }">›</span>
                   <span class="ws-tree-ico">{{ isFolderOpen(row.folder!.id) ? '📂' : '📁' }}</span>
                   <span class="ws-item-label">{{ row.folder!.name }}</span>
                   <span v-if="folderDsCount(row.folder!.id)" class="ws-section-count">{{ folderDsCount(row.folder!.id) }}</span>
@@ -674,9 +674,15 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .ws-caret {
-  font-size: 9px; color: rgba(255,255,255,.40);
-  transition: transform .2s cubic-bezier(.34,1.56,.64,1); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; flex-shrink: 0;
+  font-size: 17px; font-weight: 700; line-height: 1;
+  color: rgba(255,255,255,.62);
+  border-radius: 6px;
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1), background .12s ease, color .12s ease;
 }
+.ws-node:hover .ws-caret { background: rgba(255,255,255,.08); color: #fff; }
+.ws-node.active .ws-caret { color: #5fd4a3; }
 .ws-caret.open { transform: rotate(90deg); }
 .ws-avatar {
   width: 22px; height: 22px; flex-shrink: 0; border-radius: 7px;
@@ -736,13 +742,14 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 .ws-section-head:hover { background: rgba(255,255,255,.04); }
 .ws-section-head:hover .ws-section-lbl { color: rgba(255,255,255,.62); }
 .ws-section-caret {
-  font-size: 8px;
-  color: rgba(255,255,255,.32);
-  transition: transform .2s cubic-bezier(.34,1.56,.64,1);
-  flex-shrink: 0;
-  width: 10px;
-  text-align: center;
+  display: flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; flex-shrink: 0;
+  font-size: 15px; font-weight: 700; line-height: 1;
+  color: rgba(255,255,255,.55);
+  border-radius: 5px;
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1), background .12s ease, color .12s ease;
 }
+.ws-section-head:hover .ws-section-caret { background: rgba(255,255,255,.08); color: rgba(255,255,255,.9); }
 .ws-section-caret.open { transform: rotate(90deg); }
 .ws-section-lbl {
   font-size: 10px;
@@ -840,13 +847,14 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 }
 .ws-tree-row:hover .ws-tree-main { background: rgba(255,255,255,.05); color: #f4f7fb; }
 .ws-tw {
-  font-size: 8px;
-  color: rgba(255,255,255,.40);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; line-height: 1;
+  color: rgba(255,255,255,.55);
   flex-shrink: 0;
-  width: 10px;
-  text-align: center;
-  transition: transform .2s cubic-bezier(.34,1.56,.64,1);
+  width: 14px;
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1), color .12s ease;
 }
+.ws-tree-row.is-folder:hover .ws-tw { color: #ffe7a8; }
 .ws-tw.open { transform: rotate(90deg); }
 .ws-tw-spacer { visibility: hidden; }
 .ws-tree-ico { flex-shrink: 0; font-size: 13px; line-height: 1; width: 16px; text-align: center; }
