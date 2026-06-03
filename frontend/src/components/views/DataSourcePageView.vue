@@ -71,13 +71,49 @@ const usedWorkspaces = computed(() => {
 const visibleItems = computed(() =>
   filterWs.value ? items.value.filter(d => d.workspaceId === filterWs.value) : items.value);
 
-// ── 打开详情(跨工作空间则先切到该工作空间)─────────────
-const onOpen = (d: DataSource) => {
-  if (!canOpen(d)) return;
-  if (d.workspaceId && d.workspaceId !== ws.currentId.value) {
-    ws.setCurrent(d.workspaceId);
-    toast.info(`已切换到工作空间「${wsName(d.workspaceId)}」`);
+// ── 只读预览(不切换工作空间)─────────────────────────────
+// 跨工作空间的详情/查表/SQL 接口都按工作空间隔离,直接调会 403。
+// 这里只用列表里已加载的数据(含脱敏 config)做只读预览,不发跨工作空间请求。
+const previewItem = ref<DataSource | null>(null);
+const openPreview = (d: DataSource) => { previewItem.value = d; };
+const closePreview = () => { previewItem.value = null; };
+
+// 预览项是否属于当前工作空间(只有同工作空间才允许打开完整详情/编辑)
+const previewInCurrentWs = computed(() =>
+  !!previewItem.value && previewItem.value.workspaceId === ws.currentId.value);
+
+const SKIP_KEYS = new Set(['storagePath', 'extractedTextPath']);
+const previewRows = computed<{ label: string; value: string }[]>(() => {
+  const d = previewItem.value;
+  if (!d) return [];
+  const rows: { label: string; value: string }[] = [
+    { label: '类型', value: kindLabel[d.kind] ?? d.kind },
+    { label: '所属工作空间', value: wsName(d.workspaceId) },
+    { label: '状态', value: d.status ? (statusLabel[d.status] ?? d.status) : '未测试' },
+  ];
+  if (d.createdAt) rows.push({ label: '创建时间', value: new Date(d.createdAt).toLocaleString('zh-CN') });
+  // 文件类:名称/大小/页数/字数(抽取阶段写入的旁挂字段)
+  if (d.originalName) rows.push({ label: '文件名', value: String(d.originalName) });
+  if (typeof d.size === 'number' && d.size > 0) rows.push({ label: '大小', value: `${(d.size / 1024).toFixed(1)} KB` });
+  if (d.pages != null) rows.push({ label: '页数', value: String(d.pages) });
+  if (d.chars != null) rows.push({ label: '字数', value: String(d.chars) });
+  // 连接/接口类:展开 config 里的标量字段(密码等已被后端脱敏)
+  const cfg = d.config && typeof d.config === 'object' ? d.config as Record<string, unknown> : null;
+  if (cfg) {
+    for (const [k, v] of Object.entries(cfg)) {
+      if (SKIP_KEYS.has(k)) continue;
+      if (v == null) continue;
+      if (typeof v === 'object') continue; // headers 等嵌套对象略过
+      rows.push({ label: k, value: String(v) });
+    }
   }
+  return rows;
+});
+
+const openFullDetail = () => {
+  const d = previewItem.value;
+  if (!d) return;
+  closePreview();
   emit('open', d.id);
 };
 
@@ -264,9 +300,8 @@ const submit = async () => {
       <div
         v-for="d in visibleItems"
         :key="d.id"
-        class="ds-row"
-        :class="{ clickable: canOpen(d) }"
-        @click="onOpen(d)"
+        class="ds-row clickable"
+        @click="openPreview(d)"
       >
         <span class="row-ic">{{ kindIcon[d.kind] ?? '📦' }}</span>
         <div class="ds-main">
@@ -280,9 +315,39 @@ const submit = async () => {
           ● {{ statusLabel[d.status] ?? d.status }}
         </span>
         <span class="row-actions">
-          <button v-if="canOpen(d)" title="查看 / 编辑" @click.stop="onOpen(d)">查看</button>
+          <button title="预览" @click.stop="openPreview(d)">预览</button>
           <button title="删除" class="danger" @click.stop="doDelete(d)">删除</button>
         </span>
+      </div>
+    </div>
+
+    <!-- 只读预览(不切换工作空间) -->
+    <div v-if="previewItem" class="preview-overlay" @click.self="closePreview">
+      <div class="preview-panel">
+        <div class="preview-head">
+          <span class="row-ic">{{ kindIcon[previewItem.kind] ?? '📦' }}</span>
+          <span class="preview-title">{{ previewItem.name }}</span>
+          <span class="ws-badge"><span class="ws-badge-ic">◆</span>{{ wsName(previewItem.workspaceId) }}</span>
+          <button class="close-btn" @click="closePreview">×</button>
+        </div>
+        <div class="preview-body">
+          <div v-for="r in previewRows" :key="r.label" class="preview-row">
+            <span class="preview-k">{{ r.label }}</span>
+            <span class="preview-v">{{ r.value }}</span>
+          </div>
+        </div>
+        <div class="preview-foot">
+          <span v-if="!previewInCurrentWs" class="preview-hint">
+            只读预览 · 该数据源属于其它工作空间
+          </span>
+          <span style="flex:1" />
+          <button class="btn-ghost" @click="closePreview">关闭</button>
+          <button
+            v-if="previewInCurrentWs && canOpen(previewItem)"
+            class="btn-primary"
+            @click="openFullDetail"
+          >打开完整详情</button>
+        </div>
       </div>
     </div>
   </div>
@@ -362,4 +427,18 @@ const submit = async () => {
 .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
 .btn-ghost { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 6px 12px; color: #e8eaed; cursor: pointer; font-size: 13px; }
 .btn-ghost:disabled { opacity: .5; }
+
+/* 只读预览弹层 */
+.preview-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.preview-panel { background: #1c1f26; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; width: 460px; max-width: 92vw; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.5); }
+.preview-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.preview-title { font-size: 15px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.preview-head .close-btn { margin-left: 4px; }
+.preview-body { padding: 8px 16px 12px; overflow-y: auto; display: flex; flex-direction: column; }
+.preview-row { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.05); font-size: 13px; }
+.preview-row:last-child { border-bottom: none; }
+.preview-k { flex: none; width: 120px; color: #8a909c; word-break: break-all; }
+.preview-v { flex: 1; min-width: 0; color: #e8eaed; word-break: break-all; }
+.preview-foot { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid rgba(255,255,255,.08); }
+.preview-hint { font-size: 12px; color: #8a909c; }
 </style>
