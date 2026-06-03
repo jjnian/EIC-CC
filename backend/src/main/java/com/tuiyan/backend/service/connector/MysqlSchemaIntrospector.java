@@ -22,13 +22,13 @@ public class MysqlSchemaIntrospector {
 
     /** MySQL schema 内省：用 information_schema 一次性拉完表/列/键/FK。 */
     public JdbcConnectorService.DatabaseSchemaInfo introspect(Connection conn, String dbName, int tableLimit) throws SQLException {
-        // 1) 表 + 注释 + 行数估算
+        // 1) 表 + 视图 + 注释 + 行数估算（视图一并纳入：其定义体是血缘 ground truth）
         Map<String, TableBuilder> tables = new LinkedHashMap<>();
         String tablesSql = """
-                SELECT TABLE_NAME, IFNULL(TABLE_COMMENT,''), IFNULL(TABLE_ROWS,0)
+                SELECT TABLE_NAME, IFNULL(TABLE_COMMENT,''), IFNULL(TABLE_ROWS,0), TABLE_TYPE
                 FROM information_schema.tables
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE='BASE TABLE'
-                ORDER BY TABLE_NAME
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE IN ('BASE TABLE','VIEW')
+                ORDER BY (TABLE_TYPE='VIEW'), TABLE_NAME
                 LIMIT ?
                 """;
         try (PreparedStatement ps = conn.prepareStatement(tablesSql)) {
@@ -36,9 +36,9 @@ public class MysqlSchemaIntrospector {
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String name = rs.getString(1);
-                    String comment = rs.getString(2);
-                    long rows = rs.getLong(3);
-                    tables.put(name, new TableBuilder(name, comment, rows));
+                    TableBuilder tb = new TableBuilder(name, rs.getString(2), rs.getLong(3));
+                    if ("VIEW".equalsIgnoreCase(rs.getString(4))) tb.kind = "view";
+                    tables.put(name, tb);
                 }
             }
         }
@@ -70,6 +70,22 @@ public class MysqlSchemaIntrospector {
                         "PRI".equalsIgnoreCase(rs.getString(8)),
                         rs.getInt(7));
                 tb.columns.add(ci);
+            }
+        }
+
+        // 2.5) 视图定义体（血缘 ground truth：FROM/JOIN=派生关系，SELECT 聚合=指标口径）
+        String viewSql = """
+                SELECT TABLE_NAME, VIEW_DEFINITION
+                FROM information_schema.views
+                WHERE TABLE_SCHEMA = DATABASE()
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(viewSql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                TableBuilder tb = tables.get(rs.getString(1));
+                if (tb == null) continue;
+                tb.kind = "view";
+                tb.definition = rs.getString(2);
             }
         }
 

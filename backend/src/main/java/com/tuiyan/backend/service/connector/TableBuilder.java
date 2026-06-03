@@ -16,6 +16,9 @@ final class TableBuilder {
     final List<JdbcConnectorService.ColumnInfo> columns = new ArrayList<>();
     final List<JdbcConnectorService.ForeignKeyInfo> foreignKeys = new ArrayList<>();
     final List<JdbcConnectorService.UniqueKeyInfo> uniqueKeys = new ArrayList<>();
+    // 默认普通表；视图内省时由方言内省器置为 "view" 并填入 definition（SQL 定义体）
+    String kind = "table";
+    String definition = null;
 
     TableBuilder(String name, String comment, long rows) {
         this.name = name;
@@ -24,6 +27,6 @@ final class TableBuilder {
     }
 
     JdbcConnectorService.TableInfo build() {
-        return new JdbcConnectorService.TableInfo(name, comment, columns, foreignKeys, uniqueKeys, rows);
+        return new JdbcConnectorService.TableInfo(name, comment, columns, foreignKeys, uniqueKeys, rows, kind, definition);
     }
 }

@@ -40,12 +40,17 @@ public class LlmBodyBuilder {
     public String buildOpenAiBody(String modelName, String systemPrompt, String userText,
                                   List<Map<String, Object>> history,
                                   List<Map<String, Object>> attachments,
-                                  boolean stream, boolean jsonMode, int maxTokens) throws IOException {
+                                  boolean stream, boolean jsonMode, int maxTokens,
+                                  Double temperature) throws IOException {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", modelName);
         root.put("stream", stream);
         if (maxTokens > 0) {
             root.put("max_tokens", maxTokens);
+        }
+        if (temperature != null) {
+            // 显式温度：抽取 / 建模场景传 0 → 关闭随机采样，让同样输入尽量产出一致结果
+            root.put("temperature", temperature);
         }
 
         ArrayNode messages = objectMapper.createArrayNode();
@@ -114,11 +119,16 @@ public class LlmBodyBuilder {
     public String buildAnthropicBody(String modelName, String systemPrompt, String userMessage,
                                      List<Map<String, Object>> history,
                                      List<Map<String, Object>> attachments,
-                                     boolean stream, int maxTokens) throws IOException {
+                                     boolean stream, int maxTokens,
+                                     Double temperature) throws IOException {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", modelName);
         root.put("max_tokens", maxTokens);
         root.put("stream", stream);
+        if (temperature != null) {
+            // Anthropic 温度上限 1.0（OpenAI 为 2.0），统一钳制到 [0,1]
+            root.put("temperature", Math.max(0.0, Math.min(temperature, 1.0)));
+        }
         if (systemPrompt != null && !systemPrompt.isBlank()) {
             root.put("system", systemPrompt);
         }
@@ -179,14 +189,25 @@ public class LlmBodyBuilder {
         return objectMapper.writeValueAsString(root);
     }
 
-    /** 按当前 ResolvedConfig 选择正确的协议体构造方法。 */
+    /** 按当前 ResolvedConfig 选择正确的协议体构造方法（不指定温度，走提供商默认）。 */
     public String buildBody(LlmHttpClient.ResolvedConfig cfg, String systemPrompt, String userText,
                             List<Map<String, Object>> history, List<Map<String, Object>> attachments,
                             boolean stream, boolean jsonMode) throws IOException {
+        return buildBody(cfg, systemPrompt, userText, history, attachments, stream, jsonMode, null);
+    }
+
+    /**
+     * 按当前 ResolvedConfig 选择正确的协议体构造方法。
+     * <p>{@code temperature} 非 null 时写入请求体：抽取 / schema→本体等"要稳定"的场景传 {@code 0.0}，
+     * 关闭随机采样，让同样输入尽量产出一致结果；为 null 时省略该字段（走提供商默认温度）。
+     */
+    public String buildBody(LlmHttpClient.ResolvedConfig cfg, String systemPrompt, String userText,
+                            List<Map<String, Object>> history, List<Map<String, Object>> attachments,
+                            boolean stream, boolean jsonMode, Double temperature) throws IOException {
         boolean anthropic = configResolver.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
         return anthropic
-                ? buildAnthropicBody(cfg.modelName(), systemPrompt, userText, history, attachments, stream, cfg.maxOutputTokens())
-                : buildOpenAiBody(cfg.modelName(), systemPrompt, userText, history, attachments, stream, jsonMode, cfg.maxOutputTokens());
+                ? buildAnthropicBody(cfg.modelName(), systemPrompt, userText, history, attachments, stream, cfg.maxOutputTokens(), temperature)
+                : buildOpenAiBody(cfg.modelName(), systemPrompt, userText, history, attachments, stream, jsonMode, cfg.maxOutputTokens(), temperature);
     }
 
     /**

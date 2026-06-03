@@ -140,7 +140,7 @@ export interface Scenario {
 
 export interface SourceMeta {
   name: string;
-  type: 'pdf' | 'image' | 'docx' | 'url' | 'skipped' | string;
+  type: 'pdf' | 'image' | 'docx' | 'audio' | 'url' | 'skipped' | string;
   size: number;
   chars?: number;
   pages?: number;
@@ -150,6 +150,8 @@ export interface SourceMeta {
   truncated?: boolean;
   renderedPages?: number;
   usedHeadless?: boolean;
+  durationSec?: number;
+  model?: string;
   reason?: string;
 }
 

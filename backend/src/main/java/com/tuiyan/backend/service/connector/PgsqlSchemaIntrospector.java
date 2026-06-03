@@ -24,16 +24,19 @@ public class PgsqlSchemaIntrospector {
     public JdbcConnectorService.DatabaseSchemaInfo introspect(Connection conn, String dbName, int tableLimit) throws SQLException {
         Map<String, TableBuilder> tables = new LinkedHashMap<>();
 
-        // 1) 表 + 注释（只取 public schema 下 BASE TABLE；用户用其它 schema 时可以扩展）
+        // 1) 表 + 视图 + 物化视图 + 分区父表 + 注释（视图的 pg_get_viewdef 是血缘 ground truth）
         String tablesSql = """
                 SELECT c.relname,
                        COALESCE(obj_description(c.oid, 'pg_class'), '') AS comment,
-                       COALESCE(c.reltuples::bigint, 0) AS row_est
+                       COALESCE(c.reltuples::bigint, 0) AS row_est,
+                       c.relkind,
+                       CASE WHEN c.relkind IN ('v','m')
+                            THEN COALESCE(pg_get_viewdef(c.oid, true), '') ELSE '' END AS definition
                 FROM pg_class c
                 JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relkind = 'r'
+                WHERE c.relkind IN ('r', 'v', 'm', 'p')
                   AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-                ORDER BY n.nspname, c.relname
+                ORDER BY (c.relkind IN ('v','m')), n.nspname, c.relname
                 LIMIT ?
                 """;
         try (PreparedStatement ps = conn.prepareStatement(tablesSql)) {
@@ -41,7 +44,13 @@ public class PgsqlSchemaIntrospector {
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String name = rs.getString(1);
-                    tables.put(name, new TableBuilder(name, rs.getString(2), rs.getLong(3)));
+                    TableBuilder tb = new TableBuilder(name, rs.getString(2), rs.getLong(3));
+                    String relkind = rs.getString(4);
+                    if ("v".equals(relkind) || "m".equals(relkind)) {
+                        tb.kind = "view";
+                        tb.definition = rs.getString(5);
+                    }
+                    tables.put(name, tb);
                 }
             }
         }

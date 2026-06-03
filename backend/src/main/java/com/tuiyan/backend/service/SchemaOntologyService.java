@@ -272,9 +272,22 @@ public class SchemaOntologyService {
                 continue;
             }
 
-            boolean ok = isSupportedByRealFk(fromTables, toTables)
-                    || isSupportedByJunctionTable(copy, realTables);
+            boolean fkOk = isSupportedByRealFk(fromTables, toTables);
+            boolean viewDerived = isSupportedByViewDerivation(fromTables, toTables);
+            boolean ok = fkOk
+                    || isSupportedByJunctionTable(copy, realTables)
+                    || viewDerived;
             if (ok) {
+                // 证据粒度增强：尽量写出具体支撑（视图名 / FK 列→列），而非泛化 tag，便于审核回溯
+                String ev = copy.path("evidence").asText("");
+                boolean coarse = ev.isBlank() || "FK".equalsIgnoreCase(ev) || "view".equalsIgnoreCase(ev);
+                if (viewDerived) {
+                    String ve = viewEvidence(fromTables, toTables);
+                    if (ve != null && coarse) copy.put("evidence", ve);
+                } else if (fkOk && coarse) {
+                    String fe = fkEvidence(fromTables, toTables);
+                    if (fe != null) copy.put("evidence", fe);
+                }
                 ensureEdgeDerivedTables(copy, fromTables, toTables);
                 cleanedEdges.add(copy);
                 continue;
@@ -428,6 +441,53 @@ public class SchemaOntologyService {
         return false;
     }
 
+    /**
+     * 视图派生支撑：任一端是视图、且其定义体（SQL）里引用了另一端的表名 → 这条血缘边由视图 SQL 支撑
+     * （ground truth），即使没有声明 FK 也应保留。
+     */
+    private boolean isSupportedByViewDerivation(List<TableInfo> fromTables, List<TableInfo> toTables) {
+        return viewReferences(fromTables, toTables) || viewReferences(toTables, fromTables);
+    }
+
+    /** maybeViews 中的视图，其定义体是否引用了 targets 中任一表名。 */
+    private boolean viewReferences(List<TableInfo> maybeViews, List<TableInfo> targets) {
+        for (TableInfo v : maybeViews) {
+            if (!v.isView() || v.definition() == null || v.definition().isBlank()) continue;
+            String def = v.definition().toLowerCase();
+            for (TableInfo t : targets) {
+                String tn = t.name() == null ? "" : t.name().toLowerCase();
+                if (!tn.isBlank() && def.contains(tn)) return true;
+            }
+        }
+        return false;
+    }
+
+    /** 视图派生边的细化证据："view:<视图名>"（取参与该边的视图表名）。 */
+    private String viewEvidence(List<TableInfo> a, List<TableInfo> b) {
+        for (TableInfo t : a) if (t.isView()) return "view:" + t.name();
+        for (TableInfo t : b) if (t.isView()) return "view:" + t.name();
+        return null;
+    }
+
+    /** FK 支撑边的细化证据："FK:<child>.<col>→<parent>.<col>"（取两侧表间真实声明的外键，两个方向都试）。 */
+    private String fkEvidence(List<TableInfo> a, List<TableInfo> b) {
+        String e = fkBetween(a, b);
+        return e != null ? e : fkBetween(b, a);
+    }
+
+    private String fkBetween(List<TableInfo> children, List<TableInfo> parents) {
+        Set<String> pnames = new HashSet<>();
+        for (TableInfo p : parents) pnames.add(sanitize(p.name()));
+        for (TableInfo c : children) {
+            for (ForeignKeyInfo fk : c.foreignKeys()) {
+                if (fk.toTable() != null && pnames.contains(sanitize(fk.toTable()))) {
+                    return "FK:" + c.name() + "." + fk.fromColumn() + "→" + fk.toTable() + "." + fk.toColumn();
+                }
+            }
+        }
+        return null;
+    }
+
     private List<TableInfo> resolveEdgeTables(ObjectNode edge, Map<String, TableInfo> realTables) {
         LinkedHashMap<String, TableInfo> out = new LinkedHashMap<>();
         JsonNode derived = edge.path("derived_tables");
@@ -473,27 +533,58 @@ public class SchemaOntologyService {
         return false;
     }
 
-    /** 单批调 LLM，返回 LLM 原始的 {add_nodes, add_edges} ObjectNode。 */
+    /**
+     * 单批调 LLM，返回 {add_nodes, add_edges}。
+     * <p>任务分解为两阶段（更聚焦、更准）：阶段1 只抽节点（实体+属性+约束），
+     * 阶段2 把已固定的节点集回灌给模型、只抽边（关系+血缘）。
+     * <p>代码层强制只取阶段1 的 add_nodes 与阶段2 的 add_edges，不依赖模型自觉遵守"本轮只输出 X"。
+     */
     private ObjectNode callLlmOnce(DatabaseSchemaInfo batch,
                                    String sourceName,
                                    String userHint,
                                    LlmHttpClient.ResolvedConfig cfg,
                                    boolean anthropic) throws IOException {
-        GraphPromptBuilder.SchemaExtractPrompt prompts =
-                promptBuilder.buildSchemaExtractPrompt(batch, sourceName, userHint);
-        callLogger.logConversation("LLM-schema-extract", cfg.modelName(),
-                prompts.system(), null, prompts.user(), null);
+        ObjectNode out = objectMapper.createObjectNode();
 
+        // 阶段1：仅抽节点（实体 + 属性 + 约束）
+        ObjectNode nodeRes = callSchemaLlm(
+                promptBuilder.buildNodeStagePrompt(batch, sourceName, userHint), cfg, anthropic, "LLM-schema-nodes");
+        ArrayNode nodes = asArray(nodeRes.path("add_nodes"));
+        out.set("add_nodes", nodes);
+
+        // 节点为空（如纯空表批次）→ 无需再抽边，省一次调用
+        if (nodes.isEmpty()) {
+            out.set("add_edges", objectMapper.createArrayNode());
+            return out;
+        }
+
+        // 阶段2：在固定节点集上仅抽边（关系 + 血缘）
+        ObjectNode edgeRes = callSchemaLlm(
+                promptBuilder.buildEdgeStagePrompt(batch, sourceName, userHint, nodes), cfg, anthropic, "LLM-schema-edges");
+        out.set("add_edges", asArray(edgeRes.path("add_edges")));
+        return out;
+    }
+
+    /** 取 JsonNode 下的数组；非数组时返回空数组。 */
+    private ArrayNode asArray(JsonNode n) {
+        return (n != null && n.isArray()) ? (ArrayNode) n : objectMapper.createArrayNode();
+    }
+
+    /** 单次 schema 抽取 LLM 调用：记录会话 + 固定温度发送 + 校验状态 + 解析为 ObjectNode。 */
+    private ObjectNode callSchemaLlm(GraphPromptBuilder.SchemaExtractPrompt prompts,
+                                     LlmHttpClient.ResolvedConfig cfg,
+                                     boolean anthropic,
+                                     String tag) throws IOException {
+        callLogger.logConversation(tag, cfg.modelName(), prompts.system(), null, prompts.user(), null);
         String body = http.buildBody(cfg, prompts.system(), prompts.user(),
-                null, null, false, true);
+                null, null, false, true, LlmHttpClient.EXTRACT_TEMPERATURE);
         HttpRequest req = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, body, cfg.rawUrl());
 
         long t0 = System.currentTimeMillis();
         HttpResponse<String> resp = http.sendHttp(req, HttpResponse.BodyHandlers.ofString());
         long elapsed = System.currentTimeMillis() - t0;
         if (resp.statusCode() != 200) {
-            log.error("[LLM-schema-extract] HTTP {} elapsed={}ms body={}",
-                    resp.statusCode(), elapsed, resp.body());
+            log.error("[{}] HTTP {} elapsed={}ms body={}", tag, resp.statusCode(), elapsed, resp.body());
             callLogger.logUpstreamError("schema-extract", resp.statusCode(), resp.body());
             http.metrics().recordCall(cfg.modelName(), elapsed, false);
             throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
@@ -501,7 +592,7 @@ public class SchemaOntologyService {
         http.metrics().recordCall(cfg.modelName(), elapsed, true);
         JsonNode root = objectMapper.readTree(resp.body());
         String content = http.stripJsonFence(http.extractContent(root, anthropic));
-        callLogger.logLlmResponse("LLM-schema-extract", cfg.modelName(), elapsed, content);
+        callLogger.logLlmResponse(tag, cfg.modelName(), elapsed, content);
         JsonNode parsed = objectMapper.readTree(content);
         if (!(parsed instanceof ObjectNode)) {
             throw new IllegalStateException("LLM 返回格式非对象，无法处理");

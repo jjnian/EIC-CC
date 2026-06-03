@@ -87,6 +87,17 @@ app:
           - json
           - tools
 
+  # 音频转写 (ASR)：OpenAI 兼容的 /audio/transcriptions。音频会先转写成文本，再走文档抽取链路。
+  # base-url / api-key 留空则回退用上面 app.llm 第一个模型的配置——仅当该提供商支持音频转写
+  # （如 OpenAI、通义千问 compatible-mode）才有效；DeepSeek 不提供该接口，需在此单独配置。
+  asr:
+    enabled: ${ASR_ENABLED:true}
+    base-url: ${ASR_BASE_URL:}
+    api-key: ${ASR_API_KEY:}
+    model: ${ASR_MODEL:whisper-1}
+    language: ${ASR_LANGUAGE:}
+    timestamps: ${ASR_TIMESTAMPS:false}
+
 
 #app:
 #  data:

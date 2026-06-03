@@ -16,6 +16,8 @@ export interface DataSource {
   lastTestedAt?: number;
   lastError?: string;
   updatedAt?: number;
+  /** 所属文件夹 id（缺省 = 工作空间根，不在任何文件夹内） */
+  folderId?: string;
   /** 列表接口里返回的是 maskSensitive 后的 config；编辑表单请用 detail 端点 */
   config?: Record<string, unknown>;
   [key: string]: unknown;
