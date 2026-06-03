@@ -41,5 +41,5 @@ public class AppPaths {
     public File prefsFile() { return new File(rootDir(), "prefs.json"); }
 
     // 注：数据源原文件（PDF/Word/TXT/音频等）已改为上传到 MinIO 对象存储，
-    // 不再落本地磁盘，见 ObjectStorageService / FileStoredService。
+    // 不再落本地磁盘，见 ObjectStorage / FileStoredService。
 }
