@@ -55,13 +55,15 @@ public class DataSourceController {
 
     @GetMapping
     public ResponseEntity<List<Map<String, Object>>> list(@RequestParam(required = false) String workspaceId,
-                                                          @RequestParam(required = false) String kind) {
-        List<Map<String, Object>> all = (workspaceId != null && !workspaceId.isBlank())
-                ? repo.list(workspaceId) : repo.list();
+                                                          @RequestParam(required = false) String kind,
+                                                          @RequestParam(name = "all", defaultValue = "false") boolean all) {
+        List<Map<String, Object>> list = all
+                ? repo.listAll()
+                : (workspaceId != null && !workspaceId.isBlank() ? repo.list(workspaceId) : repo.list());
         if (kind != null && !kind.isBlank()) {
-            all = all.stream().filter(m -> kind.equals(m.get("kind"))).toList();
+            list = list.stream().filter(m -> kind.equals(m.get("kind"))).toList();
         }
-        return ResponseEntity.ok(all);
+        return ResponseEntity.ok(list);
     }
 
     @GetMapping("/{id}")

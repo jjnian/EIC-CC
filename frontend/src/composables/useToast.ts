@@ -141,11 +141,27 @@ const push = (kind: ToastKind, msg: string) => {
   items.set(id, { id, kind, msg, timer });
 };
 
-export const useToast = () => ({
-  success: (msg: string) => push('success', msg),
-  info:    (msg: string) => push('info', msg),
-  warn:    (msg: string) => push('warn', msg),
-  error:   (msg: string) => push('error', msg),
-});
+/**
+ * 既可作函数直接调用(默认 info)，也带 .success/.info/.warn/.error 方法。
+ * 历史上不少调用点写成 toast('xxx')，而 toast 曾是纯对象 —— 那样会抛 TypeError、
+ * 导致提示完全不显示。这里做成可调用的混合体，一次性修好所有调用点。
+ */
+type ToastFn = ((msg: string) => void) & {
+  success: (msg: string) => void;
+  info: (msg: string) => void;
+  warn: (msg: string) => void;
+  error: (msg: string) => void;
+};
 
-export const toast = useToast();
+const makeToast = (): ToastFn => {
+  const fn = ((msg: string) => push('info', msg)) as ToastFn;
+  fn.success = (msg: string) => push('success', msg);
+  fn.info = (msg: string) => push('info', msg);
+  fn.warn = (msg: string) => push('warn', msg);
+  fn.error = (msg: string) => push('error', msg);
+  return fn;
+};
+
+export const useToast = (): ToastFn => makeToast();
+
+export const toast: ToastFn = makeToast();

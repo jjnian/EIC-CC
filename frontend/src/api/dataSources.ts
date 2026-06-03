@@ -7,6 +7,8 @@ export type DataSourceKind =
 
 export interface DataSource {
   id: string;
+  /** 所属工作空间 id（总览页 all=true 时返回，用于标注归属/跨工作空间操作） */
+  workspaceId?: string;
   kind: DataSourceKind;
   name: string;
   mime?: string;
@@ -69,6 +71,16 @@ export function listDataSources(opts?: { workspaceId?: string; kind?: DataSource
   return request<DataSource[]>(`/api/data-sources${tail}`);
 }
 
+/** 跨工作空间的全量数据源列表，每条带 workspaceId。用于「数据源」总览页。 */
+export function listAllDataSources() {
+  return request<DataSource[]>('/api/data-sources?all=true');
+}
+
+/** 操作其它工作空间的数据源时，显式带上该数据源所属的 workspaceId 作为请求头，绕过当前上下文。 */
+function wsHeader(workspaceId?: string): RequestInit {
+  return workspaceId ? { headers: { 'X-Workspace-Id': workspaceId } } : {};
+}
+
 export function getDataSource(id: string) {
   return request<DataSource>(`/api/data-sources/${encodeURIComponent(id)}`);
 }
@@ -87,9 +99,10 @@ export function updateDataSource(id: string, payload: { name?: string; config?: 
   });
 }
 
-export function deleteDataSource(id: string) {
+export function deleteDataSource(id: string, workspaceId?: string) {
   return request<{ success: boolean }>(`/api/data-sources/${encodeURIComponent(id)}`, {
     method: 'DELETE',
+    ...wsHeader(workspaceId),
   });
 }
 
