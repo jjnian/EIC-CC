@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { useWorkspaces } from '../composables/useWorkspaces';
 import { useSidebarTree } from '../composables/useSidebarTree';
 import { confirm as uiConfirm } from '../composables/useConfirm';
@@ -7,6 +7,11 @@ import { prompt as uiPrompt } from '../composables/usePrompt';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
 import type { Workspace } from '../api/workspaces';
+import type { DataSource } from '../api/dataSources';
+import {
+  createFolder, renameFolder, deleteFolder, moveFolder,
+  moveDataSourceToFolder, type DataSourceFolder,
+} from '../api/folders';
 
 const props = defineProps<{
   workspace: Workspace;
@@ -30,10 +35,19 @@ const ws = useWorkspaces();
 const tree = useSidebarTree();
 
 const expanded = ref(props.isCurrent);
+type CtxKind = 'conversation' | 'graph' | 'datasource-section' | 'folder' | 'datasource';
 const ctxMenu = ref<null | {
-  kind: 'conversation' | 'graph' | 'datasource-section';
+  kind: CtxKind;
   id: string;
   title: string;
+  x: number;
+  y: number;
+}>(null);
+// 「移动到文件夹」二级菜单:列出可选目标文件夹 + 根目录。
+const moveMenu = ref<null | {
+  kind: 'datasource' | 'folder';
+  id: string;
+  name: string;
   x: number;
   y: number;
 }>(null);
@@ -71,6 +85,7 @@ watch(expanded, (v) => {
     tree.loadConversations(props.workspace.id);
     tree.loadOntologies(props.workspace.id);
     tree.loadDataSources(props.workspace.id);
+    tree.loadFolders(props.workspace.id);
   }
 }, { immediate: true });
 
@@ -83,22 +98,26 @@ const wsInitial = (name: string) => {
 
 const closeCtxMenu = () => {
   ctxMenu.value = null;
+  moveMenu.value = null;
 };
 
 const openCtxMenu = (
-  kind: 'conversation' | 'graph' | 'datasource-section',
+  kind: CtxKind,
   id: string,
   title: string,
   e: MouseEvent,
 ) => {
   e.preventDefault();
   e.stopPropagation();
+  moveMenu.value = null;
+  // 文件夹菜单条目更多,给它留更高的纵向空间。
+  const reserveH = kind === 'folder' ? 180 : kind === 'datasource' ? 96 : 132;
   ctxMenu.value = {
     kind,
     id,
     title,
     x: Math.min(e.clientX, window.innerWidth - 220),
-    y: Math.min(e.clientY, window.innerHeight - 132),
+    y: Math.min(e.clientY, window.innerHeight - reserveH),
   };
 };
 
@@ -109,6 +128,204 @@ const openDataSourceSection = () => {
 const addDataSourceToWorkspace = () => {
   closeCtxMenu();
   emit('add-datasource', props.workspace.id);
+};
+
+// ── 数据源文件夹树 ───────────────────────────────────────
+const wsId = computed(() => props.workspace.id);
+// 文件夹展开状态(本工作空间内,内存态即可)。
+const folderOpen = ref<Set<string>>(new Set());
+const isFolderOpen = (id: string) => folderOpen.value.has(id);
+const toggleFolder = (id: string) => {
+  const next = new Set(folderOpen.value);
+  next.has(id) ? next.delete(id) : next.add(id);
+  folderOpen.value = next;
+};
+
+interface DsRow { kind: 'folder' | 'ds'; depth: number; folder?: DataSourceFolder; ds?: DataSource; }
+
+// 文件夹(按 parentId 任意层级) + 数据源(按 folderId)扁平成带 depth 的行,折叠的文件夹不展开子节点。
+const dsRows = computed<DsRow[]>(() => {
+  const folders = tree.getFolders(wsId.value);
+  const dss = tree.getDataSources(wsId.value);
+  const byParent = new Map<string, DataSourceFolder[]>();
+  for (const f of folders) {
+    const k = f.parentId || '__root__';
+    if (!byParent.has(k)) byParent.set(k, []);
+    byParent.get(k)!.push(f);
+  }
+  const dsByFolder = new Map<string, DataSource[]>();
+  for (const d of dss) {
+    const k = d.folderId || '__root__';
+    if (!dsByFolder.has(k)) dsByFolder.set(k, []);
+    dsByFolder.get(k)!.push(d);
+  }
+  const rows: DsRow[] = [];
+  const walk = (parentKey: string, depth: number) => {
+    for (const f of (byParent.get(parentKey) ?? [])) {
+      rows.push({ kind: 'folder', depth, folder: f });
+      if (folderOpen.value.has(f.id)) {
+        walk(f.id, depth + 1);
+        for (const d of (dsByFolder.get(f.id) ?? [])) rows.push({ kind: 'ds', depth: depth + 1, ds: d });
+      }
+    }
+  };
+  walk('__root__', 0);
+  for (const d of (dsByFolder.get('__root__') ?? [])) rows.push({ kind: 'ds', depth: 0, ds: d });
+  return rows;
+});
+
+const folderDsCount = (folderId: string) =>
+  tree.getDataSources(wsId.value).filter(d => d.folderId === folderId).length;
+
+const refreshDS = async () => {
+  await Promise.all([
+    tree.loadFolders(wsId.value, true),
+    tree.loadDataSources(wsId.value, true),
+  ]);
+};
+
+const createFolderIn = async (parentId: string | null) => {
+  closeCtxMenu();
+  const name = await uiPrompt({
+    title: parentId ? '新建子文件夹' : '新建文件夹',
+    message: '请输入文件夹名称',
+    defaultValue: '新文件夹',
+    confirmLabel: '创建',
+    cancelLabel: '取消',
+  });
+  if (!name || !name.trim()) return;
+  try {
+    await createFolder({ name: name.trim(), parentId });
+    if (parentId) folderOpen.value = new Set(folderOpen.value).add(parentId);
+    await refreshDS();
+    toast.success('已创建文件夹');
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '创建失败');
+  }
+};
+
+const renameFolderAct = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind !== 'folder') return;
+  closeCtxMenu();
+  const name = await uiPrompt({
+    title: '重命名文件夹',
+    message: '请输入新的名称',
+    defaultValue: current.title,
+    confirmLabel: '保存',
+    cancelLabel: '取消',
+  });
+  const next = (name || '').trim();
+  if (!next || next === current.title) return;
+  try {
+    await renameFolder(current.id, next);
+    await refreshDS();
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '重命名失败');
+  }
+};
+
+const deleteFolderAct = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind !== 'folder') return;
+  closeCtxMenu();
+  const ok = await uiConfirm({
+    title: '删除文件夹',
+    message: `删除「${current.title}」？其中的子文件夹与数据源会上移到上一级，不会被删除。`,
+    confirmLabel: '删除',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await deleteFolder(current.id);
+    await refreshDS();
+    toast.success('已删除文件夹');
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '删除失败');
+  }
+};
+
+const deleteDataSourceAct = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind !== 'datasource') return;
+  closeCtxMenu();
+  const ok = await uiConfirm({
+    title: '删除数据源',
+    message: `确认删除「${current.title}」吗？此操作不可恢复。`,
+    confirmLabel: '删除',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await tree.removeDataSource(wsId.value, current.id);
+    toast.success('已删除');
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '删除失败');
+  }
+};
+
+// 把某文件夹及其全部子孙 id 收集起来(移动文件夹时从候选目标里排除,避免成环)。
+const subtreeIds = (rootId: string): Set<string> => {
+  const out = new Set<string>([rootId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const f of tree.getFolders(wsId.value)) {
+      if (f.parentId && out.has(f.parentId) && !out.has(f.id)) { out.add(f.id); changed = true; }
+    }
+  }
+  return out;
+};
+
+const moveTargets = computed<{ id: string; name: string; depth: number }[]>(() => {
+  const mm = moveMenu.value;
+  const exclude = mm?.kind === 'folder' ? subtreeIds(mm.id) : new Set<string>();
+  const byParent = new Map<string, DataSourceFolder[]>();
+  for (const f of tree.getFolders(wsId.value)) {
+    const k = f.parentId || '__root__';
+    if (!byParent.has(k)) byParent.set(k, []);
+    byParent.get(k)!.push(f);
+  }
+  const out: { id: string; name: string; depth: number }[] = [];
+  const walk = (parentKey: string, depth: number) => {
+    for (const f of (byParent.get(parentKey) ?? [])) {
+      if (!exclude.has(f.id)) out.push({ id: f.id, name: f.name, depth });
+      walk(f.id, depth + 1);
+    }
+  };
+  walk('__root__', 0);
+  return out;
+});
+
+const openMoveMenu = () => {
+  const current = ctxMenu.value;
+  if (!current || (current.kind !== 'datasource' && current.kind !== 'folder')) return;
+  moveMenu.value = {
+    kind: current.kind,
+    id: current.id,
+    name: current.title,
+    x: current.x,
+    y: Math.min(current.y, window.innerHeight - 240),
+  };
+  ctxMenu.value = null;
+};
+
+const doMove = async (targetFolderId: string | null) => {
+  const mm = moveMenu.value;
+  if (!mm) return;
+  closeCtxMenu();
+  try {
+    if (mm.kind === 'datasource') await moveDataSourceToFolder(mm.id, targetFolderId);
+    else await moveFolder(mm.id, targetFolderId);
+    if (targetFolderId) folderOpen.value = new Set(folderOpen.value).add(targetFolderId);
+    await refreshDS();
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '移动失败');
+  }
+};
+
+const kindIcon: Record<string, string> = {
+  mysql: '🗄', pgsql: '🐘', file_stored: '📄', https_api: '🌐',
 };
 
 const renameItem = async () => {
@@ -144,8 +361,10 @@ const deleteItem = async () => {
 };
 
 const onGlobalMouseDown = () => closeCtxMenu();
-watch(ctxMenu, (v, prev) => {
-  if (!prev && v) window.addEventListener('mousedown', onGlobalMouseDown, { once: true });
+watch([ctxMenu, moveMenu], ([c, m], [pc, pm]) => {
+  if ((!pc && c) || (!pm && m)) {
+    window.addEventListener('mousedown', onGlobalMouseDown, { once: true });
+  }
 });
 
 const toggle = async (e: Event) => {
@@ -291,18 +510,42 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
           >↗</span>
         </button>
         <template v-if="sections.ds">
-          <span v-if="tree.isLoadingDS(workspace.id)" class="ws-loading">加载中...</span>
-          <template v-else-if="tree.getDataSources(workspace.id).length">
-            <button
-              v-for="d in tree.getDataSources(workspace.id)"
-              :key="d.id"
-              class="ws-item"
-              @click.stop="emit('open-datasource', d.id)"
-              :title="d.name"
-            >
-              <span class="ws-item-label">{{ d.name }}</span>
-              <span class="ws-item-kind">{{ kindLabel[d.kind] || d.kind }}</span>
-            </button>
+          <span v-if="tree.isLoadingDS(workspace.id) || tree.isLoadingFolders(workspace.id)" class="ws-loading">加载中...</span>
+          <template v-else-if="dsRows.length">
+            <template v-for="row in dsRows" :key="row.kind + ':' + (row.folder?.id || row.ds?.id)">
+              <!-- 文件夹行 -->
+              <button
+                v-if="row.kind === 'folder'"
+                class="ws-tree-row is-folder"
+                @click.stop="toggleFolder(row.folder!.id)"
+                @contextmenu="openCtxMenu('folder', row.folder!.id, row.folder!.name, $event)"
+                :title="row.folder!.name"
+              >
+                <span v-for="i in row.depth" :key="'g' + i" class="ws-guide" />
+                <span class="ws-tree-main">
+                  <span class="ws-tw" :class="{ open: isFolderOpen(row.folder!.id) }">▸</span>
+                  <span class="ws-tree-ico">{{ isFolderOpen(row.folder!.id) ? '📂' : '📁' }}</span>
+                  <span class="ws-item-label">{{ row.folder!.name }}</span>
+                  <span v-if="folderDsCount(row.folder!.id)" class="ws-section-count">{{ folderDsCount(row.folder!.id) }}</span>
+                </span>
+              </button>
+              <!-- 数据源行 -->
+              <button
+                v-else
+                class="ws-tree-row is-ds"
+                @click.stop="emit('open-datasource', row.ds!.id)"
+                @contextmenu="openCtxMenu('datasource', row.ds!.id, row.ds!.name, $event)"
+                :title="row.ds!.name"
+              >
+                <span v-for="i in row.depth" :key="'g' + i" class="ws-guide" />
+                <span class="ws-tree-main">
+                  <span class="ws-tw ws-tw-spacer" />
+                  <span class="ws-tree-ico">{{ kindIcon[row.ds!.kind] || '◦' }}</span>
+                  <span class="ws-item-label">{{ row.ds!.name }}</span>
+                  <span class="ws-item-kind">{{ kindLabel[row.ds!.kind] || row.ds!.kind }}</span>
+                </span>
+              </button>
+            </template>
           </template>
           <span v-else class="ws-empty">暂无数据源</span>
         </template>
@@ -316,25 +559,100 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
       @mousedown.stop
       @click.stop
     >
-      <button v-if="ctxMenu.kind === 'datasource-section'" class="ctx-item" @click="openDataSourceSection(); closeCtxMenu()">
-        <span class="ctx-icon">◈</span>
-        <span>查看数据源</span>
-        <span class="ctx-hint">Open</span>
+      <!-- 数据源区段 -->
+      <template v-if="ctxMenu.kind === 'datasource-section'">
+        <button class="ctx-item" @click="openDataSourceSection(); closeCtxMenu()">
+          <span class="ctx-icon">◈</span>
+          <span>查看数据源</span>
+          <span class="ctx-hint">Open</span>
+        </button>
+        <button class="ctx-item" @click="addDataSourceToWorkspace">
+          <span class="ctx-icon">＋</span>
+          <span>添加数据源</span>
+          <span class="ctx-hint">Add</span>
+        </button>
+        <button class="ctx-item" @click="createFolderIn(null)">
+          <span class="ctx-icon">📁</span>
+          <span>新建文件夹</span>
+          <span class="ctx-hint">Folder</span>
+        </button>
+      </template>
+
+      <!-- 文件夹 -->
+      <template v-else-if="ctxMenu.kind === 'folder'">
+        <button class="ctx-item" @click="createFolderIn(ctxMenu.id)">
+          <span class="ctx-icon">📁</span>
+          <span>新建子文件夹</span>
+          <span class="ctx-hint">Sub</span>
+        </button>
+        <button class="ctx-item" @click="openMoveMenu">
+          <span class="ctx-icon">⇄</span>
+          <span>移动到…</span>
+          <span class="ctx-hint">Move</span>
+        </button>
+        <button class="ctx-item" @click="renameFolderAct">
+          <span class="ctx-icon">✎</span>
+          <span>重新命名</span>
+          <span class="ctx-hint">Rename</span>
+        </button>
+        <button class="ctx-item ctx-danger" @click="deleteFolderAct">
+          <span class="ctx-icon">🗑</span>
+          <span>删除文件夹</span>
+          <span class="ctx-hint">Delete</span>
+        </button>
+      </template>
+
+      <!-- 数据源条目 -->
+      <template v-else-if="ctxMenu.kind === 'datasource'">
+        <button class="ctx-item" @click="openMoveMenu">
+          <span class="ctx-icon">⇄</span>
+          <span>移动到文件夹…</span>
+          <span class="ctx-hint">Move</span>
+        </button>
+        <button class="ctx-item ctx-danger" @click="deleteDataSourceAct">
+          <span class="ctx-icon">🗑</span>
+          <span>删除</span>
+          <span class="ctx-hint">Delete</span>
+        </button>
+      </template>
+
+      <!-- 对话 / 血缘图 -->
+      <template v-else>
+        <button class="ctx-item" @click="renameItem">
+          <span class="ctx-icon">✎</span>
+          <span>重新命名</span>
+          <span class="ctx-hint">Rename</span>
+        </button>
+        <button class="ctx-item ctx-danger" @click="deleteItem">
+          <span class="ctx-icon">🗑</span>
+          <span>删除</span>
+          <span class="ctx-hint">Delete</span>
+        </button>
+      </template>
+    </div>
+
+    <!-- 移动到文件夹:二级菜单 -->
+    <div
+      v-if="moveMenu"
+      class="node-ctx-menu move-menu"
+      :style="{ left: moveMenu.x + 'px', top: moveMenu.y + 'px' }"
+      @mousedown.stop
+      @click.stop
+    >
+      <div class="ctx-title">移动「{{ moveMenu.name }}」到</div>
+      <button class="ctx-item" @click="doMove(null)">
+        <span class="ctx-icon">◎</span>
+        <span>根目录</span>
       </button>
-      <button v-if="ctxMenu.kind === 'datasource-section'" class="ctx-item" @click="addDataSourceToWorkspace">
-        <span class="ctx-icon">＋</span>
-        <span>添加数据源</span>
-        <span class="ctx-hint">Add</span>
-      </button>
-      <button v-if="ctxMenu.kind !== 'datasource-section'" class="ctx-item" @click="renameItem">
-        <span class="ctx-icon">✎</span>
-        <span>重新命名</span>
-        <span class="ctx-hint">Rename</span>
-      </button>
-      <button v-if="ctxMenu.kind !== 'datasource-section'" class="ctx-item ctx-danger" @click="deleteItem">
-        <span class="ctx-icon">🗑</span>
-        <span>删除</span>
-        <span class="ctx-hint">Delete</span>
+      <button
+        v-for="t in moveTargets"
+        :key="t.id"
+        class="ctx-item"
+        :style="{ paddingLeft: 10 + t.depth * 14 + 'px' }"
+        @click="doMove(t.id)"
+      >
+        <span class="ctx-icon">📁</span>
+        <span class="ctx-move-label">{{ t.name }}</span>
       </button>
     </div>
   </div>
@@ -486,6 +804,56 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: 0.3px;
 }
+
+/* ── 数据源文件夹树 ───────────────────────────────── */
+.ws-tree-row {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-height: 26px;
+  padding: 0 8px 0 22px;   /* 左对齐到区段标题文字下方 */
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+/* 每一层一条竖直引导线,让层级一目了然 */
+.ws-guide {
+  flex: 0 0 16px;
+  align-self: stretch;
+  margin-left: 2px;
+  border-left: 1px solid rgba(255,255,255,.10);
+}
+.ws-tree-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px;
+  border-radius: 7px;
+  color: rgba(255,255,255,.62);
+  font-size: 12px;
+  transition: background .12s ease, color .12s ease;
+  letter-spacing: 0.1px;
+}
+.ws-tree-row:hover .ws-tree-main { background: rgba(255,255,255,.05); color: #f4f7fb; }
+.ws-tw {
+  font-size: 8px;
+  color: rgba(255,255,255,.40);
+  flex-shrink: 0;
+  width: 10px;
+  text-align: center;
+  transition: transform .2s cubic-bezier(.34,1.56,.64,1);
+}
+.ws-tw.open { transform: rotate(90deg); }
+.ws-tw-spacer { visibility: hidden; }
+.ws-tree-ico { flex-shrink: 0; font-size: 13px; line-height: 1; width: 16px; text-align: center; }
+.ws-tree-row.is-folder .ws-tree-main { color: rgba(255,255,255,.80); font-weight: 600; }
+.ws-tree-row.is-folder:hover .ws-tree-main { color: #ffe7a8; }
+.ws-tree-row.is-ds:hover .ws-tree-ico { filter: drop-shadow(0 0 5px rgba(66,184,131,.5)); }
+
 .node-ctx-menu {
   position: fixed;
   z-index: 2000;
@@ -520,4 +888,17 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 .ctx-danger:hover { background: rgba(255,102,68,.12); }
 .ctx-icon { width: 14px; text-align: center; opacity: .85; }
 .ctx-hint { margin-left: auto; font-size: 10px; color: rgba(255,255,255,.35); font-family: 'JetBrains Mono', monospace; }
+.move-menu { max-height: 260px; overflow-y: auto; min-width: 184px; }
+.ctx-title {
+  padding: 4px 10px 6px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  color: rgba(255,255,255,.42);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-move-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
