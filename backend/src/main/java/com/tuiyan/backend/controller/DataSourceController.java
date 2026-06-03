@@ -6,10 +6,11 @@ import com.tuiyan.backend.model.dto.*;
 import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.service.DataSourceService;
 import com.tuiyan.backend.service.SchemaOntologyService;
+import com.tuiyan.backend.service.storage.StoredObject;
 import com.tuiyan.backend.support.SsePushUtils;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -18,7 +19,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -190,14 +190,15 @@ public class DataSourceController {
 
     @GetMapping("/{id}/download")
     public ResponseEntity<?> download(@PathVariable String id) {
-        File f = service.originalFileFor(id);
-        if (f == null) return ResponseEntity.notFound().build();
-        String encoded = URLEncoder.encode(f.getName(), StandardCharsets.UTF_8).replace("+", "%20");
-        return ResponseEntity.ok()
+        StoredObject obj = service.originalObjectFor(id);
+        if (obj == null) return ResponseEntity.notFound().build();
+        String encoded = URLEncoder.encode(obj.filename(), StandardCharsets.UTF_8).replace("+", "%20");
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename*=UTF-8''" + encoded)
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .body(new FileSystemResource(f));
+                .contentType(MediaType.APPLICATION_OCTET_STREAM);
+        if (obj.size() >= 0) builder.contentLength(obj.size());
+        return builder.body(new InputStreamResource(obj.stream()));
     }
 
     // ---------- HTTPS 专用 ----------

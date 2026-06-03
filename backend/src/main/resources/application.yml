@@ -5,8 +5,9 @@ spring:
     default-property-inclusion: non_null
   servlet:
     multipart:
-      max-file-size: 20MB
-      max-request-size: 80MB
+      # 放宽到 60MB/120MB，容纳音频等较大的数据源文件
+      max-file-size: 60MB
+      max-request-size: 120MB
   # PostgreSQL 数据源：用户需自行准备 PgSQL 实例并执行 init.sql 建表
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/tuiyan}
@@ -43,6 +44,16 @@ mybatis-plus:
 app:
   data:
     dir: ${user.home}/.tuiyan
+  # 对象存储（MinIO）：数据源原文件（pdf/docx/txt/音频等）与抽取文本统一落桶
+  # 本地起一个 MinIO：docker run -p 9000:9000 -p 9001:9001 \
+  #   -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
+  #   quay.io/minio/minio server /data --console-address ":9001"
+  storage:
+    minio:
+      endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+      access-key: ${MINIO_ACCESS_KEY:minioadmin}
+      secret-key: ${MINIO_SECRET_KEY:minioadmin}
+      bucket: ${MINIO_BUCKET:tuiyan}
   llm:
     models:
       # DeepSeek V4 Flash：速度优先的主力模型（deepseek-chat 老名 2026-07-24 下线，已升级到 v4-flash）
