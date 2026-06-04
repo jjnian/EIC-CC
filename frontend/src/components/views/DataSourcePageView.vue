@@ -416,9 +416,9 @@ const submit = async () => {
 .ds-head .ws-col, .ds-head .status-col, .ds-head .actions-col {
   flex: none; font-size: 12px; font-weight: 600; color: #8a909c;
 }
-.ds-head .ws-col { width: 180px; }
-.ds-head .status-col { min-width: 64px; }
-.ds-head .actions-col { width: 100px; text-align: center; }
+.ds-head .ws-col { width: 160px; }
+.ds-head .status-col { width: 120px; }
+.ds-head .actions-col { width: 120px; text-align: center; }
 .ds-row.clickable { cursor: pointer; }
 .ds-row:hover .row-actions { opacity: 1; }
 .row-ic { font-size: 20px; flex: none; width: 24px; text-align: center; }
@@ -430,13 +430,13 @@ const submit = async () => {
   display: inline-flex; align-items: center; gap: 5px; flex: none;
   font-size: 12px; color: #9fb6ff;
   background: rgba(93,158,255,.12); border: 1px solid rgba(93,158,255,.28);
-  border-radius: 100px; padding: 3px 11px; width: 180px; box-sizing: border-box;
+  border-radius: 100px; padding: 3px 11px; width: 160px; box-sizing: border-box;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ws-badge-ic { font-size: 9px; opacity: .8; }
-.ds-status { font-size: 12px; flex: none; min-width: 64px; }
+.ds-status { font-size: 12px; flex: none; width: 120px; }
 
-.row-actions { display: flex; gap: 4px; flex: none; width: 100px; justify-content: center; opacity: 0; transition: opacity .12s; }
+.row-actions { display: flex; gap: 4px; flex: none; width: 120px; justify-content: center; opacity: 0; transition: opacity .12s; }
 .row-actions button {
   background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
   color: #c0c4cf; font-size: 12px; cursor: pointer; padding: 4px 12px; border-radius: 6px; line-height: 1.4;
