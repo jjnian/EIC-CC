@@ -297,6 +297,14 @@ const submit = async () => {
       暂无数据源，点击「添加数据源」开始
     </div>
     <div v-else class="ds-list">
+      <!-- 列表表头 -->
+      <div class="ds-row ds-head">
+        <span class="row-ic"></span>
+        <div class="ds-main"><span class="ds-name">数据源名称 / 类型</span></div>
+        <span class="ws-col">所属工作空间</span>
+        <span class="status-col">连接状态</span>
+        <span class="actions-col">操作</span>
+      </div>
       <div
         v-for="d in visibleItems"
         :key="d.id"
@@ -311,8 +319,8 @@ const submit = async () => {
         <span class="ws-badge" :title="`所属工作空间：${wsName(d.workspaceId)}`">
           <span class="ws-badge-ic">◆</span>{{ wsName(d.workspaceId) }}
         </span>
-        <span v-if="d.status" class="ds-status" :style="{ color: statusColor[d.status] ?? '#aaa' }">
-          ● {{ statusLabel[d.status] ?? d.status }}
+        <span class="ds-status" :style="{ color: statusColor[d.status ?? 'idle'] ?? '#aaa' }">
+          ● {{ statusLabel[d.status ?? 'idle'] ?? d.status }}
         </span>
         <span class="row-actions">
           <button title="预览" @click.stop="openPreview(d)">预览</button>
@@ -396,6 +404,21 @@ const submit = async () => {
   transition: background .12s, border-color .12s;
 }
 .ds-row:hover { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.08); }
+
+/* 列表表头 */
+.ds-head {
+  min-height: 0; padding-top: 2px; padding-bottom: 8px; margin-bottom: 2px;
+  border-radius: 0; cursor: default;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.ds-head:hover { background: none; border-color: transparent; border-bottom-color: rgba(255,255,255,.1); }
+.ds-head .ds-name { font-size: 12px; font-weight: 600; color: #8a909c; }
+.ds-head .ws-col, .ds-head .status-col, .ds-head .actions-col {
+  flex: none; font-size: 12px; font-weight: 600; color: #8a909c;
+}
+.ds-head .ws-col { width: 180px; }
+.ds-head .status-col { min-width: 64px; }
+.ds-head .actions-col { width: 100px; text-align: center; }
 .ds-row.clickable { cursor: pointer; }
 .ds-row:hover .row-actions { opacity: 1; }
 .row-ic { font-size: 20px; flex: none; width: 24px; text-align: center; }
@@ -407,13 +430,13 @@ const submit = async () => {
   display: inline-flex; align-items: center; gap: 5px; flex: none;
   font-size: 12px; color: #9fb6ff;
   background: rgba(93,158,255,.12); border: 1px solid rgba(93,158,255,.28);
-  border-radius: 100px; padding: 3px 11px; max-width: 180px;
+  border-radius: 100px; padding: 3px 11px; width: 180px; box-sizing: border-box;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ws-badge-ic { font-size: 9px; opacity: .8; }
 .ds-status { font-size: 12px; flex: none; min-width: 64px; }
 
-.row-actions { display: flex; gap: 4px; flex: none; opacity: 0; transition: opacity .12s; }
+.row-actions { display: flex; gap: 4px; flex: none; width: 100px; justify-content: center; opacity: 0; transition: opacity .12s; }
 .row-actions button {
   background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
   color: #c0c4cf; font-size: 12px; cursor: pointer; padding: 4px 12px; border-radius: 6px; line-height: 1.4;
