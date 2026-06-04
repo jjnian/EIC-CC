@@ -78,11 +78,11 @@ const saveEdit = async () => {
   saving.value = true;
   try {
     await updateDataSource(props.dsId, { name: editName.value, config: editCfg.value });
-    toast('已保存');
+    toast.success('已保存');
     await load();
     editing.value = false;
   } catch (e) {
-    toast(`保存失败：${e instanceof ApiError ? e.message : (e as Error).message}`);
+    toast.error(`保存失败：${e instanceof ApiError ? e.message : (e as Error).message}`);
   } finally { saving.value = false; }
 };
 

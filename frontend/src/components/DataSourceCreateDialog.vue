@@ -63,22 +63,22 @@ const runTest = async () => {
 
 const submit = async () => {
   if (!kind.value) return;
-  if (!name.value.trim()) { toast('请填写名称'); return; }
+  if (!name.value.trim()) { toast.warn('请填写名称'); return; }
   submitting.value = true;
   try {
     let created;
     if (kind.value === 'file_stored') {
-      if (!fileToUpload.value) { toast('请选择文件'); submitting.value = false; return; }
+      if (!fileToUpload.value) { toast.warn('请选择文件'); submitting.value = false; return; }
       created = await uploadFileDataSource(fileToUpload.value, name.value.trim());
     } else {
       created = await createDataSource({ name: name.value.trim(), kind: kind.value, config: cfg.value });
     }
-    toast('已创建');
+    toast.success('已创建');
     emit('created', created.id);
     emit('close');
   } catch (e) {
     const msg = e instanceof ApiError ? e.message : (e as Error).message;
-    toast(`创建失败：${msg}`);
+    toast.error(`创建失败：${msg}`);
   } finally {
     submitting.value = false;
   }

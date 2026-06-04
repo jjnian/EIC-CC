@@ -41,6 +41,14 @@ public class DataSourceRepository {
         return pos.stream().map(this::toMap).toList();
     }
 
+    /** 跨工作空间的全量数据源列表，按创建时间倒序。用于「数据源」总览页(不区分工作空间)。 */
+    public List<Map<String, Object>> listAll() {
+        List<DataSourcePO> pos = mapper.selectList(
+                new LambdaQueryWrapper<DataSourcePO>()
+                        .orderByDesc(DataSourcePO::getCreatedAt));
+        return pos.stream().map(this::toMap).toList();
+    }
+
     public List<DataSourcePO> listByKind(String workspaceId, String kind) {
         return mapper.selectList(
                 new LambdaQueryWrapper<DataSourcePO>()
@@ -159,6 +167,7 @@ public class DataSourceRepository {
     private Map<String, Object> toMap(DataSourcePO po) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", po.getId());
+        out.put("workspaceId", po.getWorkspaceId());
         out.put("kind", po.getKind());
         out.put("name", po.getName());
         if (po.getMime() != null) out.put("mime", po.getMime());
