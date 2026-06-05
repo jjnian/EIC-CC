@@ -81,6 +81,10 @@ const sourceBadge = (s?: string) => {
   return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
 };
 
+// 置信度配色 / 提示：高=绿、中=黄、低=红，帮助快速判断血缘可信度
+const confColor = (c: number) => (c >= 0.85 ? '#22dd88' : c >= 0.55 ? '#ffcc44' : '#ff7755');
+const confHint = (c: number) => (c >= 0.85 ? '高（事实依据充分）' : c >= 0.55 ? '中（部分推断）' : '低（多为推断，需复核）');
+
 // 来源方式：显式 sourceMethod 优先；否则由物理字段 / 来源推断
 //   有物理列 → 数据库提取；文本/AI 提取 → 文件提取；其余 → 自定义
 const sourceMethodOf = (a: any): AttrSourceMethod => {
@@ -326,9 +330,21 @@ const startResize = (e: MouseEvent) => {
                           <span v-else class="ni-badge" :style="{color: sourceBadge(node.source).color, background: sourceBadge(node.source).bg}">{{ sourceBadge(node.source).text }}</span>
                         </td>
                       </tr>
+                      <tr v-if="!isEditing && node.confidence != null">
+                        <td class="ni-kv-k">置信度</td>
+                        <td class="ni-kv-v">
+                          <span class="ni-conf" :style="{ color: confColor(node.confidence) }">{{ (node.confidence * 100).toFixed(0) }}%</span>
+                          <span class="ni-conf-hint">{{ confHint(node.confidence) }}</span>
+                        </td>
+                      </tr>
                       <tr><td class="ni-kv-k">状态</td><td class="ni-kv-v"><span class="ni-chip ok">● 已激活</span></td></tr>
                     </tbody>
                   </table>
+                  <!-- 血缘证据：抽取该节点所依据的原文引文，可审计 -->
+                  <div v-if="!isEditing && node.evidence" class="ni-evidence">
+                    <span class="ni-evidence-icon" title="血缘证据">❝</span>
+                    <span class="ni-evidence-text">{{ node.evidence }}</span>
+                  </div>
                 </div>
                 <div v-if="isEditing || node.derived_source || node.derived_database || (node.derived_tables || []).length" class="ni-card ni-card-full">
                   <div class="ni-card-title">数据来源血缘</div>
@@ -646,6 +662,24 @@ const startResize = (e: MouseEvent) => {
 </template>
 
 <style scoped>
+/* ===== 置信度 / 血缘证据 ===== */
+.ni-conf { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.ni-conf-hint { margin-left: 8px; font-size: 11px; color: rgba(255,255,255,0.45); }
+.ni-evidence {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255,255,255,0.78);
+  background: rgba(34,221,136,0.06);
+  border-left: 2px solid rgba(34,221,136,0.5);
+  border-radius: 4px;
+}
+.ni-evidence-icon { color: #22dd88; font-weight: 700; flex-shrink: 0; }
+.ni-evidence-text { font-style: italic; }
+
 .ni-src-chip {
   display: inline-block;
   padding: 2px 8px;

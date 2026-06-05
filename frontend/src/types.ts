@@ -23,6 +23,8 @@ export interface OntologyNode {
   confidence?: number;
   effectiveProbability?: number;
   explanation?: string;
+  /** 血缘证据：抽取该节点所依据的原文引文/出处（≤30字），可审计。 */
+  evidence?: string;
   isNew?: boolean;
   [k: string]: any;
 }
@@ -35,11 +37,16 @@ export interface OntologyEdge {
   source?: NodeSource;
   rule_driven?: boolean;
   ruleId?: string;
+  /** 受控关系语义类型：produces/consumes/derived_from/depends_on/triggers/governs/composed_of/transforms/flows_to/associated_with。血缘遍历据此判方向。 */
+  rel_type?: string;
   // 关系类型上的约束: 基数/对称/传递…(不渲染在边上,只在 Schema 面板里 + 边上一个🔒)
   constraints?: OntologyConstraint[];
   derived_tables?: string[];
   derived_source?: string;
   derived_database?: string;
+  /** 血缘证据：该关系所依据的 FK列/原文引文/命名依据（≤30字）。 */
+  evidence?: string;
+  confidence?: number;
   isNew?: boolean;
   [k: string]: any;
 }

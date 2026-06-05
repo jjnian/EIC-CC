@@ -14,6 +14,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'focus-node', id: string): void;
+  (e: 'highlight-diff', data: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null): void;
 }>();
 
 // ── 标签页 ──────────────────────────────────────────
@@ -38,7 +39,7 @@ watch(() => props.selectedId, (id) => {
 
     <div class="gap-body">
       <GraphStatsTab v-if="tab === 0" :nodes="nodes" :edges="edges" @focus-node="(id) => emit('focus-node', id)" />
-      <NodeAnalysisTab v-else-if="tab === 1" :nodes="nodes" :edges="edges" :selected-id="selectedId" @focus-node="(id) => emit('focus-node', id)" />
+      <NodeAnalysisTab v-else-if="tab === 1" :nodes="nodes" :edges="edges" :selected-id="selectedId" @focus-node="(id) => emit('focus-node', id)" @highlight-diff="(d) => emit('highlight-diff', d)" />
       <PathQueryTab v-else-if="tab === 2" :nodes="nodes" :edges="edges" @focus-node="(id) => emit('focus-node', id)" />
     </div>
   </div>

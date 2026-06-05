@@ -811,6 +811,7 @@ const formatFileSize = (bytes: number) => {
         @start-divider="startDivider"
         @graph-ref="(el) => graphRef = el"
         @chat-ref="(el) => chatRef = el"
+        @highlight-diff="onHighlightDiff"
         @abort-prediction="prediction.closeTimeline"
         @update-node-props="editor.updateNodeProps"
         @delete-edge="editor.deleteEdge"

@@ -26,6 +26,7 @@ public class OntologyNodePO {
     private Double confidence;
     private Double effectiveProbability;
     private String explanation;
+    private String evidence;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -61,4 +62,6 @@ public class OntologyNodePO {
     public void setEffectiveProbability(Double effectiveProbability) { this.effectiveProbability = effectiveProbability; }
     public String getExplanation() { return explanation; }
     public void setExplanation(String explanation) { this.explanation = explanation; }
+    public String getEvidence() { return evidence; }
+    public void setEvidence(String evidence) { this.evidence = evidence; }
 }

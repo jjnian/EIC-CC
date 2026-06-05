@@ -96,6 +96,24 @@ const sourceBadge = (s?: string) => {
   return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
 };
 
+// 受控关系语义类型 → 中文（血缘可读）
+const relTypeLabel = (t?: string) => ({
+  produces: '产出 →',
+  consumes: '消耗 ←',
+  derived_from: '派生自 ←',
+  depends_on: '依赖 ←',
+  triggers: '触发 →',
+  governs: '治理/约束',
+  composed_of: '组成 ⊃',
+  transforms: '转换 →',
+  flows_to: '流向 →',
+  associated_with: '关联',
+} as Record<string, string>)[t || ''] || t || '关系';
+
+// 置信度配色 / 提示：高=绿、中=黄、低=红
+const confColor = (c: number) => (c >= 0.85 ? '#22dd88' : c >= 0.55 ? '#ffcc44' : '#ff7755');
+const confHint = (c: number) => (c >= 0.85 ? '高' : c >= 0.55 ? '中' : '低（多为推断，需复核）');
+
 const kindLabel = (k?: string) => ({
   cardinality: '基数',
   exclusive:   '互斥',
@@ -182,6 +200,17 @@ const startResize = (e: MouseEvent) => {
                     <tr><td class="ni-kv-k">ID</td><td class="ni-kv-v mono">{{ edge.id }}</td></tr>
                     <tr><td class="ni-kv-k">名称</td><td class="ni-kv-v strong">{{ edge.label || '(未命名)' }}</td></tr>
                     <tr><td class="ni-kv-k">来源</td><td class="ni-kv-v"><span class="ni-badge" :style="{color: sourceBadge(edge.source).color, background: sourceBadge(edge.source).bg}">{{ sourceBadge(edge.source).text }}</span></td></tr>
+                    <tr v-if="edge.rel_type">
+                      <td class="ni-kv-k">关系类型</td>
+                      <td class="ni-kv-v"><span class="ni-chip" :title="edge.rel_type">{{ relTypeLabel(edge.rel_type) }}</span></td>
+                    </tr>
+                    <tr v-if="edge.confidence != null">
+                      <td class="ni-kv-k">置信度</td>
+                      <td class="ni-kv-v">
+                        <span class="ei-conf" :style="{ color: confColor(edge.confidence) }">{{ (edge.confidence * 100).toFixed(0) }}%</span>
+                        <span class="ei-conf-hint">{{ confHint(edge.confidence) }}</span>
+                      </td>
+                    </tr>
                     <tr>
                       <td class="ni-kv-k">规则驱动</td>
                       <td class="ni-kv-v">
@@ -192,6 +221,11 @@ const startResize = (e: MouseEvent) => {
                     <tr><td class="ni-kv-k">约束数</td><td class="ni-kv-v strong">{{ (edge.constraints || []).length }} <span class="ni-unit">条</span></td></tr>
                   </tbody>
                 </table>
+                <!-- 血缘证据：该关系所依据的 FK列/原文引文/命名依据 -->
+                <div v-if="edge.evidence" class="ei-evidence">
+                  <span class="ei-evidence-icon" title="血缘证据">❝</span>
+                  <span class="ei-evidence-text">{{ edge.evidence }}</span>
+                </div>
               </div>
 
               <div v-if="edge.derived_source || edge.derived_database || (edge.derived_tables || []).length" class="ni-card ni-card-full">
@@ -417,4 +451,20 @@ const startResize = (e: MouseEvent) => {
   background: rgba(34, 221, 136, 0.12);
   border-radius: 6px;
 }
+.ei-conf { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.ei-conf-hint { margin-left: 8px; font-size: 11px; color: rgba(255,255,255,0.45); }
+.ei-evidence {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-style: italic;
+  color: rgba(255,255,255,0.78);
+  background: rgba(34,221,136,0.06);
+  border-left: 2px solid rgba(34,221,136,0.5);
+  border-radius: 4px;
+}
+.ei-evidence-icon { color: #22dd88; font-weight: 700; font-style: normal; flex-shrink: 0; }
 </style>

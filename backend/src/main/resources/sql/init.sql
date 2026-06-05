@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS ontology_node (
     confidence              DOUBLE PRECISION,
     effective_probability   DOUBLE PRECISION,
     explanation             TEXT,
+    evidence                TEXT,                                        -- 该节点的证据(≤30字引文/出处)，血缘可审计
     PRIMARY KEY (model_id, id)
 );
 ALTER TABLE ontology_node
@@ -62,7 +63,8 @@ ALTER TABLE ontology_node
     ADD COLUMN IF NOT EXISTS attributes_json TEXT,
     ADD COLUMN IF NOT EXISTS constraints_json TEXT,
     ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS evidence TEXT;
 CREATE INDEX IF NOT EXISTS idx_ontology_node_model
     ON ontology_node (model_id);
 

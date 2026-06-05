@@ -97,6 +97,7 @@ public class OntologyRowMapper {
         if (n.getConfidence() != null) m.put("confidence", n.getConfidence());
         if (n.getEffectiveProbability() != null) m.put("effectiveProbability", n.getEffectiveProbability());
         if (n.getExplanation() != null) m.put("explanation", n.getExplanation());
+        if (n.getEvidence() != null) m.put("evidence", n.getEvidence());
         if (!props.isEmpty()) {
             // 还原成原始 props 数组形式：[{key, value, source}, ...]
             List<Map<String, Object>> arr = new ArrayList<>(props.size());
@@ -156,6 +157,7 @@ public class OntologyRowMapper {
         po.setConfidence(asDouble(n.get("confidence")));
         po.setEffectiveProbability(asDouble(n.get("effectiveProbability")));
         po.setExplanation(asString(n.get("explanation")));
+        po.setEvidence(asString(n.get("evidence")));
         nodeMapper.insert(po);
 
         // 节点的 props 数组拆为多行写入子表；保留 sortNo 用于回读时还原顺序
