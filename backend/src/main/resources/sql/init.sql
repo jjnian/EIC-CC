@@ -473,6 +473,22 @@ CREATE TABLE IF NOT EXISTS ds_embedding (
 );
 CREATE INDEX IF NOT EXISTS idx_ds_embedding_chunk ON ds_embedding (chunk_id);
 
+-- ---------------------------------------------------------------------------
+-- 8. 经验库：工作空间下的经验文档库（与数据源 / 历史记录同级别）
+--    每条 = 一篇经验文档（标题 + 正文 + 标签），按工作空间隔离。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS experience (
+    id            VARCHAR(64)  PRIMARY KEY,
+    workspace_id  VARCHAR(64)  NOT NULL,
+    title         VARCHAR(512) NOT NULL,
+    content       TEXT,
+    tags          VARCHAR(1024),                                  -- 逗号分隔的标签
+    created_at    BIGINT       NOT NULL,
+    updated_at    BIGINT
+);
+CREATE INDEX IF NOT EXISTS idx_experience_ws_created
+    ON experience (workspace_id, created_at DESC);
+
 -- ===========================================================================
 -- 初始化完成
 -- ===========================================================================

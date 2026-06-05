@@ -12,6 +12,7 @@ import ConversationListView from './components/views/ConversationListView.vue';
 import DataSourceDetailView from './components/datasource/DataSourceDetailView.vue';
 import DataSourceCreateDialog from './components/DataSourceCreateDialog.vue';
 import DataSourcePageView from './components/views/DataSourcePageView.vue';
+import ExperiencePageView from './components/views/ExperiencePageView.vue';
 import NodeEditDialog from './components/dialogs/NodeEditDialog.vue';
 import RelationEditDialog from './components/dialogs/RelationEditDialog.vue';
 import TemplateLibraryDialog from './components/dialogs/TemplateLibraryDialog.vue';
@@ -67,7 +68,7 @@ const { chatW, startDivider, isDragging } = useDivider(
   () => sbExp.value ? sidebarW.value : 72,
 );
 
-const view = ref<'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource' | 'datasource-list' | 'conv-list'>('workspace-picker');
+const view = ref<'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource' | 'datasource-list' | 'conv-list' | 'experience-list'>('workspace-picker');
 
 // 左侧顶级菜单导航：把菜单 route 映射到对应的 view
 const onNav = (r: string) => {
@@ -75,6 +76,7 @@ const onNav = (r: string) => {
   else if (r === 'graph-list') view.value = 'list';
   else if (r === 'conv-list') view.value = 'conv-list';
   else if (r === 'datasource') view.value = 'datasource-list';
+  else if (r === 'experience') view.value = 'experience-list';
   else if (r === 'settings') view.value = 'settings';
 };
 const currentDataSourceId = ref<string | null>(null);
@@ -124,6 +126,33 @@ const onDsCreated = async (id: string) => {
   } catch {
     // 回填失败不影响主流程；侧栏展开时会重新懒加载
   }
+};
+
+// 经验库视图状态：聚焦的经验 id（打开页面时定位/编辑该条）+ 是否自动打开新建表单
+const focusExperienceId = ref<string | null>(null);
+const experienceCreateSignal = ref(0);
+const openExperienceListForWorkspace = (workspaceId: string) => {
+  if (workspaceId && workspaceId !== wsManager.currentId.value) {
+    wsManager.setCurrent(workspaceId);
+    window.location.reload();
+    return;
+  }
+  focusExperienceId.value = null;
+  view.value = 'experience-list';
+};
+const openExperienceCreateForWorkspace = (workspaceId: string) => {
+  if (workspaceId && workspaceId !== wsManager.currentId.value) {
+    wsManager.setCurrent(workspaceId);
+    window.location.reload();
+    return;
+  }
+  focusExperienceId.value = null;
+  view.value = 'experience-list';
+  experienceCreateSignal.value += 1;
+};
+const openExperienceDetail = (id: string) => {
+  focusExperienceId.value = id;
+  view.value = 'experience-list';
 };
 
 // 分支对比差异高亮状态
@@ -643,6 +672,9 @@ const formatFileSize = (bytes: number) => {
       @open-datasource="openDataSourceDetail"
       @open-datasources="openDataSourceListForWorkspace"
       @add-datasource="openDataSourceCreateForWorkspace"
+      @open-experience="openExperienceDetail"
+      @open-experiences="openExperienceListForWorkspace"
+      @add-experience="openExperienceCreateForWorkspace"
       @rename-conversation="renameConversation"
       @delete-conversation="deleteConversation"
       @rename-graph="renameGraph"
@@ -760,6 +792,13 @@ const formatFileSize = (bytes: number) => {
       <DataSourcePageView
         v-else-if="view === 'datasource-list'"
         @open="openDataSourceDetail"
+      />
+
+      <!-- 经验库 List / Edit Page -->
+      <ExperiencePageView
+        v-else-if="view === 'experience-list'"
+        :focus-id="focusExperienceId"
+        :create-signal="experienceCreateSignal"
       />
 
       <!-- Graph View -->

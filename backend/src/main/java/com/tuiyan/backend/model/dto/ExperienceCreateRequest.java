@@ -1,0 +1,15 @@
+package com.tuiyan.backend.model.dto;
+
+/** 创建经验请求：title + content + tags（标签逗号分隔，可空）。 */
+public class ExperienceCreateRequest {
+    private String title;
+    private String content;
+    private String tags;
+
+    public String getTitle() { return title; }
+    public void setTitle(String title) { this.title = title; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+    public String getTags() { return tags; }
+    public void setTags(String tags) { this.tags = tags; }
+}

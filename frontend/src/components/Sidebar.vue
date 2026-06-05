@@ -19,22 +19,27 @@ const emit = defineEmits<{
   (e: 'open-datasource', id: string): void;
   (e: 'open-datasources', workspaceId: string): void;
   (e: 'add-datasource', workspaceId: string): void;
+  (e: 'open-experience', id: string): void;
+  (e: 'open-experiences', workspaceId: string): void;
+  (e: 'add-experience', workspaceId: string): void;
   (e: 'rename-conversation', id: string, title: string): void;
   (e: 'delete-conversation', id: string): void;
   (e: 'rename-graph', id: string, title: string): void;
   (e: 'delete-graph', id: string): void;
 }>();
 
-// 左侧顶级功能菜单：只保留「新对话」和「数据源」
+// 左侧顶级功能菜单：新对话 / 数据源 / 经验库
 const items: [string, string, string][] = [
   ['✦', '新对话', 'welcome'],
   ['◈', '数据源', 'datasource'],
+  ['📚', '经验库', 'experience'],
 ];
 
 const isActive = (route: string): boolean => {
   switch (route) {
     case 'welcome': return props.view === 'chat';
     case 'datasource': return props.view === 'datasource-list' || props.view === 'datasource';
+    case 'experience': return props.view === 'experience-list';
     default: return false;
   }
 };
@@ -117,6 +122,9 @@ const submitCreate = async () => {
                        @open-datasource="emit('open-datasource', $event)"
                        @open-datasources="emit('open-datasources', $event)"
                        @add-datasource="emit('add-datasource', $event)"
+                       @open-experience="emit('open-experience', $event)"
+                       @open-experiences="emit('open-experiences', $event)"
+                       @add-experience="emit('add-experience', $event)"
                        @rename-conversation="(id, title) => emit('rename-conversation', id, title)"
                        @delete-conversation="emit('delete-conversation', $event)"
                        @rename-graph="(id, title) => emit('rename-graph', id, title)"
