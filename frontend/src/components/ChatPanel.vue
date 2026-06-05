@@ -102,6 +102,7 @@ const {
   cancelPersist,
   initConversation,
   restoreLatestOrNew,
+  bindModel,
 } = conv;
 
 // ===== Chat 发送 + SSE 流式 =====
@@ -133,6 +134,8 @@ const onSend = async () => {
     try {
       await props.ensureModel(input.value);
       await nextTick();
+      // 惰性建图完成后，把这张血缘图绑定到当前会话：一会话一图，后续改动都落到它上。
+      bindModel(props.modelId || '');
     } catch (e) {
       console.error('ensureModel failed', e);
       toast.warn('创建本体模型失败');

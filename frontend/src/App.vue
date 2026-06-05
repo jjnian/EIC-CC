@@ -466,6 +466,8 @@ const goWelcome = async () => {
 const findConversationModelId = async (id: string): Promise<string | null> => {
   try {
     const conv = await getConversation(id);
+    // 优先用会话显式绑定的血缘图（一会话一图）；历史会话无绑定时退化为扫描消息里的 graphModelId。
+    if (conv.modelId) return conv.modelId;
     const msg = [...(conv.msgs || [])].reverse().find(m => m.graphModelId);
     return msg?.graphModelId || null;
   } catch (e) {
@@ -527,15 +529,9 @@ const deleteConversation = async (id: string) => {
 };
 
 const onNewConversation = async () => {
-  const target = currentModelId.value ? findModel(currentModelId.value) : models.value[0];
-  if (target) {
-    await openModel(target, 'chat');
-  } else {
-    view.value = 'chat';
-  }
-  await nextTick();
-  chatRef.value?.newConversation();
-  chatRef.value?.focusInput?.();
+  // 新对话必须开一张新的血缘图：清空当前本体模型上下文，首次发言时由 ensure-model 惰性建图并绑定。
+  // 复用 goWelcome 的清理逻辑，避免新对话误改上一张图。
+  await goWelcome();
 };
 
 const onOpenOntologyModel = async (id: string) => {

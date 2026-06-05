@@ -13,6 +13,8 @@ public class ConversationPO {
     private String id;
     private String workspaceId;
     private String title;
+    /** 绑定的本体血缘图 id（对应 conversation.model_id 列）。 */
+    private String modelId;
     private Long createdAt;
     private Long updatedAt;
 
@@ -22,6 +24,8 @@ public class ConversationPO {
     public void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
+    public String getModelId() { return modelId; }
+    public void setModelId(String modelId) { this.modelId = modelId; }
     public Long getCreatedAt() { return createdAt; }
     public void setCreatedAt(Long createdAt) { this.createdAt = createdAt; }
     public Long getUpdatedAt() { return updatedAt; }

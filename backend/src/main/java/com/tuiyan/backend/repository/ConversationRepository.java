@@ -65,6 +65,7 @@ public class ConversationRepository {
         ConversationPO po = new ConversationPO();
         po.setId(c.getId());
         po.setTitle(c.getTitle());
+        po.setModelId(c.getModelId());
         po.setCreatedAt(c.getCreatedAt());
         po.setUpdatedAt(c.getUpdatedAt());
         ConversationPO existing = conversationMapper.selectById(c.getId());
@@ -103,6 +104,7 @@ public class ConversationRepository {
         Conversation c = new Conversation();
         c.setId(po.getId());
         c.setTitle(po.getTitle());
+        c.setModelId(po.getModelId());
         c.setCreatedAt(po.getCreatedAt() == null ? 0L : po.getCreatedAt());
         c.setUpdatedAt(po.getUpdatedAt() == null ? 0L : po.getUpdatedAt());
 

@@ -16,6 +16,9 @@ public class Conversation {
     private String id;
     // 会话标题，常由首条消息内容自动生成
     private String title;
+    // 绑定的本体血缘图 ID：一个会话对应一张图，会话内所有改动都落到这张图上。
+    // 由「新对话」首次发言惰性建图后写入；历史会话可能为 null（回看时退化为扫描消息里的 graphModelId）。
+    private String modelId;
     private long createdAt;
     // updatedAt 用于会话列表按时间排序
     private long updatedAt;
@@ -27,6 +30,9 @@ public class Conversation {
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
+
+    public String getModelId() { return modelId; }
+    public void setModelId(String modelId) { this.modelId = modelId; }
 
     public long getCreatedAt() { return createdAt; }
     public void setCreatedAt(long createdAt) { this.createdAt = createdAt; }

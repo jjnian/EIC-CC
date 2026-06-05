@@ -80,6 +80,8 @@ export interface Conversation {
   createdAt: number;
   updatedAt?: number;
   title: string;
+  /** 绑定的本体血缘图 id：一会话一图。历史会话可能为空。 */
+  modelId?: string;
   msgs: ChatMsg[];
 }
 
@@ -104,6 +106,8 @@ export interface ConversationsCtx {
 export function useConversations(ctx: ConversationsCtx) {
   const conversationId = ref('');
   const conversationTitle = ref('新对话');
+  // 当前会话绑定的本体血缘图 id；空串表示尚未建图（首次发言时由 ensureModel 惰性创建并回填）。
+  const conversationModelId = ref('');
   const manualTitle = ref(false);
   const showConvPicker = ref(false);
   /** 内存里维护一份缓存,便于 sortedConversations 同步返回。 */
@@ -119,6 +123,7 @@ export function useConversations(ctx: ConversationsCtx) {
   const toDto = (c: Conversation): ConversationDto => ({
     id: c.id,
     title: c.title,
+    modelId: c.modelId,
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
     msgs: c.msgs,
@@ -127,6 +132,7 @@ export function useConversations(ctx: ConversationsCtx) {
   const fromDto = (d: ConversationDto): Conversation => ({
     id: d.id,
     title: d.title,
+    modelId: d.modelId,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,
     msgs: Array.isArray(d.msgs) ? d.msgs : [],
@@ -201,6 +207,7 @@ export function useConversations(ctx: ConversationsCtx) {
       const payload: ConversationDto = {
         id,
         title: conversationTitle.value || title,
+        modelId: conversationModelId.value || undefined,
         createdAt: cache.value[id]?.createdAt || Number(id) || Date.now(),
         msgs: ctx.msgs.value.map(m => ({ ...m })),
       };
@@ -240,6 +247,7 @@ export function useConversations(ctx: ConversationsCtx) {
       const payload: ConversationDto = {
         id,
         title: conversationTitle.value || title,
+        modelId: conversationModelId.value || undefined,
         createdAt: cache.value[id]?.createdAt || Date.now(),
         msgs: ctx.msgs.value.map(m => ({ ...m })),
       };
@@ -287,6 +295,7 @@ export function useConversations(ctx: ConversationsCtx) {
       if (conv) {
         conversationId.value = conv.id;
         conversationTitle.value = conv.title || '新对话';
+        conversationModelId.value = conv.modelId || '';
         manualTitle.value = !!conv.title && conv.title !== autoTitle(conv.msgs || []);
         // 历史消息一律视为已完成:把残留的 running 步骤标 done、buildDone=true,
         // 避免重新打开对话时还显示 loading 动画
@@ -307,9 +316,20 @@ export function useConversations(ctx: ConversationsCtx) {
     }
     conversationId.value = 'conv_' + Date.now();
     conversationTitle.value = '新对话';
+    conversationModelId.value = '';
     manualTitle.value = false;
     ctx.msgs.value = [{ role: 'a', text: WELCOME_TEXT }];
     ctx.clearGraph();
+  };
+
+  /**
+   * 把当前会话绑定到一张本体血缘图（首次发言惰性建图后调用）。
+   * 已绑定且 id 未变则忽略；变化时落库，保证「一会话一图」。
+   */
+  const bindModel = (modelId: string) => {
+    if (!modelId || conversationModelId.value === modelId) return;
+    conversationModelId.value = modelId;
+    persistCurrent();
   };
 
   const newConversation = async () => {
@@ -364,6 +384,8 @@ export function useConversations(ctx: ConversationsCtx) {
   return {
     conversationId,
     conversationTitle,
+    conversationModelId,
+    bindModel,
     manualTitle,
     showConvPicker,
     autoTitle,

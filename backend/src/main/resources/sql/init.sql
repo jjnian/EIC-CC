@@ -298,9 +298,13 @@ CREATE TABLE IF NOT EXISTS scenario_node_explanation (
 CREATE TABLE IF NOT EXISTS conversation (
     id           VARCHAR(64)  PRIMARY KEY,
     title        VARCHAR(255),
+    model_id     VARCHAR(64),                                           -- 绑定的本体血缘图 id（一会话一图）
     created_at   BIGINT       NOT NULL,
     updated_at   BIGINT       NOT NULL
 );
+-- 老库轻量迁移：早期 conversation 表无 model_id 列
+ALTER TABLE conversation
+    ADD COLUMN IF NOT EXISTS model_id VARCHAR(64);
 CREATE INDEX IF NOT EXISTS idx_conversation_updated
     ON conversation (updated_at DESC);
 
