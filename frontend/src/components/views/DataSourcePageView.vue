@@ -422,7 +422,7 @@ const submit = async () => {
 .ds-row.clickable { cursor: pointer; }
 .ds-row:hover .row-actions { opacity: 1; }
 .row-ic { font-size: 20px; flex: none; width: 24px; text-align: center; }
-.ds-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.ds-main { display: flex; flex-direction: column; gap: 2px; flex: 0 0 360px; min-width: 0; }
 .ds-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ds-kind { font-size: 12px; color: #888; }
 
