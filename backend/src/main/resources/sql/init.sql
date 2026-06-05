@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS ontology_version_node (
     confidence              DOUBLE PRECISION,
     effective_probability   DOUBLE PRECISION,
     explanation             TEXT,
+    evidence                TEXT,
     PRIMARY KEY (version_id, node_id)
 );
 ALTER TABLE ontology_version_node
@@ -155,7 +156,8 @@ ALTER TABLE ontology_version_node
     ADD COLUMN IF NOT EXISTS attributes_json TEXT,
     ADD COLUMN IF NOT EXISTS constraints_json TEXT,
     ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS evidence TEXT;
 
 -- 版本节点属性
 CREATE TABLE IF NOT EXISTS ontology_version_node_prop (
@@ -186,13 +188,19 @@ CREATE TABLE IF NOT EXISTS ontology_version_edge (
     derived_database    VARCHAR(255),
     rule_driven    BOOLEAN      NOT NULL DEFAULT FALSE,
     rule_id        VARCHAR(64),
+    rel_type       VARCHAR(64),
+    evidence       TEXT,
+    confidence     DOUBLE PRECISION,
     PRIMARY KEY (version_id, edge_id)
 );
 ALTER TABLE ontology_version_edge
     ADD COLUMN IF NOT EXISTS derived_tables_json TEXT,
     ADD COLUMN IF NOT EXISTS constraints_json TEXT,
     ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS rel_type VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS evidence TEXT,
+    ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION;
 
 -- ---------------------------------------------------------------------------
 -- 3. 推演分支（Scenario）
