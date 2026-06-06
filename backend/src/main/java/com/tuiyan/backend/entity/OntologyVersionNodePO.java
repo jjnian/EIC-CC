@@ -25,6 +25,7 @@ public class OntologyVersionNodePO {
     private Double confidence;
     private Double effectiveProbability;
     private String explanation;
+    private String evidence;
 
     public Long getVersionId() { return versionId; }
     public void setVersionId(Long versionId) { this.versionId = versionId; }
@@ -60,4 +61,6 @@ public class OntologyVersionNodePO {
     public void setEffectiveProbability(Double effectiveProbability) { this.effectiveProbability = effectiveProbability; }
     public String getExplanation() { return explanation; }
     public void setExplanation(String explanation) { this.explanation = explanation; }
+    public String getEvidence() { return evidence; }
+    public void setEvidence(String evidence) { this.evidence = evidence; }
 }

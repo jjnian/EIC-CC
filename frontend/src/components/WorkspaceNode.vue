@@ -12,6 +12,7 @@ import {
   createFolder, renameFolder, deleteFolder, moveFolder,
   moveDataSourceToFolder, type DataSourceFolder,
 } from '../api/folders';
+import { updateExperience } from '../api/experiences';
 
 const props = defineProps<{
   workspace: Workspace;
@@ -25,6 +26,9 @@ const emit = defineEmits<{
   (e: 'open-datasource', id: string): void;
   (e: 'open-datasources', workspaceId: string): void;
   (e: 'add-datasource', workspaceId: string): void;
+  (e: 'open-experience', id: string): void;
+  (e: 'open-experiences', workspaceId: string): void;
+  (e: 'add-experience', workspaceId: string): void;
   (e: 'rename-conversation', id: string, title: string): void;
   (e: 'delete-conversation', id: string): void;
   (e: 'rename-graph', id: string, title: string): void;
@@ -35,7 +39,8 @@ const ws = useWorkspaces();
 const tree = useSidebarTree();
 
 const expanded = ref(props.isCurrent);
-type CtxKind = 'conversation' | 'graph' | 'datasource-section' | 'folder' | 'datasource';
+type CtxKind = 'conversation' | 'graph' | 'datasource-section' | 'folder' | 'datasource'
+  | 'experience-section' | 'experience';
 const ctxMenu = ref<null | {
   kind: CtxKind;
   id: string;
@@ -54,9 +59,9 @@ const moveMenu = ref<null | {
 
 // 三个区段(历史对话/血缘图/数据源)独立折叠;状态用 localStorage 持久化,
 // 全局共享(所有工作空间共用一份偏好,避免每个 ws 都要单独点开)。
-type SectionKey = 'convs' | 'ontologies' | 'ds';
+type SectionKey = 'convs' | 'ontologies' | 'ds' | 'exp';
 const SECTIONS_KEY = 'tuiyan.sidebar-sections';
-const defaultSections = (): Record<SectionKey, boolean> => ({ convs: true, ontologies: true, ds: true });
+const defaultSections = (): Record<SectionKey, boolean> => ({ convs: true, ontologies: true, ds: true, exp: true });
 const readSections = (): Record<SectionKey, boolean> => {
   try {
     const raw = localStorage.getItem(SECTIONS_KEY);
@@ -66,6 +71,7 @@ const readSections = (): Record<SectionKey, boolean> => {
       convs: parsed.convs !== false,
       ontologies: parsed.ontologies !== false,
       ds: parsed.ds !== false,
+      exp: parsed.exp !== false,
     };
   } catch { return defaultSections(); }
 };
@@ -86,6 +92,7 @@ watch(expanded, (v) => {
     tree.loadOntologies(props.workspace.id);
     tree.loadDataSources(props.workspace.id);
     tree.loadFolders(props.workspace.id);
+    tree.loadExperiences(props.workspace.id);
   }
 }, { immediate: true });
 
@@ -111,7 +118,9 @@ const openCtxMenu = (
   e.stopPropagation();
   moveMenu.value = null;
   // 文件夹菜单条目更多,给它留更高的纵向空间。
-  const reserveH = kind === 'folder' ? 180 : kind === 'datasource' ? 96 : 132;
+  const reserveH = kind === 'folder' ? 180
+    : (kind === 'datasource' || kind === 'experience') ? 96
+    : 132;
   ctxMenu.value = {
     kind,
     id,
@@ -128,6 +137,56 @@ const openDataSourceSection = () => {
 const addDataSourceToWorkspace = () => {
   closeCtxMenu();
   emit('add-datasource', props.workspace.id);
+};
+
+// ── 经验库 ───────────────────────────────────────────────
+const openExperienceSection = () => {
+  emit('open-experiences', props.workspace.id);
+};
+
+const addExperienceToWorkspace = () => {
+  closeCtxMenu();
+  emit('add-experience', props.workspace.id);
+};
+
+const renameExperienceAct = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind !== 'experience') return;
+  closeCtxMenu();
+  const next = await uiPrompt({
+    title: '重命名经验',
+    message: '请输入新的标题',
+    defaultValue: current.title,
+    confirmLabel: '保存',
+    cancelLabel: '取消',
+  });
+  const title = (next || '').trim();
+  if (!title || title === current.title) return;
+  try {
+    const updated = await updateExperience(current.id, { title });
+    tree.upsertExperience(wsId.value, updated);
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '重命名失败');
+  }
+};
+
+const deleteExperienceAct = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind !== 'experience') return;
+  closeCtxMenu();
+  const ok = await uiConfirm({
+    title: '删除经验',
+    message: `确认删除「${current.title}」吗？此操作不可恢复。`,
+    confirmLabel: '删除',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await tree.removeExperience(wsId.value, current.id);
+    toast.success('已删除');
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '删除失败');
+  }
 };
 
 // ── 数据源文件夹树 ───────────────────────────────────────
@@ -550,6 +609,41 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
           <span v-else class="ws-empty">暂无数据源</span>
         </template>
       </div>
+
+      <div class="ws-section">
+        <button
+          type="button"
+          class="ws-section-head"
+          @click="toggleSection('exp', $event)"
+          @contextmenu="openCtxMenu('experience-section', workspace.id, '经验库', $event)"
+        >
+          <span class="ws-section-caret" :class="{ open: sections.exp }">›</span>
+          <span class="ws-section-lbl">经验库</span>
+          <span v-if="tree.getExperiences(workspace.id).length" class="ws-section-count">{{ tree.getExperiences(workspace.id).length }}</span>
+          <span
+            class="ws-section-open"
+            title="打开经验库"
+            @click.stop="openExperienceSection"
+          >↗</span>
+        </button>
+        <template v-if="sections.exp">
+          <span v-if="tree.isLoadingExp(workspace.id)" class="ws-loading">加载中...</span>
+          <template v-else-if="tree.getExperiences(workspace.id).length">
+            <button
+              v-for="x in tree.getExperiences(workspace.id).slice(0, 10)"
+              :key="x.id"
+              class="ws-item"
+              @click.stop="emit('open-experience', x.id)"
+              @contextmenu="openCtxMenu('experience', x.id, x.title, $event)"
+              :title="x.title"
+            >
+              <span class="ws-item-label">{{ x.title || '未命名经验' }}</span>
+              <span v-if="x.updatedAt || x.createdAt" class="ws-item-time">{{ fmtTime(x.updatedAt || x.createdAt) }}</span>
+            </button>
+          </template>
+          <span v-else class="ws-empty">暂无经验</span>
+        </template>
+      </div>
     </div>
 
     <div
@@ -598,6 +692,34 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
         <button class="ctx-item ctx-danger" @click="deleteFolderAct">
           <span class="ctx-icon">🗑</span>
           <span>删除文件夹</span>
+          <span class="ctx-hint">Delete</span>
+        </button>
+      </template>
+
+      <!-- 经验库区段 -->
+      <template v-else-if="ctxMenu.kind === 'experience-section'">
+        <button class="ctx-item" @click="openExperienceSection(); closeCtxMenu()">
+          <span class="ctx-icon">◈</span>
+          <span>查看经验库</span>
+          <span class="ctx-hint">Open</span>
+        </button>
+        <button class="ctx-item" @click="addExperienceToWorkspace">
+          <span class="ctx-icon">＋</span>
+          <span>新建经验</span>
+          <span class="ctx-hint">Add</span>
+        </button>
+      </template>
+
+      <!-- 经验条目 -->
+      <template v-else-if="ctxMenu.kind === 'experience'">
+        <button class="ctx-item" @click="renameExperienceAct">
+          <span class="ctx-icon">✎</span>
+          <span>重新命名</span>
+          <span class="ctx-hint">Rename</span>
+        </button>
+        <button class="ctx-item ctx-danger" @click="deleteExperienceAct">
+          <span class="ctx-icon">🗑</span>
+          <span>删除</span>
           <span class="ctx-hint">Delete</span>
         </button>
       </template>

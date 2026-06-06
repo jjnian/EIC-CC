@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.tuiyan.backend.config.ResourceNotFoundException;
 import com.tuiyan.backend.entity.ConversationPO;
 import com.tuiyan.backend.entity.DataSourcePO;
+import com.tuiyan.backend.entity.ExperiencePO;
 import com.tuiyan.backend.entity.GraphTemplatePO;
 import com.tuiyan.backend.entity.HypothesisTemplatePO;
 import com.tuiyan.backend.entity.OntologyModelPO;
@@ -11,6 +12,7 @@ import com.tuiyan.backend.entity.ScenarioPO;
 import com.tuiyan.backend.entity.WorkspacePO;
 import com.tuiyan.backend.mapper.ConversationMapper;
 import com.tuiyan.backend.mapper.DataSourceMapper;
+import com.tuiyan.backend.mapper.ExperienceMapper;
 import com.tuiyan.backend.mapper.GraphTemplateMapper;
 import com.tuiyan.backend.mapper.HypothesisTemplateMapper;
 import com.tuiyan.backend.mapper.OntologyModelMapper;
@@ -43,6 +45,7 @@ public class WorkspaceService {
     private final GraphTemplateMapper graphTemplateMapper;
     private final HypothesisTemplateMapper hypothesisTemplateMapper;
     private final DataSourceMapper dataSourceMapper;
+    private final ExperienceMapper experienceMapper;
     private final FileStoredService fileStoredService;
     private final HttpScheduler httpScheduler;
 
@@ -53,6 +56,7 @@ public class WorkspaceService {
                             GraphTemplateMapper graphTemplateMapper,
                             HypothesisTemplateMapper hypothesisTemplateMapper,
                             DataSourceMapper dataSourceMapper,
+                            ExperienceMapper experienceMapper,
                             FileStoredService fileStoredService,
                             HttpScheduler httpScheduler) {
         this.repo = repo;
@@ -62,6 +66,7 @@ public class WorkspaceService {
         this.graphTemplateMapper = graphTemplateMapper;
         this.hypothesisTemplateMapper = hypothesisTemplateMapper;
         this.dataSourceMapper = dataSourceMapper;
+        this.experienceMapper = experienceMapper;
         this.fileStoredService = fileStoredService;
         this.httpScheduler = httpScheduler;
     }
@@ -147,8 +152,10 @@ public class WorkspaceService {
                 new LambdaQueryWrapper<HypothesisTemplatePO>().eq(HypothesisTemplatePO::getWorkspaceId, id));
         int dataSources = dataSourceMapper.delete(
                 new LambdaQueryWrapper<DataSourcePO>().eq(DataSourcePO::getWorkspaceId, id));
-        log.info("delete workspace {}: models={}, scenarios={}, conversations={}, graphTpls={}, hypTpls={}, dataSources={}",
-                id, models, scenarios, convs, graphTpls, hypTpls, dataSources);
+        int experiences = experienceMapper.delete(
+                new LambdaQueryWrapper<ExperiencePO>().eq(ExperiencePO::getWorkspaceId, id));
+        log.info("delete workspace {}: models={}, scenarios={}, conversations={}, graphTpls={}, hypTpls={}, dataSources={}, experiences={}",
+                id, models, scenarios, convs, graphTpls, hypTpls, dataSources, experiences);
         return repo.delete(id);
     }
 

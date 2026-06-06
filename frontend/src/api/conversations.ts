@@ -4,6 +4,8 @@ import type { ChatMsg } from '../composables/useConversations';
 export interface ConversationDto {
   id: string;
   title: string;
+  /** 绑定的本体血缘图 id：一会话一图，会话内改动都落到这张图。历史会话可能为空。 */
+  modelId?: string;
   createdAt: number;
   updatedAt?: number;
   msgs: ChatMsg[];

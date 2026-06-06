@@ -19,6 +19,9 @@ public class OntologyVersionEdgePO {
     private String constraintsJson;
     private Boolean ruleDriven;
     private String ruleId;
+    private String relType;
+    private String evidence;
+    private Double confidence;
 
     public Long getVersionId() { return versionId; }
     public void setVersionId(Long versionId) { this.versionId = versionId; }
@@ -44,4 +47,10 @@ public class OntologyVersionEdgePO {
     public void setRuleDriven(Boolean ruleDriven) { this.ruleDriven = ruleDriven; }
     public String getRuleId() { return ruleId; }
     public void setRuleId(String ruleId) { this.ruleId = ruleId; }
+    public String getRelType() { return relType; }
+    public void setRelType(String relType) { this.relType = relType; }
+    public String getEvidence() { return evidence; }
+    public void setEvidence(String evidence) { this.evidence = evidence; }
+    public Double getConfidence() { return confidence; }
+    public void setConfidence(Double confidence) { this.confidence = confidence; }
 }

@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS ontology_node (
     confidence              DOUBLE PRECISION,
     effective_probability   DOUBLE PRECISION,
     explanation             TEXT,
+    evidence                TEXT,                                        -- 该节点的证据(≤30字引文/出处)，血缘可审计
     PRIMARY KEY (model_id, id)
 );
 ALTER TABLE ontology_node
@@ -62,7 +63,8 @@ ALTER TABLE ontology_node
     ADD COLUMN IF NOT EXISTS attributes_json TEXT,
     ADD COLUMN IF NOT EXISTS constraints_json TEXT,
     ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS evidence TEXT;
 CREATE INDEX IF NOT EXISTS idx_ontology_node_model
     ON ontology_node (model_id);
 
@@ -146,6 +148,7 @@ CREATE TABLE IF NOT EXISTS ontology_version_node (
     confidence              DOUBLE PRECISION,
     effective_probability   DOUBLE PRECISION,
     explanation             TEXT,
+    evidence                TEXT,
     PRIMARY KEY (version_id, node_id)
 );
 ALTER TABLE ontology_version_node
@@ -153,7 +156,8 @@ ALTER TABLE ontology_version_node
     ADD COLUMN IF NOT EXISTS attributes_json TEXT,
     ADD COLUMN IF NOT EXISTS constraints_json TEXT,
     ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS evidence TEXT;
 
 -- 版本节点属性
 CREATE TABLE IF NOT EXISTS ontology_version_node_prop (
@@ -184,13 +188,19 @@ CREATE TABLE IF NOT EXISTS ontology_version_edge (
     derived_database    VARCHAR(255),
     rule_driven    BOOLEAN      NOT NULL DEFAULT FALSE,
     rule_id        VARCHAR(64),
+    rel_type       VARCHAR(64),
+    evidence       TEXT,
+    confidence     DOUBLE PRECISION,
     PRIMARY KEY (version_id, edge_id)
 );
 ALTER TABLE ontology_version_edge
     ADD COLUMN IF NOT EXISTS derived_tables_json TEXT,
     ADD COLUMN IF NOT EXISTS constraints_json TEXT,
     ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS rel_type VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS evidence TEXT,
+    ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION;
 
 -- ---------------------------------------------------------------------------
 -- 3. 推演分支（Scenario）
@@ -298,9 +308,13 @@ CREATE TABLE IF NOT EXISTS scenario_node_explanation (
 CREATE TABLE IF NOT EXISTS conversation (
     id           VARCHAR(64)  PRIMARY KEY,
     title        VARCHAR(255),
+    model_id     VARCHAR(64),                                           -- 绑定的本体血缘图 id（一会话一图）
     created_at   BIGINT       NOT NULL,
     updated_at   BIGINT       NOT NULL
 );
+-- 老库轻量迁移：早期 conversation 表无 model_id 列
+ALTER TABLE conversation
+    ADD COLUMN IF NOT EXISTS model_id VARCHAR(64);
 CREATE INDEX IF NOT EXISTS idx_conversation_updated
     ON conversation (updated_at DESC);
 
@@ -458,6 +472,22 @@ CREATE TABLE IF NOT EXISTS ds_embedding (
     created_at  BIGINT      NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ds_embedding_chunk ON ds_embedding (chunk_id);
+
+-- ---------------------------------------------------------------------------
+-- 8. 经验库：工作空间下的经验文档库（与数据源 / 历史记录同级别）
+--    每条 = 一篇经验文档（标题 + 正文 + 标签），按工作空间隔离。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS experience (
+    id            VARCHAR(64)  PRIMARY KEY,
+    workspace_id  VARCHAR(64)  NOT NULL,
+    title         VARCHAR(512) NOT NULL,
+    content       TEXT,
+    tags          VARCHAR(1024),                                  -- 逗号分隔的标签
+    created_at    BIGINT       NOT NULL,
+    updated_at    BIGINT
+);
+CREATE INDEX IF NOT EXISTS idx_experience_ws_created
+    ON experience (workspace_id, created_at DESC);
 
 -- ===========================================================================
 -- 初始化完成

@@ -71,6 +71,7 @@ const emit = defineEmits<{
   (e: 'update-node-props', id: string, props: { key: string; value: any; source?: string }[]): void;
   (e: 'delete-edge', edgeId: string): void;
   (e: 'clear-diff'): void;
+  (e: 'highlight-diff', data: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null): void;
   (e: 'undo'): void;
   (e: 'redo'): void;
   (e: 'close-schema'): void;
@@ -223,6 +224,7 @@ const analysisOpen = ref(false);
         :selectedId="selectedId"
         @close="analysisOpen = false"
         @focus-node="(id) => emit('focus-node', id)"
+        @highlight-diff="(d) => emit('highlight-diff', d)"
       />
       <!-- 图分析按钮（悬浮在画布右上角） -->
       <button

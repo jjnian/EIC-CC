@@ -11,6 +11,11 @@ import {
 } from '../api/dataSources';
 import { listOntologies } from '../api/ontology';
 import { listFolders, type DataSourceFolder } from '../api/folders';
+import {
+  listExperiences,
+  deleteExperience as apiDeleteExperience,
+  type Experience,
+} from '../api/experiences';
 import type { OntologyModel } from '../types';
 
 export interface SidebarOntology {
@@ -33,12 +38,15 @@ export interface SidebarConversation {
 const cacheConvs = ref<Record<string, SidebarConversation[]>>({});
 const cacheDS = ref<Record<string, DataSource[]>>({});
 const cacheFolders = ref<Record<string, DataSourceFolder[]>>({});
+const cacheExp = ref<Record<string, Experience[]>>({});
 const loadingConv = ref<Record<string, boolean>>({});
 const loadingDS = ref<Record<string, boolean>>({});
 const loadingFolders = ref<Record<string, boolean>>({});
+const loadingExp = ref<Record<string, boolean>>({});
 const loadedConv = ref<Record<string, boolean>>({});
 const loadedDS = ref<Record<string, boolean>>({});
 const loadedFolders = ref<Record<string, boolean>>({});
+const loadedExp = ref<Record<string, boolean>>({});
 
 const toSidebar = (d: ConversationDto): SidebarConversation => ({
   id: d.id,
@@ -102,6 +110,22 @@ export function useSidebarTree() {
     }
   };
 
+  const loadExperiences = async (wsId: string, force = false): Promise<void> => {
+    if (!wsId) return;
+    if (!force && loadedExp.value[wsId]) return;
+    if (loadingExp.value[wsId]) return;
+    loadingExp.value[wsId] = true;
+    try {
+      cacheExp.value[wsId] = ((await listExperiences({ workspaceId: wsId })) || [])
+        .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+      loadedExp.value[wsId] = true;
+    } catch (e) {
+      console.warn('listExperiences failed', wsId, e);
+    } finally {
+      loadingExp.value[wsId] = false;
+    }
+  };
+
   const loadOntologies = async (wsId: string, force = false): Promise<void> => {
     if (!wsId) return;
     if (!force && loadedOntology.value[wsId]) return;
@@ -132,8 +156,12 @@ export function useSidebarTree() {
   const getOntologies = (wsId: string): SidebarOntology[] =>
     cacheOntologies.value[wsId] || [];
 
+  const getExperiences = (wsId: string): Experience[] =>
+    cacheExp.value[wsId] || [];
+
   const isLoadingConv = (wsId: string): boolean => !!loadingConv.value[wsId];
   const isLoadingDS = (wsId: string): boolean => !!loadingDS.value[wsId];
+  const isLoadingExp = (wsId: string): boolean => !!loadingExp.value[wsId];
   const isLoadingFolders = (wsId: string): boolean => !!loadingFolders.value[wsId];
   const isLoadedConv = (wsId: string): boolean => !!loadedConv.value[wsId];
   const isLoadedDS = (wsId: string): boolean => !!loadedDS.value[wsId];
@@ -188,6 +216,25 @@ export function useSidebarTree() {
     }
   };
 
+  const removeExperience = async (wsId: string, id: string) => {
+    await apiDeleteExperience(id);
+    if (cacheExp.value[wsId]) {
+      cacheExp.value[wsId] = cacheExp.value[wsId].filter(e => e.id !== id);
+    }
+  };
+
+  /** 新增/更新经验后回填到缓存,不需要重新拉取接口。 */
+  const upsertExperience = (wsId: string, exp: Experience) => {
+    if (!wsId) return;
+    const arr = cacheExp.value[wsId] ? [...cacheExp.value[wsId]] : [];
+    const idx = arr.findIndex(x => x.id === exp.id);
+    if (idx >= 0) arr[idx] = exp;
+    else arr.unshift(exp);
+    arr.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    cacheExp.value[wsId] = arr;
+    loadedExp.value[wsId] = true;
+  };
+
   const upsertOntology = (wsId: string, m: SidebarOntology) => {
     if (!wsId) return;
     const arr = cacheOntologies.value[wsId] ? [...cacheOntologies.value[wsId]] : [];
@@ -230,19 +277,23 @@ export function useSidebarTree() {
       delete cacheDS.value[wsId];
       delete cacheFolders.value[wsId];
       delete cacheOntologies.value[wsId];
+      delete cacheExp.value[wsId];
       delete loadedConv.value[wsId];
       delete loadedDS.value[wsId];
       delete loadedFolders.value[wsId];
       delete loadedOntology.value[wsId];
+      delete loadedExp.value[wsId];
     } else {
       cacheConvs.value = {};
       cacheDS.value = {};
       cacheFolders.value = {};
       cacheOntologies.value = {};
+      cacheExp.value = {};
       loadedConv.value = {};
       loadedDS.value = {};
       loadedFolders.value = {};
       loadedOntology.value = {};
+      loadedExp.value = {};
     }
   };
 
@@ -251,12 +302,15 @@ export function useSidebarTree() {
     loadDataSources,
     loadFolders,
     loadOntologies,
+    loadExperiences,
     getConversations,
     getDataSources,
     getFolders,
     getOntologies,
+    getExperiences,
     isLoadingConv,
     isLoadingDS,
+    isLoadingExp,
     isLoadingFolders,
     isLoadingOntology,
     isLoadedConv,
@@ -267,8 +321,10 @@ export function useSidebarTree() {
     renameOntology,
     removeOntology,
     removeDataSource,
+    removeExperience,
     upsertConversation,
     upsertDataSource,
+    upsertExperience,
     upsertOntology,
     clearCache,
   };

@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { NT } from '../../constants';
 import type { OntologyNode, OntologyEdge } from '../../types';
+import { traceLineage } from '../../composables/useLineageTrace';
 
 const props = defineProps<{
   nodes: OntologyNode[];
@@ -11,6 +12,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'focus-node', id: string): void;
+  /** 上下游血缘高亮：复用画布对比高亮通道（蓝=上游/橙=下游/紫=种子）。 */
+  (e: 'highlight-diff', data: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null): void;
 }>();
 
 // ── 辅助 ────────────────────────────────────────────
@@ -48,6 +51,26 @@ const twoHopNeighbors = computed(() => {
   }
   return [...twoHop].map(id => nmap.value[id]).filter(Boolean) as OntologyNode[];
 });
+
+// ── 上下游血缘追溯 ────────────────────────────────────
+// 按 rel_type 归一化流向后做可达性遍历：上游=来源链，下游=影响链。
+const lineage = computed(() =>
+  selNode.value ? traceLineage(selNode.value.id, props.edges) : { upstreamIds: [], downstreamIds: [] });
+const upstreamNodes = computed(() =>
+  lineage.value.upstreamIds.map(id => nmap.value[id]).filter(Boolean) as OntologyNode[]);
+const downstreamNodes = computed(() =>
+  lineage.value.downstreamIds.map(id => nmap.value[id]).filter(Boolean) as OntologyNode[]);
+
+// 在画布上高亮血缘：复用对比高亮通道。蓝=上游来源、橙=下游影响、紫=当前节点。
+const highlightLineage = () => {
+  if (!selNode.value) return;
+  emit('highlight-diff', {
+    sharedIds: [selNode.value.id],
+    uniqueAIds: lineage.value.upstreamIds,
+    uniqueBIds: lineage.value.downstreamIds,
+  });
+};
+const clearLineage = () => emit('highlight-diff', null);
 </script>
 
 <template>
@@ -97,6 +120,49 @@ const twoHopNeighbors = computed(() => {
           <div class="gap-stat-l">二跳邻居</div>
         </div>
       </div>
+    </div>
+
+    <!-- 上下游血缘追溯 -->
+    <div class="gap-section">
+      <div class="gap-section-title">血缘追溯</div>
+      <div class="gap-row-stats gap-lineage-stats">
+        <div class="gap-stat-card">
+          <div class="gap-stat-n" style="color:#3b82f6">{{ upstreamNodes.length }}</div>
+          <div class="gap-stat-l">上游来源</div>
+        </div>
+        <div class="gap-stat-card">
+          <div class="gap-stat-n" style="color:#f97316">{{ downstreamNodes.length }}</div>
+          <div class="gap-stat-l">下游影响</div>
+        </div>
+      </div>
+      <div class="gap-lineage-actions">
+        <button class="gap-btn gap-btn-primary"
+                :disabled="!upstreamNodes.length && !downstreamNodes.length"
+                @click="highlightLineage">🩸 在图上高亮血缘</button>
+        <button class="gap-btn" @click="clearLineage">清除</button>
+      </div>
+      <div class="gap-lineage-legend">
+        <span><i class="lg-dot" style="background:#3b82f6"></i>上游来源</span>
+        <span><i class="lg-dot" style="background:#f97316"></i>下游影响</span>
+        <span><i class="lg-dot" style="background:#a855f7"></i>当前节点</span>
+      </div>
+      <div v-if="upstreamNodes.length" class="gap-lineage-group">
+        <div class="gap-lineage-gt" style="color:#3b82f6">上游来源链（{{ upstreamNodes.length }}）— 它来自哪里</div>
+        <div class="gap-chip-list">
+          <span v-for="n in upstreamNodes" :key="'up'+n.id" class="gap-chip gap-chip-click"
+                :style="{ color: typeColor(n.type), borderColor: typeColor(n.type) + '55' }"
+                @click="emit('focus-node', n.id)">{{ n.label }}</span>
+        </div>
+      </div>
+      <div v-if="downstreamNodes.length" class="gap-lineage-group">
+        <div class="gap-lineage-gt" style="color:#f97316">下游影响链（{{ downstreamNodes.length }}）— 改它会波及谁</div>
+        <div class="gap-chip-list">
+          <span v-for="n in downstreamNodes" :key="'down'+n.id" class="gap-chip gap-chip-click"
+                :style="{ color: typeColor(n.type), borderColor: typeColor(n.type) + '55' }"
+                @click="emit('focus-node', n.id)">{{ n.label }}</span>
+        </div>
+      </div>
+      <div v-if="!upstreamNodes.length && !downstreamNodes.length" class="gap-empty">该节点无上下游血缘连接</div>
     </div>
 
     <!-- 出边详情 -->
@@ -207,4 +273,23 @@ const twoHopNeighbors = computed(() => {
 
 .gap-hint { color: #888; text-align: center; padding: 40px 16px; font-size: 13px; }
 .gap-empty { color: #888; font-size: 12px; padding: 6px 0; }
+
+/* ── 血缘追溯 ── */
+.gap-lineage-stats { grid-template-columns: repeat(2, 1fr); }
+.gap-lineage-actions { display: flex; gap: 8px; }
+.gap-btn {
+  flex: 1; padding: 7px 10px; font-size: 12px; cursor: pointer;
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
+  color: #e8eaed; border-radius: 7px; font-family: inherit;
+  transition: background-color .15s, border-color .15s, opacity .15s;
+}
+.gap-btn:hover { background: rgba(255,255,255,.1); }
+.gap-btn:disabled { opacity: .4; cursor: not-allowed; }
+.gap-btn-primary { flex: 2; background: rgba(168,85,247,.16); border-color: rgba(168,85,247,.4); color: #c9a3ff; }
+.gap-btn-primary:hover:not(:disabled) { background: rgba(168,85,247,.26); }
+.gap-lineage-legend { display: flex; gap: 14px; font-size: 11px; color: #999; }
+.gap-lineage-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.lg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.gap-lineage-group { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.gap-lineage-gt { font-size: 11px; font-weight: 600; }
 </style>

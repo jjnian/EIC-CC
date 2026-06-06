@@ -151,6 +151,7 @@ public class OntologyVersionRepository {
         po.setConfidence(asDouble(n.get("confidence")));
         po.setEffectiveProbability(asDouble(n.get("effectiveProbability")));
         po.setExplanation(asString(n.get("explanation")));
+        po.setEvidence(asString(n.get("evidence")));
         nodeMapper.insert(po);
 
         Object propsObj = n.get("props");
@@ -189,6 +190,9 @@ public class OntologyVersionRepository {
         Object rd = e.get("rule_driven");
         po.setRuleDriven(rd instanceof Boolean ? (Boolean) rd : Boolean.FALSE);
         po.setRuleId(asString(e.get("ruleId")));
+        po.setRelType(asString(e.get("rel_type")));
+        po.setEvidence(asString(e.get("evidence")));
+        po.setConfidence(asDouble(e.get("confidence")));
         edgeMapper.insert(po);
     }
 
@@ -228,6 +232,7 @@ public class OntologyVersionRepository {
             if (n.getConfidence() != null) m.put("confidence", n.getConfidence());
             if (n.getEffectiveProbability() != null) m.put("effectiveProbability", n.getEffectiveProbability());
             if (n.getExplanation() != null) m.put("explanation", n.getExplanation());
+            if (n.getEvidence() != null) m.put("evidence", n.getEvidence());
             List<OntologyVersionNodePropPO> props = propsByNode.getOrDefault(n.getNodeId(), List.of());
             if (!props.isEmpty()) {
                 List<Map<String, Object>> arr = new ArrayList<>(props.size());
@@ -266,6 +271,9 @@ public class OntologyVersionRepository {
             }
             if (Boolean.TRUE.equals(e.getRuleDriven())) m.put("rule_driven", true);
             if (e.getRuleId() != null) m.put("ruleId", e.getRuleId());
+            if (e.getRelType() != null) m.put("rel_type", e.getRelType());
+            if (e.getEvidence() != null) m.put("evidence", e.getEvidence());
+            if (e.getConfidence() != null) m.put("confidence", e.getConfidence());
             out.add(m);
         }
         return out;

@@ -1279,6 +1279,18 @@ backend/src/main/java/com/tuiyan/backend/
 | `PUT` | `/api/conversations/{id}` | 更新对话 |
 | `DELETE` | `/api/conversations/{id}` | 删除对话 |
 
+### 经验库
+
+与「数据源 / 历史记录」同级别挂在工作空间下，沉淀可复用的经验文档（标题 + 正文 + 标签）。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `GET` | `/api/experiences?workspaceId=` | 列出工作空间下经验（按更新时间倒序） |
+| `GET` | `/api/experiences/{id}` | 取单条经验（含正文） |
+| `POST` | `/api/experiences` | 新建经验（`{title, content?, tags?}`） |
+| `PUT` | `/api/experiences/{id}` | 更新经验（字段可选，null 不改动） |
+| `DELETE` | `/api/experiences/{id}` | 删除经验 |
+
 ### 模板
 
 | 方法 | 路径 | 用途 |
