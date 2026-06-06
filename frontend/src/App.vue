@@ -785,8 +785,7 @@ const formatFileSize = (bytes: number) => {
       <!-- DataSource Detail View -->
       <DataSourceDetailView v-else-if="view === 'datasource' && currentDataSourceId"
                             :ds-id="currentDataSourceId"
-                            :has-current-model="!!currentModelId"
-                            @ontology-extracted="onImportCommit" />
+                            :has-current-model="!!currentModelId" />
 
       <!-- DataSource List / Add Page -->
       <DataSourcePageView
@@ -799,6 +798,8 @@ const formatFileSize = (bytes: number) => {
         v-else-if="view === 'experience-list'"
         :focus-id="focusExperienceId"
         :create-signal="experienceCreateSignal"
+        :has-current-model="!!currentModelId"
+        @ontology-extracted="onImportCommit"
       />
 
       <!-- Graph View -->

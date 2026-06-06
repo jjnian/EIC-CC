@@ -1,20 +1,28 @@
 package com.tuiyan.backend.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.model.dto.ExperienceCreateRequest;
 import com.tuiyan.backend.model.dto.ExperienceUpdateRequest;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.repository.ExperienceRepository;
 import com.tuiyan.backend.service.DataSourceService;
+import com.tuiyan.backend.service.ExperienceOntologyService;
 import com.tuiyan.backend.service.connector.FileStoredService;
 import com.tuiyan.backend.service.connector.file.StoredFileHandler;
 import com.tuiyan.backend.service.extraction.AudioTranscriptionService;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
+import com.tuiyan.backend.support.SsePushUtils;
+import com.tuiyan.backend.support.WorkspaceContext;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -31,17 +39,71 @@ public class ExperienceController {
     private final FileStoredService fileStoredService;
     private final DataSourceService dataSourceService;
     private final AudioTranscriptionService audioTranscriptionService;
+    private final ExperienceOntologyService experienceOntology;
+    private final AsyncTaskExecutor taskExecutor;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ExperienceController(ExperienceRepository repo,
                                 ExperienceIndexService indexService,
                                 FileStoredService fileStoredService,
                                 DataSourceService dataSourceService,
-                                AudioTranscriptionService audioTranscriptionService) {
+                                AudioTranscriptionService audioTranscriptionService,
+                                ExperienceOntologyService experienceOntology,
+                                @Qualifier("predictionExecutor") AsyncTaskExecutor taskExecutor) {
         this.repo = repo;
         this.indexService = indexService;
         this.fileStoredService = fileStoredService;
         this.dataSourceService = dataSourceService;
         this.audioTranscriptionService = audioTranscriptionService;
+        this.experienceOntology = experienceOntology;
+        this.taskExecutor = taskExecutor;
+    }
+
+    /**
+     * 从「当前工作空间的整个经验库」一键构建本体血缘图（SSE 流式）。
+     * <p>事件序列：step（多次进度）→ complete（携带 {nodes, edges, reply, salt, sourceCount}）→ 结束；
+     * 失败时发 error 事件。这是新数据流的主入口：本体血缘图由经验库文件构建，数据源只负责供血。
+     */
+    @PostMapping(value = "/extract-ontology", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter extractOntology(@RequestBody(required = false) Map<String, Object> body) {
+        String modelOverride = body == null ? null : (String) body.get("modelOverride");
+        String configId = body == null ? null : (String) body.get("configId");
+        String userHint = body == null ? null : (String) body.get("hint");
+        String workspaceId = WorkspaceContext.get();
+
+        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(300_000L,
+                "经验库 → 本体提取超时 (>300s)，请稍后重试或精简经验库内容");
+        SseEmitter emitter = ce.emitter();
+
+        taskExecutor.execute(() -> {
+            if (workspaceId != null) WorkspaceContext.set(workspaceId);
+            try {
+                ExperienceOntologyService.StepSink step = (key, label) -> {
+                    try {
+                        String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
+                        SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
+                    } catch (Exception ignore) {}
+                };
+                ExperienceOntologyService.ExtractResult r =
+                        experienceOntology.extractFromWorkspace(modelOverride, configId, userHint, step);
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("nodes", r.payload().path("nodes"));
+                payload.put("edges", r.payload().path("edges"));
+                payload.put("reply", r.payload().path("reply").asText(""));
+                payload.put("salt", r.salt());
+                payload.put("sourceCount", r.sourceCount());
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
+                        objectMapper.writeValueAsString(payload));
+                emitter.complete();
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "error", msg);
+                emitter.complete();
+            } finally {
+                WorkspaceContext.clear();
+            }
+        });
+        return emitter;
     }
 
     @GetMapping

@@ -1285,6 +1285,14 @@ backend/src/main/java/com/tuiyan/backend/
 保存后自动建立向量索引（落 `exp_chunk` / `exp_embedding`）；对话建模时按相关度自动召回为参考资料，
 来源名以「经验：…」前缀与数据源内容区分。
 
+> **本体血缘图由经验库文件构建（数据源只供血）**
+> 新数据流以经验库为本体血缘图的唯一构建入口：在经验库页点击「🧬 构建本体血缘图」，
+> 后端会把**当前工作空间下的全部经验文件**聚合成长文本，经文档抽取管线
+> （`ExperienceOntologyService` → `ExtractionLlmService`）抽出节点 / 边，再 salt 重写后供前端合并 / 另存为模型。
+> 数据库类数据源不再直接出图，而是在「表」页点「⤓ 导出结构到经验库供血」把 DDL 沉淀成经验文件参与建图；
+> 建好的图节点再由数据源绑定真实数据来源（供血）。对应 SSE 接口
+> `POST /api/experiences/extract-ontology`（事件序列：`step`* → `complete{nodes,edges,reply,salt,sourceCount}`）。
+
 索引管线参考 Cursor 的做法（仅经验库启用）：
 
 - **结构感知切块**：按 Markdown 标题层级切小节，每块前置标题面包屑作为上下文（`TextChunker.chunkStructured`）。
@@ -1302,6 +1310,9 @@ backend/src/main/java/com/tuiyan/backend/
 | `DELETE` | `/api/experiences/{id}` | 删除经验（索引随外键级联清理） |
 | `POST` | `/api/experiences/{id}/reindex` | 手动重建向量索引（embedding 配置变更后补建） |
 | `GET` | `/api/experiences/{id}/index-status` | 查询索引状态 + 文本块数量 |
+| `POST` | `/api/experiences/file` | 上传文件建经验（PDF/Word/TXT/MD 抽正文，音频走 ASR） |
+| `POST` | `/api/experiences/from-ddl` | 数据源导出 DDL 沉淀为经验（`{dataSourceId}`，「供血」入口） |
+| `POST` | `/api/experiences/extract-ontology` | **聚合整个工作空间经验库构建本体血缘图（SSE）** |
 
 ### 模板
 

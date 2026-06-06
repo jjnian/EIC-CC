@@ -9,16 +9,42 @@ import {
   createExperience, updateExperience, reindexExperience, uploadExperienceFile,
   type Experience,
 } from '../../api/experiences';
+import ExpOntologyExtractDialog from '../ExpOntologyExtractDialog.vue';
+import type { OntologyNode, OntologyEdge } from '../../types';
 
 const props = defineProps<{
   /** 侧栏点击进入时要定位/编辑的经验 id */
   focusId?: string | null;
   /** 自增信号：变化时打开一个空白「新建经验」表单 */
   createSignal?: number;
+  /** 当前是否已有打开的本体模型（决定「构建本体血缘图」能否合并到当前模型） */
+  hasCurrentModel?: boolean;
+}>();
+
+const emit = defineEmits<{
+  (e: 'ontology-extracted', payload: {
+    mode: 'merge' | 'new';
+    name: string;
+    nodes: OntologyNode[];
+    edges: OntologyEdge[];
+  }): void;
 }>();
 
 const ws = useWorkspaces();
 const tree = useSidebarTree();
+
+// ── 从经验库一键构建本体血缘图 ──────────────────────────────
+const extractDialogOpen = ref(false);
+const currentWsName = computed(() => ws.current()?.name || '');
+const onExtractCommit = (payload: {
+  mode: 'merge' | 'new';
+  name: string;
+  nodes: OntologyNode[];
+  edges: OntologyEdge[];
+}) => {
+  extractDialogOpen.value = false;
+  emit('ontology-extracted', payload);
+};
 
 const loading = computed(() => tree.isLoadingExp(ws.currentId.value));
 const experiences = computed<Experience[]>(() => tree.getExperiences(ws.currentId.value));
@@ -179,6 +205,12 @@ const reindex = async (id: string) => {
         <p>沉淀可复用的经验文档，可手动撰写或上传文件：PDF / Word / TXT / MD 抽取正文，音频自动转写成文字。</p>
       </div>
       <div class="exp-header-actions">
+        <button
+          class="exp-build"
+          :disabled="experiences.length === 0"
+          :title="experiences.length === 0 ? '请先在经验库中创建/上传经验' : '聚合整个工作空间经验库构建本体血缘图'"
+          @click="extractDialogOpen = true"
+        >🧬 构建本体血缘图</button>
         <button class="exp-upload" :disabled="uploading" @click="triggerUpload">
           {{ uploading ? '解析中…' : '⤓ 上传文件' }}
         </button>
@@ -264,6 +296,14 @@ const reindex = async (id: string) => {
         <p>选择左侧一条经验查看 / 编辑，或新建一条经验。</p>
       </div>
     </div>
+
+    <ExpOntologyExtractDialog
+      :open="extractDialogOpen"
+      :workspace-name="currentWsName"
+      :has-current-model="!!hasCurrentModel"
+      @close="extractDialogOpen = false"
+      @commit="onExtractCommit"
+    />
   </div>
 </template>
 
@@ -282,6 +322,17 @@ const reindex = async (id: string) => {
 }
 .exp-new:hover { background: #50caa3; }
 .exp-header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.exp-build {
+  background: linear-gradient(135deg, rgba(66,184,131,0.22), rgba(66,184,131,0.1));
+  color: #6dd4a7; border: 1px solid rgba(66,184,131,0.5);
+  padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+.exp-build:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(66,184,131,0.34), rgba(66,184,131,0.18));
+  color: #fff;
+}
+.exp-build:disabled { opacity: 0.45; cursor: not-allowed; }
 .exp-upload {
   background: transparent; color: #6dd4a7; border: 1px solid rgba(66,184,131,0.5);
   padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;

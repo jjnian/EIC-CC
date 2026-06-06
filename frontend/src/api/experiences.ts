@@ -1,4 +1,5 @@
-import { request } from './http';
+import { request, sse } from './http';
+import type { SseHandle } from './http';
 
 /** 上传文件建经验：抽取文本作正文、文件名作标题，后端自动建向量索引。 */
 export function uploadExperienceFile(file: File, title?: string) {
@@ -76,4 +77,45 @@ export function getExperienceIndexStatus(id: string) {
   return request<{ status: string; chunkCount: number }>(
     `/api/experiences/${encodeURIComponent(id)}/index-status`,
   );
+}
+
+/**
+ * 一键从「当前工作空间的整个经验库」构建本体血缘图（SSE 流）。
+ * 这是新数据流的主入口：本体血缘图由经验库文件构建，数据源只负责供血。
+ */
+export function extractOntologyFromExperiences(
+  body: { modelOverride?: string; configId?: string; hint?: string },
+  handlers: {
+    onStep?: (key: string, label: string) => void;
+    onComplete?: (payload: {
+      nodes: unknown[];
+      edges: unknown[];
+      reply: string;
+      salt: string;
+      sourceCount?: number;
+    }) => void;
+    onError?: (msg: string) => void;
+    onClose?: () => void;
+  },
+): SseHandle {
+  return sse('/api/experiences/extract-ontology', body, {
+    onEvent: (event, data) => {
+      if (event === 'step') {
+        try {
+          const j = JSON.parse(data) as { key: string; label: string };
+          handlers.onStep?.(j.key, j.label);
+        } catch { /* ignore */ }
+      } else if (event === 'complete') {
+        try {
+          handlers.onComplete?.(JSON.parse(data));
+        } catch (e) {
+          handlers.onError?.((e as Error).message);
+        }
+      } else if (event === 'error') {
+        handlers.onError?.(data);
+      }
+    },
+    onError: (err) => handlers.onError?.(err.message),
+    onClose: () => handlers.onClose?.(),
+  });
 }

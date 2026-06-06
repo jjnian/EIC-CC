@@ -1,36 +1,32 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
 import { listTables, previewTable } from '../../api/dataSources';
+import { createExperienceFromDdl } from '../../api/experiences';
 import { ApiError } from '../../api/http';
+import { toast } from '../../composables/useToast';
 import type { TablePreview } from '../../api/dataSources';
-import type { OntologyNode, OntologyEdge } from '../../types';
-import DbOntologyExtractDialog from './DbOntologyExtractDialog.vue';
 
 const props = defineProps<{ dsId: string; dsName?: string; hasCurrentModel?: boolean }>();
-const emit = defineEmits<{
-  (e: 'ontology-extracted', payload: {
-    mode: 'merge' | 'new';
-    name: string;
-    nodes: OntologyNode[];
-    edges: OntologyEdge[];
-  }): void;
-}>();
 const tables = ref<string[]>([]);
 const loading = ref(false);
 const selected = ref<string | null>(null);
 const preview = ref<TablePreview | null>(null);
 const previewing = ref(false);
 const err = ref<string>('');
-const extractDialogOpen = ref(false);
 
-const onExtractCommit = (payload: {
-  mode: 'merge' | 'new';
-  name: string;
-  nodes: OntologyNode[];
-  edges: OntologyEdge[];
-}) => {
-  extractDialogOpen.value = false;
-  emit('ontology-extracted', payload);
+// 新数据流：数据源不再直接出图，而是把库结构（DDL）沉淀成经验库文件「供血」，
+// 再到经验库一键「构建本体血缘图」。
+const depositing = ref(false);
+const depositToExperience = async () => {
+  depositing.value = true;
+  try {
+    const exp = await createExperienceFromDdl(props.dsId);
+    toast.success(`已把「${exp.title}」沉淀到经验库，去经验库即可「🧬 构建本体血缘图」`);
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '导出失败');
+  } finally {
+    depositing.value = false;
+  }
 };
 
 const load = async () => {
@@ -64,10 +60,11 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
       <div class="extract-action">
         <button
           class="extract-btn"
-          :disabled="loading || tables.length === 0"
-          :title="tables.length === 0 ? '请先确保数据库连接成功' : '基于 schema (表+列+外键) 生成本体血缘图'"
-          @click="extractDialogOpen = true"
-        >🧬 一键生成本体血缘图</button>
+          :disabled="loading || depositing || tables.length === 0"
+          :title="tables.length === 0 ? '请先确保数据库连接成功' : '把库结构(DDL)沉淀到经验库，供经验库构建本体血缘图'"
+          @click="depositToExperience"
+        >{{ depositing ? '导出中…' : '⤓ 导出结构到经验库供血' }}</button>
+        <p class="extract-tip">数据源不再直接出图：先入经验库，再到经验库「🧬 构建本体血缘图」。</p>
       </div>
       <div v-if="loading" class="msg">加载中…</div>
       <div v-else-if="err" class="msg err">{{ err }}</div>
@@ -92,15 +89,6 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
         </div>
       </div>
     </main>
-
-    <DbOntologyExtractDialog
-      :open="extractDialogOpen"
-      :ds-id="dsId"
-      :ds-name="dsName || ''"
-      :has-current-model="!!hasCurrentModel"
-      @close="extractDialogOpen = false"
-      @commit="onExtractCommit"
-    />
   </div>
 </template>
 
@@ -119,6 +107,7 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
   background: linear-gradient(135deg, rgba(74,141,240,.32), rgba(74,141,240,.18));
   color: #fff; }
 .extract-btn:disabled { opacity: .35; cursor: not-allowed; }
+.extract-tip { margin: 6px 2px 0; font-size: 11px; color: #7a8290; line-height: 1.4; }
 .tlist ul { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }
 .tlist li { padding: 6px 12px; cursor: pointer; color: #c0c4cf; font-size: 13px; }
 .tlist li:hover { background: rgba(255,255,255,.06); }
