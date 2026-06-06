@@ -492,6 +492,14 @@ CREATE INDEX IF NOT EXISTS idx_experience_ws_created
 -- 8.1 经验库向量索引：状态字段 + 文本块 + 向量（与数据源 ds_chunk/ds_embedding 平行）
 ALTER TABLE experience ADD COLUMN IF NOT EXISTS index_status VARCHAR(16) DEFAULT 'none';
 
+-- 8.1.1 经验来源 + 上传原始文件归档（上传文件可在经验库预览原件）
+--   origin: manual（手写）| upload（上传文件）| ddl（数据源结构导出供血）
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS origin       VARCHAR(16)  DEFAULT 'manual';
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS file_name    VARCHAR(512);
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS file_mime    VARCHAR(128);
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS file_size    BIGINT;
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS storage_path VARCHAR(1024);
+
 CREATE TABLE IF NOT EXISTS exp_chunk (
     id             VARCHAR(64) PRIMARY KEY,
     experience_id  VARCHAR(64) NOT NULL REFERENCES experience(id) ON DELETE CASCADE,

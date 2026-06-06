@@ -52,18 +52,55 @@ public class ExperienceRepository {
         return toMap(po);
     }
 
+    /** 手写 / DDL 等纯文本经验（origin=manual）。 */
     @Transactional
     public Map<String, Object> create(String title, String content, String tags) {
+        return create(title, content, tags, "manual");
+    }
+
+    /** 指定来源的纯文本经验（manual / ddl）。 */
+    @Transactional
+    public Map<String, Object> create(String title, String content, String tags, String origin) {
+        ExperiencePO po = newPo(title, content, tags, origin);
+        mapper.insert(po);
+        return toMap(po);
+    }
+
+    /**
+     * 上传文件建经验（origin=upload）：正文为抽取文本，另携带原始文件元信息。
+     * 原始文件字节由上层落对象存储后再用 {@link #attachStoragePath} 回填 storage_path。
+     */
+    @Transactional
+    public Map<String, Object> createUploaded(String title, String content,
+                                              String fileName, String fileMime, Long fileSize) {
+        ExperiencePO po = newPo(title, content, null, "upload");
+        po.setFileName(fileName);
+        po.setFileMime(fileMime);
+        po.setFileSize(fileSize);
+        mapper.insert(po);
+        return toMap(po);
+    }
+
+    /** 回填原始文件在对象存储中的 key（归档成功后调用）。 */
+    @Transactional
+    public void attachStoragePath(String id, String storagePath) {
+        ExperiencePO po = mapper.selectById(id);
+        if (po == null) return;
+        po.setStoragePath(storagePath);
+        mapper.updateById(po);
+    }
+
+    private ExperiencePO newPo(String title, String content, String tags, String origin) {
         ExperiencePO po = new ExperiencePO();
         po.setId("exp_" + System.currentTimeMillis() + "_" + Long.toString(System.nanoTime() & 0xffff, 36));
         po.setWorkspaceId(WorkspaceContext.required());
         po.setTitle(title == null || title.isBlank() ? "未命名经验" : title.trim());
         po.setContent(content);
         po.setTags(tags);
+        po.setOrigin(origin == null ? "manual" : origin);
         po.setCreatedAt(System.currentTimeMillis());
         po.setUpdatedAt(po.getCreatedAt());
-        mapper.insert(po);
-        return toMap(po);
+        return po;
     }
 
     @Transactional
@@ -84,6 +121,14 @@ public class ExperienceRepository {
         return mapper.selectById(id);
     }
 
+    /** 按 id 取 PO 并校验工作空间归属（供预览/下载原件用）；不归属当前 ws 返回 null。 */
+    public ExperiencePO findPoScoped(String id) {
+        ExperiencePO po = mapper.selectById(id);
+        if (po == null) return null;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
+        return po;
+    }
+
     @Transactional
     public boolean delete(String id) {
         ExperiencePO po = mapper.selectById(id);
@@ -102,6 +147,12 @@ public class ExperienceRepository {
         out.put("createdAt", po.getCreatedAt());
         if (po.getUpdatedAt() != null) out.put("updatedAt", po.getUpdatedAt());
         out.put("indexStatus", po.getIndexStatus() != null ? po.getIndexStatus() : "none");
+        out.put("origin", po.getOrigin() != null ? po.getOrigin() : "manual");
+        if (po.getFileName() != null) out.put("fileName", po.getFileName());
+        if (po.getFileMime() != null) out.put("fileMime", po.getFileMime());
+        if (po.getFileSize() != null) out.put("fileSize", po.getFileSize());
+        // 不外泄对象存储 key，只暴露「是否有可预览原件」布尔位
+        out.put("hasFile", po.getStoragePath() != null && !po.getStoragePath().isBlank());
         return out;
     }
 }

@@ -32,6 +32,25 @@ export interface Experience {
   updatedAt?: number;
   /** 向量索引状态：none | indexing | indexed | error */
   indexStatus?: 'none' | 'indexing' | 'indexed' | 'error';
+  /** 来源：manual（手写）| upload（上传文件）| ddl（数据源结构导出供血） */
+  origin?: 'manual' | 'upload' | 'ddl';
+  /** 上传文件的原始文件名（origin=upload） */
+  fileName?: string;
+  /** 上传文件的 MIME 类型 */
+  fileMime?: string;
+  /** 上传文件的字节大小 */
+  fileSize?: number;
+  /** 是否有可预览/下载的归档原件 */
+  hasFile?: boolean;
+}
+
+/** 经验原始上传文件的预览/下载 URL（带工作空间查询参数，供 iframe/img/下载直接使用）。 */
+export function experienceFileUrl(id: string, opts?: { download?: boolean; wsId?: string }) {
+  const qs = new URLSearchParams();
+  if (opts?.download) qs.set('download', 'true');
+  if (opts?.wsId) qs.set('wsId', opts.wsId);
+  const tail = qs.toString() ? `?${qs}` : '';
+  return `/api/experiences/${encodeURIComponent(id)}/file${tail}`;
 }
 
 export function listExperiences(opts?: { workspaceId?: string }) {

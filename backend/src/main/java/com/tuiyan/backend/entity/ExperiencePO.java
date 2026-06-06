@@ -23,6 +23,16 @@ public class ExperiencePO {
     private Long updatedAt;
     /** 向量索引状态：none | indexing | indexed | error */
     private String indexStatus;
+    /** 来源：manual（手写）| upload（上传文件）| ddl（数据源结构导出供血） */
+    private String origin;
+    /** 上传文件的原始文件名（origin=upload 时有值） */
+    private String fileName;
+    /** 上传文件的 MIME 类型 */
+    private String fileMime;
+    /** 上传文件的字节大小 */
+    private Long fileSize;
+    /** 原始文件在对象存储中的 key（origin=upload 且归档成功时有值，供预览/下载） */
+    private String storagePath;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -40,4 +50,14 @@ public class ExperiencePO {
     public void setUpdatedAt(Long updatedAt) { this.updatedAt = updatedAt; }
     public String getIndexStatus() { return indexStatus; }
     public void setIndexStatus(String indexStatus) { this.indexStatus = indexStatus; }
+    public String getOrigin() { return origin; }
+    public void setOrigin(String origin) { this.origin = origin; }
+    public String getFileName() { return fileName; }
+    public void setFileName(String fileName) { this.fileName = fileName; }
+    public String getFileMime() { return fileMime; }
+    public void setFileMime(String fileMime) { this.fileMime = fileMime; }
+    public Long getFileSize() { return fileSize; }
+    public void setFileSize(Long fileSize) { this.fileSize = fileSize; }
+    public String getStoragePath() { return storagePath; }
+    public void setStoragePath(String storagePath) { this.storagePath = storagePath; }
 }

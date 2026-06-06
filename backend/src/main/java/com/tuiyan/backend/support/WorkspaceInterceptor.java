@@ -24,6 +24,12 @@ public class WorkspaceInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         String path = request.getRequestURI();
         String header = request.getHeader(HEADER);
+        // 浏览器原生加载的资源（<iframe>/<img>/<a download>）无法带自定义头，
+        // 允许用 ?wsId= 查询参数兜底传工作空间（头优先）。
+        if (header == null || header.isBlank()) {
+            String q = request.getParameter("wsId");
+            if (q != null && !q.isBlank()) header = q;
+        }
         if (header != null && !header.isBlank()) {
             if (!workspaceRepository.exists(header)) {
                 response.setStatus(HttpServletResponse.SC_BAD_REQUEST);

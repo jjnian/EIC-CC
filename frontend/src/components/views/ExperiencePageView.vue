@@ -7,9 +7,10 @@ import { toast } from '../../composables/useToast';
 import { ApiError } from '../../api/http';
 import {
   createExperience, updateExperience, reindexExperience, uploadExperienceFile,
-  type Experience,
+  experienceFileUrl, type Experience,
 } from '../../api/experiences';
 import ExpOntologyExtractDialog from '../ExpOntologyExtractDialog.vue';
+import { renderMarkdown, MD_TEMPLATE } from '../../utils/markdown';
 import type { OntologyNode, OntologyEdge } from '../../types';
 
 const props = defineProps<{
@@ -33,6 +34,15 @@ const emit = defineEmits<{
 const ws = useWorkspaces();
 const tree = useSidebarTree();
 
+const loading = computed(() => tree.isLoadingExp(ws.currentId.value));
+const experiences = computed<Experience[]>(() => tree.getExperiences(ws.currentId.value));
+
+// 两个 Tab：手写/文本经验（manual + ddl）与上传的文件（upload）
+type Tab = 'manual' | 'upload';
+const activeTab = ref<Tab>('manual');
+const manualList = computed(() => experiences.value.filter(e => e.origin !== 'upload'));
+const uploadList = computed(() => experiences.value.filter(e => e.origin === 'upload'));
+
 // ── 从经验库一键构建本体血缘图 ──────────────────────────────
 const extractDialogOpen = ref(false);
 const currentWsName = computed(() => ws.current()?.name || '');
@@ -46,13 +56,14 @@ const onExtractCommit = (payload: {
   emit('ontology-extracted', payload);
 };
 
-const loading = computed(() => tree.isLoadingExp(ws.currentId.value));
-const experiences = computed<Experience[]>(() => tree.getExperiences(ws.currentId.value));
-
 // 编辑器状态：id 为空 = 新建；非空 = 编辑已有
 interface Draft { id: string | null; title: string; tags: string; content: string; }
 const draft = ref<Draft | null>(null);
 const saving = ref(false);
+const editorPreview = ref(false);   // 编辑器内「编辑 / 预览」切换
+
+// 上传文件预览：当前选中的上传经验
+const selectedUpload = ref<Experience | null>(null);
 
 const reload = async (force = false) => {
   const id = ws.currentId.value;
@@ -61,13 +72,15 @@ const reload = async (force = false) => {
 };
 
 onMounted(() => reload());
-watch(() => ws.currentId.value, () => { draft.value = null; reload(); });
+watch(() => ws.currentId.value, () => { draft.value = null; selectedUpload.value = null; reload(); });
 
 const newDraft = () => {
+  activeTab.value = 'manual';
   draft.value = { id: null, title: '', tags: '', content: '' };
+  editorPreview.value = false;
 };
 
-// ── 上传文件建经验：抽取文本作正文、文件名作标题 ──────────────
+// ── 上传文件建经验：抽取文本作正文、文件名作标题，并归档原件供预览 ──
 const fileInput = ref<HTMLInputElement | null>(null);
 const uploading = ref(false);
 
@@ -83,7 +96,8 @@ const onUploadPick = async (ev: Event) => {
     const created = await uploadExperienceFile(file);
     const wsId = ws.currentId.value;
     if (wsId) tree.upsertExperience(wsId, created);
-    editDraft(created);        // 上传后直接打开,便于核对/补标签
+    activeTab.value = 'upload';
+    selectedUpload.value = created;   // 上传后直接预览
     toast.success('已从文件创建经验');
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '上传失败');
@@ -93,14 +107,23 @@ const onUploadPick = async (ev: Event) => {
 };
 
 const editDraft = (x: Experience) => {
+  activeTab.value = 'manual';
   draft.value = { id: x.id, title: x.title || '', tags: x.tags || '', content: x.content || '' };
+  editorPreview.value = false;
 };
 
-// 侧栏点击定位某条经验 → 打开其编辑器
+const selectUpload = (x: Experience) => {
+  activeTab.value = 'upload';
+  selectedUpload.value = x;
+};
+
+// 侧栏点击定位某条经验 → 按来源进入对应 Tab
 watch(() => props.focusId, (id) => {
   if (!id) return;
   const found = experiences.value.find(e => e.id === id);
-  if (found) editDraft(found);
+  if (!found) return;
+  if (found.origin === 'upload') selectUpload(found);
+  else editDraft(found);
 }, { immediate: true });
 
 // 新建信号 → 打开空白表单
@@ -109,6 +132,13 @@ watch(() => props.createSignal, (v, old) => {
 });
 
 const cancelEdit = () => { draft.value = null; };
+
+const insertTemplate = () => {
+  if (!draft.value) return;
+  if (draft.value.content.trim() && !confirmOverwrite()) return;
+  draft.value.content = MD_TEMPLATE;
+};
+const confirmOverwrite = () => window.confirm('正文已有内容，插入模板会覆盖，确定吗？');
 
 const save = async () => {
   const d = draft.value;
@@ -142,6 +172,7 @@ const remove = async (x: Experience) => {
   try {
     await tree.removeExperience(ws.currentId.value, x.id);
     if (draft.value?.id === x.id) draft.value = null;
+    if (selectedUpload.value?.id === x.id) selectedUpload.value = null;
     toast.success('已删除');
   } catch (e) {
     toast.warn(e instanceof ApiError ? e.message : '删除失败');
@@ -160,12 +191,18 @@ const fmtTime = (t?: number) => {
     : d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
 };
 
+const fmtSize = (n?: number) => {
+  if (!n || n <= 0) return '';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+};
+
 const preview = (content?: string) => {
   const s = (content || '').trim();
   return s.length > 120 ? s.slice(0, 120) + '…' : s;
 };
 
-// 向量索引状态 → 展示文案/样式。none 视作"待索引"（保存后自动建索引；未配置 embedding 时保持 none）
 const idxMeta = (s?: string): { label: string; cls: string } => {
   switch (s) {
     case 'indexed': return { label: '已索引', cls: 'ok' };
@@ -184,7 +221,6 @@ const reindex = async (id: string) => {
       toast.warn('未配置 Embedding 模型，无法建立向量索引');
     } else {
       toast.success('已触发重新索引，稍后生效');
-      // 乐观地把状态置为索引中
       const wsId = ws.currentId.value;
       const found = experiences.value.find(e => e.id === id);
       if (found && wsId) tree.upsertExperience(wsId, { ...found, indexStatus: 'indexing' });
@@ -195,6 +231,28 @@ const reindex = async (id: string) => {
     reindexing.value = false;
   }
 };
+
+// ── 上传文件预览 ────────────────────────────────────────────
+type PreviewKind = 'pdf' | 'image' | 'audio' | 'markdown' | 'text' | 'other';
+const previewKind = (e: Experience): PreviewKind => {
+  const mime = (e.fileMime || '').toLowerCase();
+  const name = (e.fileName || '').toLowerCase();
+  if (mime.includes('pdf') || name.endsWith('.pdf')) return 'pdf';
+  if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/.test(name)) return 'image';
+  if (mime.startsWith('audio/') || /\.(mp3|wav|m4a|flac|aac|ogg|opus|wma|amr)$/.test(name)) return 'audio';
+  if (mime.includes('markdown') || name.endsWith('.md')) return 'markdown';
+  if (mime.startsWith('text/') || name.endsWith('.txt')) return 'text';
+  return 'other';
+};
+const fileUrl = (e: Experience, download = false) =>
+  experienceFileUrl(e.id, { download, wsId: ws.currentId.value || undefined });
+const selKind = computed<PreviewKind | null>(() =>
+  selectedUpload.value ? previewKind(selectedUpload.value) : null);
+const renderedUpload = computed(() =>
+  selectedUpload.value ? renderMarkdown(selectedUpload.value.content || '') : '');
+
+// ── 编辑器 Markdown 预览 ────────────────────────────────────
+const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''));
 </script>
 
 <template>
@@ -202,7 +260,7 @@ const reindex = async (id: string) => {
     <div class="exp-header">
       <div>
         <h2>经验库</h2>
-        <p>沉淀可复用的经验文档，可手动撰写或上传文件：PDF / Word / TXT / MD 抽取正文，音频自动转写成文字。</p>
+        <p>沉淀可复用的经验文档：手写支持 Markdown，可上传 PDF / Word / TXT / MD（音频自动转写）并预览原件。</p>
       </div>
       <div class="exp-header-actions">
         <button
@@ -225,18 +283,28 @@ const reindex = async (id: string) => {
       />
     </div>
 
-    <div class="exp-body">
-      <!-- 左侧列表 -->
+    <!-- Tab 切换 -->
+    <div class="exp-tabs">
+      <button :class="['exp-tab', { active: activeTab === 'manual' }]" @click="activeTab = 'manual'">
+        ✎ 手写经验 <span class="exp-tab-count">{{ manualList.length }}</span>
+      </button>
+      <button :class="['exp-tab', { active: activeTab === 'upload' }]" @click="activeTab = 'upload'">
+        ⤓ 上传的文件 <span class="exp-tab-count">{{ uploadList.length }}</span>
+      </button>
+    </div>
+
+    <!-- 手写经验 Tab -->
+    <div v-show="activeTab === 'manual'" class="exp-body">
       <div class="exp-list">
         <div v-if="loading" class="exp-state">加载中…</div>
-        <div v-else-if="experiences.length === 0" class="exp-empty">
+        <div v-else-if="manualList.length === 0" class="exp-empty">
           <div class="exp-empty-icon">📚</div>
-          <p>当前工作空间还没有经验</p>
+          <p>当前工作空间还没有手写经验</p>
           <button class="exp-new" @click="newDraft">新建第一条经验</button>
         </div>
         <template v-else>
           <button
-            v-for="x in experiences"
+            v-for="x in manualList"
             :key="x.id"
             :class="['exp-card', { active: draft && draft.id === x.id }]"
             @click="editDraft(x)"
@@ -246,6 +314,7 @@ const reindex = async (id: string) => {
               <span class="exp-card-time">{{ fmtTime(x.updatedAt || x.createdAt) }}</span>
             </div>
             <div class="exp-card-meta">
+              <span v-if="x.origin === 'ddl'" class="exp-origin ddl">DDL 供血</span>
               <span :class="['exp-idx', idxMeta(x.indexStatus).cls]" :title="`向量索引：${idxMeta(x.indexStatus).label}`">
                 {{ idxMeta(x.indexStatus).label }}
               </span>
@@ -263,6 +332,10 @@ const reindex = async (id: string) => {
       <div class="exp-editor" v-if="draft">
         <div class="exp-editor-head">
           <span>{{ draft.id ? '编辑经验' : '新建经验' }}</span>
+          <div class="exp-editor-tabs">
+            <button :class="{ active: !editorPreview }" @click="editorPreview = false">编辑</button>
+            <button :class="{ active: editorPreview }" @click="editorPreview = true">预览</button>
+          </div>
           <button class="exp-x" title="关闭" @click="cancelEdit">×</button>
         </div>
         <label class="exp-field">
@@ -273,10 +346,19 @@ const reindex = async (id: string) => {
           <span class="exp-label">标签<span class="exp-hint">（逗号分隔，可空）</span></span>
           <input v-model="draft.tags" class="exp-input" placeholder="如：供应链, 风控, 复盘" />
         </label>
-        <label class="exp-field exp-field-grow">
-          <span class="exp-label">正文</span>
-          <textarea v-model="draft.content" class="exp-textarea" placeholder="粘贴或撰写经验文档内容（支持 Markdown）"></textarea>
-        </label>
+        <div class="exp-field exp-field-grow">
+          <span class="exp-label">
+            正文<span class="exp-hint">（支持 Markdown）</span>
+            <button v-if="!editorPreview" class="exp-tpl" title="插入 Markdown 模板" @click="insertTemplate">插入模板</button>
+          </span>
+          <textarea
+            v-show="!editorPreview"
+            v-model="draft.content"
+            class="exp-textarea"
+            placeholder="粘贴或撰写经验文档内容（支持 Markdown）"
+          ></textarea>
+          <div v-show="editorPreview" class="exp-md" v-html="renderedDraft || '<p class=&quot;exp-md-empty&quot;>（暂无内容）</p>'"></div>
+        </div>
         <p class="exp-rag-hint">保存后会自动建立向量索引，对话建模时按相关度自动召回为参考资料。</p>
         <div class="exp-actions">
           <button
@@ -297,6 +379,82 @@ const reindex = async (id: string) => {
       </div>
     </div>
 
+    <!-- 上传的文件 Tab -->
+    <div v-show="activeTab === 'upload'" class="exp-body">
+      <div class="exp-list">
+        <div v-if="loading" class="exp-state">加载中…</div>
+        <div v-else-if="uploadList.length === 0" class="exp-empty">
+          <div class="exp-empty-icon">⤓</div>
+          <p>还没有上传的文件</p>
+          <button class="exp-upload" :disabled="uploading" @click="triggerUpload">
+            {{ uploading ? '解析中…' : '上传第一个文件' }}
+          </button>
+        </div>
+        <template v-else>
+          <button
+            v-for="x in uploadList"
+            :key="x.id"
+            :class="['exp-card', { active: selectedUpload && selectedUpload.id === x.id }]"
+            @click="selectUpload(x)"
+          >
+            <div class="exp-card-top">
+              <span class="exp-card-title">{{ x.fileName || x.title }}</span>
+              <span class="exp-card-time">{{ fmtTime(x.updatedAt || x.createdAt) }}</span>
+            </div>
+            <div class="exp-card-meta">
+              <span class="exp-origin upload">{{ (x.fileMime || '文件').split(';')[0] }}</span>
+              <span v-if="fmtSize(x.fileSize)" class="exp-size">{{ fmtSize(x.fileSize) }}</span>
+              <span :class="['exp-idx', idxMeta(x.indexStatus).cls]">{{ idxMeta(x.indexStatus).label }}</span>
+            </div>
+            <span class="exp-card-del" title="删除" @click.stop="remove(x)">×</span>
+          </button>
+        </template>
+      </div>
+
+      <!-- 右侧预览 -->
+      <div class="exp-editor exp-preview" v-if="selectedUpload">
+        <div class="exp-editor-head">
+          <span class="exp-prev-title">{{ selectedUpload.fileName || selectedUpload.title }}</span>
+          <a class="exp-download" :href="fileUrl(selectedUpload, true)" target="_blank" rel="noopener">⤓ 下载原件</a>
+          <button class="exp-x" title="关闭" @click="selectedUpload = null">×</button>
+        </div>
+
+        <div v-if="!selectedUpload.hasFile" class="exp-prev-note">
+          原件未归档（可能上传时对象存储不可用），下面展示抽取的文本：
+        </div>
+
+        <div class="exp-prev-body">
+          <iframe v-if="selectedUpload.hasFile && selKind === 'pdf'"
+                  class="exp-iframe" :src="fileUrl(selectedUpload)"></iframe>
+          <div v-else-if="selectedUpload.hasFile && selKind === 'image'" class="exp-img-wrap">
+            <img class="exp-img" :src="fileUrl(selectedUpload)" :alt="selectedUpload.fileName" />
+          </div>
+          <audio v-else-if="selectedUpload.hasFile && selKind === 'audio'"
+                 class="exp-audio" controls :src="fileUrl(selectedUpload)"></audio>
+
+          <!-- markdown / 文本 / 其它格式：渲染抽取的文本（其它格式浏览器无法直接预览） -->
+          <template v-if="!selectedUpload.hasFile || selKind === 'markdown' || selKind === 'text' || selKind === 'other'">
+            <div v-if="selKind === 'other' && selectedUpload.hasFile" class="exp-prev-note">
+              该格式不支持浏览器内预览，下面是抽取的文本（可点上方「下载原件」查看原文）：
+            </div>
+            <div v-if="selKind === 'text'" class="exp-md"><pre class="exp-pre">{{ selectedUpload.content }}</pre></div>
+            <div v-else class="exp-md" v-html="renderedUpload || '<p class=&quot;exp-md-empty&quot;>（无可显示文本）</p>'"></div>
+          </template>
+        </div>
+
+        <div class="exp-prev-foot">
+          <span :class="['exp-idx', idxMeta(selectedUpload.indexStatus).cls]">{{ idxMeta(selectedUpload.indexStatus).label }}</span>
+          <button class="exp-reindex" :disabled="reindexing" @click="reindex(selectedUpload.id)">
+            {{ reindexing ? '索引中…' : '重新索引' }}
+          </button>
+        </div>
+      </div>
+      <div class="exp-editor exp-editor-placeholder" v-else>
+        <div class="exp-ph-icon">⤓</div>
+        <p>选择左侧一个上传的文件预览原件 / 抽取文本。</p>
+      </div>
+    </div>
+
     <ExpOntologyExtractDialog
       :open="extractDialogOpen"
       :workspace-name="currentWsName"
@@ -311,7 +469,7 @@ const reindex = async (id: string) => {
 .exp-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 28px 32px; }
 .exp-header {
   display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 16px; margin-bottom: 18px; flex-shrink: 0;
+  gap: 16px; margin-bottom: 14px; flex-shrink: 0;
 }
 .exp-header h2 { margin: 0 0 6px; font-size: 20px; color: var(--text-main); }
 .exp-header p { margin: 0; font-size: 13px; color: var(--text-dim); }
@@ -342,6 +500,22 @@ const reindex = async (id: string) => {
 .exp-upload:disabled { opacity: 0.6; cursor: default; }
 .exp-file-input { display: none; }
 
+/* Tabs */
+.exp-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.08); }
+.exp-tab {
+  background: transparent; border: none; border-bottom: 2px solid transparent;
+  color: var(--text-dim); font-family: inherit; font-size: 13.5px; font-weight: 600;
+  padding: 8px 14px; cursor: pointer; margin-bottom: -1px;
+}
+.exp-tab:hover { color: var(--text-main); }
+.exp-tab.active { color: #6dd4a7; border-bottom-color: #42b883; }
+.exp-tab-count {
+  font-size: 11px; background: rgba(255,255,255,0.08); color: var(--text-dim);
+  padding: 0 7px; border-radius: 100px; margin-left: 4px;
+}
+.exp-tab.active .exp-tab-count { background: rgba(66,184,131,0.18); color: #6dd4a7; }
+
 .exp-body { flex: 1; display: flex; gap: 18px; min-height: 0; }
 .exp-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
 .exp-state, .exp-empty { color: var(--text-dim); font-size: 13px; padding: 40px 0; text-align: center; }
@@ -363,20 +537,18 @@ const reindex = async (id: string) => {
 }
 .exp-card-time { font-size: 11px; color: var(--text-dim); flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
 .exp-card-preview { font-size: 12px; color: var(--text-dim); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-.exp-card-meta { display: flex; align-items: center; gap: 8px; }
-.exp-idx {
-  font-size: 10px; padding: 1px 8px; border-radius: 100px;
-  border: 1px solid transparent;
-}
+.exp-card-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.exp-origin { font-size: 10px; padding: 1px 8px; border-radius: 100px; }
+.exp-origin.ddl { background: rgba(74,141,240,0.15); color: #9cc4ff; }
+.exp-origin.upload { background: rgba(255,255,255,0.07); color: var(--text-dim); }
+.exp-size { font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
+.exp-idx { font-size: 10px; padding: 1px 8px; border-radius: 100px; border: 1px solid transparent; }
 .exp-idx.ok { background: rgba(66,184,131,0.14); color: #6dd4a7; }
 .exp-idx.pending { background: rgba(245,191,66,0.14); color: #f0c660; }
 .exp-idx.err { background: rgba(255,102,68,0.14); color: #ff8a6f; }
 .exp-idx.none { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); }
 .exp-card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.exp-tag {
-  font-size: 10px; padding: 1px 8px; border-radius: 100px;
-  background: rgba(66,184,131,0.14); color: #6dd4a7;
-}
+.exp-tag { font-size: 10px; padding: 1px 8px; border-radius: 100px; background: rgba(66,184,131,0.14); color: #6dd4a7; }
 .exp-card-del {
   position: absolute; top: 10px; right: 12px; width: 18px; height: 18px;
   display: flex; align-items: center; justify-content: center; border-radius: 50%;
@@ -386,7 +558,7 @@ const reindex = async (id: string) => {
 .exp-card-del:hover { background: rgba(255,102,68,0.2); color: #ff8a6f; }
 
 .exp-editor {
-  flex: 0 0 46%; max-width: 46%; display: flex; flex-direction: column; gap: 12px;
+  flex: 0 0 52%; max-width: 52%; display: flex; flex-direction: column; gap: 12px;
   background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08);
   border-radius: 14px; padding: 18px; overflow: hidden;
 }
@@ -396,18 +568,37 @@ const reindex = async (id: string) => {
 }
 .exp-ph-icon { font-size: 34px; opacity: 0.4; }
 .exp-editor-head {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; gap: 10px;
   font-size: 14px; font-weight: 600; color: var(--text-main);
 }
+.exp-editor-head > span:first-child { flex: 1; }
+.exp-editor-tabs { display: flex; gap: 2px; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 2px; }
+.exp-editor-tabs button {
+  background: transparent; border: none; color: var(--text-dim);
+  font-family: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; cursor: pointer;
+}
+.exp-editor-tabs button.active { background: rgba(66,184,131,0.2); color: #6dd4a7; }
+.exp-prev-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.exp-download {
+  font-size: 12px; color: #6dd4a7; text-decoration: none;
+  border: 1px solid rgba(66,184,131,0.4); padding: 4px 10px; border-radius: 6px;
+}
+.exp-download:hover { background: rgba(66,184,131,0.12); }
 .exp-x {
   background: transparent; border: none; color: rgba(255,255,255,0.4);
-  font-size: 18px; cursor: pointer; width: 24px; height: 24px; border-radius: 6px;
+  font-size: 18px; cursor: pointer; width: 24px; height: 24px; border-radius: 6px; flex-shrink: 0;
 }
 .exp-x:hover { background: rgba(255,255,255,0.08); color: #fff; }
 .exp-field { display: flex; flex-direction: column; gap: 6px; }
 .exp-field-grow { flex: 1; min-height: 0; }
-.exp-label { font-size: 12px; color: var(--text-dim); }
+.exp-label { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
 .exp-hint { color: rgba(255,255,255,0.3); margin-left: 4px; }
+.exp-tpl {
+  margin-left: auto; background: transparent; border: 1px solid rgba(255,255,255,0.14);
+  color: var(--text-dim); font-family: inherit; font-size: 11px; padding: 2px 9px;
+  border-radius: 6px; cursor: pointer;
+}
+.exp-tpl:hover { color: #6dd4a7; border-color: rgba(66,184,131,0.4); }
 .exp-input, .exp-textarea {
   width: 100%; box-sizing: border-box; background: rgba(0,0,0,0.25);
   border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
@@ -436,4 +627,38 @@ const reindex = async (id: string) => {
 }
 .exp-save:hover { background: #50caa3; }
 .exp-save:disabled { opacity: 0.6; cursor: default; }
+
+/* 预览区 */
+.exp-preview { gap: 10px; }
+.exp-prev-note { font-size: 12px; color: #f0c660; background: rgba(245,191,66,0.08);
+  padding: 8px 12px; border-radius: 8px; }
+.exp-prev-body { flex: 1; min-height: 0; overflow: auto; border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; background: rgba(0,0,0,0.2); }
+.exp-iframe { width: 100%; height: 100%; min-height: 420px; border: none; background: #fff; }
+.exp-img-wrap { display: flex; align-items: center; justify-content: center; padding: 12px; }
+.exp-img { max-width: 100%; max-height: 70vh; border-radius: 6px; }
+.exp-audio { width: 100%; margin: 16px 0; }
+.exp-pre { margin: 0; padding: 14px; white-space: pre-wrap; word-break: break-word;
+  font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.6; color: var(--text-main); }
+.exp-prev-foot { display: flex; align-items: center; gap: 10px; }
+
+/* Markdown 渲染 */
+.exp-md { padding: 14px 16px; color: var(--text-main); font-size: 13.5px; line-height: 1.7;
+  overflow-wrap: anywhere; }
+.exp-md :deep(h1) { font-size: 19px; margin: 4px 0 10px; }
+.exp-md :deep(h2) { font-size: 16px; margin: 16px 0 8px; }
+.exp-md :deep(h3) { font-size: 14px; margin: 14px 0 6px; }
+.exp-md :deep(p) { margin: 8px 0; }
+.exp-md :deep(ul), .exp-md :deep(ol) { padding-left: 22px; margin: 8px 0; }
+.exp-md :deep(li) { margin: 3px 0; }
+.exp-md :deep(code) { background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.exp-md :deep(pre) { background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 10px 0; }
+.exp-md :deep(pre code) { background: none; padding: 0; }
+.exp-md :deep(blockquote) { border-left: 3px solid rgba(66,184,131,0.5); margin: 8px 0;
+  padding: 2px 12px; color: var(--text-dim); }
+.exp-md :deep(a) { color: #6dd4a7; }
+.exp-md :deep(hr) { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 14px 0; }
+.exp-md :deep(.exp-md-empty) { color: var(--text-dim); }
 </style>
