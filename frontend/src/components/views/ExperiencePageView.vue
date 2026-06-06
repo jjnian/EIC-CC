@@ -176,7 +176,7 @@ const reindex = async (id: string) => {
     <div class="exp-header">
       <div>
         <h2>经验库</h2>
-        <p>沉淀可复用的经验文档，可手动撰写或上传文件（PDF / Word / TXT / MD / 音频）自动抽取正文。</p>
+        <p>沉淀可复用的经验文档，可手动撰写或上传文件：PDF / Word / TXT / MD 抽取正文，音频自动转写成文字。</p>
       </div>
       <div class="exp-header-actions">
         <button class="exp-upload" :disabled="uploading" @click="triggerUpload">

@@ -7,6 +7,7 @@ import com.tuiyan.backend.repository.ExperienceRepository;
 import com.tuiyan.backend.service.DataSourceService;
 import com.tuiyan.backend.service.connector.FileStoredService;
 import com.tuiyan.backend.service.connector.file.StoredFileHandler;
+import com.tuiyan.backend.service.extraction.AudioTranscriptionService;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -29,15 +30,18 @@ public class ExperienceController {
     private final ExperienceIndexService indexService;
     private final FileStoredService fileStoredService;
     private final DataSourceService dataSourceService;
+    private final AudioTranscriptionService audioTranscriptionService;
 
     public ExperienceController(ExperienceRepository repo,
                                 ExperienceIndexService indexService,
                                 FileStoredService fileStoredService,
-                                DataSourceService dataSourceService) {
+                                DataSourceService dataSourceService,
+                                AudioTranscriptionService audioTranscriptionService) {
         this.repo = repo;
         this.indexService = indexService;
         this.fileStoredService = fileStoredService;
         this.dataSourceService = dataSourceService;
+        this.audioTranscriptionService = audioTranscriptionService;
     }
 
     @GetMapping
@@ -65,7 +69,7 @@ public class ExperienceController {
 
     /**
      * 上传文件建经验：抽取文件纯文本作正文，文件名（去扩展名）作标题，保存后自动建向量索引。
-     * <p>支持 PDF / Word / TXT / MD / 音频，与原数据源文件上传共用同一套抽取 handler。
+     * <p>PDF / Word / TXT / MD 走文本抽取；音频走 ASR 转写（转写文本作正文）。
      */
     @PostMapping(value = "/file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Map<String, Object>> uploadFile(
@@ -76,6 +80,21 @@ public class ExperienceController {
         }
         StoredFileHandler.Result extracted = fileStoredService.extractText(file);
         String content = extracted.text() == null ? "" : extracted.text();
+
+        // 音频：归档 handler 不抽文本（meta.audio=true），改走 ASR 转写得到正文
+        if (content.isBlank() && Boolean.TRUE.equals(extracted.meta().get("audio"))) {
+            if (!audioTranscriptionService.enabled()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "音频转写未启用（app.asr.enabled=false）"));
+            }
+            try {
+                AudioTranscriptionService.TranscriptResult tr = audioTranscriptionService.transcribe(
+                        file.getBytes(), file.getOriginalFilename(), file.getContentType());
+                content = tr.text() == null ? "" : tr.text();
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(Map.of("error", "音频转写失败：" + e.getMessage()));
+            }
+        }
+
         if (content.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "未能从文件中抽取到文本内容"));
         }
