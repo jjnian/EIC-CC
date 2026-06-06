@@ -13,7 +13,7 @@ import java.util.Map;
 /**
  * 图谱 → LLM Prompt 的瘦门面：本身不持有拼接逻辑，只把请求委派给职责单一的协作组件。
  * <p>保留对外的全部 public 方法签名与公共嵌套 record，外部依赖（ChatLlmService /
- * PredictLlmService / SchemaOntologyService）无需改动。实际逻辑分散在：
+ * PredictLlmService 等）无需改动。实际逻辑分散在：
  * <ul>
  *   <li>{@link ChatPromptBuilder} — chat user prompt 拼接；</li>
  *   <li>{@link PredictPromptBuilder} — 推演 prompt 拼接；</li>

@@ -16,8 +16,7 @@ import java.util.Map;
 
 /**
  * 经验库 → 本体血缘图：以「整个工作空间的经验库文件」为输入构建本体血缘图的专用 facade。
- * <p>定位与 {@link SchemaOntologyService} 互补——后者从数据库 schema 出图，本服务从经验库文档出图。
- * 在新的数据流里：
+ * <p>这是本体血缘图的唯一构建入口（数据库 schema 直出图的旧链路已移除）。在新的数据流里：
  * <ul>
  *   <li><b>本体血缘图由经验库文件构建</b>：把当前工作空间下所有经验文档聚合成长文本，
  *       交给文档抽取管线 {@link ExtractionLlmService} 抽出节点 / 边；</li>

@@ -808,6 +808,7 @@ const formatFileSize = (bytes: number) => {
         :nodes="nodes"
         :edges="edges"
         :selected-id="sel"
+        :model-id="currentModelId"
         :active-branch-id="activeBranchId"
         :live-active="liveActive"
         :live-loading="liveLoading"

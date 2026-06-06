@@ -1289,9 +1289,13 @@ backend/src/main/java/com/tuiyan/backend/
 > 新数据流以经验库为本体血缘图的唯一构建入口：在经验库页点击「🧬 构建本体血缘图」，
 > 后端会把**当前工作空间下的全部经验文件**聚合成长文本，经文档抽取管线
 > （`ExperienceOntologyService` → `ExtractionLlmService`）抽出节点 / 边，再 salt 重写后供前端合并 / 另存为模型。
-> 数据库类数据源不再直接出图，而是在「表」页点「⤓ 导出结构到经验库供血」把 DDL 沉淀成经验文件参与建图；
-> 建好的图节点再由数据源绑定真实数据来源（供血）。对应 SSE 接口
-> `POST /api/experiences/extract-ontology`（事件序列：`step`* → `complete{nodes,edges,reply,salt,sourceCount}`）。
+> 数据库类数据源不再直接出图（旧的 `POST /api/data-sources/{id}/extract-ontology` 直出链路与
+> `SchemaOntologyService` 已移除）：改为在「表」页点「⤓ 导出结构到经验库供血」把 DDL 沉淀成经验文件参与建图。
+> 对应建图 SSE 接口 `POST /api/experiences/extract-ontology`
+> （事件序列：`step`* → `complete{nodes,edges,reply,salt,sourceCount}`）。
+>
+> **第二阶段·数据供血绑定**：图建好后，在节点详情面板「供血」页把节点绑定到数据源的表（可选 WHERE 过滤），
+> 运行时按绑定取数为节点供血。对应 `node_data_binding` 表与 `/api/node-bindings` 端点（含 `/{id}/fetch` 取数）。
 
 索引管线参考 Cursor 的做法（仅经验库启用）：
 
@@ -1313,6 +1317,19 @@ backend/src/main/java/com/tuiyan/backend/
 | `POST` | `/api/experiences/file` | 上传文件建经验（PDF/Word/TXT/MD 抽正文，音频走 ASR） |
 | `POST` | `/api/experiences/from-ddl` | 数据源导出 DDL 沉淀为经验（`{dataSourceId}`，「供血」入口） |
 | `POST` | `/api/experiences/extract-ontology` | **聚合整个工作空间经验库构建本体血缘图（SSE）** |
+| `GET` | `/api/experiences/{id}/file` | 预览/下载上传原件（`?download` 附件下载，`?wsId` 兜底鉴权） |
+
+### 节点数据供血绑定
+
+把已建好的本体血缘图节点绑定到数据源的表/列，运行时按绑定取数为节点供血（新数据流第二阶段）。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `GET` | `/api/node-bindings?modelId=&nodeId=` | 列出某模型（可选某节点）的供血绑定 |
+| `POST` | `/api/node-bindings` | 新建绑定（`{modelId, nodeId, dataSourceId, tableName?, columnMap?, filterSql?}`） |
+| `PUT` | `/api/node-bindings/{id}` | 更新绑定 |
+| `DELETE` | `/api/node-bindings/{id}` | 删除绑定 |
+| `POST` | `/api/node-bindings/{id}/fetch` | 按绑定取数供血（`{limit?}` → `{columns, rows, rowCount, truncated}`） |
 
 ### 模板
 

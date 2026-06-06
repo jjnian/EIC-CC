@@ -14,6 +14,7 @@ const props = defineProps({
   nodes:           { type: Array as PropType<OntologyNode[]>, required: true },
   edges:           { type: Array as PropType<OntologyEdge[]>, required: true },
   selectedId:      { type: String as PropType<string | null>, default: null },
+  modelId:         { type: String, default: '' },
   activeBranchId:  { type: String, required: true },
   liveActive:      { type: Boolean, required: true },
   liveLoading:     { type: Boolean, required: true },
@@ -198,6 +199,7 @@ const analysisOpen = ref(false);
         :nodes="nodes"
         :edges="edges"
         :isOpen="false"
+        :model-id="modelId"
         @close="onCloseInfo"
         @update-node-props="(id, props) => emit('update-node-props', id, props)"
         @delete-edge="(edgeId) => emit('delete-edge', edgeId)"

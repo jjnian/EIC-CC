@@ -525,6 +525,23 @@ CREATE TABLE IF NOT EXISTS exp_embedding (
 );
 CREATE INDEX IF NOT EXISTS idx_exp_embedding_chunk ON exp_embedding (chunk_id);
 
+-- 8.2 节点数据供血绑定：把「已建好的本体血缘图节点」绑定到数据源的表/列，运行时取数供血。
+--   一个节点可有多条绑定（不同数据源/表）；column_map 把表列映射到节点属性，便于解读取数结果。
+CREATE TABLE IF NOT EXISTS node_data_binding (
+    id             VARCHAR(64)  PRIMARY KEY,
+    workspace_id   VARCHAR(64)  NOT NULL,
+    model_id       VARCHAR(64)  NOT NULL,
+    node_id        VARCHAR(128) NOT NULL,
+    data_source_id VARCHAR(64)  NOT NULL,
+    table_name     VARCHAR(256),
+    column_map     TEXT,                       -- JSON: [{"column":"..","attribute":".."}]
+    filter_sql     VARCHAR(1024),              -- 可选只读 WHERE 片段（不含 where 关键字）
+    created_at     BIGINT       NOT NULL,
+    updated_at     BIGINT
+);
+CREATE INDEX IF NOT EXISTS idx_ndb_model_node ON node_data_binding (model_id, node_id);
+CREATE INDEX IF NOT EXISTS idx_ndb_ws ON node_data_binding (workspace_id);
+
 -- ===========================================================================
 -- 初始化完成
 -- ===========================================================================
