@@ -28,6 +28,7 @@ public class DataSourceService {
     private final HttpScheduler scheduler;
     private final FileStoredService fileStored;
     private final SchemaInfoDtoMapper schemaInfoDtoMapper;
+    private final com.tuiyan.backend.service.llm.DdlRenderer ddlRenderer;
 
     public DataSourceService(DataSourceRepository repo,
                              DataSourceFetchLogRepository logRepo,
@@ -35,7 +36,8 @@ public class DataSourceService {
                              HttpConnectorService http,
                              HttpScheduler scheduler,
                              FileStoredService fileStored,
-                             SchemaInfoDtoMapper schemaInfoDtoMapper) {
+                             SchemaInfoDtoMapper schemaInfoDtoMapper,
+                             com.tuiyan.backend.service.llm.DdlRenderer ddlRenderer) {
         this.repo = repo;
         this.logRepo = logRepo;
         this.jdbc = jdbc;
@@ -43,6 +45,7 @@ public class DataSourceService {
         this.scheduler = scheduler;
         this.fileStored = fileStored;
         this.schemaInfoDtoMapper = schemaInfoDtoMapper;
+        this.ddlRenderer = ddlRenderer;
     }
 
     // ---------- 通用 CRUD ----------
@@ -164,6 +167,22 @@ public class DataSourceService {
         JdbcConnectorService.DatabaseSchemaInfo info =
                 jdbc.introspectSchema(po.getKind(), repo.readConfig(po), 500);
         return schemaInfoDtoMapper.toMap(info);
+    }
+
+    /** DDL 导出结果：数据源名 + 库名 + 渲染好的 DDL 文本 + 对象（表/视图）数量。 */
+    public record DdlExport(String sourceName, String database, String ddl, int objectCount) {}
+
+    /**
+     * 导出某个数据库数据源的 DDL（CREATE TABLE / VIEW），供「保存到经验库」使用。
+     * <p>仅 mysql / pgsql；按当前工作空间做归属校验。
+     */
+    public DdlExport exportDdl(String id) {
+        DataSourcePO po = ensureOwnership(id);
+        requireKindIn(po, "mysql", "pgsql");
+        JdbcConnectorService.DatabaseSchemaInfo info =
+                jdbc.introspectSchema(po.getKind(), repo.readConfig(po), 500);
+        String ddl = ddlRenderer.render(info);
+        return new DdlExport(po.getName(), info.database(), ddl, info.tables().size());
     }
 
     // ---------- HTTPS 专用 ----------

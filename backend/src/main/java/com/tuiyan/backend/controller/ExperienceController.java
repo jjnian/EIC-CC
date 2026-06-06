@@ -4,6 +4,7 @@ import com.tuiyan.backend.model.dto.ExperienceCreateRequest;
 import com.tuiyan.backend.model.dto.ExperienceUpdateRequest;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.repository.ExperienceRepository;
+import com.tuiyan.backend.service.DataSourceService;
 import com.tuiyan.backend.service.connector.FileStoredService;
 import com.tuiyan.backend.service.connector.file.StoredFileHandler;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
@@ -27,13 +28,16 @@ public class ExperienceController {
     private final ExperienceRepository repo;
     private final ExperienceIndexService indexService;
     private final FileStoredService fileStoredService;
+    private final DataSourceService dataSourceService;
 
     public ExperienceController(ExperienceRepository repo,
                                 ExperienceIndexService indexService,
-                                FileStoredService fileStoredService) {
+                                FileStoredService fileStoredService,
+                                DataSourceService dataSourceService) {
         this.repo = repo;
         this.indexService = indexService;
         this.fileStoredService = fileStoredService;
+        this.dataSourceService = dataSourceService;
     }
 
     @GetMapping
@@ -79,6 +83,28 @@ public class ExperienceController {
                 ? title.trim()
                 : stripExtension(file.getOriginalFilename());
         Map<String, Object> exp = repo.create(finalTitle, content, null);
+        triggerReindex(exp);
+        return ResponseEntity.ok(exp);
+    }
+
+    /**
+     * 从数据库数据源导出 DDL 并存为一条经验：抽取 mysql/pgsql 的 CREATE TABLE/VIEW 结构作正文，
+     * 保存后自动建向量索引，便于对话建模时召回库表结构。请求体：{ "dataSourceId": "..." }。
+     */
+    @PostMapping("/from-ddl")
+    public ResponseEntity<Map<String, Object>> fromDdl(@RequestBody Map<String, Object> body) {
+        Object idObj = body == null ? null : body.get("dataSourceId");
+        String dataSourceId = idObj == null ? null : String.valueOf(idObj);
+        if (dataSourceId == null || dataSourceId.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "缺少 dataSourceId"));
+        }
+        DataSourceService.DdlExport export = dataSourceService.exportDdl(dataSourceId);
+        String title = "「" + export.sourceName() + "」数据库 DDL";
+        String content = "# " + title + "\n\n"
+                + "> 库: `" + export.database() + "` · 对象数: " + export.objectCount()
+                + " · 由数据源结构内省自动生成\n\n"
+                + "```sql\n" + export.ddl() + "\n```\n";
+        Map<String, Object> exp = repo.create(title, content, "DDL,schema");
         triggerReindex(exp);
         return ResponseEntity.ok(exp);
     }

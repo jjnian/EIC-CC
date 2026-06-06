@@ -11,6 +11,14 @@ export function uploadExperienceFile(file: File, title?: string) {
   });
 }
 
+/** 从数据库数据源导出 DDL 并存为一条经验（CREATE TABLE/VIEW 作正文，自动建索引）。 */
+export function createExperienceFromDdl(dataSourceId: string) {
+  return request<Experience>('/api/experiences/from-ddl', {
+    method: 'POST',
+    body: JSON.stringify({ dataSourceId }),
+  });
+}
+
 export interface Experience {
   id: string;
   /** 所属工作空间 id（总览/跨工作空间时返回） */
