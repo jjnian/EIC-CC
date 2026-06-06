@@ -6,30 +6,23 @@ import com.tuiyan.backend.model.dto.*;
 import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.service.DataSourceService;
 import com.tuiyan.backend.service.SchemaOntologyService;
-import com.tuiyan.backend.service.storage.StoredObject;
 import com.tuiyan.backend.support.SsePushUtils;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.task.AsyncTaskExecutor;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 数据源端点：列表 / 创建 / 编辑 / 删除 / 测试 / 数据库专用 / 文件专用 / HTTPS 专用。
- * 创建路径 file_stored 走 /api/data-sources/file（multipart）；
- * 其他 kind 走 POST /api/data-sources（JSON）。
+ * 数据源端点：列表 / 创建 / 编辑 / 删除 / 测试 / 数据库专用 / HTTPS 专用。
+ * 所有 kind 走 POST /api/data-sources（JSON）。
+ * <p>文件上传已迁移至经验库（POST /api/experiences/file）；遗留 file_stored 数据源仅保留只读列表与删除。
  */
 @RestController
 @RequestMapping("/api/data-sources")
@@ -182,35 +175,6 @@ public class DataSourceController {
             }
         });
         return emitter;
-    }
-
-    // ---------- 文件专用 ----------
-
-    @PostMapping(value = "/file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<Map<String, Object>> uploadFile(@RequestParam("file") MultipartFile file,
-                                                          @RequestParam(value = "name", required = false) String name)
-            throws IOException {
-        return ResponseEntity.ok(service.ingestFile(name, file));
-    }
-
-    @GetMapping("/{id}/content")
-    public ResponseEntity<String> content(@PathVariable String id,
-                                          @RequestParam(defaultValue = "0") int offset,
-                                          @RequestParam(defaultValue = "10000") int length) throws IOException {
-        return ResponseEntity.ok(service.readFileText(id, offset, length));
-    }
-
-    @GetMapping("/{id}/download")
-    public ResponseEntity<?> download(@PathVariable String id) {
-        StoredObject obj = service.originalObjectFor(id);
-        if (obj == null) return ResponseEntity.notFound().build();
-        String encoded = URLEncoder.encode(obj.filename(), StandardCharsets.UTF_8).replace("+", "%20");
-        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename*=UTF-8''" + encoded)
-                .contentType(MediaType.APPLICATION_OCTET_STREAM);
-        if (obj.size() >= 0) builder.contentLength(obj.size());
-        return builder.body(new InputStreamResource(obj.stream()));
     }
 
     // ---------- HTTPS 专用 ----------

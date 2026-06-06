@@ -7,7 +7,6 @@ import type { DataSource } from '../../api/dataSources';
 import DbOverviewTab from './DbOverviewTab.vue';
 import DbTableListTab from './DbTableListTab.vue';
 import DbSqlTab from './DbSqlTab.vue';
-import FileContentTab from './FileContentTab.vue';
 import HttpExecuteTab from './HttpExecuteTab.vue';
 import HttpHistoryTab from './HttpHistoryTab.vue';
 import HttpScheduleTab from './HttpScheduleTab.vue';
@@ -38,8 +37,7 @@ const load = async () => {
     ds.value = await getDataSource(props.dsId);
     editName.value = ds.value.name;
     editCfg.value = { ...(ds.value.config || {}) };
-    // 默认进入"概览"或文件的"内容预览"
-    tab.value = ds.value.kind === 'file_stored' ? 'content' : 'overview';
+    tab.value = 'overview';
   } catch (e) {
     toast(`加载失败：${e instanceof ApiError ? e.message : (e as Error).message}`);
   } finally { loading.value = false; }
@@ -56,9 +54,9 @@ const tabs = computed(() => {
     ];
   }
   if (ds.value.kind === 'file_stored') {
+    // 遗留文件数据源：仅保留只读概览（上传已迁移至经验库，内容/下载端点已移除）
     return [
       { id: 'overview', label: 'ℹ 概览' },
-      { id: 'content',  label: '📖 内容预览' },
       { id: 'config',   label: '⚙ 配置' },
     ];
   }
@@ -110,7 +108,6 @@ watch(() => props.dsId, load);
                         :has-current-model="!!hasCurrentModel"
                         @ontology-extracted="(p) => emit('ontology-extracted', p)" />
         <DbSqlTab v-if="tab === 'sql'" :ds-id="ds.id" />
-        <FileContentTab v-if="tab === 'content' && ds.kind === 'file_stored'" :ds-id="ds.id" :total-chars="Number((ds.config as any)?.chars || 0)" />
         <div v-if="tab === 'overview' && ds.kind === 'file_stored'" class="overview">
           <dl>
             <dt>文件名</dt><dd>{{ (ds.config as any)?.originalName }}</dd>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import {
-  listAllDataSources, createDataSource, uploadFileDataSource,
+  listAllDataSources, createDataSource,
   deleteDataSource, testDataSourceInline,
 } from '../../api/dataSources';
 import type { DataSource, DataSourceKind } from '../../api/dataSources';
@@ -145,7 +145,6 @@ const step = ref<'pick' | 'form'>('pick');
 const kind = ref<DataSourceKind | null>(null);
 const name = ref('');
 const cfg = ref<Record<string, any>>({});
-const fileToUpload = ref<File | null>(null);
 const submitting = ref(false);
 const testing = ref(false);
 const testMsg = ref('');
@@ -153,7 +152,6 @@ const testMsg = ref('');
 const TYPES: { kind: DataSourceKind; icon: string; label: string; desc: string }[] = [
   { kind: 'mysql',       icon: '🗄', label: 'MySQL',       desc: '连接 MySQL 数据库，查表写 SQL' },
   { kind: 'pgsql',       icon: '🐘', label: 'PostgreSQL',  desc: '连接 PgSQL 数据库，查表写 SQL' },
-  { kind: 'file_stored', icon: '📄', label: '文件',         desc: '上传 PDF / Word / TXT / MD' },
   { kind: 'https_api',   icon: '🌐', label: 'HTTPS 接口',  desc: 'REST API，可定时拉取' },
 ];
 
@@ -162,7 +160,6 @@ const openAdd = () => {
   kind.value = null;
   name.value = '';
   cfg.value = {};
-  fileToUpload.value = null;
   testMsg.value = '';
   submitting.value = false;
   showForm.value = true;
@@ -174,16 +171,10 @@ const pickType = (k: DataSourceKind) => {
   if (k === 'mysql')     cfg.value = { host: 'localhost', port: 3306, database: '', username: '', password: '', params: '' };
   if (k === 'pgsql')     cfg.value = { host: 'localhost', port: 5432, database: '', username: '', password: '', params: '' };
   if (k === 'https_api') cfg.value = { url: '', method: 'GET', headers: {}, body: '', timeoutMs: 15000, schedule: { enabled: false, intervalSec: 300 } };
-  if (k === 'file_stored') cfg.value = {};
-};
-
-const onFilePick = (ev: Event) => {
-  const f = (ev.target as HTMLInputElement).files?.[0];
-  if (f) { fileToUpload.value = f; if (!name.value) name.value = f.name; }
 };
 
 const runTest = async () => {
-  if (!kind.value || kind.value === 'file_stored') return;
+  if (!kind.value) return;
   testing.value = true; testMsg.value = '';
   try {
     const r = await testDataSourceInline({ kind: kind.value, config: cfg.value });
@@ -205,13 +196,7 @@ const submit = async () => {
   if (!name.value.trim()) { toast.warn('请填写名称'); return; }
   submitting.value = true;
   try {
-    let created: DataSource;
-    if (kind.value === 'file_stored') {
-      if (!fileToUpload.value) { toast.warn('请选择文件'); submitting.value = false; return; }
-      created = await uploadFileDataSource(fileToUpload.value, name.value.trim());
-    } else {
-      created = await createDataSource({ name: name.value.trim(), kind: kind.value, config: cfg.value });
-    }
+    const created: DataSource = await createDataSource({ name: name.value.trim(), kind: kind.value, config: cfg.value });
     items.value.unshift(created);
     const curWs = ws.currentId.value;
     if (curWs) tree.upsertDataSource(curWs, created);
@@ -259,28 +244,17 @@ const submit = async () => {
 
       <div v-else class="form-area">
         <DataSourceConfigForm
-          v-if="kind && kind !== 'file_stored'"
+          v-if="kind"
           :kind="kind"
           v-model="cfg"
           v-model:name-value="name"
         />
-        <template v-else>
-          <label class="row">
-            <span>名称</span>
-            <input v-model="name" placeholder="数据源名称" />
-          </label>
-          <label class="row block">
-            <span>文件 (PDF / Word / TXT / MD / 音频)</span>
-            <input type="file" accept=".pdf,.docx,.txt,.md,.mp3,.wav,.m4a,.flac,.aac,.ogg,.opus,.wma,.amr,audio/*" @change="onFilePick" />
-            <small v-if="fileToUpload">{{ fileToUpload.name }} ({{ (fileToUpload.size / 1024).toFixed(1) }} KB)</small>
-          </label>
-        </template>
         <div v-if="testMsg" class="test-msg">{{ testMsg }}</div>
         <div class="form-actions">
           <button type="button" class="btn-ghost" @click="step = 'pick'">‹ 返回</button>
           <span style="flex:1" />
           <button
-            v-if="kind && kind !== 'file_stored'"
+            v-if="kind"
             type="button"
             class="btn-ghost" :disabled="testing" @click="runTest"
           >{{ testing ? '测试中…' : '测试连接' }}</button>

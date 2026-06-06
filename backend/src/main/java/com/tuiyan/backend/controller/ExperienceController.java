@@ -4,10 +4,15 @@ import com.tuiyan.backend.model.dto.ExperienceCreateRequest;
 import com.tuiyan.backend.model.dto.ExperienceUpdateRequest;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.repository.ExperienceRepository;
+import com.tuiyan.backend.service.connector.FileStoredService;
+import com.tuiyan.backend.service.connector.file.StoredFileHandler;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -21,10 +26,14 @@ public class ExperienceController {
 
     private final ExperienceRepository repo;
     private final ExperienceIndexService indexService;
+    private final FileStoredService fileStoredService;
 
-    public ExperienceController(ExperienceRepository repo, ExperienceIndexService indexService) {
+    public ExperienceController(ExperienceRepository repo,
+                                ExperienceIndexService indexService,
+                                FileStoredService fileStoredService) {
         this.repo = repo;
         this.indexService = indexService;
+        this.fileStoredService = fileStoredService;
     }
 
     @GetMapping
@@ -48,6 +57,41 @@ public class ExperienceController {
         Map<String, Object> exp = repo.create(req.getTitle(), req.getContent(), req.getTags());
         triggerReindex(exp);
         return ResponseEntity.ok(exp);
+    }
+
+    /**
+     * 上传文件建经验：抽取文件纯文本作正文，文件名（去扩展名）作标题，保存后自动建向量索引。
+     * <p>支持 PDF / Word / TXT / MD / 音频，与原数据源文件上传共用同一套抽取 handler。
+     */
+    @PostMapping(value = "/file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Map<String, Object>> uploadFile(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "title", required = false) String title) throws IOException {
+        if (file == null || file.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "文件为空"));
+        }
+        StoredFileHandler.Result extracted = fileStoredService.extractText(file);
+        String content = extracted.text() == null ? "" : extracted.text();
+        if (content.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "未能从文件中抽取到文本内容"));
+        }
+        String finalTitle = (title != null && !title.isBlank())
+                ? title.trim()
+                : stripExtension(file.getOriginalFilename());
+        Map<String, Object> exp = repo.create(finalTitle, content, null);
+        triggerReindex(exp);
+        return ResponseEntity.ok(exp);
+    }
+
+    /** 去掉文件名扩展名作为经验标题；空名兜底为「未命名文件」。 */
+    private static String stripExtension(String filename) {
+        if (filename == null || filename.isBlank()) return "未命名文件";
+        String name = filename;
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (slash >= 0) name = name.substring(slash + 1);
+        int dot = name.lastIndexOf('.');
+        if (dot > 0) name = name.substring(0, dot);
+        return name.isBlank() ? "未命名文件" : name;
     }
 
     @PutMapping("/{id}")

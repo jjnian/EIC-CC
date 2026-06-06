@@ -11,9 +11,7 @@ import com.tuiyan.backend.service.connector.HttpConnectorService;
 import com.tuiyan.backend.service.connector.JdbcConnectorService;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.util.*;
 
 /**
@@ -52,9 +50,6 @@ public class DataSourceService {
     public Map<String, Object> create(DataSourceCreateRequest req) {
         String kind = req.getKind();
         validateKind(kind);
-        if (kind.equals("file_stored")) {
-            throw new IllegalArgumentException("file_stored 请走 /api/data-sources/file 上传端点");
-        }
         DataSourcePO po = repo.create(null, kind, req.getName(), null, null, req.getConfig());
         // https_api 若 schedule.enabled=true，立即注册
         if ("https_api".equals(kind)) tryScheduleFromConfig(po.getId(), req.getConfig());
@@ -171,32 +166,6 @@ public class DataSourceService {
         return schemaInfoDtoMapper.toMap(info);
     }
 
-    // ---------- 文件专用 ----------
-
-    public Map<String, Object> ingestFile(String name, MultipartFile file) throws IOException {
-        if (file == null || file.isEmpty()) throw new IllegalArgumentException("文件为空");
-        String displayName = (name == null || name.isBlank()) ? file.getOriginalFilename() : name;
-        // 先建一行拿 id，再调 ingest（id 用作子目录名）
-        DataSourcePO po = repo.create(null, "file_stored", displayName,
-                file.getContentType(), file.getSize(), new LinkedHashMap<>());
-        Map<String, Object> cfg = fileStored.ingest(po.getId(), file);
-        repo.updateConfig(po.getId(), null, cfg);
-        repo.markStatus(po.getId(), "connected", null);
-        return findFull(po.getId());
-    }
-
-    public String readFileText(String id, int offset, int length) throws IOException {
-        DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "file_stored");
-        return fileStored.readText(repo.readConfig(po), offset, length);
-    }
-
-    public com.tuiyan.backend.service.storage.StoredObject originalObjectFor(String id) {
-        DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "file_stored");
-        return fileStored.originalObject(repo.readConfig(po));
-    }
-
     // ---------- HTTPS 专用 ----------
 
     public HttpExecuteResponse executeHttp(String id) {
@@ -240,8 +209,9 @@ public class DataSourceService {
 
     // ---------- 通用辅助 ----------
 
+    // file_stored 已不再作为可创建类型（文件上传迁移至经验库）；遗留行仍可删除。
     private static final Set<String> ALLOWED_KINDS =
-            Set.of("mysql", "pgsql", "file_stored", "https_api");
+            Set.of("mysql", "pgsql", "https_api");
 
     private static void validateKind(String kind) {
         if (!ALLOWED_KINDS.contains(kind)) {
