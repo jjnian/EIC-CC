@@ -1,5 +1,24 @@
 import { request } from './http';
 
+/** 上传文件建经验：抽取文本作正文、文件名作标题，后端自动建向量索引。 */
+export function uploadExperienceFile(file: File, title?: string) {
+  const form = new FormData();
+  form.append('file', file);
+  if (title) form.append('title', title);
+  return request<Experience>('/api/experiences/file', {
+    method: 'POST',
+    body: form,
+  });
+}
+
+/** 从数据库数据源导出 DDL 并存为一条经验（CREATE TABLE/VIEW 作正文，自动建索引）。 */
+export function createExperienceFromDdl(dataSourceId: string) {
+  return request<Experience>('/api/experiences/from-ddl', {
+    method: 'POST',
+    body: JSON.stringify({ dataSourceId }),
+  });
+}
+
 export interface Experience {
   id: string;
   /** 所属工作空间 id（总览/跨工作空间时返回） */

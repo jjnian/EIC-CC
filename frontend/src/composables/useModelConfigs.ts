@@ -13,6 +13,7 @@ export const CAPABILITY_OPTIONS = [
   { code: 'json', label: 'JSON 模式' },
   { code: 'tool-use', label: '工具调用' },
   { code: 'reasoning', label: '推理链' },
+  { code: 'asr', label: '音频转文字' },
 ];
 
 export const CAPABILITY_LABELS: Record<string, string> = Object.fromEntries(

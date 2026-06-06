@@ -11,7 +11,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -39,10 +38,12 @@ public class FileStoredService {
     }
 
     /**
-     * 接收上传，落到对象存储并抽文本。
-     * @return config_json 的内容（storagePath / extractedTextPath / chars / 各类型元信息 ...）
+     * 仅抽取上传文件的纯文本（含截断），不落对象存储。
+     * <p>供经验库「上传文件建经验」复用：经验只需正文文本，不需要归档原文件，
+     * 因此跳过对象存储，直接走 handler 抽取。文件类型/大小校验与归档路径一致。
+     * @return 纯文本（已按 {@link #TEXT_CHAR_BUDGET} 截断）+ 元信息（pages / paragraphs ...）
      */
-    public Map<String, Object> ingest(String dataSourceId, MultipartFile mf) throws IOException {
+    public StoredFileHandler.Result extractText(MultipartFile mf) throws IOException {
         String safe = FileSniffer.sanitizeFilename(mf.getOriginalFilename());
         String lname = safe.toLowerCase();
         byte[] head = FileSniffer.readHead(mf, 12);
@@ -52,36 +53,17 @@ public class FileStoredService {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("仅支持 " + supportedLabels() + " 文件"));
 
-        long size = mf.getSize();
-        if (size > handler.maxBytes()) {
+        if (mf.getSize() > handler.maxBytes()) {
             throw new IllegalArgumentException(
                     handler.label() + " 超过 " + (handler.maxBytes() / 1024 / 1024) + " MB 限制");
         }
 
-        byte[] bytes = mf.getBytes();
-
-        // 原文件落桶：datasource-files/<id>/<safe>
-        String rawKey = PREFIX + dataSourceId + "/" + safe;
-        storage.putBytes(rawKey, bytes, mf.getContentType());
-
-        StoredFileHandler.Result extracted = handler.extract(bytes);
+        StoredFileHandler.Result extracted = handler.extract(mf.getBytes());
         String text = extracted.text() == null ? "" : extracted.text();
         if (text.length() > TEXT_CHAR_BUDGET) {
             text = text.substring(0, TEXT_CHAR_BUDGET) + "\n[…truncated…]";
         }
-
-        // 旁挂 .txt 也落桶
-        String txtKey = PREFIX + dataSourceId + "/" + safe + ".txt";
-        storage.putBytes(txtKey, text.getBytes(StandardCharsets.UTF_8), "text/plain; charset=utf-8");
-
-        Map<String, Object> cfg = new LinkedHashMap<>();
-        cfg.put("storagePath", rawKey);
-        cfg.put("extractedTextPath", txtKey);
-        cfg.put("chars", text.length());
-        cfg.putAll(extracted.meta());   // pages / paragraphs / tables / audio ...
-        cfg.put("originalName", safe);
-        cfg.put("sizeBytes", size);
-        return cfg;
+        return StoredFileHandler.Result.of(text, extracted.meta());
     }
 
     /** 拼接所有受支持类型名，用于「仅支持 …」错误提示。 */

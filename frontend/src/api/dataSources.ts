@@ -1,4 +1,4 @@
-import { request, requestText, sse } from './http';
+import { request, sse } from './http';
 import type { SseHandle } from './http';
 
 export type DataSourceKind =
@@ -220,27 +220,6 @@ export function extractOntologyFromDb(
     onError: (err) => handlers.onError?.(err.message),
     onClose: () => handlers.onClose?.(),
   });
-}
-
-// ---------- 文件专用 ----------
-
-export function uploadFileDataSource(file: File, name?: string) {
-  const form = new FormData();
-  form.append('file', file);
-  if (name) form.append('name', name);
-  return request<DataSource>('/api/data-sources/file', {
-    method: 'POST',
-    body: form,
-  });
-}
-
-export function readFileContent(id: string, offset = 0, length = 10000) {
-  const qs = `?offset=${offset}&length=${length}`;
-  return requestText(`/api/data-sources/${encodeURIComponent(id)}/content${qs}`);
-}
-
-export function fileDownloadUrl(id: string) {
-  return `/api/data-sources/${encodeURIComponent(id)}/download`;
 }
 
 // ---------- HTTPS 专用 ----------

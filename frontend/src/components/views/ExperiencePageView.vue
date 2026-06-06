@@ -6,7 +6,8 @@ import { confirm as uiConfirm } from '../../composables/useConfirm';
 import { toast } from '../../composables/useToast';
 import { ApiError } from '../../api/http';
 import {
-  createExperience, updateExperience, reindexExperience, type Experience,
+  createExperience, updateExperience, reindexExperience, uploadExperienceFile,
+  type Experience,
 } from '../../api/experiences';
 
 const props = defineProps<{
@@ -38,6 +39,31 @@ watch(() => ws.currentId.value, () => { draft.value = null; reload(); });
 
 const newDraft = () => {
   draft.value = { id: null, title: '', tags: '', content: '' };
+};
+
+// ── 上传文件建经验：抽取文本作正文、文件名作标题 ──────────────
+const fileInput = ref<HTMLInputElement | null>(null);
+const uploading = ref(false);
+
+const triggerUpload = () => fileInput.value?.click();
+
+const onUploadPick = async (ev: Event) => {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';            // 允许连续选同一文件
+  if (!file) return;
+  uploading.value = true;
+  try {
+    const created = await uploadExperienceFile(file);
+    const wsId = ws.currentId.value;
+    if (wsId) tree.upsertExperience(wsId, created);
+    editDraft(created);        // 上传后直接打开,便于核对/补标签
+    toast.success('已从文件创建经验');
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '上传失败');
+  } finally {
+    uploading.value = false;
+  }
 };
 
 const editDraft = (x: Experience) => {
@@ -150,9 +176,21 @@ const reindex = async (id: string) => {
     <div class="exp-header">
       <div>
         <h2>经验库</h2>
-        <p>沉淀可复用的经验文档，与数据源、历史记录同级别挂在工作空间下。</p>
+        <p>沉淀可复用的经验文档，可手动撰写或上传文件：PDF / Word / TXT / MD 抽取正文，音频自动转写成文字。</p>
       </div>
-      <button class="exp-new" @click="newDraft">＋ 新建经验</button>
+      <div class="exp-header-actions">
+        <button class="exp-upload" :disabled="uploading" @click="triggerUpload">
+          {{ uploading ? '解析中…' : '⤓ 上传文件' }}
+        </button>
+        <button class="exp-new" @click="newDraft">＋ 新建经验</button>
+      </div>
+      <input
+        ref="fileInput"
+        type="file"
+        class="exp-file-input"
+        accept=".pdf,.docx,.txt,.md,.mp3,.wav,.m4a,.flac,.aac,.ogg,.opus,.wma,.amr,audio/*"
+        @change="onUploadPick"
+      />
     </div>
 
     <div class="exp-body">
@@ -243,6 +281,15 @@ const reindex = async (id: string) => {
   cursor: pointer; font-family: inherit;
 }
 .exp-new:hover { background: #50caa3; }
+.exp-header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.exp-upload {
+  background: transparent; color: #6dd4a7; border: 1px solid rgba(66,184,131,0.5);
+  padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+.exp-upload:hover { background: rgba(66,184,131,0.12); }
+.exp-upload:disabled { opacity: 0.6; cursor: default; }
+.exp-file-input { display: none; }
 
 .exp-body { flex: 1; display: flex; gap: 18px; min-height: 0; }
 .exp-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }

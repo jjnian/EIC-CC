@@ -11,9 +11,7 @@ import com.tuiyan.backend.service.connector.HttpConnectorService;
 import com.tuiyan.backend.service.connector.JdbcConnectorService;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.util.*;
 
 /**
@@ -30,6 +28,7 @@ public class DataSourceService {
     private final HttpScheduler scheduler;
     private final FileStoredService fileStored;
     private final SchemaInfoDtoMapper schemaInfoDtoMapper;
+    private final com.tuiyan.backend.service.llm.DdlRenderer ddlRenderer;
 
     public DataSourceService(DataSourceRepository repo,
                              DataSourceFetchLogRepository logRepo,
@@ -37,7 +36,8 @@ public class DataSourceService {
                              HttpConnectorService http,
                              HttpScheduler scheduler,
                              FileStoredService fileStored,
-                             SchemaInfoDtoMapper schemaInfoDtoMapper) {
+                             SchemaInfoDtoMapper schemaInfoDtoMapper,
+                             com.tuiyan.backend.service.llm.DdlRenderer ddlRenderer) {
         this.repo = repo;
         this.logRepo = logRepo;
         this.jdbc = jdbc;
@@ -45,6 +45,7 @@ public class DataSourceService {
         this.scheduler = scheduler;
         this.fileStored = fileStored;
         this.schemaInfoDtoMapper = schemaInfoDtoMapper;
+        this.ddlRenderer = ddlRenderer;
     }
 
     // ---------- 通用 CRUD ----------
@@ -52,9 +53,6 @@ public class DataSourceService {
     public Map<String, Object> create(DataSourceCreateRequest req) {
         String kind = req.getKind();
         validateKind(kind);
-        if (kind.equals("file_stored")) {
-            throw new IllegalArgumentException("file_stored 请走 /api/data-sources/file 上传端点");
-        }
         DataSourcePO po = repo.create(null, kind, req.getName(), null, null, req.getConfig());
         // https_api 若 schedule.enabled=true，立即注册
         if ("https_api".equals(kind)) tryScheduleFromConfig(po.getId(), req.getConfig());
@@ -171,30 +169,20 @@ public class DataSourceService {
         return schemaInfoDtoMapper.toMap(info);
     }
 
-    // ---------- 文件专用 ----------
+    /** DDL 导出结果：数据源名 + 库名 + 渲染好的 DDL 文本 + 对象（表/视图）数量。 */
+    public record DdlExport(String sourceName, String database, String ddl, int objectCount) {}
 
-    public Map<String, Object> ingestFile(String name, MultipartFile file) throws IOException {
-        if (file == null || file.isEmpty()) throw new IllegalArgumentException("文件为空");
-        String displayName = (name == null || name.isBlank()) ? file.getOriginalFilename() : name;
-        // 先建一行拿 id，再调 ingest（id 用作子目录名）
-        DataSourcePO po = repo.create(null, "file_stored", displayName,
-                file.getContentType(), file.getSize(), new LinkedHashMap<>());
-        Map<String, Object> cfg = fileStored.ingest(po.getId(), file);
-        repo.updateConfig(po.getId(), null, cfg);
-        repo.markStatus(po.getId(), "connected", null);
-        return findFull(po.getId());
-    }
-
-    public String readFileText(String id, int offset, int length) throws IOException {
+    /**
+     * 导出某个数据库数据源的 DDL（CREATE TABLE / VIEW），供「保存到经验库」使用。
+     * <p>仅 mysql / pgsql；按当前工作空间做归属校验。
+     */
+    public DdlExport exportDdl(String id) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "file_stored");
-        return fileStored.readText(repo.readConfig(po), offset, length);
-    }
-
-    public com.tuiyan.backend.service.storage.StoredObject originalObjectFor(String id) {
-        DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "file_stored");
-        return fileStored.originalObject(repo.readConfig(po));
+        requireKindIn(po, "mysql", "pgsql");
+        JdbcConnectorService.DatabaseSchemaInfo info =
+                jdbc.introspectSchema(po.getKind(), repo.readConfig(po), 500);
+        String ddl = ddlRenderer.render(info);
+        return new DdlExport(po.getName(), info.database(), ddl, info.tables().size());
     }
 
     // ---------- HTTPS 专用 ----------
@@ -240,8 +228,9 @@ public class DataSourceService {
 
     // ---------- 通用辅助 ----------
 
+    // file_stored 已不再作为可创建类型（文件上传迁移至经验库）；遗留行仍可删除。
     private static final Set<String> ALLOWED_KINDS =
-            Set.of("mysql", "pgsql", "file_stored", "https_api");
+            Set.of("mysql", "pgsql", "https_api");
 
     private static void validateKind(String kind) {
         if (!ALLOWED_KINDS.contains(kind)) {

@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted } from 'vue';
 import { getDataSource, updateDataSource } from '../../api/dataSources';
+import { createExperienceFromDdl } from '../../api/experiences';
 import { ApiError } from '../../api/http';
 import { toast } from '../../composables/useToast';
+import { useSidebarTree } from '../../composables/useSidebarTree';
+import { useWorkspaces } from '../../composables/useWorkspaces';
 import type { DataSource } from '../../api/dataSources';
 import DbOverviewTab from './DbOverviewTab.vue';
 import DbTableListTab from './DbTableListTab.vue';
 import DbSqlTab from './DbSqlTab.vue';
-import FileContentTab from './FileContentTab.vue';
 import HttpExecuteTab from './HttpExecuteTab.vue';
 import HttpHistoryTab from './HttpHistoryTab.vue';
 import HttpScheduleTab from './HttpScheduleTab.vue';
@@ -23,9 +25,31 @@ const emit = defineEmits<{
     edges: OntologyEdge[];
   }): void;
 }>();
+const tree = useSidebarTree();
+const ws = useWorkspaces();
+
 const ds = ref<DataSource | null>(null);
 const loading = ref(false);
 const tab = ref<string>('overview');
+
+// 导出 DDL 到经验库（仅 mysql/pgsql）
+const exportingDdl = ref(false);
+const isDb = computed(() => ds.value?.kind === 'mysql' || ds.value?.kind === 'pgsql');
+
+const exportDdlToExperience = async () => {
+  if (!ds.value || exportingDdl.value) return;
+  exportingDdl.value = true;
+  try {
+    const created = await createExperienceFromDdl(ds.value.id);
+    const wsId = ws.currentId.value;
+    if (wsId) tree.upsertExperience(wsId, created);
+    toast.success(`已导出到经验库：${created.title}`);
+  } catch (e) {
+    toast.error(`导出失败：${e instanceof ApiError ? e.message : (e as Error).message}`);
+  } finally {
+    exportingDdl.value = false;
+  }
+};
 
 const editing = ref(false);
 const editName = ref('');
@@ -38,8 +62,7 @@ const load = async () => {
     ds.value = await getDataSource(props.dsId);
     editName.value = ds.value.name;
     editCfg.value = { ...(ds.value.config || {}) };
-    // 默认进入"概览"或文件的"内容预览"
-    tab.value = ds.value.kind === 'file_stored' ? 'content' : 'overview';
+    tab.value = 'overview';
   } catch (e) {
     toast(`加载失败：${e instanceof ApiError ? e.message : (e as Error).message}`);
   } finally { loading.value = false; }
@@ -56,9 +79,9 @@ const tabs = computed(() => {
     ];
   }
   if (ds.value.kind === 'file_stored') {
+    // 遗留文件数据源：仅保留只读概览（上传已迁移至经验库，内容/下载端点已移除）
     return [
       { id: 'overview', label: 'ℹ 概览' },
-      { id: 'content',  label: '📖 内容预览' },
       { id: 'config',   label: '⚙ 配置' },
     ];
   }
@@ -98,6 +121,14 @@ watch(() => props.dsId, load);
       <header>
         <h2>{{ ds.name }}</h2>
         <span class="kind-tag">{{ ds.kind }}</span>
+        <span class="head-spacer" />
+        <button
+          v-if="isDb"
+          class="ddl-export"
+          :disabled="exportingDdl"
+          title="把库表结构（DDL）导出为一条经验，供对话建模召回"
+          @click="exportDdlToExperience"
+        >{{ exportingDdl ? '导出中…' : '⤴ 导出 DDL 到经验库' }}</button>
       </header>
       <nav class="tabs">
         <button v-for="t in tabs" :key="t.id" :class="{ active: tab === t.id }" @click="tab = t.id">{{ t.label }}</button>
@@ -110,7 +141,6 @@ watch(() => props.dsId, load);
                         :has-current-model="!!hasCurrentModel"
                         @ontology-extracted="(p) => emit('ontology-extracted', p)" />
         <DbSqlTab v-if="tab === 'sql'" :ds-id="ds.id" />
-        <FileContentTab v-if="tab === 'content' && ds.kind === 'file_stored'" :ds-id="ds.id" :total-chars="Number((ds.config as any)?.chars || 0)" />
         <div v-if="tab === 'overview' && ds.kind === 'file_stored'" class="overview">
           <dl>
             <dt>文件名</dt><dd>{{ (ds.config as any)?.originalName }}</dd>
@@ -161,6 +191,13 @@ watch(() => props.dsId, load);
 header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.06); }
 header h2 { margin: 0; font-size: 16px; }
 .kind-tag { padding: 2px 8px; background: rgba(255,255,255,.06); border-radius: 4px; font-size: 11px; color: #aaa; }
+.head-spacer { flex: 1; }
+.ddl-export {
+  background: transparent; color: #6dd4a7; border: 1px solid rgba(66,184,131,.5);
+  padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit;
+}
+.ddl-export:hover { background: rgba(66,184,131,.12); }
+.ddl-export:disabled { opacity: .6; cursor: default; }
 .tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid rgba(255,255,255,.06); }
 .tabs button { background: none; border: none; padding: 8px 12px; color: #aaa; cursor: pointer; font-size: 13px; border-bottom: 2px solid transparent; }
 .tabs button.active { color: #fff; border-bottom-color: #4a8df0; }
