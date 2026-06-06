@@ -10,6 +10,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,6 +32,7 @@ public class ExperienceIndexService {
     private final ExperienceRepository expRepo;
     private final EmbeddingClient embeddingClient;
     private final EmbeddingProperties embeddingProps;
+    private final PgVectorSupport pgVector;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -39,10 +42,12 @@ public class ExperienceIndexService {
     public ExperienceIndexService(ExperienceRepository expRepo,
                                   EmbeddingClient embeddingClient,
                                   EmbeddingProperties embeddingProps,
+                                  PgVectorSupport pgVector,
                                   JdbcTemplate jdbc) {
         this.expRepo = expRepo;
         this.embeddingClient = embeddingClient;
         this.embeddingProps = embeddingProps;
+        this.pgVector = pgVector;
         this.jdbc = jdbc;
     }
 
@@ -75,50 +80,124 @@ public class ExperienceIndexService {
                 ? body
                 : po.getTitle() + "\n\n" + body;
 
-        // 先清旧索引，避免编辑后残留过时片段
-        deleteIndex(experienceId);
-
         if (text.isBlank()) {
+            // 内容被清空：删掉残留索引（旧块在重建路径里才删，这里单独处理空内容）
+            deleteIndex(experienceId);
             markIndexStatus(experienceId, "none");
             return;
         }
 
         markIndexStatus(experienceId, "indexing");
         try {
-            List<String> chunks = TextChunker.chunk(text,
+            // 结构感知切块：按 Markdown 标题层级 + 大小约束
+            List<String> chunks = TextChunker.chunkStructured(text,
                     embeddingProps.getChunkSize(), embeddingProps.getChunkOverlap());
             if (chunks.isEmpty()) {
+                deleteIndex(experienceId);
                 markIndexStatus(experienceId, "none");
                 return;
             }
 
-            List<float[]> embeddings = embeddingClient.embedBatch(chunks);
+            // 增量复用：同模型下,内容哈希未变的块直接复用旧向量,只对新增/改动块调 embedding
+            Map<String, String> reusable = loadReusableByHash(experienceId);
+            List<String> hashes = new ArrayList<>(chunks.size());
+            List<Integer> toEmbed = new ArrayList<>();
+            for (int i = 0; i < chunks.size(); i++) {
+                String h = sha256(chunks.get(i));
+                hashes.add(h);
+                if (!reusable.containsKey(h)) toEmbed.add(i);
+            }
+            Map<String, String> freshByHash = new HashMap<>();
+            if (!toEmbed.isEmpty()) {
+                List<String> batch = toEmbed.stream().map(chunks::get).toList();
+                List<float[]> vecs = embeddingClient.embedBatch(batch);
+                for (int j = 0; j < toEmbed.size(); j++) {
+                    freshByHash.put(hashes.get(toEmbed.get(j)),
+                            objectMapper.writeValueAsString(vecs.get(j)));
+                }
+            }
+
+            // 旧块全部重建（复用的块带着旧向量重新落库,顺序/索引随当前内容刷新）
+            deleteIndex(experienceId);
             long now = System.currentTimeMillis();
             for (int i = 0; i < chunks.size(); i++) {
+                String h = hashes.get(i);
+                String embJson = reusable.getOrDefault(h, freshByHash.get(h));
+                if (embJson == null) continue;   // 兜底,理论上不会发生
                 String chunkId = "echk_" + experienceId + "_" + i;
                 String embId = "eemb_" + experienceId + "_" + i;
-                int tokenCount = TextChunker.estimateTokens(chunks.get(i));
-
                 jdbc.update(
-                    "INSERT INTO exp_chunk (id, experience_id, workspace_id, chunk_index, content, token_count, created_at) VALUES (?,?,?,?,?,?,?)",
-                    chunkId, experienceId, po.getWorkspaceId(), i, chunks.get(i), tokenCount, now
+                    "INSERT INTO exp_chunk (id, experience_id, workspace_id, chunk_index, content, content_hash, token_count, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                    chunkId, experienceId, po.getWorkspaceId(), i, chunks.get(i), h,
+                    TextChunker.estimateTokens(chunks.get(i)), now
                 );
-                String embJson = objectMapper.writeValueAsString(embeddings.get(i));
                 jdbc.update(
                     "INSERT INTO exp_embedding (id, chunk_id, embedding, model_name, dimension, created_at) VALUES (?,?,?,?,?,?)",
-                    embId, chunkId, embJson, embeddingProps.getModel(), embeddings.get(i).length, now
+                    embId, chunkId, embJson, embeddingProps.getModel(), embeddingProps.getDimension(), now
                 );
             }
+
+            // pgvector 可用时,把 TEXT 向量回填到 vector 列(尽力而为,维度不符则忽略,检索回退余弦)
+            populateVectorColumn(experienceId);
+
             markIndexStatus(experienceId, "indexed");
-            log.info("[ExpIndex] 索引完成 exp={} chunks={}", experienceId, chunks.size());
+            log.info("[ExpIndex] 索引完成 exp={} chunks={} (复用 {}, 新算 {})",
+                    experienceId, chunks.size(), chunks.size() - toEmbed.size(), toEmbed.size());
         } catch (Exception e) {
             log.error("[ExpIndex] 索引失败 exp={}: {}", experienceId, e.getMessage(), e);
             markIndexStatus(experienceId, "error");
         }
     }
 
+    /** 取该经验现有「内容哈希 → 向量 JSON」映射,仅限当前 embedding 模型,用于增量复用。 */
+    private Map<String, String> loadReusableByHash(String experienceId) {
+        Map<String, String> out = new HashMap<>();
+        try {
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT c.content_hash AS h, e.embedding AS emb " +
+                "FROM exp_chunk c JOIN exp_embedding e ON e.chunk_id = c.id " +
+                "WHERE c.experience_id = ? AND c.content_hash IS NOT NULL AND e.model_name = ?",
+                experienceId, embeddingProps.getModel());
+            for (Map<String, Object> r : rows) {
+                Object h = r.get("h");
+                Object emb = r.get("emb");
+                if (h != null && emb != null) out.putIfAbsent(String.valueOf(h), String.valueOf(emb));
+            }
+        } catch (Exception e) {
+            log.warn("[ExpIndex] 读取可复用向量失败(将全量重算): {}", e.getMessage());
+        }
+        return out;
+    }
+
+    /** 把 TEXT 向量回填到 pgvector 列;扩展不可用或维度不符时安全忽略。 */
+    private void populateVectorColumn(String experienceId) {
+        if (!pgVector.isAvailable()) return;
+        try {
+            jdbc.update(
+                "UPDATE exp_embedding e SET embedding_vec = e.embedding::vector " +
+                "FROM exp_chunk c WHERE e.chunk_id = c.id AND c.experience_id = ? AND e.embedding_vec IS NULL",
+                experienceId);
+        } catch (Exception ex) {
+            log.warn("[ExpIndex] 回填 vector 列失败(检索将回退余弦): {}", ex.getMessage());
+        }
+    }
+
+    private static String sha256(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] d = md.digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(64);
+            for (byte b : d) sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            return sb.toString();
+        } catch (Exception e) {
+            return Integer.toHexString(s.hashCode());
+        }
+    }
+
     /**
      * 在指定工作空间内检索与查询最相关的经验片段。
+     * <p>pgvector 可用时走 HNSW ANN（近似最近邻），否则回退 TEXT 向量的暴力余弦；
+     * ANN 路径异常或空结果时也会兜底到余弦，保证可用性。
      */
     public List<ChunkResult> searchRelevant(String workspaceId, String query, int topK) {
         if (!embeddingClient.isConfigured()) return List.of();
@@ -131,6 +210,44 @@ public class ExperienceIndexService {
             return List.of();
         }
 
+        if (pgVector.isAvailable()) {
+            try {
+                List<ChunkResult> ann = searchAnn(workspaceId, queryVec, topK);
+                if (!ann.isEmpty()) return ann;
+            } catch (Exception e) {
+                log.warn("[ExpIndex] ANN 检索失败,回退余弦: {}", e.getMessage());
+            }
+        }
+        return searchBruteForce(workspaceId, queryVec, topK);
+    }
+
+    /** pgvector HNSW 近似最近邻：用 cosine 距离算子 <=>，score = 1 - 距离。 */
+    private List<ChunkResult> searchAnn(String workspaceId, float[] queryVec, int topK) throws Exception {
+        String qLit = objectMapper.writeValueAsString(queryVec);   // "[..]"，pgvector 文本字面量
+        List<Map<String, Object>> rows = jdbc.queryForList(
+            "SELECT c.content, c.experience_id, 1 - (e.embedding_vec <=> ?::vector) AS score " +
+            "FROM exp_chunk c JOIN exp_embedding e ON e.chunk_id = c.id " +
+            "WHERE c.workspace_id = ? AND e.embedding_vec IS NOT NULL " +
+            "ORDER BY e.embedding_vec <=> ?::vector LIMIT ?",
+            qLit, workspaceId, qLit, topK);
+
+        Map<String, String> titles = new HashMap<>();
+        List<ChunkResult> results = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            double score = ((Number) row.get("score")).doubleValue();
+            if (score < 0.1) continue;
+            String expId = (String) row.get("experience_id");
+            String title = titles.computeIfAbsent(expId, id -> {
+                ExperiencePO po = expRepo.findById(id);
+                return po != null ? po.getTitle() : id;
+            });
+            results.add(new ChunkResult((String) row.get("content"), title, score));
+        }
+        return results;
+    }
+
+    /** TEXT 向量暴力余弦（无 pgvector 时的兜底）。 */
+    private List<ChunkResult> searchBruteForce(String workspaceId, float[] queryVec, int topK) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT c.content, c.experience_id, e.embedding " +
             "FROM exp_chunk c JOIN exp_embedding e ON e.chunk_id = c.id " +

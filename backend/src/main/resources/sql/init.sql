@@ -503,6 +503,9 @@ CREATE TABLE IF NOT EXISTS exp_chunk (
 );
 CREATE INDEX IF NOT EXISTS idx_exp_chunk_exp ON exp_chunk (experience_id);
 CREATE INDEX IF NOT EXISTS idx_exp_chunk_ws  ON exp_chunk (workspace_id);
+-- 块内容哈希：保存经验时按 hash 复用未变化块的向量，只重算新增/改动块（Cursor 同款增量）
+ALTER TABLE exp_chunk ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64);
+CREATE INDEX IF NOT EXISTS idx_exp_chunk_hash ON exp_chunk (experience_id, content_hash);
 
 CREATE TABLE IF NOT EXISTS exp_embedding (
     id          VARCHAR(64) PRIMARY KEY,
