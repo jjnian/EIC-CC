@@ -1282,14 +1282,26 @@ backend/src/main/java/com/tuiyan/backend/
 ### 经验库
 
 与「数据源 / 历史记录」同级别挂在工作空间下，沉淀可复用的经验文档（标题 + 正文 + 标签）。
+保存后自动建立向量索引（落 `exp_chunk` / `exp_embedding`）；对话建模时按相关度自动召回为参考资料，
+来源名以「经验：…」前缀与数据源内容区分。
+
+索引管线参考 Cursor 的做法（仅经验库启用）：
+
+- **结构感知切块**：按 Markdown 标题层级切小节，每块前置标题面包屑作为上下文（`TextChunker.chunkStructured`）。
+- **内容哈希增量**：块按 `content_hash` 比对，未变化的块复用旧向量，只对新增/改动块调 embedding，省调用费。
+- **ANN 检索（可选）**：装了 pgvector 扩展时走 HNSW 近似最近邻（`embedding_vec <=> ?::vector`）；
+  没装则回退 TEXT 向量的暴力余弦。pgvector 在应用就绪后由 `PgVectorSupport` **尝试性启用**，
+  失败不影响启动（故意不放进 `init.sql`，因其 `continue-on-error: false`）。TEXT `embedding` 列始终是真值来源。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/api/experiences?workspaceId=` | 列出工作空间下经验（按更新时间倒序） |
+| `GET` | `/api/experiences?workspaceId=` | 列出工作空间下经验（按更新时间倒序，含 `indexStatus`） |
 | `GET` | `/api/experiences/{id}` | 取单条经验（含正文） |
-| `POST` | `/api/experiences` | 新建经验（`{title, content?, tags?}`） |
-| `PUT` | `/api/experiences/{id}` | 更新经验（字段可选，null 不改动） |
-| `DELETE` | `/api/experiences/{id}` | 删除经验 |
+| `POST` | `/api/experiences` | 新建经验（`{title, content?, tags?}`），自动建索引 |
+| `PUT` | `/api/experiences/{id}` | 更新经验（字段可选，null 不改动），自动重建索引 |
+| `DELETE` | `/api/experiences/{id}` | 删除经验（索引随外键级联清理） |
+| `POST` | `/api/experiences/{id}/reindex` | 手动重建向量索引（embedding 配置变更后补建） |
+| `GET` | `/api/experiences/{id}/index-status` | 查询索引状态 + 文本块数量 |
 
 ### 模板
 

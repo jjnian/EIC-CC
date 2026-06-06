@@ -21,6 +21,8 @@ public class ExperiencePO {
     private String tags;
     private Long createdAt;
     private Long updatedAt;
+    /** 向量索引状态：none | indexing | indexed | error */
+    private String indexStatus;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -36,4 +38,6 @@ public class ExperiencePO {
     public void setCreatedAt(Long createdAt) { this.createdAt = createdAt; }
     public Long getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Long updatedAt) { this.updatedAt = updatedAt; }
+    public String getIndexStatus() { return indexStatus; }
+    public void setIndexStatus(String indexStatus) { this.indexStatus = indexStatus; }
 }

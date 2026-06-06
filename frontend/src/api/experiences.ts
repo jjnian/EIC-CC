@@ -10,6 +10,8 @@ export interface Experience {
   tags?: string;
   createdAt: number;
   updatedAt?: number;
+  /** 向量索引状态：none | indexing | indexed | error */
+  indexStatus?: 'none' | 'indexing' | 'indexed' | 'error';
 }
 
 export function listExperiences(opts?: { workspaceId?: string }) {
@@ -41,4 +43,18 @@ export function deleteExperience(id: string) {
   return request<{ success: boolean }>(`/api/experiences/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
+}
+
+/** 手动触发重建该条经验的向量索引（embedding 配置变更后补建）。 */
+export function reindexExperience(id: string) {
+  return request<{ triggered: boolean; configured: boolean }>(
+    `/api/experiences/${encodeURIComponent(id)}/reindex`,
+    { method: 'POST' },
+  );
+}
+
+export function getExperienceIndexStatus(id: string) {
+  return request<{ status: string; chunkCount: number }>(
+    `/api/experiences/${encodeURIComponent(id)}/index-status`,
+  );
 }
