@@ -489,6 +489,31 @@ CREATE TABLE IF NOT EXISTS experience (
 CREATE INDEX IF NOT EXISTS idx_experience_ws_created
     ON experience (workspace_id, created_at DESC);
 
+-- 8.1 经验库向量索引：状态字段 + 文本块 + 向量（与数据源 ds_chunk/ds_embedding 平行）
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS index_status VARCHAR(16) DEFAULT 'none';
+
+CREATE TABLE IF NOT EXISTS exp_chunk (
+    id             VARCHAR(64) PRIMARY KEY,
+    experience_id  VARCHAR(64) NOT NULL REFERENCES experience(id) ON DELETE CASCADE,
+    workspace_id   VARCHAR(64) NOT NULL,
+    chunk_index    INT         NOT NULL,
+    content        TEXT        NOT NULL,
+    token_count    INT         DEFAULT 0,
+    created_at     BIGINT      NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exp_chunk_exp ON exp_chunk (experience_id);
+CREATE INDEX IF NOT EXISTS idx_exp_chunk_ws  ON exp_chunk (workspace_id);
+
+CREATE TABLE IF NOT EXISTS exp_embedding (
+    id          VARCHAR(64) PRIMARY KEY,
+    chunk_id    VARCHAR(64) NOT NULL REFERENCES exp_chunk(id) ON DELETE CASCADE,
+    embedding   TEXT        NOT NULL,
+    model_name  VARCHAR(128),
+    dimension   INT         DEFAULT 0,
+    created_at  BIGINT      NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exp_embedding_chunk ON exp_embedding (chunk_id);
+
 -- ===========================================================================
 -- 初始化完成
 -- ===========================================================================

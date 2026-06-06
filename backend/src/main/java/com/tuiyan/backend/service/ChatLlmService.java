@@ -9,6 +9,7 @@ import com.tuiyan.backend.model.MentionRef;
 import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.service.connector.JdbcConnectorService;
 import com.tuiyan.backend.service.indexing.DataSourceIndexService;
+import com.tuiyan.backend.service.indexing.ExperienceIndexService;
 import com.tuiyan.backend.service.llm.GraphPromptBuilder;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
 import com.tuiyan.backend.service.llm.LlmHttpClient;
@@ -22,6 +23,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -41,6 +43,7 @@ public class ChatLlmService {
     private final GraphPromptBuilder promptBuilder;
     private final LlmCallLogger callLogger;
     private final DataSourceIndexService indexService;
+    private final ExperienceIndexService experienceIndexService;
     private final DataSourceRepository dsRepo;
     private final JdbcConnectorService jdbcConnector;
 
@@ -48,12 +51,14 @@ public class ChatLlmService {
                           GraphPromptBuilder promptBuilder,
                           LlmCallLogger callLogger,
                           DataSourceIndexService indexService,
+                          ExperienceIndexService experienceIndexService,
                           DataSourceRepository dsRepo,
                           JdbcConnectorService jdbcConnector) {
         this.http = http;
         this.promptBuilder = promptBuilder;
         this.callLogger = callLogger;
         this.indexService = indexService;
+        this.experienceIndexService = experienceIndexService;
         this.dsRepo = dsRepo;
         this.jdbcConnector = jdbcConnector;
     }
@@ -177,6 +182,33 @@ public class ChatLlmService {
                     }
                 } catch (Exception e) {
                     log.warn("[LLM-chat-sse] RAG 检索失败（继续不带 RAG）: {}", e.getMessage());
+                }
+            }
+
+            // 经验库 RAG：从已索引的经验中检索相关内容，与数据源片段合并（来源名加「经验：」前缀以示区分）
+            if (wsId != null && experienceIndexService.isConfigured()) {
+                try {
+                    emitStep(emitter, "searching_experiences", "正在检索工作空间经验库…");
+                    var expResults = experienceIndexService.searchRelevant(wsId, request.getMessage(), 3);
+                    if (!expResults.isEmpty()) {
+                        List<GraphPromptBuilder.RagChunk> merged = new ArrayList<>(ragChunks);
+                        for (var r : expResults) {
+                            merged.add(new GraphPromptBuilder.RagChunk(
+                                    r.content(), "经验：" + r.experienceTitle(), r.score()));
+                        }
+                        ragChunks = merged;
+                        String titles = expResults.stream()
+                                .map(ExperienceIndexService.ChunkResult::experienceTitle)
+                                .filter(java.util.Objects::nonNull)
+                                .distinct().limit(4)
+                                .collect(java.util.stream.Collectors.joining("、"));
+                        emitStep(emitter, "matched_experiences",
+                                "已根据经验「" + titles + "」匹配 " + expResults.size() + " 段相关内容");
+                    } else {
+                        emitStep(emitter, "no_match_experiences", "工作空间内暂无相关经验");
+                    }
+                } catch (Exception e) {
+                    log.warn("[LLM-chat-sse] 经验库 RAG 检索失败（继续）: {}", e.getMessage());
                 }
             }
 

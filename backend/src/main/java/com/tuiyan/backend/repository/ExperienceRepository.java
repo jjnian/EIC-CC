@@ -79,6 +79,11 @@ public class ExperienceRepository {
         return toMap(po);
     }
 
+    /** 按 id 取一行（不做工作空间隔离，索引服务在异步线程里调用，自行不依赖请求上下文）。 */
+    public ExperiencePO findById(String id) {
+        return mapper.selectById(id);
+    }
+
     @Transactional
     public boolean delete(String id) {
         ExperiencePO po = mapper.selectById(id);
@@ -96,6 +101,7 @@ public class ExperienceRepository {
         if (po.getTags() != null) out.put("tags", po.getTags());
         out.put("createdAt", po.getCreatedAt());
         if (po.getUpdatedAt() != null) out.put("updatedAt", po.getUpdatedAt());
+        out.put("indexStatus", po.getIndexStatus() != null ? po.getIndexStatus() : "none");
         return out;
     }
 }

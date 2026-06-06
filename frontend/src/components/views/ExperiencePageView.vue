@@ -6,7 +6,7 @@ import { confirm as uiConfirm } from '../../composables/useConfirm';
 import { toast } from '../../composables/useToast';
 import { ApiError } from '../../api/http';
 import {
-  createExperience, updateExperience, type Experience,
+  createExperience, updateExperience, reindexExperience, type Experience,
 } from '../../api/experiences';
 
 const props = defineProps<{
@@ -112,6 +112,37 @@ const preview = (content?: string) => {
   const s = (content || '').trim();
   return s.length > 120 ? s.slice(0, 120) + '…' : s;
 };
+
+// 向量索引状态 → 展示文案/样式。none 视作"待索引"（保存后自动建索引；未配置 embedding 时保持 none）
+const idxMeta = (s?: string): { label: string; cls: string } => {
+  switch (s) {
+    case 'indexed': return { label: '已索引', cls: 'ok' };
+    case 'indexing': return { label: '索引中', cls: 'pending' };
+    case 'error': return { label: '索引失败', cls: 'err' };
+    default: return { label: '未索引', cls: 'none' };
+  }
+};
+
+const reindexing = ref(false);
+const reindex = async (id: string) => {
+  reindexing.value = true;
+  try {
+    const r = await reindexExperience(id);
+    if (!r.configured) {
+      toast.warn('未配置 Embedding 模型，无法建立向量索引');
+    } else {
+      toast.success('已触发重新索引，稍后生效');
+      // 乐观地把状态置为索引中
+      const wsId = ws.currentId.value;
+      const found = experiences.value.find(e => e.id === id);
+      if (found && wsId) tree.upsertExperience(wsId, { ...found, indexStatus: 'indexing' });
+    }
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '触发失败');
+  } finally {
+    reindexing.value = false;
+  }
+};
 </script>
 
 <template>
@@ -144,6 +175,11 @@ const preview = (content?: string) => {
               <span class="exp-card-title">{{ x.title || '未命名经验' }}</span>
               <span class="exp-card-time">{{ fmtTime(x.updatedAt || x.createdAt) }}</span>
             </div>
+            <div class="exp-card-meta">
+              <span :class="['exp-idx', idxMeta(x.indexStatus).cls]" :title="`向量索引：${idxMeta(x.indexStatus).label}`">
+                {{ idxMeta(x.indexStatus).label }}
+              </span>
+            </div>
             <div v-if="preview(x.content)" class="exp-card-preview">{{ preview(x.content) }}</div>
             <div v-if="tagList(x.tags).length" class="exp-card-tags">
               <span v-for="t in tagList(x.tags)" :key="t" class="exp-tag">{{ t }}</span>
@@ -171,7 +207,16 @@ const preview = (content?: string) => {
           <span class="exp-label">正文</span>
           <textarea v-model="draft.content" class="exp-textarea" placeholder="粘贴或撰写经验文档内容（支持 Markdown）"></textarea>
         </label>
+        <p class="exp-rag-hint">保存后会自动建立向量索引，对话建模时按相关度自动召回为参考资料。</p>
         <div class="exp-actions">
+          <button
+            v-if="draft.id"
+            class="exp-reindex"
+            :disabled="reindexing"
+            title="重新生成向量索引"
+            @click="reindex(draft.id)"
+          >{{ reindexing ? '索引中…' : '重新索引' }}</button>
+          <span class="exp-actions-spacer" />
           <button class="exp-cancel" @click="cancelEdit">取消</button>
           <button class="exp-save" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
         </div>
@@ -220,6 +265,15 @@ const preview = (content?: string) => {
 }
 .exp-card-time { font-size: 11px; color: var(--text-dim); flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
 .exp-card-preview { font-size: 12px; color: var(--text-dim); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.exp-card-meta { display: flex; align-items: center; gap: 8px; }
+.exp-idx {
+  font-size: 10px; padding: 1px 8px; border-radius: 100px;
+  border: 1px solid transparent;
+}
+.exp-idx.ok { background: rgba(66,184,131,0.14); color: #6dd4a7; }
+.exp-idx.pending { background: rgba(245,191,66,0.14); color: #f0c660; }
+.exp-idx.err { background: rgba(255,102,68,0.14); color: #ff8a6f; }
+.exp-idx.none { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); }
 .exp-card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .exp-tag {
   font-size: 10px; padding: 1px 8px; border-radius: 100px;
@@ -264,7 +318,15 @@ const preview = (content?: string) => {
 }
 .exp-input:focus, .exp-textarea:focus { outline: none; border-color: rgba(66,184,131,0.6); }
 .exp-textarea { flex: 1; min-height: 160px; resize: none; line-height: 1.6; }
-.exp-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.exp-rag-hint { margin: 0; font-size: 11px; color: rgba(255,255,255,0.32); line-height: 1.4; }
+.exp-actions { display: flex; align-items: center; gap: 10px; }
+.exp-actions-spacer { flex: 1; }
+.exp-reindex {
+  background: transparent; border: 1px solid rgba(66,184,131,0.4); color: #6dd4a7;
+  padding: 8px 14px; border-radius: 8px; font-size: 12px; cursor: pointer; font-family: inherit;
+}
+.exp-reindex:hover { background: rgba(66,184,131,0.1); }
+.exp-reindex:disabled { opacity: 0.6; cursor: default; }
 .exp-cancel {
   background: transparent; border: 1px solid rgba(255,255,255,0.14); color: var(--text-dim);
   padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; font-family: inherit;

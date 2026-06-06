@@ -1282,14 +1282,18 @@ backend/src/main/java/com/tuiyan/backend/
 ### 经验库
 
 与「数据源 / 历史记录」同级别挂在工作空间下，沉淀可复用的经验文档（标题 + 正文 + 标签）。
+保存后自动建立向量索引（复用数据源 RAG 的 embedding 管线，落 `exp_chunk` / `exp_embedding`）；
+对话建模时按相关度自动召回为参考资料，来源名以「经验：…」前缀与数据源内容区分。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/api/experiences?workspaceId=` | 列出工作空间下经验（按更新时间倒序） |
+| `GET` | `/api/experiences?workspaceId=` | 列出工作空间下经验（按更新时间倒序，含 `indexStatus`） |
 | `GET` | `/api/experiences/{id}` | 取单条经验（含正文） |
-| `POST` | `/api/experiences` | 新建经验（`{title, content?, tags?}`） |
-| `PUT` | `/api/experiences/{id}` | 更新经验（字段可选，null 不改动） |
-| `DELETE` | `/api/experiences/{id}` | 删除经验 |
+| `POST` | `/api/experiences` | 新建经验（`{title, content?, tags?}`），自动建索引 |
+| `PUT` | `/api/experiences/{id}` | 更新经验（字段可选，null 不改动），自动重建索引 |
+| `DELETE` | `/api/experiences/{id}` | 删除经验（索引随外键级联清理） |
+| `POST` | `/api/experiences/{id}/reindex` | 手动重建向量索引（embedding 配置变更后补建） |
+| `GET` | `/api/experiences/{id}/index-status` | 查询索引状态 + 文本块数量 |
 
 ### 模板
 
