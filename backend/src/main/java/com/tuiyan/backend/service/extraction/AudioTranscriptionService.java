@@ -3,6 +3,7 @@ package com.tuiyan.backend.service.extraction;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.config.AsrProperties;
+import com.tuiyan.backend.config.LlmProperties;
 import com.tuiyan.backend.service.llm.LlmConfigResolver;
 import com.tuiyan.backend.service.llm.LlmHttpClient;
 import org.slf4j.Logger;
@@ -21,28 +22,53 @@ import java.util.List;
 
 /**
  * 音频转写 (ASR) 服务：把音频字节 POST 到 OpenAI 兼容的 {@code /audio/transcriptions} 端点，拿回文本。
- * <p>端点 / 鉴权优先取 {@link AsrProperties}；未配置时回退到 LLM 的 base-url / api-key
- * （复用 {@link LlmConfigResolver}）。HTTP 发送复用 {@link LlmHttpClient} 的连接池。
+ * <p>端点 / 鉴权按下面优先级解析：
+ * <ol>
+ *   <li>{@link LlmProperties} 中第一个 enabled 且声明 capability {@code asr} 的模型条目
+ *       —— 推荐方式：在 {@code app.llm.models} 里加一条音频转写模型，
+ *       和对话模型一样统一管理；</li>
+ *   <li>{@link AsrProperties}（{@code app.asr.*}）—— 兼容旧配置；</li>
+ *   <li>仍未配齐时回退到 {@link LlmConfigResolver} 的第一个 LLM（仅当该提供商支持音频转写时有效）。</li>
+ * </ol>
+ * HTTP 发送复用 {@link LlmHttpClient} 的连接池。
  * <p>失败时抛异常，由 {@link AudioFileHandler} 捕获并把该音频标记为 skipped——不影响整批其它文件抽取。
  */
 @Service
 public class AudioTranscriptionService {
 
     private static final Logger log = LoggerFactory.getLogger(AudioTranscriptionService.class);
+    /** ModelEntry.capabilities 中声明此值表示「该模型用于音频转文字」。 */
+    public static final String CAPABILITY_ASR = "asr";
 
     private final AsrProperties props;
+    private final LlmProperties llmProperties;
     private final LlmConfigResolver llmConfigResolver;
     private final LlmHttpClient llmHttp;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public AudioTranscriptionService(AsrProperties props, LlmConfigResolver llmConfigResolver, LlmHttpClient llmHttp) {
+    public AudioTranscriptionService(AsrProperties props,
+                                     LlmProperties llmProperties,
+                                     LlmConfigResolver llmConfigResolver,
+                                     LlmHttpClient llmHttp) {
         this.props = props;
+        this.llmProperties = llmProperties;
         this.llmConfigResolver = llmConfigResolver;
         this.llmHttp = llmHttp;
     }
 
     public boolean enabled() { return props.isEnabled(); }
     public long maxBytes() { return props.getMaxBytes(); }
+
+    /** 找 {@code app.llm.models} 中第一个 enabled 且声明 {@code asr} capability 的模型；无则 null。 */
+    private LlmProperties.ModelEntry findAsrModelEntry() {
+        for (LlmProperties.ModelEntry m : llmProperties.getModels()) {
+            if (!m.isEnabled()) continue;
+            List<String> caps = m.getCapabilities();
+            if (caps == null) continue;
+            for (String c : caps) if (CAPABILITY_ASR.equalsIgnoreCase(c)) return m;
+        }
+        return null;
+    }
 
     /** 转写结果：文本 + 可选时长（秒）+ 实际使用的模型名。 */
     public record TranscriptResult(String text, Double durationSeconds, String model) {}
@@ -52,27 +78,45 @@ public class AudioTranscriptionService {
      * 端点未配置 / HTTP 非 200 / 响应不可解析时抛异常。
      */
     public TranscriptResult transcribe(byte[] audio, String filename, String contentType) throws IOException {
-        String baseUrl = blankToNull(props.getBaseUrl());
-        String apiKey = blankToNull(props.getApiKey());
-        // base-url / api-key 任一缺失则回退 LLM 配置（仅当该提供商支持音频转写时才可用）
-        if (baseUrl == null || apiKey == null) {
-            try {
-                LlmHttpClient.ResolvedConfig llm = llmConfigResolver.resolveConfig(null, null);
-                if (baseUrl == null) baseUrl = llm.baseURL();
-                if (apiKey == null) apiKey = llm.apiKey();
-            } catch (RuntimeException ignore) {
-                // LLM 也未配置 key：留空，下面统一报 "未配置 ASR"
+        // 1) 优先使用 app.llm.models 中带 capability=asr 的模型
+        LlmProperties.ModelEntry asrModel = findAsrModelEntry();
+        String baseUrl = null;
+        String apiKey = null;
+        String modelName = null;
+        String source;
+        if (asrModel != null) {
+            baseUrl = blankToNull(asrModel.getBaseUrl());
+            apiKey = blankToNull(asrModel.getApiKey());
+            modelName = blankToNull(asrModel.getModelName());
+            source = "llm.models[" + asrModel.getId() + "]";
+        } else {
+            // 2) 兼容旧的 app.asr.* 配置
+            baseUrl = blankToNull(props.getBaseUrl());
+            apiKey = blankToNull(props.getApiKey());
+            modelName = blankToNull(props.getModel());
+            source = "asr.properties";
+            // 3) 还缺则回退到首个 LLM（仅当该提供商支持 /audio/transcriptions 时才可用）
+            if (baseUrl == null || apiKey == null) {
+                try {
+                    LlmHttpClient.ResolvedConfig llm = llmConfigResolver.resolveConfig(null, null);
+                    if (baseUrl == null) baseUrl = llm.baseURL();
+                    if (apiKey == null) apiKey = llm.apiKey();
+                    source = "llm.first";
+                } catch (RuntimeException ignore) {
+                    // 留空，下面统一报 "未配置 ASR"
+                }
             }
         }
-        if (baseUrl == null || baseUrl.isBlank() || apiKey == null || apiKey.isBlank()) {
+
+        if (baseUrl == null || baseUrl.isBlank() || apiKey == null || apiKey.isBlank() || modelName == null || modelName.isBlank()) {
             throw new IllegalStateException(
-                    "未配置可用的 ASR 服务（请设置 app.asr.base-url / api-key，或确认 LLM 提供商支持 /audio/transcriptions）");
+                    "未配置可用的音频转写模型（请在 app.llm.models 中加一条 capabilities: [asr] 的模型，或填写 app.asr.base-url/api-key/model）");
         }
 
         boolean verbose = props.isTimestamps();
         String url = joinUrl(baseUrl, "audio/transcriptions");
         String boundary = "----TuiyanAsr" + Long.toHexString(System.nanoTime());
-        byte[] body = buildMultipart(boundary, audio, filename, guessAudioMime(filename, contentType), verbose);
+        byte[] body = buildMultipart(boundary, audio, filename, guessAudioMime(filename, contentType), verbose, modelName);
 
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(Math.max(10, props.getTimeoutSeconds())))
@@ -87,15 +131,17 @@ public class AudioTranscriptionService {
 
         if (resp.statusCode() != 200) {
             String snippet = resp.body() == null ? "" : resp.body().substring(0, Math.min(300, resp.body().length()));
-            log.warn("[ASR] 转写失败 status={} 耗时={}ms body={}", resp.statusCode(), elapsed, snippet);
+            log.warn("[ASR] 转写失败 source={} model={} status={} 耗时={}ms body={}",
+                    source, modelName, resp.statusCode(), elapsed, snippet);
             throw new RuntimeException("ASR 调用失败 HTTP " + resp.statusCode() + "：" + snippet);
         }
-        log.info("[ASR] 转写成功 model={} 耗时={}ms 响应={}字符", props.getModel(), elapsed, resp.body().length());
-        return parseResponse(resp.body(), verbose);
+        log.info("[ASR] 转写成功 source={} model={} 耗时={}ms 响应={}字符",
+                source, modelName, elapsed, resp.body().length());
+        return parseResponse(resp.body(), verbose, modelName);
     }
 
     /** 解析转写响应：verbose_json 拼 {@code [mm:ss] 文本} 分段，否则直接取 {@code text} 字段。 */
-    private TranscriptResult parseResponse(String responseBody, boolean verbose) throws IOException {
+    private TranscriptResult parseResponse(String responseBody, boolean verbose, String modelName) throws IOException {
         JsonNode root = objectMapper.readTree(responseBody);
         Double duration = root.path("duration").isNumber() ? root.get("duration").asDouble() : null;
         if (verbose && root.path("segments").isArray() && root.get("segments").size() > 0) {
@@ -106,17 +152,17 @@ public class AudioTranscriptionService {
                 sb.append(fmtTimestamp(seg.path("start").asDouble(0))).append(' ').append(segText).append('\n');
             }
             String text = sb.toString().strip();
-            if (!text.isEmpty()) return new TranscriptResult(text, duration, props.getModel());
+            if (!text.isEmpty()) return new TranscriptResult(text, duration, modelName);
         }
         // 默认 / 回退：直接取 text 字段
-        return new TranscriptResult(root.path("text").asText("").strip(), duration, props.getModel());
+        return new TranscriptResult(root.path("text").asText("").strip(), duration, modelName);
     }
 
     /** 手工拼 multipart/form-data：model + [language] + response_format + file（{@link HttpRequest} 无内建 multipart）。 */
-    private byte[] buildMultipart(String boundary, byte[] audio, String filename, String mime, boolean verbose) throws IOException {
+    private byte[] buildMultipart(String boundary, byte[] audio, String filename, String mime, boolean verbose, String modelName) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         List<String[]> fields = new ArrayList<>();
-        fields.add(new String[]{"model", props.getModel()});
+        fields.add(new String[]{"model", modelName});
         if (props.getLanguage() != null && !props.getLanguage().isBlank()) {
             fields.add(new String[]{"language", props.getLanguage().strip()});
         }
