@@ -2,6 +2,7 @@ package com.tuiyan.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.entity.DataSourcePO;
 import com.tuiyan.backend.model.ChatRequest;
@@ -337,12 +338,19 @@ public class ChatLlmService {
             finalEvent.put("reply", reply);
             finalEvent.set("add_nodes", addNodes);
             finalEvent.set("add_edges", addEdges);
-            // 透传 LLM 返回的 clarifying question(如果有),前端会渲染为可点击选项
-            JsonNode question = result.path("question");
-            if (question != null && !question.isMissingNode() && !question.isNull()
-                    && question.has("text") && !question.path("text").asText("").isBlank()) {
-                finalEvent.set("question", question);
+            // 透传 LLM 返回的 clarifying questions(支持一次多个问题、单题多选);
+            // 兼容旧的单 question 字段。前端渲染为可点击选项卡片。最多 4 个问题。
+            ArrayNode questions = objectMapper.createArrayNode();
+            JsonNode qsNode = result.path("questions");
+            if (qsNode.isArray()) {
+                for (JsonNode q : qsNode) {
+                    if (questions.size() >= 4) break;
+                    appendValidQuestion(questions, q);
+                }
+            } else {
+                appendValidQuestion(questions, result.path("question"));
             }
+            if (!questions.isEmpty()) finalEvent.set("questions", questions);
             emitter.send(SseEmitter.event().name("complete")
                     .data(objectMapper.writeValueAsString(finalEvent)));
             emitter.complete();
@@ -356,6 +364,15 @@ public class ChatLlmService {
             }
             emitter.complete();
         }
+    }
+
+    /** 校验并收录一个 clarifying question:需有非空 text 与非空 options 数组,否则跳过。 */
+    private static void appendValidQuestion(ArrayNode arr, JsonNode q) {
+        if (q == null || q.isMissingNode() || q.isNull()) return;
+        if (!q.has("text") || q.path("text").asText("").isBlank()) return;
+        JsonNode opts = q.path("options");
+        if (!opts.isArray() || opts.isEmpty()) return;
+        arr.add(q);
     }
 
     /**

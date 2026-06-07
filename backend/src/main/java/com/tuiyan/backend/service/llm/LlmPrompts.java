@@ -64,13 +64,17 @@ public final class LlmPrompts {
               ]
             }
           ],
-          "question": {
-            "text": "OPTIONAL — only set when user input is ambiguous and the choice would materially change the ontology. A short clarifying question (one sentence, Chinese).",
-            "options": [
-              { "label": "A concrete choice the user can click (short Chinese phrase)" },
-              { "label": "Another choice" }
-            ]
-          }
+          "questions": [
+            {
+              "header": "OPTIONAL — a very short label/topic for this question (≤6 Chinese chars), e.g. '客户类型' / '建模视角'.",
+              "text": "A short clarifying question (one sentence, Chinese).",
+              "multiSelect": "OPTIONAL boolean — set true ONLY when the user could reasonably pick several options at once (e.g. which perspectives/scopes to include). Default false (single choice).",
+              "options": [
+                { "label": "A concrete choice the user can click (short Chinese phrase, ≤12 chars)" },
+                { "label": "Another choice" }
+              ]
+            }
+          ]
         }
         """;
 
@@ -139,8 +143,8 @@ public final class LlmPrompts {
         - If the user's message is very short (e.g. "添加一个客户实体"), output JUST that
           one node — do NOT speculate about its neighbors.
 
-        **Interactive Clarification (very important — err on the side of ASKING):**
-        When the user's description has genuine ambiguity that would lead to materially different ontology choices, INSTEAD of guessing silently you SHOULD set the optional `question` field with 2–4 concrete options the user can click. Examples of when to ask:
+        **Interactive Clarification (VERY IMPORTANT — strongly err on the side of ASKING):**
+        When the user's description has genuine ambiguity that would lead to materially different ontology choices, INSTEAD of guessing silently you SHOULD populate the optional `questions` array (1–4 questions, each with 2–4 concrete options the user can click). Asking first is the DEFAULT, preferred behavior whenever you are not confident — a clarifying question is almost always better than a confident-looking wrong graph. Examples of when to ask:
         - The same word could refer to multiple distinct entities (e.g., "客户" = 个人客户 / 企业客户?).
         - You don't know which database table or data source the user wants to base on.
         - There are multiple reasonable modeling choices (subclass vs. instance vs. separate entity).
@@ -152,15 +156,25 @@ public final class LlmPrompts {
           you can't tell which from context.
         - You'd otherwise produce a thin guess: if your best response would have < 2 highly-grounded
           (confidence ≥ 0.8) nodes, prefer to ASK first rather than emit a low-confidence sketch.
-        Rules for `question`:
-        - Omit it entirely when the user's intent is clear — never ask trivial questions, and never
-          ask the same question twice if the user already answered something equivalent.
-        - When you ask, you may still emit `add_nodes` / `add_edges` for the parts that ARE clearly
-          correct; the question covers only the ambiguous part.
-        - Options should be SHORT (≤ 12 Chinese characters), mutually exclusive, and actionable.
-        - Always include a "继续按当前理解构建" or similar fallback option so the user can skip the
-          question. The user can ALSO type a free-form answer in the chat — treat any subsequent
-          user message after a question as a potential answer and respect their wording.
+
+        Multiple questions at once: when several independent things are unclear (e.g. 建模视角 + 粒度 + 主数据源),
+        ask them together as separate entries in `questions` (max 4) — one focused question per entry, each with
+        its own short `header`. Do NOT cram multiple asks into one question's text.
+
+        Multi-select: set `multiSelect: true` on a question when the user can sensibly choose several options at
+        once (e.g. "要包含哪些视角？" → 采购 / 物流 / 财务 can all apply). Use single-select (default) for
+        mutually-exclusive choices.
+
+        Rules for `questions`:
+        - Omit the array entirely (or leave empty) when the user's intent is clear — never ask trivial questions,
+          and never re-ask something the user already answered earlier in the conversation.
+        - When you ask, you may still emit `add_nodes` / `add_edges` for the parts that ARE clearly correct;
+          the questions cover only the ambiguous parts.
+        - Options should be SHORT (≤ 12 Chinese characters) and actionable; for single-select they must be
+          mutually exclusive.
+        - For single-select questions, always include a "继续按当前理解构建" / "都可以" style fallback so the user
+          can skip. The user can ALSO type a free-form answer in the chat — treat any subsequent user message
+          after questions as a potential answer and respect their wording.
 
         CRITICAL INSTRUCTION:
         1. Explicitly represent rules (type: 'rule') if they drive events.

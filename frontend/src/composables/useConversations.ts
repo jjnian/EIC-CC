@@ -57,9 +57,15 @@ export interface ChatBuildStep {
 
 /** LLM 主动抛回给用户的澄清问题(可选),用户点选后会作为下一条 user 消息发回。 */
 export interface ChatQuestionMsg {
+  /** 简短主题标签(≤6 字),如「客户类型」。 */
+  header?: string;
   text: string;
+  /** true 时可多选,需点「提交回答」统一发送;false/缺省为单选。 */
+  multiSelect?: boolean;
   options: { label: string; value?: string }[];
-  /** 已被用户回答时,记录所选 label,渲染为只读样式避免重复点击。 */
+  /** 用户当前勾选的选项 label(多选/单选共用,单选长度≤1)。 */
+  selected?: string[];
+  /** 已被用户回答时,记录答案摘要,渲染为只读样式避免重复点击。 */
   answered?: string;
 }
 
@@ -70,6 +76,11 @@ export interface ChatMsg {
   prediction?: PredictionMsg;
   buildSteps?: ChatBuildStep[];
   buildDone?: boolean;
+  /** LLM 抛回的澄清问题组(支持一次多个、单题多选)。 */
+  questions?: ChatQuestionMsg[];
+  /** 该问题组是否已整体提交/跳过。 */
+  questionsDone?: boolean;
+  /** 旧格式:单个问题。仅用于兼容历史会话渲染。 */
   question?: ChatQuestionMsg;
   /** 分析完成后生成的本体模型 ID，有值时显示"查看图谱"按钮。 */
   graphModelId?: string;

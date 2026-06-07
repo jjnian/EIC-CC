@@ -251,7 +251,7 @@ cd frontend && npm install && npm run dev
         POST /api/chat (Accept: text/event-stream)
                 │
                 ├─ event: text       — 模型 token 流
-                ├─ event: complete   — { reply, add_nodes, add_edges }
+                ├─ event: complete   — { reply, add_nodes, add_edges, questions? }
                 └─ event: error
                 ▼
         前端 dedupeIncoming → history.snapshot() → 落图
@@ -1372,7 +1372,7 @@ backend/src/main/java/com/tuiyan/backend/
 | event | data | 说明 |
 |---|---|---|
 | `text` | 文本片段 | 模型流式 token |
-| `complete` | `{ reply, add_nodes, add_edges }` | 对话完成，含新增节点/边 |
+| `complete` | `{ reply, add_nodes, add_edges, questions? }` | 对话完成，含新增节点/边；`questions` 为可选澄清问题组（一次最多 4 个、单题可多选），前端渲染为带选项的问题卡片让用户点选 |
 | `error` | 错误描述 | 生成失败 |
 
 #### `/api/scenarios`（推演）事件
