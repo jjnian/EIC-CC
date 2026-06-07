@@ -384,21 +384,81 @@ const openMoveMenu = () => {
   ctxMenu.value = null;
 };
 
-const doMove = async (targetFolderId: string | null) => {
-  const mm = moveMenu.value;
-  if (!mm) return;
-  closeCtxMenu();
+// 实际执行移动:按条目类型调对应接口并刷新对应的树缓存。供右键菜单与拖拽共用。
+const performMove = async (
+  kind: 'datasource' | 'folder' | 'experience' | 'exp-folder',
+  id: string,
+  targetFolderId: string | null,
+) => {
   try {
-    if (mm.kind === 'datasource') await moveDataSourceToFolder(mm.id, targetFolderId);
-    else if (mm.kind === 'folder') await moveFolder(mm.id, targetFolderId);
-    else if (mm.kind === 'experience') await moveExperienceToFolder(mm.id, targetFolderId);
-    else await moveExperienceFolder(mm.id, targetFolderId);
+    if (kind === 'datasource') await moveDataSourceToFolder(id, targetFolderId);
+    else if (kind === 'folder') await moveFolder(id, targetFolderId);
+    else if (kind === 'experience') await moveExperienceToFolder(id, targetFolderId);
+    else await moveExperienceFolder(id, targetFolderId);
     if (targetFolderId) folderOpen.value = new Set(folderOpen.value).add(targetFolderId);
-    if (mm.kind === 'experience' || mm.kind === 'exp-folder') await refreshExp();
+    if (kind === 'experience' || kind === 'exp-folder') await refreshExp();
     else await refreshDS();
   } catch (e) {
     toast.warn(e instanceof ApiError ? e.message : '移动失败');
   }
+};
+
+const doMove = async (targetFolderId: string | null) => {
+  const mm = moveMenu.value;
+  if (!mm) return;
+  closeCtxMenu();
+  await performMove(mm.kind, mm.id, targetFolderId);
+};
+
+// ── 拖拽归类 ─────────────────────────────────────────────
+// 把数据源/经验或文件夹拖到目标文件夹(或区段标题=根目录)上松手即归类。
+type DragKind = 'datasource' | 'folder' | 'experience' | 'exp-folder';
+const dragItem = ref<null | { kind: DragKind; id: string }>(null);
+// 当前高亮的放置目标:文件夹 id,或 '__root_ds__' / '__root_exp__' 表示拖到根。
+const dragOverKey = ref<string | null>(null);
+
+const isExpKind = (k: DragKind) => k === 'experience' || k === 'exp-folder';
+const isFolderKind = (k: DragKind) => k === 'folder' || k === 'exp-folder';
+
+const onDragStart = (kind: DragKind, id: string, e: DragEvent) => {
+  dragItem.value = { kind, id };
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id); // Firefox 需要有数据才允许拖拽
+  }
+};
+
+const onDragEnd = () => { dragItem.value = null; dragOverKey.value = null; };
+
+// 当前拖拽项能否落到该家族的某目标(folderId=null 表示根)。
+const canDrop = (family: 'ds' | 'exp', targetFolderId: string | null): boolean => {
+  const d = dragItem.value;
+  if (!d) return false;
+  // 家族必须一致:数据源项只能进数据源文件夹,经验项只能进经验文件夹
+  if ((family === 'exp') !== isExpKind(d.kind)) return false;
+  // 文件夹拖进自身或自己的子树 → 禁止(环)
+  if (targetFolderId && isFolderKind(d.kind)) {
+    const folders = family === 'exp' ? tree.getExpFolders(wsId.value) : tree.getFolders(wsId.value);
+    if (subtreeIds(d.id, folders).has(targetFolderId)) return false;
+  }
+  return true;
+};
+
+const onDragOver = (family: 'ds' | 'exp', targetFolderId: string | null, e: DragEvent) => {
+  if (!canDrop(family, targetFolderId)) return;
+  e.preventDefault(); // 允许放置
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  dragOverKey.value = targetFolderId ?? `__root_${family}__`;
+};
+
+const onDrop = async (family: 'ds' | 'exp', targetFolderId: string | null, e: DragEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const d = dragItem.value;
+  const ok = canDrop(family, targetFolderId);
+  dragItem.value = null;
+  dragOverKey.value = null;
+  if (d && ok) await performMove(d.kind, d.id, targetFolderId);
 };
 
 // ── 经验库文件夹树 ───────────────────────────────────────
@@ -682,8 +742,11 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
         <button
           type="button"
           class="ws-section-head"
+          :class="{ 'drag-root': dragOverKey === '__root_ds__' }"
           @click="toggleSection('ds', $event)"
           @contextmenu="openCtxMenu('datasource-section', workspace.id, '数据源', $event)"
+          @dragover="onDragOver('ds', null, $event)"
+          @drop="onDrop('ds', null, $event)"
         >
           <span class="ws-section-caret" :class="{ open: sections.ds }">›</span>
           <span class="ws-section-lbl">数据源</span>
@@ -702,8 +765,14 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
               <button
                 v-if="row.kind === 'folder'"
                 class="ws-tree-row is-folder"
+                :class="{ 'drag-over': dragOverKey === row.folder!.id }"
+                draggable="true"
                 @click.stop="toggleFolder(row.folder!.id)"
                 @contextmenu="openCtxMenu('folder', row.folder!.id, row.folder!.name, $event)"
+                @dragstart="onDragStart('folder', row.folder!.id, $event)"
+                @dragend="onDragEnd"
+                @dragover="onDragOver('ds', row.folder!.id, $event)"
+                @drop="onDrop('ds', row.folder!.id, $event)"
                 :title="row.folder!.name"
               >
                 <span v-for="i in row.depth" :key="'g' + i" class="ws-guide" />
@@ -718,8 +787,11 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
               <button
                 v-else
                 class="ws-tree-row is-ds"
+                draggable="true"
                 @click.stop="emit('open-datasource', row.ds!.id)"
                 @contextmenu="openCtxMenu('datasource', row.ds!.id, row.ds!.name, $event)"
+                @dragstart="onDragStart('datasource', row.ds!.id, $event)"
+                @dragend="onDragEnd"
                 :title="row.ds!.name"
               >
                 <span v-for="i in row.depth" :key="'g' + i" class="ws-guide" />
@@ -740,8 +812,11 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
         <button
           type="button"
           class="ws-section-head"
+          :class="{ 'drag-root': dragOverKey === '__root_exp__' }"
           @click="toggleSection('exp', $event)"
           @contextmenu="openCtxMenu('experience-section', workspace.id, '经验库', $event)"
+          @dragover="onDragOver('exp', null, $event)"
+          @drop="onDrop('exp', null, $event)"
         >
           <span class="ws-section-caret" :class="{ open: sections.exp }">›</span>
           <span class="ws-section-lbl">经验库</span>
@@ -760,8 +835,14 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
               <button
                 v-if="row.kind === 'folder'"
                 class="ws-tree-row is-folder"
+                :class="{ 'drag-over': dragOverKey === row.folder!.id }"
+                draggable="true"
                 @click.stop="toggleFolder(row.folder!.id)"
                 @contextmenu="openCtxMenu('exp-folder', row.folder!.id, row.folder!.name, $event)"
+                @dragstart="onDragStart('exp-folder', row.folder!.id, $event)"
+                @dragend="onDragEnd"
+                @dragover="onDragOver('exp', row.folder!.id, $event)"
+                @drop="onDrop('exp', row.folder!.id, $event)"
                 :title="row.folder!.name"
               >
                 <span v-for="i in row.depth" :key="'g' + i" class="ws-guide" />
@@ -776,8 +857,11 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
               <button
                 v-else
                 class="ws-tree-row is-ds"
+                draggable="true"
                 @click.stop="emit('open-experience', row.exp!.id)"
                 @contextmenu="openCtxMenu('experience', row.exp!.id, row.exp!.title, $event)"
+                @dragstart="onDragStart('experience', row.exp!.id, $event)"
+                @dragend="onDragEnd"
                 :title="row.exp!.title"
               >
                 <span v-for="i in row.depth" :key="'g' + i" class="ws-guide" />
@@ -1165,6 +1249,21 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 .ws-tree-row.is-folder .ws-tree-main { color: rgba(255,255,255,.80); font-weight: 600; }
 .ws-tree-row.is-folder:hover .ws-tree-main { color: #ffe7a8; }
 .ws-tree-row.is-ds:hover .ws-tree-ico { filter: drop-shadow(0 0 5px rgba(66,184,131,.5)); }
+/* 拖拽中:行变半透明,提示「正在被拖动」 */
+.ws-tree-row[draggable="true"]:active { cursor: grabbing; }
+/* 拖拽悬停在文件夹/根目录上方:高亮放置目标 */
+.ws-tree-row.is-folder.drag-over .ws-tree-main {
+  background: rgba(66,184,131,.20);
+  color: #aef0cf;
+  box-shadow: inset 0 0 0 1px rgba(66,184,131,.55);
+  border-radius: 6px;
+}
+.ws-section-head.drag-root {
+  background: rgba(66,184,131,.16);
+  box-shadow: inset 0 0 0 1px rgba(66,184,131,.5);
+  border-radius: 7px;
+}
+.ws-section-head.drag-root .ws-section-lbl { color: #aef0cf; }
 
 .node-ctx-menu {
   position: fixed;
