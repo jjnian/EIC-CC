@@ -14,6 +14,8 @@ public class ExperiencePO {
     @TableId(type = IdType.INPUT)
     private String id;
     private String workspaceId;
+    /** 所属文件夹 id；NULL = 工作空间根目录（不在任何文件夹内） */
+    private String folderId;
     private String title;
     /** 经验正文（文本 / Markdown） */
     private String content;
@@ -38,6 +40,8 @@ public class ExperiencePO {
     public void setId(String id) { this.id = id; }
     public String getWorkspaceId() { return workspaceId; }
     public void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
+    public String getFolderId() { return folderId; }
+    public void setFolderId(String folderId) { this.folderId = folderId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getContent() { return content; }

@@ -24,6 +24,8 @@ export interface Experience {
   id: string;
   /** 所属工作空间 id（总览/跨工作空间时返回） */
   workspaceId?: string;
+  /** 所属文件夹 id；缺省 = 工作空间根目录（不在任何文件夹内） */
+  folderId?: string;
   title: string;
   content?: string;
   /** 逗号分隔的标签 */

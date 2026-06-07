@@ -489,6 +489,21 @@ CREATE TABLE IF NOT EXISTS experience (
 CREATE INDEX IF NOT EXISTS idx_experience_ws_created
     ON experience (workspace_id, created_at DESC);
 
+-- 8.0b 经验库文件夹：工作空间内任意层级归类（parent_id 自引用，NULL=根），与数据源文件夹平行
+CREATE TABLE IF NOT EXISTS experience_folder (
+    id            VARCHAR(64)  PRIMARY KEY,
+    workspace_id  VARCHAR(64)  NOT NULL,
+    parent_id     VARCHAR(64),                       -- NULL = 工作空间根目录
+    name          VARCHAR(255) NOT NULL,
+    sort_order    INTEGER      DEFAULT 0,
+    created_at    BIGINT       NOT NULL,
+    updated_at    BIGINT
+);
+CREATE INDEX IF NOT EXISTS idx_exp_folder_ws
+    ON experience_folder (workspace_id, parent_id);
+-- 经验所属文件夹（NULL = 工作空间根，不在任何文件夹内）
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS folder_id VARCHAR(64);
+
 -- 8.1 经验库向量索引：状态字段 + 文本块 + 向量（与数据源 ds_chunk/ds_embedding 平行）
 ALTER TABLE experience ADD COLUMN IF NOT EXISTS index_status VARCHAR(16) DEFAULT 'none';
 

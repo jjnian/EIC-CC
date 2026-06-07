@@ -286,6 +286,16 @@ public class ExperienceController {
         return ResponseEntity.ok(exp);
     }
 
+    /** 移动经验到文件夹：{folderId}（null/空 = 移到根）。 */
+    @PutMapping("/{id}/folder")
+    public ResponseEntity<SuccessCountResponse> moveToFolder(@PathVariable String id,
+                                                             @RequestBody(required = false) Map<String, Object> body) {
+        Object v = body == null ? null : body.get("folderId");
+        String folderId = v == null ? null : String.valueOf(v);
+        boolean ok = repo.moveToFolder(id, folderId);
+        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<SuccessCountResponse> delete(@PathVariable String id) {
         boolean ok = repo.delete(id);

@@ -1,7 +1,9 @@
 package com.tuiyan.backend.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.tuiyan.backend.entity.ExperienceFolderPO;
 import com.tuiyan.backend.entity.ExperiencePO;
+import com.tuiyan.backend.mapper.ExperienceFolderMapper;
 import com.tuiyan.backend.mapper.ExperienceMapper;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Repository;
@@ -19,9 +21,11 @@ import java.util.Map;
 public class ExperienceRepository {
 
     private final ExperienceMapper mapper;
+    private final ExperienceFolderMapper folderMapper;
 
-    public ExperienceRepository(ExperienceMapper mapper) {
+    public ExperienceRepository(ExperienceMapper mapper, ExperienceFolderMapper folderMapper) {
         this.mapper = mapper;
+        this.folderMapper = folderMapper;
     }
 
     /** 当前工作空间下全部经验，按创建时间倒序。 */
@@ -116,6 +120,27 @@ public class ExperienceRepository {
         return toMap(po);
     }
 
+    /**
+     * 移动经验到文件夹（folderId=null 移到根）。校验经验与目标文件夹均属于当前工作空间。
+     * @return 是否更新成功；经验不存在/越权返回 false，目标文件夹非法抛 400。
+     */
+    @Transactional
+    public boolean moveToFolder(String id, String folderId) {
+        String ws = WorkspaceContext.required();
+        ExperiencePO po = mapper.selectById(id);
+        if (po == null || !ws.equals(po.getWorkspaceId())) return false;
+        String target = (folderId == null || folderId.isBlank()) ? null : folderId.trim();
+        if (target != null) {
+            ExperienceFolderPO f = folderMapper.selectById(target);
+            if (f == null || !ws.equals(f.getWorkspaceId())) {
+                throw new IllegalArgumentException("目标文件夹不存在或不属于当前工作空间");
+            }
+        }
+        po.setFolderId(target);
+        po.setUpdatedAt(System.currentTimeMillis());
+        return mapper.updateById(po) > 0;
+    }
+
     /** 按 id 取一行（不做工作空间隔离，索引服务在异步线程里调用，自行不依赖请求上下文）。 */
     public ExperiencePO findById(String id) {
         return mapper.selectById(id);
@@ -141,6 +166,7 @@ public class ExperienceRepository {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", po.getId());
         out.put("workspaceId", po.getWorkspaceId());
+        if (po.getFolderId() != null) out.put("folderId", po.getFolderId());
         out.put("title", po.getTitle());
         if (po.getContent() != null) out.put("content", po.getContent());
         if (po.getTags() != null) out.put("tags", po.getTags());

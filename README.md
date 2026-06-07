@@ -1318,6 +1318,18 @@ backend/src/main/java/com/tuiyan/backend/
 | `POST` | `/api/experiences/from-ddl` | 数据源导出 DDL 沉淀为经验（`{dataSourceId}`，「供血」入口） |
 | `POST` | `/api/experiences/extract-ontology` | **聚合整个工作空间经验库构建本体血缘图（SSE）** |
 | `GET` | `/api/experiences/{id}/file` | 预览/下载上传原件（`?download` 附件下载，`?wsId` 兜底鉴权） |
+| `PUT` | `/api/experiences/{id}/folder` | 把经验移动到文件夹（`{folderId}`，null=根） |
+
+#### 经验库文件夹
+
+工作空间内任意层级归类（`parent_id` 自引用，与数据源文件夹结构平行）；经验通过 `folder_id` 归属文件夹，缺省在根目录。侧栏经验库区段渲染为可折叠的文件夹树，右键可建文件夹 / 移动 / 重命名 / 删除（删文件夹时其中的子文件夹与经验上提到父级，不丢数据）。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `GET` | `/api/experience-folders?workspaceId=` | 列出工作空间下全部文件夹（扁平，前端拼树） |
+| `POST` | `/api/experience-folders` | 新建文件夹（`{name, parentId?}`，parentId 省略=根） |
+| `PUT` | `/api/experience-folders/{id}` | 重命名 / 移动（`{name?, parentId?}`；出现 parentId 即视为移动，含环检测） |
+| `DELETE` | `/api/experience-folders/{id}` | 删除文件夹（子文件夹与经验上提到父级） |
 
 ### 节点数据供血绑定
 
