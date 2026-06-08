@@ -68,6 +68,10 @@ const mention = useMention({
     const wsId = ws.currentId.value;
     return wsId ? (tree.getDataSources(wsId) || []).map(ds => ({ id: ds.id, name: ds.name })) : [];
   },
+  experiences: () => {
+    const wsId = ws.currentId.value;
+    return wsId ? (tree.getExperiences(wsId) || []).map(e => ({ id: e.id, title: e.title })) : [];
+  },
 });
 const {
   mentionOpen,
@@ -286,7 +290,7 @@ const consumeSeed = (seed: { text: string; files: File[] }) => {
 onMounted(() => {
   loadModels();
   const wsId = ws.currentId.value;
-  if (wsId) tree.loadDataSources(wsId);
+  if (wsId) { tree.loadDataSources(wsId); tree.loadExperiences(wsId); }
   if (props.seed && (props.seed.text || props.seed.files.length)) {
     initConversation('new');
     consumeSeed(props.seed);
@@ -430,7 +434,7 @@ defineExpose({
 });
 
 watch(() => ws.currentId.value, (wsId) => {
-  if (wsId) tree.loadDataSources(wsId);
+  if (wsId) { tree.loadDataSources(wsId); tree.loadExperiences(wsId); }
 }, { immediate: true });
 
 </script>
@@ -467,7 +471,7 @@ watch(() => ws.currentId.value, (wsId) => {
         class="mention-chip"
         :class="'mc-' + m.kind"
       >
-        <span class="mc-kind">{{ m.kind === 'graph' ? '图' : m.kind === 'datasource' ? '源' : m.kind === 'relation' ? '关' : '点' }}</span>
+        <span class="mc-kind">{{ m.kind === 'graph' ? '图' : m.kind === 'datasource' ? '源' : m.kind === 'relation' ? '关' : m.kind === 'experience' ? '验' : '点' }}</span>
         <span class="mc-label">{{ m.label }}</span>
         <button
           class="mc-x"
@@ -488,7 +492,7 @@ watch(() => ws.currentId.value, (wsId) => {
         <!-- @ mention dropdown -->
         <div ref="mentionListRef" class="mention-dropdown" v-if="mentionOpen && mentionItems.length > 0">
           <div class="mention-header">
-            <span>引用 {{ mentionQuery ? `"${mentionQuery}"` : '图谱 / 数据源' }}</span>
+            <span>引用 {{ mentionQuery ? `"${mentionQuery}"` : '图谱 / 数据源 / 经验库' }}</span>
             <span class="mention-hint">↑↓ 选择 · Enter 确认 · Esc 取消</span>
           </div>
           <div v-for="section in mentionTree" :key="section.key" class="mention-section">
@@ -503,13 +507,14 @@ watch(() => ws.currentId.value, (wsId) => {
                   active: row.index === mentionIndex,
                   'mention-edge': row.item.kind === 'relation',
                   'mention-graph': row.item.kind === 'graph',
-                  'mention-ds': row.item.kind === 'datasource'
+                  'mention-ds': row.item.kind === 'datasource',
+                  'mention-exp': row.item.kind === 'experience'
                 }"
                 @mousedown.prevent="selectMention(row.item)"
                 @mouseenter="mentionIndex = row.index"
               >
                 <span class="mention-kind">
-                  {{ row.item.kind === 'graph' ? '图' : row.item.kind === 'datasource' ? '源' : row.item.kind === 'relation' ? '关' : '点' }}
+                  {{ row.item.kind === 'graph' ? '图' : row.item.kind === 'datasource' ? '源' : row.item.kind === 'relation' ? '关' : row.item.kind === 'experience' ? '验' : '点' }}
                 </span>
                 <span class="mention-label">{{ row.item.label }}</span>
                 <span class="mention-sub">{{ row.item.sub }}</span>
@@ -688,6 +693,7 @@ watch(() => ws.currentId.value, (wsId) => {
 .mention-chip.mc-datasource { background: rgba(34,221,136,.12); border-color: rgba(34,221,136,.3); color: #9febc6; }
 .mention-chip.mc-relation { background: rgba(255,191,73,.12); border-color: rgba(255,191,73,.3); color: #ffd99b; }
 .mention-chip.mc-node { background: rgba(74,141,240,.15); border-color: rgba(74,141,240,.35); color: #b9d4ff; }
+.mention-chip.mc-experience { background: rgba(125,211,252,.12); border-color: rgba(125,211,252,.3); color: #bae6fd; }
 .mc-kind {
   font-size: 10px; padding: 0 4px; border-radius: 4px;
   background: rgba(0,0,0,.25); color: inherit; font-weight: 600;
@@ -845,6 +851,7 @@ watch(() => ws.currentId.value, (wsId) => {
 .mention-item.mention-edge .mention-kind { color: #639bff; }
 .mention-item.mention-graph .mention-kind { color: #42b883; }
 .mention-item.mention-ds .mention-kind { color: #fbbf24; }
+.mention-item.mention-exp .mention-kind { color: #7dd3fc; }
 .mention-kind {
   font-size: 12px;
   color: #42b883;

@@ -2,7 +2,7 @@ import { ref, computed, nextTick, type Ref, type ComputedRef } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
 
 export interface MentionItem {
-  kind: 'graph' | 'relation' | 'node' | 'datasource';
+  kind: 'graph' | 'relation' | 'node' | 'datasource' | 'experience';
   id: string;
   label: string;
   sub: string;
@@ -15,7 +15,7 @@ export interface MentionItem {
  * 从而保持 mentions 与 input 文本同步。
  */
 export interface ActiveMention {
-  kind: 'graph' | 'relation' | 'node' | 'datasource';
+  kind: 'graph' | 'relation' | 'node' | 'datasource' | 'experience';
   id: string;
   label: string;
   token: string;
@@ -45,6 +45,8 @@ export interface MentionCtx {
   edges: ComputedRef<OntologyEdge[]> | Ref<OntologyEdge[]> | (() => OntologyEdge[]);
   graphLabel?: ComputedRef<string> | Ref<string> | (() => string);
   dataSources?: ComputedRef<{ id: string; name: string }[]> | Ref<{ id: string; name: string }[]> | (() => { id: string; name: string }[]);
+  /** 当前工作空间的经验库文件，供 @ 引用为定向上下文。 */
+  experiences?: ComputedRef<{ id: string; title: string }[]> | Ref<{ id: string; title: string }[]> | (() => { id: string; title: string }[]);
 }
 
 function unwrap<T>(v: ComputedRef<T> | Ref<T> | (() => T)): T {
@@ -66,6 +68,7 @@ export function useMention(ctx: MentionCtx) {
     const edges = unwrap(ctx.edges) || [];
     const graphLabel = ctx.graphLabel ? unwrap(ctx.graphLabel) : '';
     const dataSources = ctx.dataSources ? unwrap(ctx.dataSources) || [] : [];
+    const experiences = ctx.experiences ? unwrap(ctx.experiences) || [] : [];
 
     const items: MentionItem[] = [];
     if (graphLabel) {
@@ -101,6 +104,15 @@ export function useMention(ctx: MentionCtx) {
       });
     }
 
+    for (const exp of experiences) {
+      items.push({
+        kind: 'experience',
+        id: exp.id,
+        label: exp.title || exp.id,
+        sub: '经验库',
+      });
+    }
+
     if (!q) return items.slice(0, 24);
     return items
       .filter(it => it.label.toLowerCase().includes(q) || it.sub.toLowerCase().includes(q))
@@ -125,6 +137,13 @@ export function useMention(ctx: MentionCtx) {
           { key: 'datasources', label: '本空间数据源', items: [] },
         ],
       },
+      {
+        key: 'experience',
+        label: '经验库',
+        groups: [
+          { key: 'experiences', label: '本空间经验文件', items: [] },
+        ],
+      },
     ];
 
     mentionItems.value.forEach((item, index) => {
@@ -133,6 +152,7 @@ export function useMention(ctx: MentionCtx) {
       else if (item.kind === 'node') sections[0].groups[1].items.push(row);
       else if (item.kind === 'relation') sections[0].groups[2].items.push(row);
       else if (item.kind === 'datasource') sections[1].groups[0].items.push(row);
+      else if (item.kind === 'experience') sections[2].groups[0].items.push(row);
     });
 
     return sections
@@ -170,6 +190,7 @@ export function useMention(ctx: MentionCtx) {
     const token = it.kind === 'graph' ? `@图谱:${it.label}`
       : it.kind === 'relation' ? `@关系:${it.label}`
       : it.kind === 'datasource' ? `@数据源:${it.label}`
+      : it.kind === 'experience' ? `@经验:${it.label}`
       : `@${it.label}`;
     ctx.input.value = before + token + ' ' + after;
     mentionOpen.value = false;

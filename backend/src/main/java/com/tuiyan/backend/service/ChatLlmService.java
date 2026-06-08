@@ -8,6 +8,7 @@ import com.tuiyan.backend.entity.DataSourcePO;
 import com.tuiyan.backend.model.ChatRequest;
 import com.tuiyan.backend.model.MentionRef;
 import com.tuiyan.backend.repository.DataSourceRepository;
+import com.tuiyan.backend.repository.ExperienceRepository;
 import com.tuiyan.backend.service.connector.JdbcConnectorService;
 import com.tuiyan.backend.service.indexing.DataSourceIndexService;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
@@ -46,6 +47,7 @@ public class ChatLlmService {
     private final DataSourceIndexService indexService;
     private final ExperienceIndexService experienceIndexService;
     private final DataSourceRepository dsRepo;
+    private final ExperienceRepository experienceRepo;
     private final JdbcConnectorService jdbcConnector;
 
     public ChatLlmService(LlmHttpClient http,
@@ -54,6 +56,7 @@ public class ChatLlmService {
                           DataSourceIndexService indexService,
                           ExperienceIndexService experienceIndexService,
                           DataSourceRepository dsRepo,
+                          ExperienceRepository experienceRepo,
                           JdbcConnectorService jdbcConnector) {
         this.http = http;
         this.promptBuilder = promptBuilder;
@@ -61,6 +64,7 @@ public class ChatLlmService {
         this.indexService = indexService;
         this.experienceIndexService = experienceIndexService;
         this.dsRepo = dsRepo;
+        this.experienceRepo = experienceRepo;
         this.jdbcConnector = jdbcConnector;
     }
 
@@ -219,6 +223,18 @@ public class ChatLlmService {
             List<GraphPromptBuilder.DbSchema> dbSchemas = explicitDsIds.isEmpty()
                     ? collectDbSchemas(wsId, emitter)
                     : collectDbSchemasByIds(explicitDsIds, emitter);
+
+            // 经验库文件：用户用 @ 显式引用了经验文件时，把全文作为定向上下文注入（优先于自动 RAG 命中）
+            List<String> pinnedExpIds = pickMentionIds(mentions, "experience");
+            if (!pinnedExpIds.isEmpty() && wsId != null) {
+                List<GraphPromptBuilder.RagChunk> pinned = collectPinnedExperiences(pinnedExpIds, emitter);
+                if (!pinned.isEmpty()) {
+                    // @ 指定的经验放在最前，确保它在上下文里优先于自动召回的片段
+                    List<GraphPromptBuilder.RagChunk> merged = new ArrayList<>(pinned);
+                    merged.addAll(ragChunks);
+                    ragChunks = merged;
+                }
+            }
 
             String prompt = promptBuilder.buildChatPrompt(request.getNodes(), request.getEdges(),
                     request.getMessage(), ragChunks, dbSchemas, mentions);
@@ -620,6 +636,41 @@ public class ChatLlmService {
                 emitStep(emitter, "reading_ref_db_" + id + "_err",
                         "数据库「" + name + "」读取失败,跳过 (" + e.getMessage() + ")");
             }
+        }
+        return out;
+    }
+
+    /** 单条经验注入的正文上限，避免一份大文档把上下文撑爆。 */
+    private static final int PINNED_EXP_CONTENT_MAX = 8000;
+
+    /**
+     * 把用户用 @ 显式引用的经验库文件读出全文，包装成 RagChunk（来源名带「经验(@指定)：」前缀以示区分）。
+     * <p>与自动 RAG 召回不同：这里是用户主动点名的文件，整篇正文注入并给最高相关度，确保 LLM 优先采信。
+     * 越权 / 不存在的 id 会发一条 step 提示并跳过。
+     */
+    private List<GraphPromptBuilder.RagChunk> collectPinnedExperiences(List<String> expIds, SseEmitter emitter) {
+        List<GraphPromptBuilder.RagChunk> out = new ArrayList<>();
+        if (expIds == null || expIds.isEmpty()) return out;
+        for (String id : expIds) {
+            Map<String, Object> exp;
+            try { exp = experienceRepo.findFull(id); }
+            catch (Exception e) { log.warn("[LLM-chat-sse] @ 引用的经验 {} 查询失败: {}", id, e.getMessage()); continue; }
+            if (exp == null) {
+                emitStep(emitter, "missing_ref_exp_" + id, "@ 引用的经验文件 " + id + " 不存在或不属于当前空间,已忽略");
+                continue;
+            }
+            String title = String.valueOf(exp.getOrDefault("title", "未命名经验"));
+            Object contentObj = exp.get("content");
+            String content = contentObj == null ? "" : String.valueOf(contentObj);
+            if (content.isBlank()) {
+                emitStep(emitter, "empty_ref_exp_" + id, "@ 引用的经验「" + title + "」无正文内容,已忽略");
+                continue;
+            }
+            boolean truncated = content.length() > PINNED_EXP_CONTENT_MAX;
+            if (truncated) content = content.substring(0, PINNED_EXP_CONTENT_MAX) + "\n…(正文过长已截断)";
+            out.add(new GraphPromptBuilder.RagChunk(content, "经验(@指定)：" + title, 1.0));
+            emitStep(emitter, "reading_ref_exp_" + id,
+                    "🎯 按 @ 引用读取经验「" + title + "」" + (truncated ? "(已截断)" : "") + " 作为定向上下文");
         }
         return out;
     }

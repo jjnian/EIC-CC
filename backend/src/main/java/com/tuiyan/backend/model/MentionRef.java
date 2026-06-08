@@ -6,15 +6,16 @@ package com.tuiyan.backend.model;
  * 后端据此做"定向上下文":
  * <ul>
  *   <li>kind="datasource": 仅注入这些数据源的 schema(不再无差别地拉所有 DB);</li>
+ *   <li>kind="experience": 把这些经验库文件的全文作为定向上下文注入(优先于自动 RAG 命中);</li>
  *   <li>kind="node" / "relation": 当前图谱较大时,以这些 id 为中心做 N-hop 邻域聚焦;</li>
  *   <li>kind="graph": 默认就是全图,无需特殊处理。</li>
  * </ul>
  * <p>不做校验,业务规则在 ChatLlmService 处理。
  */
 public class MentionRef {
-    /** "graph" / "node" / "relation" / "datasource" */
+    /** "graph" / "node" / "relation" / "datasource" / "experience" */
     private String kind;
-    /** 对应实体的 id(节点 id、边 id、数据源 id、图谱 id) */
+    /** 对应实体的 id(节点 id、边 id、数据源 id、经验 id、图谱 id) */
     private String id;
     /** 展示文本(用于 prompt 中复述给 LLM) */
     private String label;
