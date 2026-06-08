@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, watch } from 'vue';
-import { extractOntologyFromDb } from '../../api/dataSources';
-import type { SseHandle } from '../../api/http';
-import type { OntologyNode, OntologyEdge } from '../../types';
+import { extractOntologyFromExperiences } from '../api/experiences';
+import type { SseHandle } from '../api/http';
+import type { OntologyNode, OntologyEdge } from '../types';
 
 const props = defineProps<{
   open: boolean;
-  dsId: string;
-  dsName: string;
+  /** 当前工作空间名称，仅用于展示 */
+  workspaceName?: string;
   hasCurrentModel: boolean;
 }>();
 
@@ -32,8 +32,7 @@ const result = ref<{
   edges: OntologyEdge[];
   reply: string;
   salt: string;
-  tableCount?: number;
-  fkCount?: number;
+  sourceCount?: number;
 } | null>(null);
 
 let sseHandle: SseHandle | null = null;
@@ -45,7 +44,7 @@ const reset = () => {
   result.value = null;
   hint.value = '';
   mode.value = props.hasCurrentModel ? 'merge' : 'new';
-  newName.value = `${props.dsName || '数据库'} 本体血缘图`;
+  newName.value = `${props.workspaceName || '经验库'} 本体血缘图`;
 };
 
 watch(() => props.open, (v) => {
@@ -68,7 +67,7 @@ const start = () => {
   steps.value = [{ key: 'init', label: '正在准备…', status: 'running' }];
   errMsg.value = '';
   result.value = null;
-  sseHandle = extractOntologyFromDb(props.dsId, { hint: hint.value.trim() || undefined }, {
+  sseHandle = extractOntologyFromExperiences({ hint: hint.value.trim() || undefined }, {
     onStep: (key, label) => {
       markRunningAs('done');
       steps.value.push({ key, label, status: 'running' });
@@ -80,15 +79,14 @@ const start = () => {
         edges: (data.edges as OntologyEdge[]) || [],
         reply: data.reply || '',
         salt: data.salt,
-        tableCount: data.tableCount,
-        fkCount: data.fkCount,
+        sourceCount: data.sourceCount,
       };
       phase.value = 'done';
       sseHandle = null;
     },
     onError: (msg) => {
       markRunningAs('error');
-      errMsg.value = msg || '提取失败';
+      errMsg.value = msg || '构建失败';
       phase.value = 'error';
       sseHandle = null;
     },
@@ -107,7 +105,7 @@ const commit = () => {
   if (!canCommit.value || !result.value) return;
   emit('commit', {
     mode: mode.value,
-    name: newName.value.trim() || `${props.dsName} 本体血缘图`,
+    name: newName.value.trim() || `${props.workspaceName || '经验库'} 本体血缘图`,
     nodes: result.value.nodes,
     edges: result.value.edges,
   });
@@ -117,7 +115,6 @@ const onBackdrop = (e: MouseEvent) => {
   if ((e.target as HTMLElement).classList.contains('dbo-backdrop')) emit('close');
 };
 
-/** 把 reply 里的换行和列表前缀渲染成 HTML,让事实校验报告分行可读。 */
 const formattedReply = computed(() => {
   if (!result.value?.reply) return '';
   const escaped = result.value.reply
@@ -155,8 +152,8 @@ const relStats = computed(() => {
     <div class="dbo-dialog">
       <div class="dbo-head">
         <span class="dbo-icon">🧬</span>
-        <span class="dbo-title">从数据库 schema 生成本体血缘图</span>
-        <span class="dbo-source">「{{ dsName }}」</span>
+        <span class="dbo-title">从经验库构建本体血缘图</span>
+        <span class="dbo-source">「{{ workspaceName || '当前工作空间' }}」</span>
         <button class="dbo-close" @click="emit('close')">×</button>
       </div>
 
@@ -164,18 +161,17 @@ const relStats = computed(() => {
         <!-- 启动阶段 -->
         <div v-if="phase === 'idle'" class="dbo-section">
           <div class="dbo-desc">
-            将根据当前数据库的 <strong>表 / 列 / 主键 / 外键 / 唯一键 / 注释</strong>
-            自动生成本体血缘图。<br/>
-            • 会按业务概念合并表，节点保留 `derived_tables` 来源<br/>
-            • 列会映射为 attributes，并保留物理 `column` 追溯<br/>
-            • 外键和命名相关性只作为证据，不会强行一表一节点
+            将聚合当前工作空间 <strong>经验库里的全部经验文件</strong>，由大模型抽取实体、流程、事件、规则及其关系，
+            构建本体血缘图。<br/>
+            • 经验文件可手动撰写、上传文档，或由数据源导出 DDL「供血」沉淀而来<br/>
+            • 数据源不再直接出图：先入经验库参与建图，再为图节点绑定真实数据
           </div>
           <label class="dbo-row">
             <span>额外提示（可选）</span>
-            <input v-model="hint" placeholder="例如：重点关注订单链路；忽略 _bak 后缀历史表" />
+            <input v-model="hint" placeholder="例如：重点关注审批链路；忽略历史复盘类经验" />
           </label>
           <div class="dbo-actions">
-            <button class="dbo-btn primary" @click="start">开始生成</button>
+            <button class="dbo-btn primary" @click="start">开始构建</button>
             <button class="dbo-btn ghost" @click="emit('close')">取消</button>
           </div>
         </div>
@@ -205,8 +201,7 @@ const relStats = computed(() => {
         <div v-if="phase === 'done' && result" class="dbo-section">
           <div class="dbo-summary">
             <div class="dbo-summary-row">
-              <strong>{{ result.tableCount }}</strong> 张表 ·
-              <strong>{{ result.fkCount }}</strong> 条外键
+              聚合 <strong>{{ result.sourceCount }}</strong> 篇经验
               → 抽出 <strong>{{ result.nodes.length }}</strong> 个节点 /
               <strong>{{ result.edges.length }}</strong> 条关系
             </div>
@@ -291,7 +286,7 @@ const relStats = computed(() => {
 .dbo-actions { display: flex; gap: 8px; margin-top: 14px; }
 .dbo-btn { padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer;
   font-size: 13px; }
-.dbo-btn.primary { background: #4a8df0; color: #fff; }
+.dbo-btn.primary { background: #42b883; color: #002418; font-weight: 600; }
 .dbo-btn.primary:disabled { opacity: .45; cursor: not-allowed; }
 .dbo-btn.ghost { background: transparent; color: #aaa;
   border: 1px solid rgba(255,255,255,.12); }
@@ -304,17 +299,17 @@ const relStats = computed(() => {
   color: #c0c4cf; }
 .dbo-step-dot { width: 14px; text-align: center; font-weight: bold; }
 .dbo-step.done .dbo-step-dot { color: #22dd88; }
-.dbo-step.running .dbo-step-dot { color: #4a8df0; animation: blink 1s infinite; }
+.dbo-step.running .dbo-step-dot { color: #42b883; animation: blink 1s infinite; }
 .dbo-step.error .dbo-step-dot { color: tomato; }
 @keyframes blink { 50% { opacity: .35; } }
 
 .dbo-error { color: tomato; background: rgba(255,99,71,.12);
   padding: 10px 14px; border-radius: 6px; font-size: 13px; }
 
-.dbo-summary { background: rgba(74,141,240,.08); padding: 12px 14px;
+.dbo-summary { background: rgba(66,184,131,.08); padding: 12px 14px;
   border-radius: 6px; margin-bottom: 12px; }
 .dbo-summary-row { font-size: 13.5px; color: #e8eaed; margin-bottom: 6px; }
-.dbo-summary-row strong { color: #4a8df0; font-weight: 600; }
+.dbo-summary-row strong { color: #6dd4a7; font-weight: 600; }
 .dbo-reply { font-size: 12px; color: #aaa; line-height: 1.6; }
 
 .dbo-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
@@ -325,7 +320,7 @@ const relStats = computed(() => {
 .dbo-chip-row { display: flex; flex-wrap: wrap; gap: 4px; }
 .dbo-chip { font-size: 11.5px; color: #c0c4cf; background: rgba(255,255,255,.06);
   padding: 2px 8px; border-radius: 10px; }
-.dbo-chip.rel { background: rgba(74,141,240,.15); color: #b9d4ff; }
+.dbo-chip.rel { background: rgba(66,184,131,.15); color: #b9f0d4; }
 
 .dbo-mode-pick { display: flex; gap: 18px; margin-bottom: 10px; font-size: 13px;
   color: #c0c4cf; }

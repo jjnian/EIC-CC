@@ -14,17 +14,8 @@ import HttpExecuteTab from './HttpExecuteTab.vue';
 import HttpHistoryTab from './HttpHistoryTab.vue';
 import HttpScheduleTab from './HttpScheduleTab.vue';
 import DataSourceConfigForm from './DataSourceConfigForm.vue';
-import type { OntologyNode, OntologyEdge } from '../../types';
 
 const props = defineProps<{ dsId: string; hasCurrentModel?: boolean }>();
-const emit = defineEmits<{
-  (e: 'ontology-extracted', payload: {
-    mode: 'merge' | 'new';
-    name: string;
-    nodes: OntologyNode[];
-    edges: OntologyEdge[];
-  }): void;
-}>();
 const tree = useSidebarTree();
 const ws = useWorkspaces();
 
@@ -138,8 +129,7 @@ watch(() => props.dsId, load);
         <DbTableListTab v-if="tab === 'tables'"
                         :ds-id="ds.id"
                         :ds-name="ds.name"
-                        :has-current-model="!!hasCurrentModel"
-                        @ontology-extracted="(p) => emit('ontology-extracted', p)" />
+                        :has-current-model="!!hasCurrentModel" />
         <DbSqlTab v-if="tab === 'sql'" :ds-id="ds.id" />
         <div v-if="tab === 'overview' && ds.kind === 'file_stored'" class="overview">
           <dl>

@@ -1,20 +1,36 @@
 package com.tuiyan.backend.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.model.dto.ExperienceCreateRequest;
 import com.tuiyan.backend.model.dto.ExperienceUpdateRequest;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.repository.ExperienceRepository;
 import com.tuiyan.backend.service.DataSourceService;
+import com.tuiyan.backend.service.ExperienceOntologyService;
 import com.tuiyan.backend.service.connector.FileStoredService;
 import com.tuiyan.backend.service.connector.file.StoredFileHandler;
 import com.tuiyan.backend.service.extraction.AudioTranscriptionService;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
+import com.tuiyan.backend.entity.ExperiencePO;
+import com.tuiyan.backend.service.storage.ObjectStorage;
+import com.tuiyan.backend.support.FileSniffer;
+import com.tuiyan.backend.support.SsePushUtils;
+import com.tuiyan.backend.support.WorkspaceContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -31,17 +47,77 @@ public class ExperienceController {
     private final FileStoredService fileStoredService;
     private final DataSourceService dataSourceService;
     private final AudioTranscriptionService audioTranscriptionService;
+    private final ExperienceOntologyService experienceOntology;
+    private final ObjectStorage storage;
+    private final AsyncTaskExecutor taskExecutor;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final Logger log = LoggerFactory.getLogger(ExperienceController.class);
+    /** 上传原件归档前缀，与数据源 datasource-files/ 平行。 */
+    private static final String FILE_PREFIX = "experience-files/";
 
     public ExperienceController(ExperienceRepository repo,
                                 ExperienceIndexService indexService,
                                 FileStoredService fileStoredService,
                                 DataSourceService dataSourceService,
-                                AudioTranscriptionService audioTranscriptionService) {
+                                AudioTranscriptionService audioTranscriptionService,
+                                ExperienceOntologyService experienceOntology,
+                                ObjectStorage storage,
+                                @Qualifier("predictionExecutor") AsyncTaskExecutor taskExecutor) {
         this.repo = repo;
         this.indexService = indexService;
         this.fileStoredService = fileStoredService;
         this.dataSourceService = dataSourceService;
         this.audioTranscriptionService = audioTranscriptionService;
+        this.experienceOntology = experienceOntology;
+        this.storage = storage;
+        this.taskExecutor = taskExecutor;
+    }
+
+    /**
+     * 从「当前工作空间的整个经验库」一键构建本体血缘图（SSE 流式）。
+     * <p>事件序列：step（多次进度）→ complete（携带 {nodes, edges, reply, salt, sourceCount}）→ 结束；
+     * 失败时发 error 事件。这是新数据流的主入口：本体血缘图由经验库文件构建，数据源只负责供血。
+     */
+    @PostMapping(value = "/extract-ontology", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter extractOntology(@RequestBody(required = false) Map<String, Object> body) {
+        String modelOverride = body == null ? null : (String) body.get("modelOverride");
+        String configId = body == null ? null : (String) body.get("configId");
+        String userHint = body == null ? null : (String) body.get("hint");
+        String workspaceId = WorkspaceContext.get();
+
+        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(300_000L,
+                "经验库 → 本体提取超时 (>300s)，请稍后重试或精简经验库内容");
+        SseEmitter emitter = ce.emitter();
+
+        taskExecutor.execute(() -> {
+            if (workspaceId != null) WorkspaceContext.set(workspaceId);
+            try {
+                ExperienceOntologyService.StepSink step = (key, label) -> {
+                    try {
+                        String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
+                        SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
+                    } catch (Exception ignore) {}
+                };
+                ExperienceOntologyService.ExtractResult r =
+                        experienceOntology.extractFromWorkspace(modelOverride, configId, userHint, step);
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("nodes", r.payload().path("nodes"));
+                payload.put("edges", r.payload().path("edges"));
+                payload.put("reply", r.payload().path("reply").asText(""));
+                payload.put("salt", r.salt());
+                payload.put("sourceCount", r.sourceCount());
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
+                        objectMapper.writeValueAsString(payload));
+                emitter.complete();
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "error", msg);
+                emitter.complete();
+            } finally {
+                WorkspaceContext.clear();
+            }
+        });
+        return emitter;
     }
 
     @GetMapping
@@ -98,12 +174,74 @@ public class ExperienceController {
         if (content.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "未能从文件中抽取到文本内容"));
         }
+        String safeName = FileSniffer.sanitizeFilename(file.getOriginalFilename());
         String finalTitle = (title != null && !title.isBlank())
                 ? title.trim()
                 : stripExtension(file.getOriginalFilename());
-        Map<String, Object> exp = repo.create(finalTitle, content, null);
+        String mime = resolveMime(file.getContentType(), safeName);
+        Map<String, Object> exp = repo.createUploaded(finalTitle, content, safeName, mime, file.getSize());
+
+        // 归档原始文件以便预览/下载；存储不可用时降级为「仅文本经验」，不影响主流程
+        String id = String.valueOf(exp.get("id"));
+        try {
+            String key = FILE_PREFIX + id + "/" + safeName;
+            storage.putBytes(key, file.getBytes(), mime);
+            repo.attachStoragePath(id, key);
+            exp.put("hasFile", true);
+        } catch (Exception e) {
+            log.warn("[experience] 原件归档失败 id={} name={}: {}", id, safeName, e.toString());
+        }
+
         triggerReindex(exp);
         return ResponseEntity.ok(exp);
+    }
+
+    /**
+     * 预览 / 下载经验的原始上传文件（origin=upload 且归档成功时可用）。
+     * <p>默认 inline 供浏览器直接预览（PDF / 图片 / 文本）；带 {@code ?download=true} 时作附件下载。
+     */
+    @GetMapping("/{id}/file")
+    public ResponseEntity<InputStreamResource> previewFile(
+            @PathVariable String id,
+            @RequestParam(name = "download", defaultValue = "false") boolean download) {
+        ExperiencePO po = repo.findPoScoped(id);
+        if (po == null || po.getStoragePath() == null || po.getStoragePath().isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
+        InputStream in = storage.openStream(po.getStoragePath());
+        if (in == null) return ResponseEntity.notFound().build();
+
+        String mime = po.getFileMime() == null || po.getFileMime().isBlank()
+                ? MediaType.APPLICATION_OCTET_STREAM_VALUE : po.getFileMime();
+        String name = po.getFileName() == null || po.getFileName().isBlank() ? id : po.getFileName();
+        long size = po.getFileSize() == null ? storage.size(po.getStoragePath()) : po.getFileSize();
+        String disposition = (download ? "attachment" : "inline")
+                + "; filename*=UTF-8''" + java.net.URLEncoder.encode(name, java.nio.charset.StandardCharsets.UTF_8);
+
+        ResponseEntity.BodyBuilder b = ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
+                .contentType(MediaType.parseMediaType(mime));
+        if (size >= 0) b.contentLength(size);
+        return b.body(new InputStreamResource(in));
+    }
+
+    /** content-type 兜底：上传头缺失 / 为通用二进制流时按扩展名推断常见可预览类型。 */
+    private static String resolveMime(String contentType, String filename) {
+        if (contentType != null && !contentType.isBlank()
+                && !contentType.equalsIgnoreCase(MediaType.APPLICATION_OCTET_STREAM_VALUE)) {
+            return contentType;
+        }
+        String n = filename == null ? "" : filename.toLowerCase();
+        if (n.endsWith(".pdf")) return "application/pdf";
+        if (n.endsWith(".md")) return "text/markdown; charset=utf-8";
+        if (n.endsWith(".txt")) return "text/plain; charset=utf-8";
+        if (n.endsWith(".png")) return "image/png";
+        if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+        if (n.endsWith(".gif")) return "image/gif";
+        if (n.endsWith(".webp")) return "image/webp";
+        if (n.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (n.endsWith(".doc")) return "application/msword";
+        return MediaType.APPLICATION_OCTET_STREAM_VALUE;
     }
 
     /**
@@ -123,7 +261,7 @@ public class ExperienceController {
                 + "> 库: `" + export.database() + "` · 对象数: " + export.objectCount()
                 + " · 由数据源结构内省自动生成\n\n"
                 + "```sql\n" + export.ddl() + "\n```\n";
-        Map<String, Object> exp = repo.create(title, content, "DDL,schema");
+        Map<String, Object> exp = repo.create(title, content, "DDL,schema", "ddl");
         triggerReindex(exp);
         return ResponseEntity.ok(exp);
     }
@@ -148,9 +286,24 @@ public class ExperienceController {
         return ResponseEntity.ok(exp);
     }
 
+    /** 移动经验到文件夹：{folderId}（null/空 = 移到根）。 */
+    @PutMapping("/{id}/folder")
+    public ResponseEntity<SuccessCountResponse> moveToFolder(@PathVariable String id,
+                                                             @RequestBody(required = false) Map<String, Object> body) {
+        Object v = body == null ? null : body.get("folderId");
+        String folderId = v == null ? null : String.valueOf(v);
+        boolean ok = repo.moveToFolder(id, folderId);
+        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<SuccessCountResponse> delete(@PathVariable String id) {
         boolean ok = repo.delete(id);
+        // 级联清理归档原件（向量索引随外键级联，原件在对象存储里需手动删）
+        if (ok) {
+            try { storage.deletePrefix(FILE_PREFIX + id + "/"); }
+            catch (Exception e) { log.warn("[experience] 删除归档原件失败 id={}: {}", id, e.toString()); }
+        }
         return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 

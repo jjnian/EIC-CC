@@ -1,5 +1,4 @@
-import { request, sse } from './http';
-import type { SseHandle } from './http';
+import { request } from './http';
 
 export type DataSourceKind =
   | 'file' | 'url'                // 旧的导入历史
@@ -179,47 +178,6 @@ export interface DatabaseSchema {
 /** 内省整库 schema：表 + 列 + 外键 + 唯一键。前端可直接展示血缘预览。 */
 export function getDatabaseSchema(id: string) {
   return request<DatabaseSchema>(`/api/data-sources/${encodeURIComponent(id)}/schema`);
-}
-
-/** 一键从数据库 schema 生成本体血缘图（SSE 流）。 */
-export function extractOntologyFromDb(
-  id: string,
-  body: { modelOverride?: string; configId?: string; hint?: string },
-  handlers: {
-    onStep?: (key: string, label: string) => void;
-    onComplete?: (payload: {
-      nodes: unknown[];
-      edges: unknown[];
-      reply: string;
-      salt: string;
-      tableCount?: number;
-      fkCount?: number;
-    }) => void;
-    onError?: (msg: string) => void;
-    onClose?: () => void;
-  },
-): SseHandle {
-  return sse(`/api/data-sources/${encodeURIComponent(id)}/extract-ontology`, body, {
-    onEvent: (event, data) => {
-      if (event === 'step') {
-        try {
-          const j = JSON.parse(data) as { key: string; label: string };
-          handlers.onStep?.(j.key, j.label);
-        } catch { /* ignore */ }
-      } else if (event === 'complete') {
-        try {
-          const j = JSON.parse(data);
-          handlers.onComplete?.(j);
-        } catch (e) {
-          handlers.onError?.((e as Error).message);
-        }
-      } else if (event === 'error') {
-        handlers.onError?.(data);
-      }
-    },
-    onError: (err) => handlers.onError?.(err.message),
-    onClose: () => handlers.onClose?.(),
-  });
 }
 
 // ---------- HTTPS 专用 ----------

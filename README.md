@@ -251,7 +251,7 @@ cd frontend && npm install && npm run dev
         POST /api/chat (Accept: text/event-stream)
                 │
                 ├─ event: text       — 模型 token 流
-                ├─ event: complete   — { reply, add_nodes, add_edges }
+                ├─ event: complete   — { reply, add_nodes, add_edges, questions? }
                 └─ event: error
                 ▼
         前端 dedupeIncoming → history.snapshot() → 落图
@@ -1285,6 +1285,18 @@ backend/src/main/java/com/tuiyan/backend/
 保存后自动建立向量索引（落 `exp_chunk` / `exp_embedding`）；对话建模时按相关度自动召回为参考资料，
 来源名以「经验：…」前缀与数据源内容区分。
 
+> **本体血缘图由经验库文件构建（数据源只供血）**
+> 新数据流以经验库为本体血缘图的唯一构建入口：在经验库页点击「🧬 构建本体血缘图」，
+> 后端会把**当前工作空间下的全部经验文件**聚合成长文本，经文档抽取管线
+> （`ExperienceOntologyService` → `ExtractionLlmService`）抽出节点 / 边，再 salt 重写后供前端合并 / 另存为模型。
+> 数据库类数据源不再直接出图（旧的 `POST /api/data-sources/{id}/extract-ontology` 直出链路与
+> `SchemaOntologyService` 已移除）：改为在「表」页点「⤓ 导出结构到经验库供血」把 DDL 沉淀成经验文件参与建图。
+> 对应建图 SSE 接口 `POST /api/experiences/extract-ontology`
+> （事件序列：`step`* → `complete{nodes,edges,reply,salt,sourceCount}`）。
+>
+> **第二阶段·数据供血绑定**：图建好后，在节点详情面板「供血」页把节点绑定到数据源的表（可选 WHERE 过滤），
+> 运行时按绑定取数为节点供血。对应 `node_data_binding` 表与 `/api/node-bindings` 端点（含 `/{id}/fetch` 取数）。
+
 索引管线参考 Cursor 的做法（仅经验库启用）：
 
 - **结构感知切块**：按 Markdown 标题层级切小节，每块前置标题面包屑作为上下文（`TextChunker.chunkStructured`）。
@@ -1302,6 +1314,46 @@ backend/src/main/java/com/tuiyan/backend/
 | `DELETE` | `/api/experiences/{id}` | 删除经验（索引随外键级联清理） |
 | `POST` | `/api/experiences/{id}/reindex` | 手动重建向量索引（embedding 配置变更后补建） |
 | `GET` | `/api/experiences/{id}/index-status` | 查询索引状态 + 文本块数量 |
+| `POST` | `/api/experiences/file` | 上传文件建经验（PDF/Word/TXT/MD 抽正文，音频走 ASR） |
+| `POST` | `/api/experiences/from-ddl` | 数据源导出 DDL 沉淀为经验（`{dataSourceId}`，「供血」入口） |
+| `POST` | `/api/experiences/extract-ontology` | **聚合整个工作空间经验库构建本体血缘图（SSE）** |
+| `GET` | `/api/experiences/{id}/file` | 预览/下载上传原件（`?download` 附件下载，`?wsId` 兜底鉴权） |
+| `PUT` | `/api/experiences/{id}/folder` | 把经验移动到文件夹（`{folderId}`，null=根） |
+
+#### 经验库文件夹
+
+工作空间内任意层级归类（`parent_id` 自引用，与数据源文件夹结构平行）；经验通过 `folder_id` 归属文件夹，缺省在根目录。侧栏经验库区段渲染为可折叠的文件夹树，右键可建文件夹 / 移动 / 重命名 / 删除（删文件夹时其中的子文件夹与经验上提到父级，不丢数据）。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `GET` | `/api/experience-folders?workspaceId=` | 列出工作空间下全部文件夹（扁平，前端拼树） |
+| `POST` | `/api/experience-folders` | 新建文件夹（`{name, parentId?}`，parentId 省略=根） |
+| `PUT` | `/api/experience-folders/{id}` | 重命名 / 移动（`{name?, parentId?}`；出现 parentId 即视为移动，含环检测） |
+| `DELETE` | `/api/experience-folders/{id}` | 删除文件夹（子文件夹与经验上提到父级） |
+
+#### 自动探索系统了解业务（行为式抽取）
+
+让一个「探索智能体」用无头浏览器**像人一样只读操作**一个 web 系统（点菜单、开页面、读表格/表单），自动摸清功能、反推业务，再把功能地图**归纳成一份《业务说明文档》**（业务概述 / 业务模块与功能 / 业务对象与数据字典 / 关键业务流程 / 业务规则；附探索明细）落成一篇 `origin=explore` 的经验，可直接作为业务文件归档并走现有建图。**纯文本驱动**（页面编码成可访问性/DOM 文本快照喂给 LLM，不依赖视觉模型）；**只读护栏**默认拦截「删除/提交/支付/新建」等会改数据的元素。入口在经验库页「🧭 自动探索系统了解业务」。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `POST` | `/api/explore/run` | 启动探索（SSE：`step`*→`complete{经验}`）。体：`{baseUrl, maxSteps?, readOnly?(默认 true), storageState?, modelOverride?, configId?}` |
+
+> 前置依赖：需安装 Playwright Chromium 内核——在 `backend/` 执行
+> `mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install chromium"`。
+> 安全提醒：建议指向**测试/预发环境 + 测试账号**；只读模式尽量保证零副作用，但请勿对生产系统关闭只读。
+
+### 节点数据供血绑定
+
+把已建好的本体血缘图节点绑定到数据源的表/列，运行时按绑定取数为节点供血（新数据流第二阶段）。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `GET` | `/api/node-bindings?modelId=&nodeId=` | 列出某模型（可选某节点）的供血绑定 |
+| `POST` | `/api/node-bindings` | 新建绑定（`{modelId, nodeId, dataSourceId, tableName?, columnMap?, filterSql?}`） |
+| `PUT` | `/api/node-bindings/{id}` | 更新绑定 |
+| `DELETE` | `/api/node-bindings/{id}` | 删除绑定 |
+| `POST` | `/api/node-bindings/{id}/fetch` | 按绑定取数供血（`{limit?}` → `{columns, rows, rowCount, truncated}`） |
 
 ### 模板
 
@@ -1344,7 +1396,7 @@ backend/src/main/java/com/tuiyan/backend/
 | event | data | 说明 |
 |---|---|---|
 | `text` | 文本片段 | 模型流式 token |
-| `complete` | `{ reply, add_nodes, add_edges }` | 对话完成，含新增节点/边 |
+| `complete` | `{ reply, add_nodes, add_edges, questions? }` | 对话完成，含新增节点/边；`questions` 为可选澄清问题组（一次最多 4 个、单题可多选），前端渲染为带选项的问题卡片让用户点选 |
 | `error` | 错误描述 | 生成失败 |
 
 #### `/api/scenarios`（推演）事件

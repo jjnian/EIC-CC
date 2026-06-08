@@ -2,12 +2,15 @@
 import { ref, computed, watch, reactive } from 'vue';
 import { NT } from '../constants';
 import type { AttrSourceMethod } from '../types';
+import NodeDataBindingPanel from './NodeDataBindingPanel.vue';
 
 const props = defineProps<{
   node: any | null;
   nodes: any[];
   edges: any[];
   isOpen: boolean;
+  /** 当前本体模型 id，用于节点数据供血绑定（为空表示模型未保存） */
+  modelId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -268,7 +271,7 @@ const startResize = (e: MouseEvent) => {
           <div class="ni-header">
             <div class="ni-header-l">
               <div class="ni-tabs">
-                <button v-for="(lb, i) in ['概览', '属性', '关系', '约束']" :key="i" :class="['ni-tab', { on: tab === i }]" @click="tab = i">{{ lb }}</button>
+                <button v-for="(lb, i) in ['概览', '属性', '关系', '约束', '供血']" :key="i" :class="['ni-tab', { on: tab === i }]" @click="tab = i">{{ lb }}</button>
               </div>
             </div>
             <div class="ni-header-r">
@@ -589,6 +592,13 @@ const startResize = (e: MouseEvent) => {
                       <div class="ni-cons-note">{{ row.c.note }}</div>
                     </div>
                   </div>
+                </div>
+              </template>
+
+              <!-- ===== 供血（数据源绑定 + 取数） ===== -->
+              <template v-if="tab === 4">
+                <div class="ni-card ni-card-full">
+                  <NodeDataBindingPanel :model-id="modelId" :node-id="node.id" :node-label="node.label" />
                 </div>
               </template>
             </template>

@@ -83,14 +83,16 @@ export function useChatSend(ctx: ChatSendCtx) {
     const failed = ctx.atts.value.filter(a => a.error);
 
     const txt = ctx.input.value;
-    // 用户在「问答中」直接打字发送 → 把这次输入当作对最近一个未回答 question 的自由回答,
+    // 用户在「问答中」直接打字发送 → 把这次输入当作对最近一组未回答 questions 的自由回答,
     // 这样问题卡片才会从「未答」切到「已答」,不会一直挂着误导用户
-    const pendingQ = [...ctx.msgs.value].reverse().find(
-      m => m.role === 'a' && m.question && !m.question.answered,
+    const pendingMsg = [...ctx.msgs.value].reverse().find(
+      m => m.role === 'a' && m.questions && m.questions.length > 0 && !m.questionsDone,
     );
-    if (pendingQ?.question && txt.trim()) {
+    if (pendingMsg && txt.trim()) {
       const trimmed = txt.trim();
-      pendingQ.question.answered = trimmed.length > 40 ? trimmed.slice(0, 40) + '…' : trimmed;
+      const summary = trimmed.length > 40 ? trimmed.slice(0, 40) + '…' : trimmed;
+      (pendingMsg.questions || []).forEach(q => { if (!q.answered) q.answered = summary; });
+      pendingMsg.questionsDone = true;
     }
     // 取走当前已激活的 @ 引用，与本次 message 一起送给后端；先取再清，避免发送中途用户又点
     const refsForRequest: ChatMentionRef[] = (ctx.consumeMentions?.() || []).map(m => ({
@@ -243,15 +245,27 @@ export function useChatSend(ctx: ChatSendCtx) {
                 if (mid) aiMsg.graphModelId = mid;
               }
 
-              // LLM 返回了澄清问题 → 挂到这条消息,前端渲染为可点击选项
-              const q = parsed.question;
-              if (q && q.text && q.text.trim()) {
-                aiMsg.question = {
+              // LLM 返回了澄清问题(支持一次多个、单题多选)→ 挂到这条消息渲染为可点击选项
+              // 兼容旧后端的单 question 字段。
+              const rawQs = parsed.questions && parsed.questions.length
+                ? parsed.questions
+                : (parsed.question ? [parsed.question] : []);
+              const normQs = rawQs
+                .filter(q => q && typeof q.text === 'string' && q.text.trim())
+                .map(q => ({
+                  header: q.header?.trim() || undefined,
                   text: q.text.trim(),
+                  multiSelect: !!q.multiSelect,
                   options: (q.options || [])
                     .filter(o => o && typeof o.label === 'string' && o.label.trim())
                     .map(o => ({ label: o.label.trim(), value: o.value })),
-                };
+                  selected: [] as string[],
+                }))
+                .filter(q => q.options.length > 0)
+                .slice(0, 4);
+              if (normQs.length) {
+                aiMsg.questions = normQs;
+                aiMsg.questionsDone = false;
               }
             } catch (parseErr) {
               console.error('Failed to handle complete event:', parseErr);

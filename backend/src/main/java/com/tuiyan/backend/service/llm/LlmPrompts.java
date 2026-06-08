@@ -64,13 +64,17 @@ public final class LlmPrompts {
               ]
             }
           ],
-          "question": {
-            "text": "OPTIONAL — only set when user input is ambiguous and the choice would materially change the ontology. A short clarifying question (one sentence, Chinese).",
-            "options": [
-              { "label": "A concrete choice the user can click (short Chinese phrase)" },
-              { "label": "Another choice" }
-            ]
-          }
+          "questions": [
+            {
+              "header": "OPTIONAL — a very short label/topic for this question (≤6 Chinese chars), e.g. '客户类型' / '建模视角'.",
+              "text": "A short clarifying question (one sentence, Chinese).",
+              "multiSelect": "OPTIONAL boolean — set true ONLY when the user could reasonably pick several options at once (e.g. which perspectives/scopes to include). Default false (single choice).",
+              "options": [
+                { "label": "A concrete choice the user can click (short Chinese phrase, ≤12 chars)" },
+                { "label": "Another choice" }
+              ]
+            }
+          ]
         }
         """;
 
@@ -139,8 +143,8 @@ public final class LlmPrompts {
         - If the user's message is very short (e.g. "添加一个客户实体"), output JUST that
           one node — do NOT speculate about its neighbors.
 
-        **Interactive Clarification (very important — err on the side of ASKING):**
-        When the user's description has genuine ambiguity that would lead to materially different ontology choices, INSTEAD of guessing silently you SHOULD set the optional `question` field with 2–4 concrete options the user can click. Examples of when to ask:
+        **Interactive Clarification (VERY IMPORTANT — strongly err on the side of ASKING):**
+        When the user's description has genuine ambiguity that would lead to materially different ontology choices, INSTEAD of guessing silently you SHOULD populate the optional `questions` array (1–4 questions, each with 2–4 concrete options the user can click). Asking first is the DEFAULT, preferred behavior whenever you are not confident — a clarifying question is almost always better than a confident-looking wrong graph. Examples of when to ask:
         - The same word could refer to multiple distinct entities (e.g., "客户" = 个人客户 / 企业客户?).
         - You don't know which database table or data source the user wants to base on.
         - There are multiple reasonable modeling choices (subclass vs. instance vs. separate entity).
@@ -152,15 +156,25 @@ public final class LlmPrompts {
           you can't tell which from context.
         - You'd otherwise produce a thin guess: if your best response would have < 2 highly-grounded
           (confidence ≥ 0.8) nodes, prefer to ASK first rather than emit a low-confidence sketch.
-        Rules for `question`:
-        - Omit it entirely when the user's intent is clear — never ask trivial questions, and never
-          ask the same question twice if the user already answered something equivalent.
-        - When you ask, you may still emit `add_nodes` / `add_edges` for the parts that ARE clearly
-          correct; the question covers only the ambiguous part.
-        - Options should be SHORT (≤ 12 Chinese characters), mutually exclusive, and actionable.
-        - Always include a "继续按当前理解构建" or similar fallback option so the user can skip the
-          question. The user can ALSO type a free-form answer in the chat — treat any subsequent
-          user message after a question as a potential answer and respect their wording.
+
+        Multiple questions at once: when several independent things are unclear (e.g. 建模视角 + 粒度 + 主数据源),
+        ask them together as separate entries in `questions` (max 4) — one focused question per entry, each with
+        its own short `header`. Do NOT cram multiple asks into one question's text.
+
+        Multi-select: set `multiSelect: true` on a question when the user can sensibly choose several options at
+        once (e.g. "要包含哪些视角？" → 采购 / 物流 / 财务 can all apply). Use single-select (default) for
+        mutually-exclusive choices.
+
+        Rules for `questions`:
+        - Omit the array entirely (or leave empty) when the user's intent is clear — never ask trivial questions,
+          and never re-ask something the user already answered earlier in the conversation.
+        - When you ask, you may still emit `add_nodes` / `add_edges` for the parts that ARE clearly correct;
+          the questions cover only the ambiguous parts.
+        - Options should be SHORT (≤ 12 Chinese characters) and actionable; for single-select they must be
+          mutually exclusive.
+        - For single-select questions, always include a "继续按当前理解构建" / "都可以" style fallback so the user
+          can skip. The user can ALSO type a free-form answer in the chat — treat any subsequent user message
+          after questions as a potential answer and respect their wording.
 
         CRITICAL INSTRUCTION:
         1. Explicitly represent rules (type: 'rule') if they drive events.
@@ -617,4 +631,81 @@ public final class LlmPrompts {
 
         SCHEMA:
         """ + EXPLAIN_SCHEMA;
+
+    /**
+     * 自动探索智能体的决策 system prompt：像人一样"用"一个 web 系统去摸清功能、反推业务。
+     * 每一步给它当前页面的文本快照 + 已探索进度，让它输出"对本页的业务理解 + 下一步动作"。
+     * 纯文本驱动（不依赖视觉）；只读探索，绝不提交/删除/支付。
+     */
+    public static final String EXPLORE_AGENT_SYSTEM = """
+        你是一个"业务调研员"智能体。你正在像真人一样操作一个你从未见过的 web 系统(只能点击导航,
+        不能填表、不能提交),目标是:系统化地把这个系统"用一遍",摸清它有哪些功能模块、每个页面在做
+        什么业务、涉及哪些业务对象和操作,最终帮助反推出这个系统支撑的业务。
+
+        每一步我会给你:
+        - 当前页面的文本快照(URL、标题、面包屑、可点击元素清单[带编号 ref]、数据表的列、表单的字段、主要可见文本);
+        - 已探索进度(已访问过的页面列表)和目标提示。
+
+        你要输出一个 JSON(禁止 markdown 包裹),描述你对**当前页**的业务理解 + **下一步动作**:
+        {
+          "page_summary": "一句话:这个页面是做什么业务的(简体中文)",
+          "page_type": "list | detail | form | dashboard | login | other",
+          "capabilities": ["该页提供的业务操作/功能,如 '新建采购订单'、'按状态筛选'"],
+          "business_entities": ["该页涉及的业务对象,如 '订单'、'客户'、'供应商'"],
+          "business_attributes": ["从表格列/表单字段看到的业务属性,如 '订单号'、'金额'、'状态'"],
+          "action": {
+            "type": "click | back | done",
+            "ref": 仅当 type=click 时给出要点击元素的编号,
+            "reason": "为什么这么做(简体中文)"
+          }
+        }
+
+        探索策略(很重要):
+        1. **广度优先、系统化**:优先点击**没去过的**导航菜单 / 顶级模块 / 列表项,把功能树铺开,而不是在一个角落里反复打转。
+        2. **别重复**:已访问过的页面(看进度列表)不要再进;如果当前页所有有价值的链接都去过了,就 back 或 done。
+        3. **只读**:绝不选择"新建/保存/提交/删除/支付/审批/发送/确认/重置"这类会改数据的按钮(系统也会拦截);
+           你只需从表单**字段**和表格**列**读出业务属性即可,不需要真的去填。
+        4. **认不出就跳过**:对纯装饰、无意义的元素不要点。
+        5. **到顶就停**:当主要功能模块都覆盖到了,或没有新的可探索入口时,输出 action.type="done"。
+
+        只输出严格的 JSON 对象,简体中文。""";
+
+    /**
+     * 把"自动探索得到的功能地图"归纳成一份**业务说明文档**(业务文件)的 system prompt。
+     * 输出面向业务读者的结构化 markdown,而不是技术报告;忠于观测,拿不准的标"(推测)"。
+     */
+    public static final String EXPLORE_BUSINESS_DOC_SYSTEM = """
+        你是一名资深业务分析师。下面给你的是一个 web 系统被"自动探索"后得到的功能地图(页面、可见的
+        操作/按钮、数据表的列、表单字段、页面间跳转路径)。请据此**反推并撰写一份面向业务读者的《业务
+        说明文档》**——用业务语言描述这个系统支撑什么业务,而不是罗列技术细节。
+
+        要求:
+        - 输出**简体中文 markdown**,结构清晰,可直接作为业务文件归档。
+        - **忠于观测**:只写功能地图里有依据的内容;合理推断要标注"(推测)";不要编造没出现过的模块。
+        - 用业务术语(优先用页面/字段里出现的中文名),不要堆技术名词。
+
+        请按以下结构组织(没有依据的小节可省略):
+
+        # 《{系统名}》业务说明文档
+
+        ## 一、业务概述
+        这个系统服务于什么业务领域、解决什么问题、大致面向哪些使用角色(若可推断)。
+
+        ## 二、业务模块与功能
+        按模块分组,逐条说明每个模块提供的业务功能(对应探索到的操作/页面)。
+
+        ## 三、核心业务对象与数据字典
+        用表格列出主要业务对象(实体)及其关键属性(来自数据表列 / 表单字段):
+        | 业务对象 | 关键属性 | 说明 |
+
+        ## 四、关键业务流程
+        根据页面跳转路径与操作,描述 2~5 条主要业务流程(谁→做什么→产生什么),用步骤或箭头表示。
+
+        ## 五、业务规则与状态(若可见)
+        从字段约束、状态枚举(如 待付款→已付款→已发货)等推断出的业务规则。
+
+        ## 六、待确认 / 探索盲区
+        只读探索未覆盖到、或需要人工确认的部分(如需要登录/提交才能看到的流程)。
+
+        直接输出 markdown 正文,不要用代码块包裹整篇。""";
 }

@@ -13,10 +13,18 @@ const emit = defineEmits<{
   (e: 'preview', att: ChatMsgAttachment): void;
   (e: 'focus-node', id: string): void;
   (e: 'abort-prediction'): void;
-  (e: 'select-option', messageIndex: number, option: { label: string; value?: string }): void;
+  (e: 'pick-option', messageIndex: number, questionIndex: number, option: { label: string; value?: string }): void;
+  (e: 'submit-answers', messageIndex: number): void;
   (e: 'custom-answer', messageIndex: number): void;
   (e: 'view-graph', modelId: string): void;
 }>();
+
+/** 这组问题是否每条都已至少选一项(决定「提交回答」是否可点)。 */
+const allAnswered = (m: ChatMsg) => (m.questions || []).every(q => (q.selected || []).length > 0);
+/** 多问题或含多选时才需要显式「提交回答」;单题单选点选即发送。 */
+const showSubmit = (m: ChatMsg) => (m.questions || []).length > 1 || (m.questions || []).some(q => q.multiSelect);
+/** 整组已提交且没有任何勾选 → 说明是用自定义文本回答的。 */
+const customUsed = (m: ChatMsg) => !!m.questionsDone && (m.questions || []).every(q => (q.selected || []).length === 0);
 
 const listRef = ref<HTMLElement | null>(null);
 
@@ -78,34 +86,50 @@ defineExpose({ scrollToBottom });
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
             查看图谱
           </button>
-          <!-- LLM 返回的澄清问题 + 可点击选项 -->
-          <div v-if="m.role === 'a' && m.question" class="question-card" :class="{ answered: !!m.question.answered }">
+          <!-- LLM 返回的澄清问题组(支持一次多个、单题多选) -->
+          <div v-if="m.role === 'a' && m.questions && m.questions.length" class="question-card" :class="{ answered: !!m.questionsDone }">
             <div class="question-head">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/>
                 <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
                 <line x1="12" y1="17" x2="12.01" y2="17"/>
               </svg>
-              <span class="question-tag">需要你的确认</span>
+              <span class="question-tag">需要你的确认{{ m.questions.length > 1 ? `（${m.questions.length} 个问题）` : '' }}</span>
             </div>
-            <div class="question-text">{{ m.question.text }}</div>
-            <div class="question-options">
-              <button v-for="(opt, oi) in m.question.options" :key="oi"
-                      type="button"
-                      class="question-option"
-                      :class="{ selected: m.question.answered === opt.label }"
-                      :disabled="!!m.question.answered"
-                      @click="emit('select-option', i, opt)">
-                {{ opt.label }}
+
+            <div v-for="(q, qi) in m.questions" :key="qi" class="question-block">
+              <div class="question-text">
+                <span v-if="q.header" class="question-topic">{{ q.header }}</span>
+                {{ q.text }}
+                <span v-if="q.multiSelect" class="question-multi-tag">可多选</span>
+              </div>
+              <div class="question-options">
+                <button v-for="(opt, oi) in q.options" :key="oi"
+                        type="button"
+                        class="question-option"
+                        :class="{ selected: (q.selected || []).includes(opt.label) }"
+                        :disabled="!!m.questionsDone"
+                        @click="emit('pick-option', i, qi, opt)">
+                  {{ opt.label }}
+                </button>
+              </div>
+            </div>
+
+            <div class="question-actions">
+              <button v-if="showSubmit(m)" type="button"
+                      class="question-submit"
+                      :disabled="!!m.questionsDone || !allAnswered(m)"
+                      @click="emit('submit-answers', i)">
+                {{ m.questionsDone ? '已提交' : '提交回答' }}
               </button>
               <button type="button"
                       class="question-option question-option-custom"
-                      :class="{ selected: !!m.question.answered && !m.question.options.some(o => o.label === m.question?.answered) }"
-                      :disabled="!!m.question.answered"
-                      :title="m.question.answered ? '已用自定义文本回答' : '在下方输入框里写自己的答案'"
+                      :class="{ selected: customUsed(m) }"
+                      :disabled="!!m.questionsDone"
+                      :title="m.questionsDone ? '已回答' : '在下方输入框里写自己的答案'"
                       @click="emit('custom-answer', i)">
                 <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                {{ m.question.answered && !m.question.options.some(o => o.label === m.question?.answered) ? m.question.answered : '自己输入回答' }}
+                自己输入回答
               </button>
             </div>
           </div>
@@ -220,6 +244,58 @@ defineExpose({ scrollToBottom });
   border-style: solid;
   color: #e0f2fe;
 }
+/* 多问题:每条问题成块,块间细分隔线 */
+.question-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.question-block + .question-block {
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.question-topic {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+  border-radius: 5px;
+  padding: 1px 7px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.question-card.answered .question-topic { color: rgba(255, 255, 255, 0.45); background: rgba(255, 255, 255, 0.06); }
+.question-multi-tag {
+  font-size: 10px;
+  color: #6dd4a7;
+  background: rgba(66, 184, 131, 0.14);
+  border-radius: 100px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.question-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+.question-submit {
+  background: #42b883;
+  color: #002418;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.12s;
+}
+.question-submit:hover:not(:disabled) { background: #50caa3; }
+.question-submit:disabled { opacity: 0.45; cursor: default; }
 
 .view-graph-btn {
   display: inline-flex;

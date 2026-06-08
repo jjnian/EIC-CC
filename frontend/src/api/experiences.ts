@@ -1,4 +1,5 @@
-import { request } from './http';
+import { request, sse } from './http';
+import type { SseHandle } from './http';
 
 /** 上传文件建经验：抽取文本作正文、文件名作标题，后端自动建向量索引。 */
 export function uploadExperienceFile(file: File, title?: string) {
@@ -23,6 +24,8 @@ export interface Experience {
   id: string;
   /** 所属工作空间 id（总览/跨工作空间时返回） */
   workspaceId?: string;
+  /** 所属文件夹 id；缺省 = 工作空间根目录（不在任何文件夹内） */
+  folderId?: string;
   title: string;
   content?: string;
   /** 逗号分隔的标签 */
@@ -31,6 +34,25 @@ export interface Experience {
   updatedAt?: number;
   /** 向量索引状态：none | indexing | indexed | error */
   indexStatus?: 'none' | 'indexing' | 'indexed' | 'error';
+  /** 来源：manual（手写）| upload（上传文件）| ddl（数据源结构导出供血）| explore（自动探索系统） */
+  origin?: 'manual' | 'upload' | 'ddl' | 'explore';
+  /** 上传文件的原始文件名（origin=upload） */
+  fileName?: string;
+  /** 上传文件的 MIME 类型 */
+  fileMime?: string;
+  /** 上传文件的字节大小 */
+  fileSize?: number;
+  /** 是否有可预览/下载的归档原件 */
+  hasFile?: boolean;
+}
+
+/** 经验原始上传文件的预览/下载 URL（带工作空间查询参数，供 iframe/img/下载直接使用）。 */
+export function experienceFileUrl(id: string, opts?: { download?: boolean; wsId?: string }) {
+  const qs = new URLSearchParams();
+  if (opts?.download) qs.set('download', 'true');
+  if (opts?.wsId) qs.set('wsId', opts.wsId);
+  const tail = qs.toString() ? `?${qs}` : '';
+  return `/api/experiences/${encodeURIComponent(id)}/file${tail}`;
 }
 
 export function listExperiences(opts?: { workspaceId?: string }) {
@@ -76,4 +98,45 @@ export function getExperienceIndexStatus(id: string) {
   return request<{ status: string; chunkCount: number }>(
     `/api/experiences/${encodeURIComponent(id)}/index-status`,
   );
+}
+
+/**
+ * 一键从「当前工作空间的整个经验库」构建本体血缘图（SSE 流）。
+ * 这是新数据流的主入口：本体血缘图由经验库文件构建，数据源只负责供血。
+ */
+export function extractOntologyFromExperiences(
+  body: { modelOverride?: string; configId?: string; hint?: string },
+  handlers: {
+    onStep?: (key: string, label: string) => void;
+    onComplete?: (payload: {
+      nodes: unknown[];
+      edges: unknown[];
+      reply: string;
+      salt: string;
+      sourceCount?: number;
+    }) => void;
+    onError?: (msg: string) => void;
+    onClose?: () => void;
+  },
+): SseHandle {
+  return sse('/api/experiences/extract-ontology', body, {
+    onEvent: (event, data) => {
+      if (event === 'step') {
+        try {
+          const j = JSON.parse(data) as { key: string; label: string };
+          handlers.onStep?.(j.key, j.label);
+        } catch { /* ignore */ }
+      } else if (event === 'complete') {
+        try {
+          handlers.onComplete?.(JSON.parse(data));
+        } catch (e) {
+          handlers.onError?.((e as Error).message);
+        }
+      } else if (event === 'error') {
+        handlers.onError?.(data);
+      }
+    },
+    onError: (err) => handlers.onError?.(err.message),
+    onClose: () => handlers.onClose?.(),
+  });
 }

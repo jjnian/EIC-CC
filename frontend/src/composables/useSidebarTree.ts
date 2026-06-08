@@ -11,6 +11,7 @@ import {
 } from '../api/dataSources';
 import { listOntologies } from '../api/ontology';
 import { listFolders, type DataSourceFolder } from '../api/folders';
+import { listExperienceFolders, type ExperienceFolder } from '../api/experienceFolders';
 import {
   listExperiences,
   deleteExperience as apiDeleteExperience,
@@ -38,14 +39,17 @@ export interface SidebarConversation {
 const cacheConvs = ref<Record<string, SidebarConversation[]>>({});
 const cacheDS = ref<Record<string, DataSource[]>>({});
 const cacheFolders = ref<Record<string, DataSourceFolder[]>>({});
+const cacheExpFolders = ref<Record<string, ExperienceFolder[]>>({});
 const cacheExp = ref<Record<string, Experience[]>>({});
 const loadingConv = ref<Record<string, boolean>>({});
 const loadingDS = ref<Record<string, boolean>>({});
 const loadingFolders = ref<Record<string, boolean>>({});
+const loadingExpFolders = ref<Record<string, boolean>>({});
 const loadingExp = ref<Record<string, boolean>>({});
 const loadedConv = ref<Record<string, boolean>>({});
 const loadedDS = ref<Record<string, boolean>>({});
 const loadedFolders = ref<Record<string, boolean>>({});
+const loadedExpFolders = ref<Record<string, boolean>>({});
 const loadedExp = ref<Record<string, boolean>>({});
 
 const toSidebar = (d: ConversationDto): SidebarConversation => ({
@@ -110,6 +114,21 @@ export function useSidebarTree() {
     }
   };
 
+  const loadExpFolders = async (wsId: string, force = false): Promise<void> => {
+    if (!wsId) return;
+    if (!force && loadedExpFolders.value[wsId]) return;
+    if (loadingExpFolders.value[wsId]) return;
+    loadingExpFolders.value[wsId] = true;
+    try {
+      cacheExpFolders.value[wsId] = (await listExperienceFolders(wsId)) || [];
+      loadedExpFolders.value[wsId] = true;
+    } catch (e) {
+      console.warn('listExperienceFolders failed', wsId, e);
+    } finally {
+      loadingExpFolders.value[wsId] = false;
+    }
+  };
+
   const loadExperiences = async (wsId: string, force = false): Promise<void> => {
     if (!wsId) return;
     if (!force && loadedExp.value[wsId]) return;
@@ -153,6 +172,9 @@ export function useSidebarTree() {
   const getFolders = (wsId: string): DataSourceFolder[] =>
     cacheFolders.value[wsId] || [];
 
+  const getExpFolders = (wsId: string): ExperienceFolder[] =>
+    cacheExpFolders.value[wsId] || [];
+
   const getOntologies = (wsId: string): SidebarOntology[] =>
     cacheOntologies.value[wsId] || [];
 
@@ -163,6 +185,7 @@ export function useSidebarTree() {
   const isLoadingDS = (wsId: string): boolean => !!loadingDS.value[wsId];
   const isLoadingExp = (wsId: string): boolean => !!loadingExp.value[wsId];
   const isLoadingFolders = (wsId: string): boolean => !!loadingFolders.value[wsId];
+  const isLoadingExpFolders = (wsId: string): boolean => !!loadingExpFolders.value[wsId];
   const isLoadedConv = (wsId: string): boolean => !!loadedConv.value[wsId];
   const isLoadedDS = (wsId: string): boolean => !!loadedDS.value[wsId];
   const isLoadingOntology = (wsId: string): boolean => !!loadingOntology.value[wsId];
@@ -276,22 +299,26 @@ export function useSidebarTree() {
       delete cacheConvs.value[wsId];
       delete cacheDS.value[wsId];
       delete cacheFolders.value[wsId];
+      delete cacheExpFolders.value[wsId];
       delete cacheOntologies.value[wsId];
       delete cacheExp.value[wsId];
       delete loadedConv.value[wsId];
       delete loadedDS.value[wsId];
       delete loadedFolders.value[wsId];
+      delete loadedExpFolders.value[wsId];
       delete loadedOntology.value[wsId];
       delete loadedExp.value[wsId];
     } else {
       cacheConvs.value = {};
       cacheDS.value = {};
       cacheFolders.value = {};
+      cacheExpFolders.value = {};
       cacheOntologies.value = {};
       cacheExp.value = {};
       loadedConv.value = {};
       loadedDS.value = {};
       loadedFolders.value = {};
+      loadedExpFolders.value = {};
       loadedOntology.value = {};
       loadedExp.value = {};
     }
@@ -301,17 +328,20 @@ export function useSidebarTree() {
     loadConversations,
     loadDataSources,
     loadFolders,
+    loadExpFolders,
     loadOntologies,
     loadExperiences,
     getConversations,
     getDataSources,
     getFolders,
+    getExpFolders,
     getOntologies,
     getExperiences,
     isLoadingConv,
     isLoadingDS,
     isLoadingExp,
     isLoadingFolders,
+    isLoadingExpFolders,
     isLoadingOntology,
     isLoadedConv,
     isLoadedDS,

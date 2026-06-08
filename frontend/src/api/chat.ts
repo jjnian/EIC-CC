@@ -27,7 +27,11 @@ export interface ChatQuestionOption {
 }
 
 export interface ChatQuestion {
+  /** 简短主题标签(≤6 字),如「客户类型」「建模视角」。 */
+  header?: string;
   text: string;
+  /** true 时该问题可多选,需点「提交回答」后统一发送。 */
+  multiSelect?: boolean;
   options?: ChatQuestionOption[];
 }
 
@@ -35,6 +39,9 @@ export interface ChatResult {
   reply: string;
   add_nodes?: unknown[];
   add_edges?: unknown[];
+  /** LLM 抛回的澄清问题(支持一次多个、单题多选)。 */
+  questions?: ChatQuestion[];
+  /** 旧格式:单个问题。新后端只发 questions,保留以兼容历史会话解析。 */
   question?: ChatQuestion;
 }
 

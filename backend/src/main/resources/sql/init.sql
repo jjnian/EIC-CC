@@ -489,8 +489,31 @@ CREATE TABLE IF NOT EXISTS experience (
 CREATE INDEX IF NOT EXISTS idx_experience_ws_created
     ON experience (workspace_id, created_at DESC);
 
+-- 8.0b 经验库文件夹：工作空间内任意层级归类（parent_id 自引用，NULL=根），与数据源文件夹平行
+CREATE TABLE IF NOT EXISTS experience_folder (
+    id            VARCHAR(64)  PRIMARY KEY,
+    workspace_id  VARCHAR(64)  NOT NULL,
+    parent_id     VARCHAR(64),                       -- NULL = 工作空间根目录
+    name          VARCHAR(255) NOT NULL,
+    sort_order    INTEGER      DEFAULT 0,
+    created_at    BIGINT       NOT NULL,
+    updated_at    BIGINT
+);
+CREATE INDEX IF NOT EXISTS idx_exp_folder_ws
+    ON experience_folder (workspace_id, parent_id);
+-- 经验所属文件夹（NULL = 工作空间根，不在任何文件夹内）
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS folder_id VARCHAR(64);
+
 -- 8.1 经验库向量索引：状态字段 + 文本块 + 向量（与数据源 ds_chunk/ds_embedding 平行）
 ALTER TABLE experience ADD COLUMN IF NOT EXISTS index_status VARCHAR(16) DEFAULT 'none';
+
+-- 8.1.1 经验来源 + 上传原始文件归档（上传文件可在经验库预览原件）
+--   origin: manual（手写）| upload（上传文件）| ddl（数据源结构导出供血）
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS origin       VARCHAR(16)  DEFAULT 'manual';
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS file_name    VARCHAR(512);
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS file_mime    VARCHAR(128);
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS file_size    BIGINT;
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS storage_path VARCHAR(1024);
 
 CREATE TABLE IF NOT EXISTS exp_chunk (
     id             VARCHAR(64) PRIMARY KEY,
@@ -516,6 +539,23 @@ CREATE TABLE IF NOT EXISTS exp_embedding (
     created_at  BIGINT      NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_exp_embedding_chunk ON exp_embedding (chunk_id);
+
+-- 8.2 节点数据供血绑定：把「已建好的本体血缘图节点」绑定到数据源的表/列，运行时取数供血。
+--   一个节点可有多条绑定（不同数据源/表）；column_map 把表列映射到节点属性，便于解读取数结果。
+CREATE TABLE IF NOT EXISTS node_data_binding (
+    id             VARCHAR(64)  PRIMARY KEY,
+    workspace_id   VARCHAR(64)  NOT NULL,
+    model_id       VARCHAR(64)  NOT NULL,
+    node_id        VARCHAR(128) NOT NULL,
+    data_source_id VARCHAR(64)  NOT NULL,
+    table_name     VARCHAR(256),
+    column_map     TEXT,                       -- JSON: [{"column":"..","attribute":".."}]
+    filter_sql     VARCHAR(1024),              -- 可选只读 WHERE 片段（不含 where 关键字）
+    created_at     BIGINT       NOT NULL,
+    updated_at     BIGINT
+);
+CREATE INDEX IF NOT EXISTS idx_ndb_model_node ON node_data_binding (model_id, node_id);
+CREATE INDEX IF NOT EXISTS idx_ndb_ws ON node_data_binding (workspace_id);
 
 -- ===========================================================================
 -- 初始化完成
