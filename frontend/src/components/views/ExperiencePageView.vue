@@ -697,14 +697,20 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 16px; margin-bottom: 14px; flex-shrink: 0;
 }
-.exp-header h2 { margin: 0 0 6px; font-size: 20px; color: var(--text-main); }
+.exp-header h2 {
+  margin: 0 0 6px; font-size: 21px; font-weight: 700; letter-spacing: 0.3px;
+  background: linear-gradient(180deg, #ffffff 0%, rgba(56,225,214,0.78) 130%);
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
 .exp-header p { margin: 0; font-size: 13px; color: var(--text-dim); }
 .exp-new {
-  flex-shrink: 0; background: #42b883; color: #002418; border: none;
-  padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  flex-shrink: 0; background: linear-gradient(135deg, var(--accent-soft), var(--accent)); color: #00251a; border: none;
+  padding: 9px 16px; border-radius: 9px; font-size: 13px; font-weight: 600;
   cursor: pointer; font-family: inherit;
+  box-shadow: 0 6px 16px rgba(66,184,131,0.28), inset 0 1px 0 rgba(255,255,255,0.3);
+  transition: transform .16s var(--ease-out), box-shadow .16s var(--ease-out);
 }
-.exp-new:hover { background: #50caa3; }
+.exp-new:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(66,184,131,0.4), inset 0 1px 0 rgba(255,255,255,0.34); }
 .exp-header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
 /* 「新增」下拉 */
@@ -878,16 +884,34 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 /* 统一经验文件列表行 */
 .exp-row {
   position: relative; display: flex; align-items: center; gap: 12px; text-align: left;
-  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px; padding: 11px 14px; cursor: pointer; font-family: inherit;
-  transition: all 0.12s;
+  background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; padding: 11px 14px; cursor: pointer; font-family: inherit;
+  transition: background .16s var(--ease-out), border-color .16s var(--ease-out), transform .16s var(--ease-out), box-shadow .16s var(--ease-out);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+  overflow: hidden;
 }
-.exp-row:hover { background: rgba(66,184,131,0.08); border-color: rgba(66,184,131,0.4); }
-.exp-row.active { background: rgba(66,184,131,0.12); border-color: rgba(66,184,131,0.55); }
+.exp-row::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 2px;
+  border-radius: 2px; background: linear-gradient(180deg, var(--accent-2), var(--accent));
+  opacity: 0; transition: opacity .16s var(--ease-out);
+}
+.exp-row:hover {
+  background: linear-gradient(180deg, rgba(56,225,214,0.08), rgba(66,184,131,0.05));
+  border-color: rgba(56,225,214,0.35);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.28), 0 0 0 1px rgba(56,225,214,0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.exp-row:hover::before, .exp-row.active::before { opacity: 1; }
+.exp-row.active {
+  background: linear-gradient(180deg, rgba(66,184,131,0.14), rgba(56,225,214,0.06));
+  border-color: rgba(66,184,131,0.5);
+}
 .exp-row-ico {
-  flex-shrink: 0; width: 34px; height: 34px; border-radius: 8px;
+  flex-shrink: 0; width: 36px; height: 36px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center; font-size: 17px;
   background: rgba(255,255,255,0.05);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 0 1px rgba(255,255,255,0.04);
 }
 .exp-row-ico.upload { background: rgba(255,255,255,0.07); }
 .exp-row-ico.ddl { background: rgba(74,141,240,0.14); }
