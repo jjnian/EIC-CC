@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.repository.ExperienceRepository;
 import com.tuiyan.backend.service.agent.ExplorationAgentService;
 import com.tuiyan.backend.support.SsePushUtils;
+import com.tuiyan.backend.support.WebUrls;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
@@ -88,16 +89,16 @@ public class ExploreController {
         taskExecutor.execute(() -> {
             if (workspaceId != null) WorkspaceContext.set(workspaceId);
             try {
-                if (baseUrl == null || baseUrl.isBlank()) {
-                    throw new IllegalArgumentException("缺少 baseUrl(系统入口地址)");
-                }
+                // 规范化并校验入口地址：补全 https://、拦掉 asdasd 这类非网址，
+                // 避免把 Playwright 的「Cannot navigate to invalid URL」长栈直接抛给用户
+                String entryUrl = WebUrls.normalizeEntryUrl(baseUrl);
                 ExplorationAgentService.StepSink step = (key, label) -> {
                     try {
                         String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
                         SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
                     } catch (Exception ignore) {}
                 };
-                Map<String, Object> exp = agent.explore(baseUrl.trim(), storageState, username, password,
+                Map<String, Object> exp = agent.explore(entryUrl, storageState, username, password,
                         maxSteps, readOnly, modelOverride, configId, step);
                 Map<String, Object> payload = new LinkedHashMap<>(exp);
                 SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
