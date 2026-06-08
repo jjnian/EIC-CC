@@ -519,7 +519,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         <div class="exp-modal-body">
           <p class="exp-modal-desc">
             智能体会用无头浏览器像人一样<strong>只读</strong>地操作目标系统:点菜单、开页面、读表格表单,
-            摸清功能后反推业务,生成一篇「功能地图」经验。<strong>建议指向测试/预发环境。</strong>
+            摸清功能后反推业务,自动归纳成一份《业务说明文档》存入经验库(附探索明细)。<strong>建议指向测试/预发环境。</strong>
           </p>
           <label class="exp-field">
             <span>系统入口地址</span>
@@ -641,7 +641,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
   display: flex; flex-direction: column; gap: 4px;
 }
 .exp-step { font-size: 12px; line-height: 1.5; color: rgba(255,255,255,0.78); font-family: ui-monospace, monospace; }
-.exp-step.k-think { color: #c9a7ff; }
+.exp-step.k-think, .exp-step.k-synthesize { color: #c9a7ff; }
 .exp-step.k-act { color: #6dd4a7; }
 .exp-step.k-blocked { color: #ffb27a; }
 .exp-step.k-end, .exp-step.k-done { color: #9cc4ff; font-weight: 600; }

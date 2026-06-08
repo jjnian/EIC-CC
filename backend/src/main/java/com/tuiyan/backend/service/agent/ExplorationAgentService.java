@@ -111,13 +111,55 @@ public class ExplorationAgentService {
                 }
             }
 
-            step.emit("save", "正在把功能地图写入经验库…");
-            String md = renderMarkdown(baseUrl, pages, trail, visited.size(), readOnly);
-            Map<String, Object> exp = expRepo.create(titleFor(baseUrl), md, "探索,功能地图,explore", "explore");
+            step.emit("synthesize", "探索结束,正在把功能地图归纳成业务文档…");
+            String rawReport = renderMarkdown(baseUrl, pages, trail, visited.size(), readOnly);
+            String bizDoc = synthesizeBusinessDoc(cfg, anthropic, rawReport);
+            String content = composeBusinessFile(bizDoc, rawReport);
+
+            step.emit("save", "正在把业务文档写入经验库…");
+            Map<String, Object> exp = expRepo.create(titleFor(baseUrl), content, "探索,业务文档,explore", "explore");
             try { indexService.reindexAsync(String.valueOf(exp.get("id"))); } catch (RuntimeException ignore) {}
-            step.emit("done", "已生成经验「" + exp.get("title") + "」,覆盖 " + pages.size() + " 个页面。");
+            step.emit("done", "已生成业务文档「" + exp.get("title") + "」,覆盖 " + pages.size() + " 个页面。");
             return exp;
         }
+    }
+
+    /**
+     * 把功能地图归纳成业务说明文档(自由 markdown,非 JSON)。失败时回退为空,
+     * 由 {@link #composeBusinessFile} 用原始探索报告兜底,保证不丢探索结果。
+     */
+    private String synthesizeBusinessDoc(LlmHttpClient.ResolvedConfig cfg, boolean anthropic, String rawReport) {
+        try {
+            String user = "以下是自动探索得到的功能地图,请据此撰写《业务说明文档》:\n\n" + rawReport;
+            callLogger.logConversation("explore-bizdoc", cfg.modelName(),
+                    LlmPrompts.EXPLORE_BUSINESS_DOC_SYSTEM, null, user, null);
+            String body = http.buildBody(cfg, LlmPrompts.EXPLORE_BUSINESS_DOC_SYSTEM, user,
+                    null, null, false, false, LlmHttpClient.EXTRACT_TEMPERATURE);
+            HttpRequest req = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, body, cfg.rawUrl());
+            long t0 = System.currentTimeMillis();
+            HttpResponse<String> resp = http.sendHttp(req, HttpResponse.BodyHandlers.ofString());
+            long elapsed = System.currentTimeMillis() - t0;
+            if (resp.statusCode() != 200) {
+                http.metrics().recordCall(cfg.modelName(), elapsed, false);
+                throw new RuntimeException("HTTP " + resp.statusCode());
+            }
+            http.metrics().recordCall(cfg.modelName(), elapsed, true);
+            JsonNode root = om.readTree(resp.body());
+            String md = http.extractContent(root, anthropic);
+            return md == null ? "" : md.trim();
+        } catch (Exception e) {
+            log.warn("[explore-agent] 业务文档归纳失败,回退原始报告: {}", e.toString());
+            return "";
+        }
+    }
+
+    /** 业务文档正文 + 探索明细附录;归纳失败时直接用原始探索报告,保证不丢内容。 */
+    private static String composeBusinessFile(String bizDoc, String rawReport) {
+        if (bizDoc == null || bizDoc.isBlank()) return rawReport;
+        String detail = rawReport;
+        int nl = detail.indexOf('\n'); // 去掉原始报告的一级标题,作为附录更顺
+        if (nl > 0) detail = detail.substring(nl + 1).trim();
+        return bizDoc + "\n\n---\n\n## 附录 · 探索明细(自动采集)\n\n" + detail + "\n";
     }
 
     // ── LLM 决策 ─────────────────────────────────────────────
@@ -288,7 +330,7 @@ public class ExplorationAgentService {
         try { return URI.create(url).getHost(); } catch (RuntimeException e) { return url; }
     }
     private static String titleFor(String baseUrl) {
-        return "「" + hostOf(baseUrl) + "」系统探索 · 功能地图";
+        return "「" + hostOf(baseUrl) + "」业务说明文档(自动探索)";
     }
 
     /** 一个被探索过的页面的累积记录。 */
