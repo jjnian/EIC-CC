@@ -65,6 +65,8 @@ const onExtractCommit = (payload: {
 // ── 自动探索系统了解业务 ────────────────────────────────────
 const exploreOpen = ref(false);
 const exploreUrl = ref('');
+const exploreUsername = ref('');
+const explorePassword = ref('');
 const exploreMaxSteps = ref(15);
 const exploreReadOnly = ref(true);
 const exploreStorageState = ref('');
@@ -85,6 +87,8 @@ const startExplore = () => {
   exploreHandle = runExplore(
     {
       baseUrl,
+      username: exploreUsername.value.trim() || undefined,
+      password: explorePassword.value || undefined,
       maxSteps: exploreMaxSteps.value,
       readOnly: exploreReadOnly.value,
       storageState: exploreStorageState.value.trim() || undefined,
@@ -481,10 +485,6 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           </button>
         </div>
       </div>
-      <div class="exp-editor exp-editor-placeholder" v-else>
-        <div class="exp-ph-icon">📚</div>
-        <p>从左侧列表选择一个经验文件查看 / 编辑，或点右上角「新增」。</p>
-      </div>
     </div>
 
     <ExpOntologyExtractDialog
@@ -511,6 +511,17 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             <span>系统入口地址</span>
             <input v-model="exploreUrl" type="text" placeholder="https://your-system.example.com" :disabled="exploreRunning" />
           </label>
+          <div class="exp-field-row">
+            <label class="exp-field exp-field-half">
+              <span>登录用户名</span>
+              <input v-model="exploreUsername" type="text" autocomplete="off" placeholder="登录系统的账号（可空）" :disabled="exploreRunning" />
+            </label>
+            <label class="exp-field exp-field-half">
+              <span>登录密码</span>
+              <input v-model="explorePassword" type="password" autocomplete="new-password" placeholder="登录系统的密码（可空）" :disabled="exploreRunning" />
+            </label>
+          </div>
+          <p class="exp-modal-hint">填写后智能体会先用该账号密码自动登录系统，再开始探索；留空则以未登录状态探索。</p>
           <div class="exp-field-row">
             <label class="exp-field">
               <span>最多探索步数</span>
@@ -644,6 +655,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-field input:focus, .exp-adv textarea:focus { outline: none; border-color: rgba(167,139,250,0.6); }
 .exp-field-row { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
 .exp-field-row .exp-field { flex: 0 0 140px; }
+.exp-field-row .exp-field-half { flex: 1 1 0; min-width: 0; }
 .exp-check { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-dim); cursor: pointer; }
 .exp-adv { font-size: 12.5px; color: var(--text-dim); }
 .exp-adv summary { cursor: pointer; user-select: none; }
