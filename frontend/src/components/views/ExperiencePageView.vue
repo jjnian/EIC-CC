@@ -502,53 +502,8 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         </template>
       </div>
 
-      <!-- 右侧编辑器 -->
-      <div class="exp-editor" v-if="draft">
-        <div class="exp-editor-head">
-          <span>{{ draft.id ? '编辑经验' : '新建经验' }}</span>
-          <div class="exp-editor-tabs">
-            <button :class="{ active: !editorPreview }" @click="editorPreview = false">编辑</button>
-            <button :class="{ active: editorPreview }" @click="editorPreview = true">预览</button>
-          </div>
-          <button class="exp-x" title="关闭" @click="cancelEdit">×</button>
-        </div>
-        <label class="exp-field">
-          <span class="exp-label">标题</span>
-          <input v-model="draft.title" class="exp-input" placeholder="给这条经验起个标题" />
-        </label>
-        <label class="exp-field">
-          <span class="exp-label">标签<span class="exp-hint">（逗号分隔，可空）</span></span>
-          <input v-model="draft.tags" class="exp-input" placeholder="如：供应链, 风控, 复盘" />
-        </label>
-        <div class="exp-field exp-field-grow">
-          <span class="exp-label">
-            正文<span class="exp-hint">（支持 Markdown）</span>
-            <button v-if="!editorPreview" class="exp-tpl" title="插入 Markdown 模板" @click="insertTemplate">插入模板</button>
-          </span>
-          <textarea
-            v-show="!editorPreview"
-            v-model="draft.content"
-            class="exp-textarea"
-            placeholder="粘贴或撰写经验文档内容（支持 Markdown）"
-          ></textarea>
-          <div v-show="editorPreview" class="exp-md" v-html="renderedDraft || '<p class=&quot;exp-md-empty&quot;>（暂无内容）</p>'"></div>
-        </div>
-        <p class="exp-rag-hint">保存后会自动建立向量索引，对话建模时按相关度自动召回为参考资料。</p>
-        <div class="exp-actions">
-          <button
-            v-if="draft.id"
-            class="exp-reindex"
-            :disabled="reindexing"
-            title="重新生成向量索引"
-            @click="reindex(draft.id)"
-          >{{ reindexing ? '索引中…' : '重新索引' }}</button>
-          <span class="exp-actions-spacer" />
-          <button class="exp-cancel" @click="cancelEdit">取消</button>
-          <button class="exp-save" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
-        </div>
-      </div>
       <!-- 右侧预览（上传文件） -->
-      <div class="exp-editor exp-preview" v-else-if="selectedUpload">
+      <div class="exp-editor exp-preview" v-if="selectedUpload">
         <div class="exp-editor-head">
           <span class="exp-prev-title">{{ selectedUpload.fileName || selectedUpload.title }}</span>
           <a class="exp-download" :href="fileUrl(selectedUpload, true)" target="_blank" rel="noopener">⤓ 下载原件</a>
@@ -584,6 +539,52 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             {{ reindexing ? '索引中…' : '重新索引' }}
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- 新建 / 编辑经验：整页填写（覆盖列表，不再挤在右侧） -->
+    <div v-if="draft" class="exp-fullpage">
+      <div class="exp-fullpage-bar">
+        <button class="exp-fullpage-back" title="返回列表" @click="cancelEdit">← 返回</button>
+        <span class="exp-fullpage-title">{{ draft.id ? '编辑经验' : '新建经验' }}</span>
+        <div class="exp-editor-tabs">
+          <button :class="{ active: !editorPreview }" @click="editorPreview = false">编辑</button>
+          <button :class="{ active: editorPreview }" @click="editorPreview = true">预览</button>
+        </div>
+        <span class="exp-actions-spacer" />
+        <button
+          v-if="draft.id"
+          class="exp-reindex"
+          :disabled="reindexing"
+          title="重新生成向量索引"
+          @click="reindex(draft.id)"
+        >{{ reindexing ? '索引中…' : '重新索引' }}</button>
+        <button class="exp-cancel" @click="cancelEdit">取消</button>
+        <button class="exp-save" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+      </div>
+      <div class="exp-fullpage-body">
+        <label class="exp-field">
+          <span class="exp-label">标题</span>
+          <input v-model="draft.title" class="exp-input" placeholder="给这条经验起个标题" />
+        </label>
+        <label class="exp-field">
+          <span class="exp-label">标签<span class="exp-hint">（逗号分隔，可空）</span></span>
+          <input v-model="draft.tags" class="exp-input" placeholder="如：供应链, 风控, 复盘" />
+        </label>
+        <div class="exp-field exp-field-grow">
+          <span class="exp-label">
+            正文<span class="exp-hint">（支持 Markdown）</span>
+            <button v-if="!editorPreview" class="exp-tpl" title="插入 Markdown 模板" @click="insertTemplate">插入模板</button>
+          </span>
+          <textarea
+            v-show="!editorPreview"
+            v-model="draft.content"
+            class="exp-textarea"
+            placeholder="粘贴或撰写经验文档内容（支持 Markdown）"
+          ></textarea>
+          <div v-show="editorPreview" class="exp-md" v-html="renderedDraft || '<p class=&quot;exp-md-empty&quot;>（暂无内容）</p>'"></div>
+        </div>
+        <p class="exp-rag-hint">保存后会自动建立向量索引，对话建模时按相关度自动召回为参考资料。</p>
       </div>
     </div>
 
@@ -662,7 +663,31 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 </template>
 
 <style scoped>
-.exp-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 28px 32px; }
+.exp-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 28px 32px; position: relative; }
+
+/* 新建 / 编辑经验：整页填写，覆盖整个经验库视图（含表头） */
+.exp-fullpage {
+  position: absolute; inset: 0; z-index: 25;
+  background: var(--bg-base);
+  display: flex; flex-direction: column;
+  padding: 20px 32px 24px;
+}
+.exp-fullpage-bar {
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  padding-bottom: 14px; margin-bottom: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.exp-fullpage-back {
+  background: transparent; border: 1px solid rgba(255,255,255,0.15);
+  color: var(--text-dim); padding: 6px 12px; border-radius: 8px;
+  font-size: 13px; cursor: pointer; font-family: inherit;
+}
+.exp-fullpage-back:hover { color: var(--text-main); border-color: rgba(255,255,255,0.3); }
+.exp-fullpage-title { font-size: 16px; font-weight: 600; color: var(--text-main); }
+.exp-fullpage-body {
+  flex: 1; min-height: 0; width: 100%; max-width: 980px; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 14px;
+}
 .exp-header {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 16px; margin-bottom: 14px; flex-shrink: 0;
