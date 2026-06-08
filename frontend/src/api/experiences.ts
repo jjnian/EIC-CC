@@ -34,8 +34,8 @@ export interface Experience {
   updatedAt?: number;
   /** 向量索引状态：none | indexing | indexed | error */
   indexStatus?: 'none' | 'indexing' | 'indexed' | 'error';
-  /** 来源：manual（手写）| upload（上传文件）| ddl（数据源结构导出供血） */
-  origin?: 'manual' | 'upload' | 'ddl';
+  /** 来源：manual（手写）| upload（上传文件）| ddl（数据源结构导出供血）| explore（自动探索系统） */
+  origin?: 'manual' | 'upload' | 'ddl' | 'explore';
   /** 上传文件的原始文件名（origin=upload） */
   fileName?: string;
   /** 上传文件的 MIME 类型 */

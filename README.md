@@ -1331,6 +1331,18 @@ backend/src/main/java/com/tuiyan/backend/
 | `PUT` | `/api/experience-folders/{id}` | 重命名 / 移动（`{name?, parentId?}`；出现 parentId 即视为移动，含环检测） |
 | `DELETE` | `/api/experience-folders/{id}` | 删除文件夹（子文件夹与经验上提到父级） |
 
+#### 自动探索系统了解业务（行为式抽取）
+
+让一个「探索智能体」用无头浏览器**像人一样只读操作**一个 web 系统（点菜单、开页面、读表格/表单），自动摸清功能、反推业务，把「功能地图」落成一篇 `origin=explore` 的经验，再走现有建图。**纯文本驱动**（页面编码成可访问性/DOM 文本快照喂给 LLM，不依赖视觉模型）；**只读护栏**默认拦截「删除/提交/支付/新建」等会改数据的元素。入口在经验库页「🧭 自动探索系统了解业务」。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| `POST` | `/api/explore/run` | 启动探索（SSE：`step`*→`complete{经验}`）。体：`{baseUrl, maxSteps?, readOnly?(默认 true), storageState?, modelOverride?, configId?}` |
+
+> 前置依赖：需安装 Playwright Chromium 内核——在 `backend/` 执行
+> `mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install chromium"`。
+> 安全提醒：建议指向**测试/预发环境 + 测试账号**；只读模式尽量保证零副作用，但请勿对生产系统关闭只读。
+
 ### 节点数据供血绑定
 
 把已建好的本体血缘图节点绑定到数据源的表/列，运行时按绑定取数为节点供血（新数据流第二阶段）。

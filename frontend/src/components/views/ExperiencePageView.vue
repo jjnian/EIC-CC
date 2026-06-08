@@ -9,6 +9,7 @@ import {
   createExperience, updateExperience, reindexExperience, uploadExperienceFile,
   experienceFileUrl, type Experience,
 } from '../../api/experiences';
+import { runExplore } from '../../api/explore';
 import ExpOntologyExtractDialog from '../ExpOntologyExtractDialog.vue';
 import { renderMarkdown, MD_TEMPLATE } from '../../utils/markdown';
 import type { OntologyNode, OntologyEdge } from '../../types';
@@ -54,6 +55,45 @@ const onExtractCommit = (payload: {
 }) => {
   extractDialogOpen.value = false;
   emit('ontology-extracted', payload);
+};
+
+// ── 自动探索系统了解业务 ────────────────────────────────────
+const exploreOpen = ref(false);
+const exploreUrl = ref('');
+const exploreMaxSteps = ref(15);
+const exploreReadOnly = ref(true);
+const exploreStorageState = ref('');
+const exploreRunning = ref(false);
+const exploreSteps = ref<{ key: string; label: string }[]>([]);
+let exploreHandle: { abort: () => void } | null = null;
+
+const openExplore = () => { exploreOpen.value = true; };
+const closeExplore = () => {
+  // 关闭对话框不打断后台探索(SSE 仍在跑,完成后会刷新列表)
+  exploreOpen.value = false;
+};
+const startExplore = () => {
+  const baseUrl = exploreUrl.value.trim();
+  if (!baseUrl) return;
+  exploreRunning.value = true;
+  exploreSteps.value = [{ key: 'open', label: '正在启动探索…' }];
+  exploreHandle = runExplore(
+    {
+      baseUrl,
+      maxSteps: exploreMaxSteps.value,
+      readOnly: exploreReadOnly.value,
+      storageState: exploreStorageState.value.trim() || undefined,
+    },
+    {
+      onStep: (key, label) => { exploreSteps.value.push({ key, label }); },
+      onComplete: async (exp) => {
+        toast.success(`探索完成,已生成经验「${exp.title}」`);
+        await reload(true);
+      },
+      onError: (msg) => { toast.warn(msg || '探索失败'); },
+      onClose: () => { exploreRunning.value = false; exploreHandle = null; },
+    },
+  );
 };
 
 // 编辑器状态：id 为空 = 新建；非空 = 编辑已有
@@ -269,6 +309,11 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           :title="experiences.length === 0 ? '请先在经验库中创建/上传经验' : '聚合整个工作空间经验库构建本体血缘图'"
           @click="extractDialogOpen = true"
         >🧬 构建本体血缘图</button>
+        <button
+          class="exp-explore"
+          title="让智能体像人一样自动操作一个 web 系统，摸清功能、反推业务，生成一篇经验"
+          @click="openExplore"
+        >🧭 自动探索系统了解业务</button>
         <button class="exp-upload" :disabled="uploading" @click="triggerUpload">
           {{ uploading ? '解析中…' : '⤓ 上传文件' }}
         </button>
@@ -315,6 +360,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             </div>
             <div class="exp-card-meta">
               <span v-if="x.origin === 'ddl'" class="exp-origin ddl">DDL 供血</span>
+              <span v-else-if="x.origin === 'explore'" class="exp-origin explore">🧭 系统探索</span>
               <span :class="['exp-idx', idxMeta(x.indexStatus).cls]" :title="`向量索引：${idxMeta(x.indexStatus).label}`">
                 {{ idxMeta(x.indexStatus).label }}
               </span>
@@ -462,6 +508,51 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
       @close="extractDialogOpen = false"
       @commit="onExtractCommit"
     />
+
+    <!-- 自动探索系统了解业务 -->
+    <div v-if="exploreOpen" class="exp-modal-mask" @click.self="closeExplore">
+      <div class="exp-modal">
+        <div class="exp-modal-head">
+          <span>🧭 自动探索系统了解业务</span>
+          <button class="exp-modal-x" @click="closeExplore">×</button>
+        </div>
+        <div class="exp-modal-body">
+          <p class="exp-modal-desc">
+            智能体会用无头浏览器像人一样<strong>只读</strong>地操作目标系统:点菜单、开页面、读表格表单,
+            摸清功能后反推业务,生成一篇「功能地图」经验。<strong>建议指向测试/预发环境。</strong>
+          </p>
+          <label class="exp-field">
+            <span>系统入口地址</span>
+            <input v-model="exploreUrl" type="text" placeholder="https://your-system.example.com" :disabled="exploreRunning" />
+          </label>
+          <div class="exp-field-row">
+            <label class="exp-field">
+              <span>最多探索步数</span>
+              <input v-model.number="exploreMaxSteps" type="number" min="3" max="40" :disabled="exploreRunning" />
+            </label>
+            <label class="exp-check">
+              <input v-model="exploreReadOnly" type="checkbox" :disabled="exploreRunning" />
+              <span>只读模式(拦截删除/提交/支付等写操作)</span>
+            </label>
+          </div>
+          <details class="exp-adv">
+            <summary>高级:预登录 storageState(可选)</summary>
+            <p class="exp-modal-hint">若系统需要登录,可粘贴浏览器导出的 storageState(cookies/localStorage)JSON,智能体将带着登录态探索。</p>
+            <textarea v-model="exploreStorageState" rows="3" placeholder='{"cookies":[...],"origins":[...]}' :disabled="exploreRunning"></textarea>
+          </details>
+
+          <div v-if="exploreSteps.length" class="exp-steps">
+            <div v-for="(s, i) in exploreSteps" :key="i" :class="['exp-step', 'k-' + s.key]">{{ s.label }}</div>
+          </div>
+        </div>
+        <div class="exp-modal-foot">
+          <button class="exp-modal-cancel" @click="closeExplore">{{ exploreRunning ? '在后台继续' : '关闭' }}</button>
+          <button class="exp-modal-go" :disabled="exploreRunning || !exploreUrl.trim()" @click="startExplore">
+            {{ exploreRunning ? '探索中…' : '开始探索' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -499,6 +590,75 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-upload:hover { background: rgba(66,184,131,0.12); }
 .exp-upload:disabled { opacity: 0.6; cursor: default; }
 .exp-file-input { display: none; }
+
+/* 自动探索按钮 */
+.exp-explore {
+  background: transparent; color: #c9a7ff; border: 1px solid rgba(167,139,250,0.55);
+  padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+.exp-explore:hover { background: rgba(167,139,250,0.14); color: #ddc9ff; }
+
+/* 探索对话框 */
+.exp-modal-mask {
+  position: fixed; inset: 0; z-index: 1500;
+  background: rgba(4,8,16,0.6); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+}
+.exp-modal {
+  width: 560px; max-width: calc(100vw - 40px); max-height: 86vh; overflow: hidden;
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, rgba(20,28,44,0.99), rgba(13,20,34,0.99));
+  border: 1px solid rgba(255,255,255,0.1); border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+}
+.exp-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.07);
+  font-size: 15px; font-weight: 600; color: var(--text-main);
+}
+.exp-modal-x { background: none; border: none; color: var(--text-dim); font-size: 20px; cursor: pointer; line-height: 1; }
+.exp-modal-x:hover { color: #fff; }
+.exp-modal-body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.exp-modal-desc { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--text-dim); }
+.exp-modal-desc strong { color: #ffcf8a; }
+.exp-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--text-dim); }
+.exp-field input, .exp-adv textarea {
+  background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+  padding: 8px 10px; color: var(--text-main); font-size: 13px; font-family: inherit;
+}
+.exp-field input:focus, .exp-adv textarea:focus { outline: none; border-color: rgba(167,139,250,0.6); }
+.exp-field-row { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.exp-field-row .exp-field { flex: 0 0 140px; }
+.exp-check { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-dim); cursor: pointer; }
+.exp-adv { font-size: 12.5px; color: var(--text-dim); }
+.exp-adv summary { cursor: pointer; user-select: none; }
+.exp-adv textarea { width: 100%; margin-top: 8px; resize: vertical; }
+.exp-modal-hint { margin: 8px 0 0; font-size: 11.5px; color: var(--text-dim); opacity: 0.8; }
+.exp-steps {
+  margin-top: 4px; max-height: 220px; overflow-y: auto;
+  background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.exp-step { font-size: 12px; line-height: 1.5; color: rgba(255,255,255,0.78); font-family: ui-monospace, monospace; }
+.exp-step.k-think { color: #c9a7ff; }
+.exp-step.k-act { color: #6dd4a7; }
+.exp-step.k-blocked { color: #ffb27a; }
+.exp-step.k-end, .exp-step.k-done { color: #9cc4ff; font-weight: 600; }
+.exp-modal-foot {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 12px 18px; border-top: 1px solid rgba(255,255,255,0.07);
+}
+.exp-modal-cancel {
+  background: transparent; color: var(--text-dim); border: 1px solid rgba(255,255,255,0.15);
+  padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; font-family: inherit;
+}
+.exp-modal-go {
+  background: #8b5cf6; color: #fff; border: none;
+  padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+}
+.exp-modal-go:hover:not(:disabled) { background: #9d72f7; }
+.exp-modal-go:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Tabs */
 .exp-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-shrink: 0;
@@ -541,6 +701,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-origin { font-size: 10px; padding: 1px 8px; border-radius: 100px; }
 .exp-origin.ddl { background: rgba(74,141,240,0.15); color: #9cc4ff; }
 .exp-origin.upload { background: rgba(255,255,255,0.07); color: var(--text-dim); }
+.exp-origin.explore { background: rgba(167,139,250,0.16); color: #c9a7ff; }
 .exp-size { font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
 .exp-idx { font-size: 10px; padding: 1px 8px; border-radius: 100px; border: 1px solid transparent; }
 .exp-idx.ok { background: rgba(66,184,131,0.14); color: #6dd4a7; }

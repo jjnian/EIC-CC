@@ -570,8 +570,9 @@ const kindIcon: Record<string, string> = {
   mysql: '🗄', pgsql: '🐘', file_stored: '📄', https_api: '🌐',
 };
 
-/** 经验条目图标：上传文件 / DDL 导出 / 手写经验区分。 */
-const expIcon = (x: Experience) => x.origin === 'upload' ? '📄' : x.origin === 'ddl' ? '🗃' : '📝';
+/** 经验条目图标：上传文件 / DDL 导出 / 系统探索 / 手写经验区分。 */
+const expIcon = (x: Experience) =>
+  x.origin === 'upload' ? '📄' : x.origin === 'ddl' ? '🗃' : x.origin === 'explore' ? '🧭' : '📝';
 
 const renameItem = async () => {
   const current = ctxMenu.value;
