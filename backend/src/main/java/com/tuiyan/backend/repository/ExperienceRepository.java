@@ -1,6 +1,7 @@
 package com.tuiyan.backend.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.entity.ExperienceFolderPO;
 import com.tuiyan.backend.entity.ExperiencePO;
 import com.tuiyan.backend.mapper.ExperienceFolderMapper;
@@ -22,6 +23,9 @@ public class ExperienceRepository {
 
     private final ExperienceMapper mapper;
     private final ExperienceFolderMapper folderMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    /** 连接配置里的敏感字段，列表/详情对外一律遮蔽，仅服务端探索时读原文。 */
+    private static final String MASK = "********";
 
     public ExperienceRepository(ExperienceMapper mapper, ExperienceFolderMapper folderMapper) {
         this.mapper = mapper;
@@ -83,6 +87,45 @@ public class ExperienceRepository {
         po.setFileSize(fileSize);
         mapper.insert(po);
         return toMap(po);
+    }
+
+    /**
+     * 接入 web 系统建经验（origin=websystem）：正文初始为空，连接配置（入口地址/账号/密码/步数等）
+     * 以 JSON 存入 source_config。点「探索」时按此配置运行自动探索，每次另产一篇 origin=explore 经验。
+     */
+    @Transactional
+    public Map<String, Object> createWebSystem(String title, Map<String, Object> config) {
+        ExperiencePO po = newPo(title, "", "web系统,接入", "websystem");
+        po.setSourceConfig(toJson(config));
+        mapper.insert(po);
+        return toMap(po);
+    }
+
+    /**
+     * 编辑已接入 web 系统的连接配置（按工作空间隔离）。title 为空则不改；config 为 null 则不动连接配置。
+     * @return 更新后的经验 map；不存在/越权返回 null。
+     */
+    @Transactional
+    public Map<String, Object> updateWebSystem(String id, String title, Map<String, Object> config) {
+        ExperiencePO po = mapper.selectById(id);
+        if (po == null) return null;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
+        if (title != null && !title.isBlank()) po.setTitle(title.trim());
+        if (config != null) po.setSourceConfig(toJson(config));
+        po.setUpdatedAt(System.currentTimeMillis());
+        mapper.updateById(po);
+        return toMap(po);
+    }
+
+    /**
+     * 读取 web 系统连接配置原文（含真实密码），按工作空间隔离 —— 仅供服务端探索时调用，
+     * 绝不经此把密码回传前端。不存在/越权/非 websystem 返回 null。
+     */
+    public Map<String, Object> readSourceConfigScoped(String id) {
+        ExperiencePO po = mapper.selectById(id);
+        if (po == null) return null;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
+        return parseConfig(po.getSourceConfig());
     }
 
     /** 回填原始文件在对象存储中的 key（归档成功后调用）。 */
@@ -179,6 +222,42 @@ public class ExperienceRepository {
         if (po.getFileSize() != null) out.put("fileSize", po.getFileSize());
         // 不外泄对象存储 key，只暴露「是否有可预览原件」布尔位
         out.put("hasFile", po.getStoragePath() != null && !po.getStoragePath().isBlank());
+        // 接入的 web 系统：把连接配置以「密码遮蔽」后的形式回传，供前端回填编辑表单（真实密码不出库）
+        if ("websystem".equals(po.getOrigin()) && po.getSourceConfig() != null) {
+            out.put("connection", maskConfig(parseConfig(po.getSourceConfig())));
+        }
         return out;
+    }
+
+    /** 把连接配置里的密码/storageState 等敏感字段遮蔽后返回（不改动入参）。 */
+    private static Map<String, Object> maskConfig(Map<String, Object> config) {
+        Map<String, Object> out = new LinkedHashMap<>(config);
+        Object pwd = out.get("password");
+        if (pwd != null && !String.valueOf(pwd).isEmpty()) out.put("password", MASK);
+        // storageState 可能含登录态 cookie，列表/详情只回传是否已配置，不回传原文
+        Object ss = out.remove("storageState");
+        out.put("hasStorageState", ss != null && !String.valueOf(ss).isBlank());
+        return out;
+    }
+
+    private Map<String, Object> parseConfig(String json) {
+        if (json == null || json.isBlank()) return new LinkedHashMap<>();
+        try {
+            Object parsed = objectMapper.readValue(json, Object.class);
+            if (parsed instanceof Map<?, ?> mp) {
+                Map<String, Object> out = new LinkedHashMap<>();
+                mp.forEach((k, v) -> out.put(String.valueOf(k), v));
+                return out;
+            }
+        } catch (Exception ignore) { /* 损坏的 JSON 兜底为空配置 */ }
+        return new LinkedHashMap<>();
+    }
+
+    private String toJson(Map<String, Object> config) {
+        try {
+            return objectMapper.writeValueAsString(config == null ? new LinkedHashMap<>() : config);
+        } catch (Exception e) {
+            return "{}";
+        }
     }
 }

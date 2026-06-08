@@ -1,6 +1,46 @@
 import { request, sse } from './http';
 import type { SseHandle } from './http';
 
+/** 接入 web 系统的连接配置。后端回传时 password 已遮蔽为 ********，storageState 不回传原文。 */
+export interface WebSystemConnection {
+  baseUrl: string;
+  username?: string;
+  /** 回传时为遮蔽串 ********（已设置）或空（未设置）；提交时留空/遮蔽串表示不修改。 */
+  password?: string;
+  maxSteps?: number;
+  readOnly?: boolean;
+  /** 提交时可粘贴 storageState JSON；回传时不含原文。 */
+  storageState?: string;
+  /** 后端回传：是否已配置 storageState 预登录态。 */
+  hasStorageState?: boolean;
+}
+
+export interface WebSystemPayload {
+  title?: string;
+  baseUrl: string;
+  username?: string;
+  password?: string;
+  maxSteps?: number;
+  readOnly?: boolean;
+  storageState?: string;
+}
+
+/** 接入一个 web 系统并保存为经验条目（origin=websystem），不立即探索。 */
+export function createWebSystem(payload: WebSystemPayload) {
+  return request<Experience>('/api/experiences/websystem', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 编辑已接入 web 系统的连接配置（密码/ storageState 留空表示保留原值）。 */
+export function updateWebSystem(id: string, payload: WebSystemPayload) {
+  return request<Experience>(`/api/experiences/websystem/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
 /** 上传文件建经验：抽取文本作正文、文件名作标题，后端自动建向量索引。 */
 export function uploadExperienceFile(file: File, title?: string) {
   const form = new FormData();
@@ -34,8 +74,10 @@ export interface Experience {
   updatedAt?: number;
   /** 向量索引状态：none | indexing | indexed | error */
   indexStatus?: 'none' | 'indexing' | 'indexed' | 'error';
-  /** 来源：manual（手写）| upload（上传文件）| ddl（数据源结构导出供血）| explore（自动探索系统） */
-  origin?: 'manual' | 'upload' | 'ddl' | 'explore';
+  /** 来源：manual（手写）| upload（上传文件）| ddl（数据源结构导出供血）| websystem（接入的 web 系统）| explore（自动探索系统产物） */
+  origin?: 'manual' | 'upload' | 'ddl' | 'websystem' | 'explore';
+  /** 接入 web 系统的连接配置（origin=websystem 时返回，密码已遮蔽、storageState 仅返回是否已配置）。 */
+  connection?: WebSystemConnection;
   /** 上传文件的原始文件名（origin=upload） */
   fileName?: string;
   /** 上传文件的 MIME 类型 */

@@ -25,7 +25,7 @@ public class ExperiencePO {
     private Long updatedAt;
     /** 向量索引状态：none | indexing | indexed | error */
     private String indexStatus;
-    /** 来源：manual（手写）| upload（上传文件）| ddl（数据源结构导出供血） */
+    /** 来源：manual（手写）| upload（上传文件）| ddl（数据源结构导出供血）| websystem（接入的 web 系统）| explore（自动探索产物） */
     private String origin;
     /** 上传文件的原始文件名（origin=upload 时有值） */
     private String fileName;
@@ -35,6 +35,8 @@ public class ExperiencePO {
     private Long fileSize;
     /** 原始文件在对象存储中的 key（origin=upload 且归档成功时有值，供预览/下载） */
     private String storagePath;
+    /** 接入 web 系统的连接配置 JSON（origin=websystem 时有值：入口地址/账号/密码/步数/只读/storageState） */
+    private String sourceConfig;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -64,4 +66,6 @@ public class ExperiencePO {
     public void setFileSize(Long fileSize) { this.fileSize = fileSize; }
     public String getStoragePath() { return storagePath; }
     public void setStoragePath(String storagePath) { this.storagePath = storagePath; }
+    public String getSourceConfig() { return sourceConfig; }
+    public void setSourceConfig(String sourceConfig) { this.sourceConfig = sourceConfig; }
 }

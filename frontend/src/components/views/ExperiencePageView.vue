@@ -7,9 +7,9 @@ import { toast } from '../../composables/useToast';
 import { ApiError } from '../../api/http';
 import {
   createExperience, updateExperience, reindexExperience, uploadExperienceFile,
-  experienceFileUrl, type Experience,
+  experienceFileUrl, createWebSystem, updateWebSystem, type Experience,
 } from '../../api/experiences';
-import { runExplore } from '../../api/explore';
+import { runSavedExplore } from '../../api/explore';
 import ExpOntologyExtractDialog from '../ExpOntologyExtractDialog.vue';
 import { renderMarkdown, MD_TEMPLATE } from '../../utils/markdown';
 import type { OntologyNode, OntologyEdge } from '../../types';
@@ -62,47 +62,129 @@ const onExtractCommit = (payload: {
   emit('ontology-extracted', payload);
 };
 
-// ── 自动探索系统了解业务 ────────────────────────────────────
+// ── 接入 Web 系统：保存连接 → 按钮触发自动探索生成业务文档 ──────────
 const exploreOpen = ref(false);
+const wsFormId = ref<string | null>(null);     // null=新接入；非空=编辑已保存的 web 系统
+const exploreTitle = ref('');
 const exploreUrl = ref('');
 const exploreUsername = ref('');
 const explorePassword = ref('');
 const exploreMaxSteps = ref(15);
 const exploreReadOnly = ref(true);
 const exploreStorageState = ref('');
-const exploreRunning = ref(false);
+const exploreHasStorageState = ref(false);      // 编辑时该系统是否已配置过 storageState
+const wsSaving = ref(false);
+const exploreRunning = ref(false);              // 是否正在跑探索（步骤流式中）
 const exploreSteps = ref<{ key: string; label: string }[]>([]);
 let exploreHandle: { abort: () => void } | null = null;
 
-const openExplore = () => { closeAddMenu(); exploreOpen.value = true; };
+const isEditingWs = computed(() => !!wsFormId.value);
+
+const resetWsForm = () => {
+  wsFormId.value = null;
+  exploreTitle.value = '';
+  exploreUrl.value = '';
+  exploreUsername.value = '';
+  explorePassword.value = '';
+  exploreMaxSteps.value = 15;
+  exploreReadOnly.value = true;
+  exploreStorageState.value = '';
+  exploreHasStorageState.value = false;
+  exploreSteps.value = [];
+};
+
+// 新接入一个 web 系统（空表单）
+const openExplore = () => { closeAddMenu(); resetWsForm(); exploreOpen.value = true; };
+
+// 编辑已保存的 web 系统（回填连接配置，密码/ storageState 不回填，留空保留）
+const editWebSystem = (x: Experience) => {
+  resetWsForm();
+  wsFormId.value = x.id;
+  exploreTitle.value = x.title || '';
+  const c = x.connection;
+  if (c) {
+    exploreUrl.value = c.baseUrl || '';
+    exploreUsername.value = c.username || '';
+    exploreMaxSteps.value = c.maxSteps ?? 15;
+    exploreReadOnly.value = c.readOnly ?? true;
+    exploreHasStorageState.value = !!c.hasStorageState;
+  }
+  exploreOpen.value = true;
+};
+
 const closeExplore = () => {
   // 关闭对话框不打断后台探索(SSE 仍在跑,完成后会刷新列表)
   exploreOpen.value = false;
 };
-const startExplore = () => {
+
+// 保存接入（创建或更新连接配置），返回保存后的条目；失败返回 null
+const saveWebSystem = async (): Promise<Experience | null> => {
   const baseUrl = exploreUrl.value.trim();
-  if (!baseUrl) return;
-  exploreRunning.value = true;
-  exploreSteps.value = [{ key: 'open', label: '正在启动探索…' }];
-  exploreHandle = runExplore(
-    {
+  if (!baseUrl) { toast.warn('请填写系统入口地址'); return null; }
+  wsSaving.value = true;
+  try {
+    const payload = {
+      title: exploreTitle.value.trim() || undefined,
       baseUrl,
       username: exploreUsername.value.trim() || undefined,
       password: explorePassword.value || undefined,
       maxSteps: exploreMaxSteps.value,
       readOnly: exploreReadOnly.value,
       storageState: exploreStorageState.value.trim() || undefined,
-    },
+    };
+    const saved = wsFormId.value
+      ? await updateWebSystem(wsFormId.value, payload)
+      : await createWebSystem(payload);
+    const wsId = ws.currentId.value;
+    if (wsId) tree.upsertExperience(wsId, saved);
+    wsFormId.value = saved.id;
+    exploreHasStorageState.value = !!saved.connection?.hasStorageState;
+    explorePassword.value = '';
+    exploreStorageState.value = '';
+    return saved;
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '保存失败');
+    return null;
+  } finally {
+    wsSaving.value = false;
+  }
+};
+
+// 「保存接入」：仅保存连接，关闭对话框（之后可在列表点「探索」生成文档）
+const onSaveWebSystem = async () => {
+  const saved = await saveWebSystem();
+  if (saved) { toast.success('已保存接入，可在列表对它点「探索」生成业务文档'); exploreOpen.value = false; }
+};
+
+// 「保存并探索」：先保存连接，再立即按配置运行自动探索
+const onSaveAndExplore = async () => {
+  const saved = await saveWebSystem();
+  if (saved) startSavedExplore(saved.id);
+};
+
+// 对一个已保存的 web 系统运行自动探索：每次另产一篇 explore 业务说明经验
+const startSavedExplore = (experienceId: string) => {
+  if (exploreRunning.value) return;
+  exploreRunning.value = true;
+  exploreSteps.value = [{ key: 'open', label: '正在启动探索…' }];
+  exploreHandle = runSavedExplore(
+    { experienceId },
     {
       onStep: (key, label) => { exploreSteps.value.push({ key, label }); },
       onComplete: async (exp) => {
-        toast.success(`探索完成,已生成经验「${exp.title}」`);
+        toast.success(`探索完成,已生成业务文档「${exp.title}」`);
         await reload(true);
       },
       onError: (msg) => { toast.warn(msg || '探索失败'); },
       onClose: () => { exploreRunning.value = false; exploreHandle = null; },
     },
   );
+};
+
+// 列表行上的「探索」按钮：打开对话框回填该系统并立即开跑，让用户看到进度
+const exploreRow = (x: Experience) => {
+  editWebSystem(x);
+  startSavedExplore(x.id);
 };
 
 // 编辑器状态：id 为空 = 新建；非空 = 编辑已有
@@ -167,9 +249,10 @@ const selectUpload = (x: Experience) => {
   selectedUpload.value = x;
 };
 
-// 统一列表：点击一条经验文件 → 上传走预览，其余走编辑
+// 统一列表：点击一条经验文件 → 上传走预览，web 系统走接入编辑，其余走编辑
 const selectExperience = (x: Experience) => {
   if (x.origin === 'upload') selectUpload(x);
+  else if (x.origin === 'websystem') editWebSystem(x);
   else editDraft(x);
 };
 // 当前在右侧打开的经验 id（用于列表高亮）
@@ -181,6 +264,7 @@ watch(() => props.focusId, (id) => {
   const found = experiences.value.find(e => e.id === id);
   if (!found) return;
   if (found.origin === 'upload') selectUpload(found);
+  else if (found.origin === 'websystem') editWebSystem(found);
   else editDraft(found);
 }, { immediate: true });
 
@@ -266,6 +350,7 @@ const originMeta = (x: Experience): { icon: string; label: string; cls: string }
   switch (x.origin) {
     case 'upload': return { icon: '📄', label: (x.fileMime || '文件').split(';')[0], cls: 'upload' };
     case 'ddl': return { icon: '🗄️', label: 'DDL 供血', cls: 'ddl' };
+    case 'websystem': return { icon: '🌐', label: 'Web 系统', cls: 'websystem' };
     case 'explore': return { icon: '🧭', label: '系统探索', cls: 'explore' };
     default: return { icon: '✎', label: '手写经验', cls: 'manual' };
   }
@@ -351,8 +436,8 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
               <span><strong>{{ uploading ? '解析中…' : '上传文件' }}</strong><em>PDF / Word / TXT / MD / 音频</em></span>
             </button>
             <button class="exp-add-item" @click="openExplore">
-              <span class="exp-add-ico">🧭</span>
-              <span><strong>接入 Web 系统</strong><em>自动探索系统、反推业务生成经验</em></span>
+              <span class="exp-add-ico">🌐</span>
+              <span><strong>接入 Web 系统</strong><em>保存连接，随时探索反推业务生成文档</em></span>
             </button>
           </div>
         </div>
@@ -397,6 +482,13 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
                 <span v-for="t in tagList(x.tags)" :key="t" class="exp-tag">{{ t }}</span>
               </div>
             </div>
+            <button
+              v-if="x.origin === 'websystem'"
+              class="exp-row-explore"
+              :disabled="exploreRunning"
+              title="按保存的连接配置运行自动探索，生成业务说明文档"
+              @click.stop="exploreRow(x)"
+            >🧭 探索</button>
             <span class="exp-row-del" title="删除" @click.stop="remove(x)">×</span>
           </button>
         </template>
@@ -495,18 +587,22 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
       @commit="onExtractCommit"
     />
 
-    <!-- 自动探索系统了解业务 -->
+    <!-- 接入 Web 系统：保存连接 → 探索生成业务文档 -->
     <div v-if="exploreOpen" class="exp-modal-mask" @click.self="closeExplore">
       <div class="exp-modal">
         <div class="exp-modal-head">
-          <span>🧭 自动探索系统了解业务</span>
+          <span>🌐 {{ isEditingWs ? '编辑接入的 Web 系统' : '接入 Web 系统' }}</span>
           <button class="exp-modal-x" @click="closeExplore">×</button>
         </div>
         <div class="exp-modal-body">
           <p class="exp-modal-desc">
-            智能体会用无头浏览器像人一样<strong>只读</strong>地操作目标系统:点菜单、开页面、读表格表单,
-            摸清功能后反推业务,自动归纳成一份《业务说明文档》存入经验库(附探索明细)。<strong>建议指向测试/预发环境。</strong>
+            填好系统入口与登录信息后<strong>保存接入</strong>,即可在列表里随时点<strong>「探索」</strong>:智能体会用无头浏览器
+            像人一样<strong>只读</strong>地操作系统、摸清功能,反推业务自动归纳成一份《业务说明文档》存入经验库(附探索明细)。<strong>建议指向测试/预发环境。</strong>
           </p>
+          <label class="exp-field">
+            <span>系统名称<span class="exp-modal-hint-inline">（可空，默认取入口地址）</span></span>
+            <input v-model="exploreTitle" type="text" placeholder="如：订单中台（预发）" :disabled="exploreRunning" />
+          </label>
           <label class="exp-field">
             <span>系统入口地址</span>
             <input v-model="exploreUrl" type="text" placeholder="https://your-system.example.com" :disabled="exploreRunning" />
@@ -518,7 +614,8 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             </label>
             <label class="exp-field exp-field-half">
               <span>登录密码</span>
-              <input v-model="explorePassword" type="password" autocomplete="new-password" placeholder="登录系统的密码（可空）" :disabled="exploreRunning" />
+              <input v-model="explorePassword" type="password" autocomplete="new-password"
+                     :placeholder="isEditingWs ? '已保存，留空表示不修改' : '登录系统的密码（可空）'" :disabled="exploreRunning" />
             </label>
           </div>
           <p class="exp-modal-hint">填写后智能体会先用该账号密码自动登录系统，再开始探索；留空则以未登录状态探索。</p>
@@ -533,8 +630,8 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             </label>
           </div>
           <details class="exp-adv">
-            <summary>高级:预登录 storageState(可选)</summary>
-            <p class="exp-modal-hint">若系统需要登录,可粘贴浏览器导出的 storageState(cookies/localStorage)JSON,智能体将带着登录态探索。</p>
+            <summary>高级:预登录 storageState(可选)<span v-if="exploreHasStorageState" class="exp-ss-set">· 已配置</span></summary>
+            <p class="exp-modal-hint">若系统需要登录,可粘贴浏览器导出的 storageState(cookies/localStorage)JSON,智能体将带着登录态探索。{{ isEditingWs ? '留空则沿用已保存的值。' : '' }}</p>
             <textarea v-model="exploreStorageState" rows="3" placeholder='{"cookies":[...],"origins":[...]}' :disabled="exploreRunning"></textarea>
           </details>
 
@@ -544,8 +641,11 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         </div>
         <div class="exp-modal-foot">
           <button class="exp-modal-cancel" @click="closeExplore">{{ exploreRunning ? '在后台继续' : '关闭' }}</button>
-          <button class="exp-modal-go" :disabled="exploreRunning || !exploreUrl.trim()" @click="startExplore">
-            {{ exploreRunning ? '探索中…' : '开始探索' }}
+          <button class="exp-modal-save" :disabled="exploreRunning || wsSaving || !exploreUrl.trim()" @click="onSaveWebSystem">
+            {{ wsSaving ? '保存中…' : '保存接入' }}
+          </button>
+          <button class="exp-modal-go" :disabled="exploreRunning || wsSaving || !exploreUrl.trim()" @click="onSaveAndExplore">
+            {{ exploreRunning ? '探索中…' : '保存并探索' }}
           </button>
         </div>
       </div>
@@ -685,6 +785,14 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 }
 .exp-modal-go:hover:not(:disabled) { background: #9d72f7; }
 .exp-modal-go:disabled { opacity: 0.5; cursor: not-allowed; }
+.exp-modal-save {
+  background: transparent; color: #c9a7ff; border: 1px solid rgba(167,139,250,0.5);
+  padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+}
+.exp-modal-save:hover:not(:disabled) { background: rgba(167,139,250,0.14); color: #fff; }
+.exp-modal-save:disabled { opacity: 0.5; cursor: not-allowed; }
+.exp-modal-hint-inline { color: var(--text-dim); font-weight: 400; font-size: 11px; margin-left: 4px; }
+.exp-ss-set { color: #6dd4a7; margin-left: 6px; }
 
 .exp-body { flex: 1; display: flex; gap: 18px; min-height: 0; }
 .exp-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
@@ -711,6 +819,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-origin { font-size: 10px; padding: 1px 8px; border-radius: 100px; }
 .exp-origin.ddl { background: rgba(74,141,240,0.15); color: #9cc4ff; }
 .exp-origin.upload { background: rgba(255,255,255,0.07); color: var(--text-dim); }
+.exp-origin.websystem { background: rgba(125,211,252,0.16); color: #bae6fd; }
 .exp-origin.explore { background: rgba(167,139,250,0.16); color: #c9a7ff; }
 .exp-size { font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
 .exp-idx { font-size: 10px; padding: 1px 8px; border-radius: 100px; border: 1px solid transparent; }
@@ -744,6 +853,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 }
 .exp-row-ico.upload { background: rgba(255,255,255,0.07); }
 .exp-row-ico.ddl { background: rgba(74,141,240,0.14); }
+.exp-row-ico.websystem { background: rgba(125,211,252,0.16); }
 .exp-row-ico.explore { background: rgba(167,139,250,0.16); }
 .exp-row-ico.manual { background: rgba(66,184,131,0.14); }
 .exp-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
@@ -762,6 +872,13 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 }
 .exp-row:hover .exp-row-del { opacity: 1; }
 .exp-row-del:hover { background: rgba(255,102,68,0.2); color: #ff8a6f; }
+.exp-row-explore {
+  flex-shrink: 0; border: 1px solid rgba(125,211,252,0.4); background: rgba(125,211,252,0.1);
+  color: #bae6fd; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 100px;
+  cursor: pointer; font-family: inherit; white-space: nowrap; transition: all 0.12s;
+}
+.exp-row-explore:hover:not(:disabled) { background: rgba(125,211,252,0.2); color: #fff; }
+.exp-row-explore:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .exp-editor {
   flex: 0 0 52%; max-width: 52%; display: flex; flex-direction: column; gap: 12px;
