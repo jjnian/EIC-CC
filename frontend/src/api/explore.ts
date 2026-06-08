@@ -26,8 +26,31 @@ export function runExplore(
     onClose?: () => void;
   },
 ): SseHandle {
-  return sse('/api/explore/run', body, {
-    onEvent: (event, data) => {
+  return sse('/api/explore/run', body, exploreSseAdapter(handlers));
+}
+
+export interface ExploreHandlers {
+  onStep?: (key: string, label: string) => void;
+  onComplete?: (exp: Experience) => void;
+  onError?: (msg: string) => void;
+  onClose?: () => void;
+}
+
+/**
+ * 探索一个已接入并保存的 web 系统(经验条目)。后端按其保存的连接配置(含真实密码,服务端读取)运行探索,
+ * 每次另产一篇 origin=explore 的业务说明经验。
+ */
+export function runSavedExplore(
+  body: { experienceId: string; modelOverride?: string; configId?: string },
+  handlers: ExploreHandlers,
+): SseHandle {
+  return sse('/api/explore/run-saved', body, exploreSseAdapter(handlers));
+}
+
+/** /run 与 /run-saved 的 SSE 事件解析共用一份。 */
+function exploreSseAdapter(handlers: ExploreHandlers) {
+  return {
+    onEvent: (event: string, data: string) => {
       if (event === 'step') {
         try { const j = JSON.parse(data) as { key: string; label: string }; handlers.onStep?.(j.key, j.label); }
         catch { /* ignore */ }
@@ -38,7 +61,7 @@ export function runExplore(
         handlers.onError?.(data);
       }
     },
-    onError: (err) => handlers.onError?.(err.message),
+    onError: (err: Error) => handlers.onError?.(err.message),
     onClose: () => handlers.onClose?.(),
-  });
+  };
 }

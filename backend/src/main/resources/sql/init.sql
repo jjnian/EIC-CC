@@ -515,6 +515,11 @@ ALTER TABLE experience ADD COLUMN IF NOT EXISTS file_mime    VARCHAR(128);
 ALTER TABLE experience ADD COLUMN IF NOT EXISTS file_size    BIGINT;
 ALTER TABLE experience ADD COLUMN IF NOT EXISTS storage_path VARCHAR(1024);
 
+-- 8.1.2 接入 Web 系统：origin=websystem 的经验条目，保存自动探索的连接配置
+--   （入口地址 / 账号 / 密码 / 最多步数 / 只读 / storageState，JSON 存于 source_config）。
+--   在条目上点「探索」即按此配置运行自动探索，每次生成一篇 origin=explore 的业务说明经验。
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS source_config TEXT;
+
 CREATE TABLE IF NOT EXISTS exp_chunk (
     id             VARCHAR(64) PRIMARY KEY,
     experience_id  VARCHAR(64) NOT NULL REFERENCES experience(id) ON DELETE CASCADE,

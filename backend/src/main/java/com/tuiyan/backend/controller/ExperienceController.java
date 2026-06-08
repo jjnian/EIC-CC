@@ -286,6 +286,68 @@ public class ExperienceController {
         return ResponseEntity.ok(exp);
     }
 
+    /**
+     * 接入一个 web 系统并保存为经验条目（origin=websystem）。请求体：
+     * { title?, baseUrl, username?, password?, maxSteps?, readOnly?(默认 true), storageState? }。
+     * <p>保存后不立即探索；在该条目上点「探索」(/api/explore/run-saved) 才按此配置运行自动探索。
+     */
+    @PostMapping("/websystem")
+    public ResponseEntity<Map<String, Object>> createWebSystem(@RequestBody Map<String, Object> body) {
+        String baseUrl = str(body, "baseUrl");
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "缺少 baseUrl(系统入口地址)"));
+        }
+        String title = str(body, "title");
+        if (title == null || title.isBlank()) title = "「" + baseUrl.trim() + "」web 系统";
+        Map<String, Object> config = assembleConfig(body, new LinkedHashMap<>());
+        Map<String, Object> exp = repo.createWebSystem(title.trim(), config);
+        return ResponseEntity.ok(exp);
+    }
+
+    /**
+     * 编辑已接入 web 系统的连接配置。密码留空或为遮蔽串（********）时保留原密码；
+     * storageState 留空时保留原值。
+     */
+    @PutMapping("/websystem/{id}")
+    public ResponseEntity<Map<String, Object>> updateWebSystem(@PathVariable String id,
+                                                               @RequestBody Map<String, Object> body) {
+        Map<String, Object> existing = repo.readSourceConfigScoped(id);
+        if (existing == null) return ResponseEntity.notFound().build();
+        Map<String, Object> config = assembleConfig(body, existing);
+        Map<String, Object> exp = repo.updateWebSystem(id, str(body, "title"), config);
+        if (exp == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(exp);
+    }
+
+    /**
+     * 把请求体里的连接字段合成为待存配置：在 existing 基础上覆盖。
+     * 密码为空 / 遮蔽串、storageState 为空时沿用 existing 原值（避免编辑时把敏感字段清掉）。
+     */
+    private Map<String, Object> assembleConfig(Map<String, Object> body, Map<String, Object> existing) {
+        Map<String, Object> cfg = new LinkedHashMap<>(existing);
+        cfg.put("baseUrl", str(body, "baseUrl"));
+        cfg.put("username", str(body, "username"));
+        cfg.put("maxSteps", intOr(body, "maxSteps", 15));
+        cfg.put("readOnly", !"false".equalsIgnoreCase(str(body, "readOnly"))); // 默认只读
+        String pwd = str(body, "password");
+        if (pwd != null && !pwd.isBlank() && !"********".equals(pwd)) cfg.put("password", pwd);
+        String ss = str(body, "storageState");
+        if (ss != null && !ss.isBlank()) cfg.put("storageState", ss);
+        return cfg;
+    }
+
+    private static String str(Map<String, Object> body, String key) {
+        if (body == null) return null;
+        Object v = body.get(key);
+        return v == null ? null : String.valueOf(v);
+    }
+
+    private static int intOr(Map<String, Object> body, String key, int dflt) {
+        String s = str(body, key);
+        if (s == null || s.isBlank()) return dflt;
+        try { return Integer.parseInt(s.trim()); } catch (NumberFormatException e) { return dflt; }
+    }
+
     /** 移动经验到文件夹：{folderId}（null/空 = 移到根）。 */
     @PutMapping("/{id}/folder")
     public ResponseEntity<SuccessCountResponse> moveToFolder(@PathVariable String id,

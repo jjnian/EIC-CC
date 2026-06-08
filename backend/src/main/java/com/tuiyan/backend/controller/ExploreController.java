@@ -1,6 +1,7 @@
 package com.tuiyan.backend.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tuiyan.backend.repository.ExperienceRepository;
 import com.tuiyan.backend.service.agent.ExplorationAgentService;
 import com.tuiyan.backend.support.SsePushUtils;
 import com.tuiyan.backend.support.WorkspaceContext;
@@ -25,12 +26,15 @@ import java.util.Map;
 public class ExploreController {
 
     private final ExplorationAgentService agent;
+    private final ExperienceRepository experienceRepo;
     private final AsyncTaskExecutor taskExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ExploreController(ExplorationAgentService agent,
+                             ExperienceRepository experienceRepo,
                              @Qualifier("predictionExecutor") AsyncTaskExecutor taskExecutor) {
         this.agent = agent;
+        this.experienceRepo = experienceRepo;
         this.taskExecutor = taskExecutor;
     }
 
@@ -41,16 +45,42 @@ public class ExploreController {
      */
     @PostMapping(value = "/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter run(@RequestBody(required = false) Map<String, Object> body) {
-        String baseUrl = str(body, "baseUrl");
-        String storageState = str(body, "storageState");
-        String username = str(body, "username");
-        String password = str(body, "password");
-        int maxSteps = intOr(body, "maxSteps", 15);
-        boolean readOnly = !"false".equalsIgnoreCase(str(body, "readOnly")); // 默认只读
-        String modelOverride = str(body, "modelOverride");
-        String configId = str(body, "configId");
-        String workspaceId = WorkspaceContext.get();
+        return runExploration(
+                str(body, "baseUrl"), str(body, "storageState"),
+                str(body, "username"), str(body, "password"),
+                intOr(body, "maxSteps", 15),
+                !"false".equalsIgnoreCase(str(body, "readOnly")), // 默认只读
+                str(body, "modelOverride"), str(body, "configId"));
+    }
 
+    /**
+     * 探索一个已接入并保存的 web 系统：按其保存的连接配置（含真实密码，服务端读取，不经前端）运行探索，
+     * 每次另产一篇 origin=explore 的业务说明经验。请求体：{ experienceId, modelOverride?, configId? }。
+     */
+    @PostMapping(value = "/run-saved", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter runSaved(@RequestBody(required = false) Map<String, Object> body) {
+        String experienceId = str(body, "experienceId");
+        Map<String, Object> cfg = experienceId == null ? null : experienceRepo.readSourceConfigScoped(experienceId);
+        if (cfg == null) {
+            // 走与运行期一致的 SSE 错误通道，前端统一在 onError 处理
+            SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(5_000L, "");
+            SseEmitter emitter = ce.emitter();
+            SsePushUtils.safeSend(emitter, ce.cancelled(), "error", "找不到该 web 系统或无权访问");
+            emitter.complete();
+            return emitter;
+        }
+        return runExploration(
+                str(cfg, "baseUrl"), str(cfg, "storageState"),
+                str(cfg, "username"), str(cfg, "password"),
+                intOr(cfg, "maxSteps", 15),
+                !Boolean.FALSE.equals(cfg.get("readOnly")), // 默认只读
+                str(body, "modelOverride"), str(body, "configId"));
+    }
+
+    /** 探索 SSE 主流程（/run 与 /run-saved 共用）：异步跑 agent.explore，step 流式推、complete 携带新建经验。 */
+    private SseEmitter runExploration(String baseUrl, String storageState, String username, String password,
+                                      int maxSteps, boolean readOnly, String modelOverride, String configId) {
+        String workspaceId = WorkspaceContext.get();
         SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(600_000L,
                 "系统探索超时 (>600s)，请缩小探索步数或稍后重试");
         SseEmitter emitter = ce.emitter();
