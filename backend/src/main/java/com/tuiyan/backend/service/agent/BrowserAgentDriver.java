@@ -124,6 +124,43 @@ public class BrowserAgentDriver {
             return name;
         }
 
+        /**
+         * 在当前页(入口页)用账号密码自动登录:定位用户名/密码输入框填入,再点登录按钮(或回车提交)。
+         * 尽量覆盖常见登录页(中英文标识)。找不到密码框时返回 false,由上层降级为未登录探索。
+         * @return 是否成功提交了登录表单
+         */
+        public boolean login(String username, String password) {
+            if (username == null || username.isBlank()) return false;
+            try {
+                Locator pwd = page.locator("input[type='password']").first();
+                pwd.waitFor(new Locator.WaitForOptions().setTimeout(CLICK_TIMEOUT_MS));
+                Locator user = page.locator(
+                        "input[type='text'],input[type='email'],input[type='tel'],"
+                        + "input[name*='user' i],input[name*='account' i],input[name*='login' i],input[name*='email' i],"
+                        + "input[id*='user' i],input[id*='account' i],"
+                        + "input[placeholder*='用户'],input[placeholder*='账号'],input[placeholder*='帐号'],input[placeholder*='邮箱']"
+                ).first();
+                user.fill(username);
+                pwd.fill(password == null ? "" : password);
+                // 优先点击登录按钮,失败则回车提交
+                Locator btn = page.locator(
+                        "button:has-text('登录'),button:has-text('登 录'),button:has-text('登陆'),"
+                        + "button:has-text('Login'),button:has-text('Sign in'),button:has-text('Sign In'),"
+                        + "button[type='submit'],input[type='submit']"
+                ).first();
+                try {
+                    btn.click(new Locator.ClickOptions().setTimeout(CLICK_TIMEOUT_MS));
+                } catch (RuntimeException e) {
+                    pwd.press("Enter");
+                }
+                settle();
+                return true;
+            } catch (RuntimeException e) {
+                log.warn("[browser-agent] 自动登录失败: {}", e.getMessage());
+                return false;
+            }
+        }
+
         /** 后退一页。 */
         public void back() {
             page.goBack(new Page.GoBackOptions().setTimeout(NAV_TIMEOUT_MS));

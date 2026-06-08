@@ -58,7 +58,8 @@ public class ExplorationAgentService {
      * 跑一次探索,结束后落一篇经验。
      * @return 新建经验的 map(含 id/title);经验库为入口,后续走现有建图。
      */
-    public Map<String, Object> explore(String baseUrl, String storageState, int maxSteps, boolean readOnly,
+    public Map<String, Object> explore(String baseUrl, String storageState, String username, String password,
+                                       int maxSteps, boolean readOnly,
                                        String modelOverride, String configId, StepSink step) {
         int budget = Math.max(1, Math.min(maxSteps <= 0 ? 15 : maxSteps, MAX_STEPS_CAP));
         LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(modelOverride, configId);
@@ -71,6 +72,14 @@ public class ExplorationAgentService {
         int stuck = 0;
 
         try (Session session = driver.open(baseUrl, storageState)) {
+            // 若提供了账号密码,先在入口页自动登录,再开始探索
+            if (username != null && !username.isBlank()) {
+                step.emit("login", "正在用账号「" + username + "」自动登录系统…");
+                boolean ok = session.login(username, password);
+                step.emit(ok ? "act" : "blocked", ok
+                        ? "已提交登录表单,继续探索。"
+                        : "未找到登录表单/按钮,以未登录状态继续探索。");
+            }
             for (int i = 1; i <= budget; i++) {
                 JsonNode snap = session.snapshot();
                 String url = snap.path("url").asText(session.currentUrl());

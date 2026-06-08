@@ -9,6 +9,10 @@ import type { Experience } from './experiences';
 export function runExplore(
   body: {
     baseUrl: string;
+    /** 登录系统的用户名（可空，填了则探索前自动登录） */
+    username?: string;
+    /** 登录系统的密码（可空） */
+    password?: string;
     maxSteps?: number;
     readOnly?: boolean;
     storageState?: string;

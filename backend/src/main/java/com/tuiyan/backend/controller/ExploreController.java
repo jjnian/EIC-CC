@@ -36,13 +36,15 @@ public class ExploreController {
 
     /**
      * 启动一次探索。请求体:
-     * { baseUrl, maxSteps?, readOnly?(默认 true), storageState?(预登录 cookies JSON),
-     *   modelOverride?, configId? }
+     * { baseUrl, username?/password?(填了则探索前自动登录系统), maxSteps?,
+     *   readOnly?(默认 true), storageState?(预登录 cookies JSON), modelOverride?, configId? }
      */
     @PostMapping(value = "/run", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter run(@RequestBody(required = false) Map<String, Object> body) {
         String baseUrl = str(body, "baseUrl");
         String storageState = str(body, "storageState");
+        String username = str(body, "username");
+        String password = str(body, "password");
         int maxSteps = intOr(body, "maxSteps", 15);
         boolean readOnly = !"false".equalsIgnoreCase(str(body, "readOnly")); // 默认只读
         String modelOverride = str(body, "modelOverride");
@@ -65,8 +67,8 @@ public class ExploreController {
                         SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
                     } catch (Exception ignore) {}
                 };
-                Map<String, Object> exp = agent.explore(baseUrl.trim(), storageState, maxSteps, readOnly,
-                        modelOverride, configId, step);
+                Map<String, Object> exp = agent.explore(baseUrl.trim(), storageState, username, password,
+                        maxSteps, readOnly, modelOverride, configId, step);
                 Map<String, Object> payload = new LinkedHashMap<>(exp);
                 SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
                         objectMapper.writeValueAsString(payload));
