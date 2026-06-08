@@ -75,10 +75,14 @@ const exploreStorageState = ref('');
 const exploreHasStorageState = ref(false);      // 编辑时该系统是否已配置过 storageState
 const wsSaving = ref(false);
 const exploreRunning = ref(false);              // 是否正在跑探索（步骤流式中）
+const exploringId = ref<string | null>(null);   // 正在被探索的 web 系统条目 id（行内显示进度用）
 const exploreSteps = ref<{ key: string; label: string }[]>([]);
 let exploreHandle: { abort: () => void } | null = null;
 
 const isEditingWs = computed(() => !!wsFormId.value);
+// 当前探索的最新一步文案（行内进度）
+const lastStepLabel = computed(() =>
+  exploreSteps.value.length ? exploreSteps.value[exploreSteps.value.length - 1].label : '');
 
 const resetWsForm = () => {
   wsFormId.value = null;
@@ -170,10 +174,12 @@ const onSaveAndExplore = async () => {
   if (saved) startSavedExplore(saved.id);
 };
 
-// 对一个已保存的 web 系统运行自动探索：每次另产一篇 explore 业务说明经验
+// 对一个已保存的 web 系统运行自动探索：每次另产一篇 explore 业务说明经验。
+// 「探索」不弹窗，直接开跑；进度在该条目行内滚动显示，完成后 toast + 刷新列表。
 const startSavedExplore = (experienceId: string) => {
-  if (exploreRunning.value) return;
+  if (exploreRunning.value) { toast.warn('已有探索在进行中，请等它结束'); return; }
   exploreRunning.value = true;
+  exploringId.value = experienceId;
   exploreSteps.value = [{ key: 'open', label: '正在启动探索…' }];
   exploreHandle = runSavedExplore(
     { experienceId },
@@ -184,15 +190,9 @@ const startSavedExplore = (experienceId: string) => {
         await reload(true);
       },
       onError: (msg) => { toast.warn(msg || '探索失败'); },
-      onClose: () => { exploreRunning.value = false; exploreHandle = null; },
+      onClose: () => { exploreRunning.value = false; exploringId.value = null; exploreHandle = null; },
     },
   );
-};
-
-// 列表行上的「探索」按钮：打开对话框回填该系统并立即开跑，让用户看到进度
-const exploreRow = (x: Experience) => {
-  editWebSystem(x);
-  startSavedExplore(x.id);
 };
 
 // 编辑器状态：id 为空 = 新建；非空 = 编辑已有
@@ -489,14 +489,19 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
                 </span>
                 <span v-for="t in tagList(x.tags)" :key="t" class="exp-tag">{{ t }}</span>
               </div>
+              <div v-if="exploringId === x.id && lastStepLabel" class="exp-row-step">
+                <span class="exp-row-spin" /> {{ lastStepLabel }}
+              </div>
             </div>
-            <button
-              v-if="x.origin === 'websystem'"
-              class="exp-row-explore"
-              :disabled="exploreRunning"
-              title="按保存的连接配置运行自动探索，生成业务说明文档"
-              @click.stop="exploreRow(x)"
-            >🧭 探索</button>
+            <template v-if="x.origin === 'websystem'">
+              <button class="exp-row-btn" title="编辑接入信息" @click.stop="editWebSystem(x)">编辑</button>
+              <button
+                class="exp-row-explore"
+                :disabled="exploreRunning"
+                :title="exploringId === x.id ? '正在探索…' : '按保存的连接配置直接开始自动探索，生成业务说明文档'"
+                @click.stop="startSavedExplore(x.id)"
+              >{{ exploringId === x.id ? '探索中…' : '🧭 探索' }}</button>
+            </template>
             <span class="exp-row-del" title="删除" @click.stop="remove(x)">×</span>
           </button>
         </template>
@@ -911,7 +916,23 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
   cursor: pointer; font-family: inherit; white-space: nowrap; transition: all 0.12s;
 }
 .exp-row-explore:hover:not(:disabled) { background: rgba(125,211,252,0.2); color: #fff; }
-.exp-row-explore:disabled { opacity: 0.5; cursor: not-allowed; }
+.exp-row-explore:disabled { opacity: 0.6; cursor: not-allowed; }
+.exp-row-btn {
+  flex-shrink: 0; border: 1px solid rgba(255,255,255,0.16); background: transparent;
+  color: var(--text-dim); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 100px;
+  cursor: pointer; font-family: inherit; white-space: nowrap; transition: all 0.12s;
+}
+.exp-row-btn:hover { background: rgba(255,255,255,0.06); color: var(--text-main); border-color: rgba(255,255,255,0.3); }
+.exp-row-step {
+  display: flex; align-items: center; gap: 6px; margin-top: 2px;
+  font-size: 11.5px; color: #bae6fd;
+}
+.exp-row-spin {
+  width: 10px; height: 10px; flex-shrink: 0; border-radius: 50%;
+  border: 2px solid rgba(125,211,252,0.35); border-top-color: #7dd3fc;
+  animation: exp-row-spin 0.8s linear infinite;
+}
+@keyframes exp-row-spin { to { transform: rotate(360deg); } }
 
 .exp-editor {
   flex: 0 0 52%; max-width: 52%; display: flex; flex-direction: column; gap: 12px;
