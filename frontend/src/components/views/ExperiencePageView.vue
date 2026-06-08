@@ -38,11 +38,16 @@ const tree = useSidebarTree();
 const loading = computed(() => tree.isLoadingExp(ws.currentId.value));
 const experiences = computed<Experience[]>(() => tree.getExperiences(ws.currentId.value));
 
-// 两个 Tab：手写/文本经验（manual + ddl）与上传的文件（upload）
-type Tab = 'manual' | 'upload';
-const activeTab = ref<Tab>('manual');
-const manualList = computed(() => experiences.value.filter(e => e.origin !== 'upload'));
-const uploadList = computed(() => experiences.value.filter(e => e.origin === 'upload'));
+// 统一列表：手写 / DDL 供血 / 系统探索 / 上传文件 全部按更新时间倒序展示为「经验文件」
+const allExperiences = computed<Experience[]>(() =>
+  [...experiences.value].sort(
+    (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0),
+  ));
+
+// ── 右上角「新增」下拉菜单 ──────────────────────────────────
+const addMenuOpen = ref(false);
+const toggleAddMenu = () => { addMenuOpen.value = !addMenuOpen.value; };
+const closeAddMenu = () => { addMenuOpen.value = false; };
 
 // ── 从经验库一键构建本体血缘图 ──────────────────────────────
 const extractDialogOpen = ref(false);
@@ -67,7 +72,7 @@ const exploreRunning = ref(false);
 const exploreSteps = ref<{ key: string; label: string }[]>([]);
 let exploreHandle: { abort: () => void } | null = null;
 
-const openExplore = () => { exploreOpen.value = true; };
+const openExplore = () => { closeAddMenu(); exploreOpen.value = true; };
 const closeExplore = () => {
   // 关闭对话框不打断后台探索(SSE 仍在跑,完成后会刷新列表)
   exploreOpen.value = false;
@@ -115,7 +120,8 @@ onMounted(() => reload());
 watch(() => ws.currentId.value, () => { draft.value = null; selectedUpload.value = null; reload(); });
 
 const newDraft = () => {
-  activeTab.value = 'manual';
+  closeAddMenu();
+  selectedUpload.value = null;
   draft.value = { id: null, title: '', tags: '', content: '' };
   editorPreview.value = false;
 };
@@ -124,7 +130,7 @@ const newDraft = () => {
 const fileInput = ref<HTMLInputElement | null>(null);
 const uploading = ref(false);
 
-const triggerUpload = () => fileInput.value?.click();
+const triggerUpload = () => { closeAddMenu(); fileInput.value?.click(); };
 
 const onUploadPick = async (ev: Event) => {
   const input = ev.target as HTMLInputElement;
@@ -136,7 +142,7 @@ const onUploadPick = async (ev: Event) => {
     const created = await uploadExperienceFile(file);
     const wsId = ws.currentId.value;
     if (wsId) tree.upsertExperience(wsId, created);
-    activeTab.value = 'upload';
+    draft.value = null;
     selectedUpload.value = created;   // 上传后直接预览
     toast.success('已从文件创建经验');
   } catch (e) {
@@ -147,15 +153,23 @@ const onUploadPick = async (ev: Event) => {
 };
 
 const editDraft = (x: Experience) => {
-  activeTab.value = 'manual';
+  selectedUpload.value = null;
   draft.value = { id: x.id, title: x.title || '', tags: x.tags || '', content: x.content || '' };
   editorPreview.value = false;
 };
 
 const selectUpload = (x: Experience) => {
-  activeTab.value = 'upload';
+  draft.value = null;
   selectedUpload.value = x;
 };
+
+// 统一列表：点击一条经验文件 → 上传走预览，其余走编辑
+const selectExperience = (x: Experience) => {
+  if (x.origin === 'upload') selectUpload(x);
+  else editDraft(x);
+};
+// 当前在右侧打开的经验 id（用于列表高亮）
+const activeId = computed(() => draft.value?.id ?? selectedUpload.value?.id ?? null);
 
 // 侧栏点击定位某条经验 → 按来源进入对应 Tab
 watch(() => props.focusId, (id) => {
@@ -243,6 +257,17 @@ const preview = (content?: string) => {
   return s.length > 120 ? s.slice(0, 120) + '…' : s;
 };
 
+// 列表里每条经验文件的图标与来源标签
+const originMeta = (x: Experience): { icon: string; label: string; cls: string } => {
+  switch (x.origin) {
+    case 'upload': return { icon: '📄', label: (x.fileMime || '文件').split(';')[0], cls: 'upload' };
+    case 'ddl': return { icon: '🗄️', label: 'DDL 供血', cls: 'ddl' };
+    case 'explore': return { icon: '🧭', label: '系统探索', cls: 'explore' };
+    default: return { icon: '✎', label: '手写经验', cls: 'manual' };
+  }
+};
+const rowName = (x: Experience) => x.fileName || x.title || '未命名经验';
+
 const idxMeta = (s?: string): { label: string; cls: string } => {
   switch (s) {
     case 'indexed': return { label: '已索引', cls: 'ok' };
@@ -309,15 +334,24 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           :title="experiences.length === 0 ? '请先在经验库中创建/上传经验' : '聚合整个工作空间经验库构建本体血缘图'"
           @click="extractDialogOpen = true"
         >🧬 构建本体血缘图</button>
-        <button
-          class="exp-explore"
-          title="让智能体像人一样自动操作一个 web 系统，摸清功能、反推业务，生成一篇经验"
-          @click="openExplore"
-        >🧭 自动探索系统了解业务</button>
-        <button class="exp-upload" :disabled="uploading" @click="triggerUpload">
-          {{ uploading ? '解析中…' : '⤓ 上传文件' }}
-        </button>
-        <button class="exp-new" @click="newDraft">＋ 新建经验</button>
+        <div class="exp-add">
+          <button class="exp-new" @click.stop="toggleAddMenu">＋ 新增 <span class="exp-add-caret">▾</span></button>
+          <div v-if="addMenuOpen" class="exp-add-backdrop" @click="closeAddMenu"></div>
+          <div v-if="addMenuOpen" class="exp-add-menu">
+            <button class="exp-add-item" @click="newDraft">
+              <span class="exp-add-ico">✎</span>
+              <span><strong>新建经验</strong><em>手写一篇 Markdown 经验</em></span>
+            </button>
+            <button class="exp-add-item" :disabled="uploading" @click="triggerUpload">
+              <span class="exp-add-ico">⤓</span>
+              <span><strong>{{ uploading ? '解析中…' : '上传文件' }}</strong><em>PDF / Word / TXT / MD / 音频</em></span>
+            </button>
+            <button class="exp-add-item" @click="openExplore">
+              <span class="exp-add-ico">🧭</span>
+              <span><strong>接入 Web 系统</strong><em>自动探索系统、反推业务生成经验</em></span>
+            </button>
+          </div>
+        </div>
       </div>
       <input
         ref="fileInput"
@@ -328,48 +362,38 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
       />
     </div>
 
-    <!-- Tab 切换 -->
-    <div class="exp-tabs">
-      <button :class="['exp-tab', { active: activeTab === 'manual' }]" @click="activeTab = 'manual'">
-        ✎ 手写经验 <span class="exp-tab-count">{{ manualList.length }}</span>
-      </button>
-      <button :class="['exp-tab', { active: activeTab === 'upload' }]" @click="activeTab = 'upload'">
-        ⤓ 上传的文件 <span class="exp-tab-count">{{ uploadList.length }}</span>
-      </button>
-    </div>
-
-    <!-- 手写经验 Tab -->
-    <div v-show="activeTab === 'manual'" class="exp-body">
+    <!-- 统一经验文件列表 -->
+    <div class="exp-body">
       <div class="exp-list">
         <div v-if="loading" class="exp-state">加载中…</div>
-        <div v-else-if="manualList.length === 0" class="exp-empty">
+        <div v-else-if="allExperiences.length === 0" class="exp-empty">
           <div class="exp-empty-icon">📚</div>
-          <p>当前工作空间还没有手写经验</p>
+          <p>当前工作空间还没有经验文件</p>
           <button class="exp-new" @click="newDraft">新建第一条经验</button>
         </div>
         <template v-else>
           <button
-            v-for="x in manualList"
+            v-for="x in allExperiences"
             :key="x.id"
-            :class="['exp-card', { active: draft && draft.id === x.id }]"
-            @click="editDraft(x)"
+            :class="['exp-row', { active: activeId === x.id }]"
+            @click="selectExperience(x)"
           >
-            <div class="exp-card-top">
-              <span class="exp-card-title">{{ x.title || '未命名经验' }}</span>
-              <span class="exp-card-time">{{ fmtTime(x.updatedAt || x.createdAt) }}</span>
+            <span :class="['exp-row-ico', originMeta(x).cls]">{{ originMeta(x).icon }}</span>
+            <div class="exp-row-main">
+              <div class="exp-row-top">
+                <span class="exp-row-name">{{ rowName(x) }}</span>
+                <span class="exp-row-time">{{ fmtTime(x.updatedAt || x.createdAt) }}</span>
+              </div>
+              <div class="exp-row-meta">
+                <span :class="['exp-origin', originMeta(x).cls]">{{ originMeta(x).label }}</span>
+                <span v-if="fmtSize(x.fileSize)" class="exp-size">{{ fmtSize(x.fileSize) }}</span>
+                <span :class="['exp-idx', idxMeta(x.indexStatus).cls]" :title="`向量索引：${idxMeta(x.indexStatus).label}`">
+                  {{ idxMeta(x.indexStatus).label }}
+                </span>
+                <span v-for="t in tagList(x.tags)" :key="t" class="exp-tag">{{ t }}</span>
+              </div>
             </div>
-            <div class="exp-card-meta">
-              <span v-if="x.origin === 'ddl'" class="exp-origin ddl">DDL 供血</span>
-              <span v-else-if="x.origin === 'explore'" class="exp-origin explore">🧭 系统探索</span>
-              <span :class="['exp-idx', idxMeta(x.indexStatus).cls]" :title="`向量索引：${idxMeta(x.indexStatus).label}`">
-                {{ idxMeta(x.indexStatus).label }}
-              </span>
-            </div>
-            <div v-if="preview(x.content)" class="exp-card-preview">{{ preview(x.content) }}</div>
-            <div v-if="tagList(x.tags).length" class="exp-card-tags">
-              <span v-for="t in tagList(x.tags)" :key="t" class="exp-tag">{{ t }}</span>
-            </div>
-            <span class="exp-card-del" title="删除" @click.stop="remove(x)">×</span>
+            <span class="exp-row-del" title="删除" @click.stop="remove(x)">×</span>
           </button>
         </template>
       </div>
@@ -419,46 +443,8 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           <button class="exp-save" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
         </div>
       </div>
-      <div class="exp-editor exp-editor-placeholder" v-else>
-        <div class="exp-ph-icon">✎</div>
-        <p>选择左侧一条经验查看 / 编辑，或新建一条经验。</p>
-      </div>
-    </div>
-
-    <!-- 上传的文件 Tab -->
-    <div v-show="activeTab === 'upload'" class="exp-body">
-      <div class="exp-list">
-        <div v-if="loading" class="exp-state">加载中…</div>
-        <div v-else-if="uploadList.length === 0" class="exp-empty">
-          <div class="exp-empty-icon">⤓</div>
-          <p>还没有上传的文件</p>
-          <button class="exp-upload" :disabled="uploading" @click="triggerUpload">
-            {{ uploading ? '解析中…' : '上传第一个文件' }}
-          </button>
-        </div>
-        <template v-else>
-          <button
-            v-for="x in uploadList"
-            :key="x.id"
-            :class="['exp-card', { active: selectedUpload && selectedUpload.id === x.id }]"
-            @click="selectUpload(x)"
-          >
-            <div class="exp-card-top">
-              <span class="exp-card-title">{{ x.fileName || x.title }}</span>
-              <span class="exp-card-time">{{ fmtTime(x.updatedAt || x.createdAt) }}</span>
-            </div>
-            <div class="exp-card-meta">
-              <span class="exp-origin upload">{{ (x.fileMime || '文件').split(';')[0] }}</span>
-              <span v-if="fmtSize(x.fileSize)" class="exp-size">{{ fmtSize(x.fileSize) }}</span>
-              <span :class="['exp-idx', idxMeta(x.indexStatus).cls]">{{ idxMeta(x.indexStatus).label }}</span>
-            </div>
-            <span class="exp-card-del" title="删除" @click.stop="remove(x)">×</span>
-          </button>
-        </template>
-      </div>
-
-      <!-- 右侧预览 -->
-      <div class="exp-editor exp-preview" v-if="selectedUpload">
+      <!-- 右侧预览（上传文件） -->
+      <div class="exp-editor exp-preview" v-else-if="selectedUpload">
         <div class="exp-editor-head">
           <span class="exp-prev-title">{{ selectedUpload.fileName || selectedUpload.title }}</span>
           <a class="exp-download" :href="fileUrl(selectedUpload, true)" target="_blank" rel="noopener">⤓ 下载原件</a>
@@ -496,8 +482,8 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         </div>
       </div>
       <div class="exp-editor exp-editor-placeholder" v-else>
-        <div class="exp-ph-icon">⤓</div>
-        <p>选择左侧一个上传的文件预览原件 / 抽取文本。</p>
+        <div class="exp-ph-icon">📚</div>
+        <p>从左侧列表选择一个经验文件查看 / 编辑，或点右上角「新增」。</p>
       </div>
     </div>
 
@@ -571,6 +557,34 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 }
 .exp-new:hover { background: #50caa3; }
 .exp-header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+/* 「新增」下拉 */
+.exp-add { position: relative; }
+.exp-add-caret { font-size: 10px; opacity: 0.8; margin-left: 2px; }
+.exp-add-backdrop { position: fixed; inset: 0; z-index: 40; }
+.exp-add-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
+  min-width: 240px; padding: 6px;
+  background: linear-gradient(180deg, rgba(24,32,48,0.99), rgba(16,24,38,0.99));
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
+  box-shadow: 0 18px 44px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.exp-add-item {
+  display: flex; align-items: center; gap: 12px; text-align: left;
+  background: transparent; border: none; border-radius: 8px;
+  padding: 9px 10px; cursor: pointer; font-family: inherit; color: var(--text-main);
+}
+.exp-add-item:hover:not(:disabled) { background: rgba(66,184,131,0.12); }
+.exp-add-item:disabled { opacity: 0.55; cursor: default; }
+.exp-add-ico {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; font-size: 16px;
+  background: rgba(255,255,255,0.06);
+}
+.exp-add-item span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.exp-add-item strong { font-size: 13px; font-weight: 600; }
+.exp-add-item em { font-style: normal; font-size: 11px; color: var(--text-dim); }
 .exp-build {
   background: linear-gradient(135deg, rgba(66,184,131,0.22), rgba(66,184,131,0.1));
   color: #6dd4a7; border: 1px solid rgba(66,184,131,0.5);
@@ -660,22 +674,6 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-modal-go:hover:not(:disabled) { background: #9d72f7; }
 .exp-modal-go:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Tabs */
-.exp-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-shrink: 0;
-  border-bottom: 1px solid rgba(255,255,255,0.08); }
-.exp-tab {
-  background: transparent; border: none; border-bottom: 2px solid transparent;
-  color: var(--text-dim); font-family: inherit; font-size: 13.5px; font-weight: 600;
-  padding: 8px 14px; cursor: pointer; margin-bottom: -1px;
-}
-.exp-tab:hover { color: var(--text-main); }
-.exp-tab.active { color: #6dd4a7; border-bottom-color: #42b883; }
-.exp-tab-count {
-  font-size: 11px; background: rgba(255,255,255,0.08); color: var(--text-dim);
-  padding: 0 7px; border-radius: 100px; margin-left: 4px;
-}
-.exp-tab.active .exp-tab-count { background: rgba(66,184,131,0.18); color: #6dd4a7; }
-
 .exp-body { flex: 1; display: flex; gap: 18px; min-height: 0; }
 .exp-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
 .exp-state, .exp-empty { color: var(--text-dim); font-size: 13px; padding: 40px 0; text-align: center; }
@@ -717,6 +715,41 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 }
 .exp-card:hover .exp-card-del { opacity: 1; }
 .exp-card-del:hover { background: rgba(255,102,68,0.2); color: #ff8a6f; }
+
+/* 统一经验文件列表行 */
+.exp-row {
+  position: relative; display: flex; align-items: center; gap: 12px; text-align: left;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px; padding: 11px 14px; cursor: pointer; font-family: inherit;
+  transition: all 0.12s;
+}
+.exp-row:hover { background: rgba(66,184,131,0.08); border-color: rgba(66,184,131,0.4); }
+.exp-row.active { background: rgba(66,184,131,0.12); border-color: rgba(66,184,131,0.55); }
+.exp-row-ico {
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; font-size: 17px;
+  background: rgba(255,255,255,0.05);
+}
+.exp-row-ico.upload { background: rgba(255,255,255,0.07); }
+.exp-row-ico.ddl { background: rgba(74,141,240,0.14); }
+.exp-row-ico.explore { background: rgba(167,139,250,0.16); }
+.exp-row-ico.manual { background: rgba(66,184,131,0.14); }
+.exp-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.exp-row-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.exp-row-name {
+  font-size: 14px; font-weight: 600; color: var(--text-main);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.exp-row-time { font-size: 11px; color: var(--text-dim); flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
+.exp-row-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.exp-origin.manual { background: rgba(66,184,131,0.14); color: #6dd4a7; }
+.exp-row-del {
+  flex-shrink: 0; width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  color: rgba(255,255,255,0.3); font-size: 16px; opacity: 0; transition: all 0.12s;
+}
+.exp-row:hover .exp-row-del { opacity: 1; }
+.exp-row-del:hover { background: rgba(255,102,68,0.2); color: #ff8a6f; }
 
 .exp-editor {
   flex: 0 0 52%; max-width: 52%; display: flex; flex-direction: column; gap: 12px;
