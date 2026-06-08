@@ -32,8 +32,8 @@ public class ChatPromptBuilder {
         StringBuilder sb = new StringBuilder();
 
         // ===== @ 引用块: 让 LLM 在最显眼的位置看到"用户重点关注"的对象 =====
-        // 注意: 数据源类型的 mention 不在这里重复(它的完整 schema 已经在 dbSchemas 里),
-        // 这里只列节点/关系/图谱,让 LLM 把焦点聚到这些已存在的对象上而非另起炉灶。
+        // 注意: 数据源 / 经验文件类型的 mention 在这里只列名（其完整 schema / 正文分别在 dbSchemas、
+        // ragChunks 段给出）,节点/关系/图谱则让 LLM 把焦点聚到这些已存在的对象上而非另起炉灶。
         String mentionBlock = renderMentions(mentions, nodes, edges);
         if (!mentionBlock.isEmpty()) {
             sb.append(mentionBlock);
@@ -132,6 +132,7 @@ public class ChatPromptBuilder {
         if (mentions == null || mentions.isEmpty()) return "";
         List<MentionRef> graphs = new ArrayList<>();
         List<MentionRef> dss = new ArrayList<>();
+        List<MentionRef> exps = new ArrayList<>();
         List<MentionRef> ns = new ArrayList<>();
         List<MentionRef> es = new ArrayList<>();
         for (MentionRef m : mentions) {
@@ -139,12 +140,13 @@ public class ChatPromptBuilder {
             switch (m.getKind().toLowerCase()) {
                 case "graph"      -> graphs.add(m);
                 case "datasource" -> dss.add(m);
+                case "experience" -> exps.add(m);
                 case "node"       -> ns.add(m);
                 case "relation"   -> es.add(m);
                 default -> {}
             }
         }
-        if (graphs.isEmpty() && dss.isEmpty() && ns.isEmpty() && es.isEmpty()) return "";
+        if (graphs.isEmpty() && dss.isEmpty() && exps.isEmpty() && ns.isEmpty() && es.isEmpty()) return "";
 
         StringBuilder sb = new StringBuilder();
         sb.append("【用户本轮通过 @ 重点引用的对象 — 请把分析与产出聚焦在它们上】\n");
@@ -163,6 +165,14 @@ public class ChatPromptBuilder {
                 sb.append(dss.get(i).getLabel());
             }
             sb.append("（仅以下方提供的这些库的 schema 为依据,不要参考其它数据源）\n");
+        }
+        if (!exps.isEmpty()) {
+            sb.append("- 指定经验文件: ");
+            for (int i = 0; i < exps.size(); i++) {
+                if (i > 0) sb.append("、");
+                sb.append(exps.get(i).getLabel());
+            }
+            sb.append("（其完整正文已在下方「相关数据源内容」中以「经验(@指定)：」开头给出,请优先据此作答）\n");
         }
         if (!ns.isEmpty()) {
             sb.append("- 锚点节点 (围绕这些节点扩展/编辑):\n");

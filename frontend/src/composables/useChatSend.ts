@@ -150,10 +150,12 @@ export function useChatSend(ctx: ChatSendCtx) {
         const dsCount = refsForRequest.filter(r => r.kind === 'datasource').length;
         const nodeCount = refsForRequest.filter(r => r.kind === 'node').length;
         const relCount = refsForRequest.filter(r => r.kind === 'relation').length;
+        const expCount = refsForRequest.filter(r => r.kind === 'experience').length;
         const sub: string[] = [];
         if (dsCount) sub.push(`${dsCount} 个数据源`);
         if (nodeCount) sub.push(`${nodeCount} 个节点`);
         if (relCount) sub.push(`${relCount} 条关系`);
+        if (expCount) sub.push(`${expCount} 个经验文件`);
         if (sub.length) parts.push(`🎯 @ 引用 ${sub.join('/')}`);
       }
       initialSteps.push({

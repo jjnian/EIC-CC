@@ -4,7 +4,7 @@ export interface ChatHistoryItem { role: 'user' | 'assistant'; content: string }
 export interface ChatAttachment   { type: string; dataUrl?: string; [k: string]: unknown }
 
 export interface ChatMentionRef {
-  kind: 'graph' | 'node' | 'relation' | 'datasource';
+  kind: 'graph' | 'node' | 'relation' | 'datasource' | 'experience';
   id: string;
   label: string;
 }
