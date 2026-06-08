@@ -15,6 +15,7 @@ import com.tuiyan.backend.entity.ExperiencePO;
 import com.tuiyan.backend.service.storage.ObjectStorage;
 import com.tuiyan.backend.support.FileSniffer;
 import com.tuiyan.backend.support.SsePushUtils;
+import com.tuiyan.backend.support.WebUrls;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -293,12 +294,11 @@ public class ExperienceController {
      */
     @PostMapping("/websystem")
     public ResponseEntity<Map<String, Object>> createWebSystem(@RequestBody Map<String, Object> body) {
-        String baseUrl = str(body, "baseUrl");
-        if (baseUrl == null || baseUrl.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "缺少 baseUrl(系统入口地址)"));
-        }
+        // 规范化入口地址：补全 https://、拦掉非网址（throw → 400），并把规范化结果回填 body 后再组装配置
+        String baseUrl = WebUrls.normalizeEntryUrl(str(body, "baseUrl"));
+        body.put("baseUrl", baseUrl);
         String title = str(body, "title");
-        if (title == null || title.isBlank()) title = "「" + baseUrl.trim() + "」web 系统";
+        if (title == null || title.isBlank()) title = "「" + baseUrl + "」web 系统";
         Map<String, Object> config = assembleConfig(body, new LinkedHashMap<>());
         Map<String, Object> exp = repo.createWebSystem(title.trim(), config);
         return ResponseEntity.ok(exp);
@@ -313,6 +313,7 @@ public class ExperienceController {
                                                                @RequestBody Map<String, Object> body) {
         Map<String, Object> existing = repo.readSourceConfigScoped(id);
         if (existing == null) return ResponseEntity.notFound().build();
+        body.put("baseUrl", WebUrls.normalizeEntryUrl(str(body, "baseUrl")));
         Map<String, Object> config = assembleConfig(body, existing);
         Map<String, Object> exp = repo.updateWebSystem(id, str(body, "title"), config);
         if (exp == null) return ResponseEntity.notFound().build();

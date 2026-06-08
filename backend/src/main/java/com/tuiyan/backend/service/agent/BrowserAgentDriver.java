@@ -67,7 +67,14 @@ public class BrowserAgentDriver {
                 throw new IllegalStateException("浏览器内核(Chromium)未安装。请在 backend 目录执行:"
                         + " mvn exec:java -e -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args=\"install chromium\"", e);
             }
-            throw new IllegalStateException("无法打开浏览器会话: " + msg, e);
+            if (msg.contains("invalid URL") || msg.contains("Cannot navigate")) {
+                throw new IllegalStateException("无法访问该地址「" + baseUrl + "」，请确认它是可打开的网址", e);
+            }
+            // 只取首行，避免把 Playwright 的多行 Call log 长栈直接抛给用户
+            int nl = msg.indexOf('\n');
+            String brief = nl > 0 ? msg.substring(0, nl).trim() : msg;
+            if (brief.length() > 200) brief = brief.substring(0, 200) + "…";
+            throw new IllegalStateException("无法打开浏览器会话: " + brief, e);
         }
     }
 

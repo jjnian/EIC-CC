@@ -117,10 +117,18 @@ const closeExplore = () => {
   exploreOpen.value = false;
 };
 
+// 入口地址缺少 http(s):// 时补 https://，让用户看到规范化后的地址（后端仍会再校验一次）
+const normalizeUrl = (raw: string): string => {
+  const u = raw.trim();
+  if (!u) return u;
+  return /^https?:\/\//i.test(u) ? u : `https://${u}`;
+};
+
 // 保存接入（创建或更新连接配置），返回保存后的条目；失败返回 null
 const saveWebSystem = async (): Promise<Experience | null> => {
-  const baseUrl = exploreUrl.value.trim();
-  if (!baseUrl) { toast.warn('请填写系统入口地址'); return null; }
+  if (!exploreUrl.value.trim()) { toast.warn('请填写系统入口地址'); return null; }
+  const baseUrl = normalizeUrl(exploreUrl.value);
+  exploreUrl.value = baseUrl;
   wsSaving.value = true;
   try {
     const payload = {
