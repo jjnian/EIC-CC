@@ -48,10 +48,42 @@ export function useImportFlow(ctx: ImportFlowCtx) {
 
     if (payload.mode === 'merge') {
       if (ctx.activeBranchId.value !== 'trunk') ctx.switchToTrunk();
-      ctx.nodes.value = [...ctx.nodes.value, ...stamped];
-      ctx.edges.value = [...ctx.edges.value, ...payload.edges];
+
+      // 按标准化 label 复用当前模型里已有的同名节点,避免重复建图时节点/关系翻倍
+      const norm = (s?: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const existingByLabel = new Map<string, string>();
+      for (const n of ctx.nodes.value) {
+        const k = norm(n.label);
+        if (k && !existingByLabel.has(k)) existingByLabel.set(k, n.id);
+      }
+      const idRemap = new Map<string, string>();
+      const freshNodes = stamped.filter(n => {
+        const matched = existingByLabel.get(norm(n.label));
+        if (matched) { idRemap.set(n.id, matched); return false; }
+        return true;
+      });
+
+      // 边的 from/to 重映射到复用节点;再按 (from,to,rel_type|label) 对现有边去重,丢弃重映射后产生的自环
+      const edgeSig = (from: string, to: string, e: OntologyEdge) =>
+        `${from}->${to}#${e.rel_type || e.label || ''}`;
+      const seen = new Set(ctx.edges.value.map(e => edgeSig(e.from, e.to, e)));
+      const freshEdges: OntologyEdge[] = [];
+      for (const e of payload.edges) {
+        const from = idRemap.get(e.from) || e.from;
+        const to = idRemap.get(e.to) || e.to;
+        if (from === to) continue;
+        const sig = edgeSig(from, to, e);
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        freshEdges.push({ ...e, from, to });
+      }
+
+      ctx.nodes.value = [...ctx.nodes.value, ...freshNodes];
+      ctx.edges.value = [...ctx.edges.value, ...freshEdges];
       ctx.persistCurrentModel(true);
-      toast.success(`已合并 ${stamped.length} 个节点 / ${payload.edges.length} 条关系`);
+      const reused = idRemap.size;
+      toast.success(`已合并 ${freshNodes.length} 个新节点 / ${freshEdges.length} 条新关系`
+        + (reused ? `（复用已有同名节点 ${reused} 个）` : ''));
       setTimeout(() => ctx.fitView?.(), 100);
       return;
     }

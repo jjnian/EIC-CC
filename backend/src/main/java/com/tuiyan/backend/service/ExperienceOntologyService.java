@@ -72,16 +72,17 @@ public class ExperienceOntologyService {
 
         StringBuilder combined = new StringBuilder();
         int used = 0;
+        int skippedByCap = 0;
         long chars = 0;
         if (userHint != null && !userHint.isBlank()) {
             combined.append("【用户额外要求】").append(userHint.trim()).append("\n\n");
         }
         for (Map<String, Object> exp : all) {
-            if (used >= MAX_EXPERIENCES) break;
             String title = String.valueOf(exp.getOrDefault("title", "未命名经验"));
             Object contentObj = exp.get("content");
             String content = contentObj == null ? "" : String.valueOf(contentObj);
             if (content.isBlank()) continue;
+            if (used >= MAX_EXPERIENCES) { skippedByCap++; continue; }
             if (content.length() > MAX_CHARS_PER_EXPERIENCE) {
                 content = content.substring(0, MAX_CHARS_PER_EXPERIENCE) + "\n…（正文过长已截断）";
             }
@@ -95,7 +96,8 @@ public class ExperienceOntologyService {
             throw new IllegalStateException(
                     "当前工作空间经验库为空（或经验均无正文），请先在经验库中创建/上传经验文件，或把数据源结构导出到经验库供血后再建图。");
         }
-        step.emit("load_done", "已聚合 " + used + " 篇经验（约 " + chars + " 字符）");
+        step.emit("load_done", "已聚合 " + used + " 篇经验（约 " + chars + " 字符）"
+                + (skippedByCap > 0 ? "；超出单次建图上限，已跳过较早的 " + skippedByCap + " 篇" : ""));
 
         step.emit("llm_call", "正在调用大模型从经验库构建本体血缘图…");
         JsonNode draft = extractionLlmService.extractOntologyFromSources(

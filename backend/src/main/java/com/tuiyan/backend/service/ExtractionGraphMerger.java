@@ -149,8 +149,9 @@ public class ExtractionGraphMerger {
             ObjectNode copy = n.deepCopy();
             outNodes.add(copy);
             String id = copy.path("id").asText("");
-            for (String key : labelKeys(copy)) labelToId.put(key, id);
-            if (!id.isEmpty()) idToNode.put(id, copy);
+            if (id.isEmpty()) continue; // 空 id 不参与去重映射，避免后续同名节点被重映射到 "" 而连同边一起丢失
+            for (String key : labelKeys(copy)) labelToId.putIfAbsent(key, id);
+            idToNode.put(id, copy);
         }
         for (JsonNode e : a.path("add_edges")) outEdges.add(e);
 
@@ -158,7 +159,7 @@ public class ExtractionGraphMerger {
             String id = n.path("id").asText("");
             List<String> keys = labelKeys(n);
             String matchId = keys.stream().map(labelToId::get)
-                    .filter(java.util.Objects::nonNull).findFirst().orElse(null);
+                    .filter(v -> v != null && !v.isEmpty()).findFirst().orElse(null);
             if (matchId != null) {
                 idRemap.put(id, matchId);
                 ObjectNode existing = idToNode.get(matchId);
@@ -191,6 +192,7 @@ public class ExtractionGraphMerger {
     /**
      * 抽取后图校验：保证产出的是一张“干净”的图。
      * <ol>
+     *   <li>丢弃 id 为空或 id 重复的节点（保留首个）—— 重复 id 在加盐后依旧同 id，会让前端渲染/合并错乱；</li>
      *   <li>丢弃 from/to 指向不存在节点的悬空边；</li>
      *   <li>丢弃自环（from == to）；</li>
      *   <li>按 (from,to,rel_type|label) 去重，避免同一关系被多段重复抽出。</li>
@@ -201,15 +203,23 @@ public class ExtractionGraphMerger {
         ObjectNode out = (ObjectNode) graph;
         JsonNode nodes = out.path("add_nodes");
         JsonNode edges = out.path("add_edges");
-        if (!edges.isArray()) return out;
 
         Set<String> nodeIds = new HashSet<>();
         if (nodes.isArray()) {
+            ArrayNode cleanedNodes = objectMapper.createArrayNode();
+            int droppedNodes = 0;
             for (JsonNode n : nodes) {
                 String id = n.path("id").asText("");
-                if (!id.isEmpty()) nodeIds.add(id);
+                if (id.isEmpty() || !nodeIds.add(id)) { droppedNodes++; continue; }
+                cleanedNodes.add(n);
             }
+            if (droppedNodes > 0) {
+                log.info("[LLM-extract] 图校验：丢弃 {} 个空 id / 重复 id 节点，保留 {} 个",
+                        droppedNodes, cleanedNodes.size());
+            }
+            out.set("add_nodes", cleanedNodes);
         }
+        if (!edges.isArray()) return out;
 
         ArrayNode cleaned = objectMapper.createArrayNode();
         Set<String> seenEdge = new HashSet<>();
