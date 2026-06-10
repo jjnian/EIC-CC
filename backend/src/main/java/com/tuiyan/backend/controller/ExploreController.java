@@ -99,7 +99,7 @@ public class ExploreController {
                     } catch (Exception ignore) {}
                 };
                 Map<String, Object> exp = agent.explore(entryUrl, storageState, username, password,
-                        maxSteps, readOnly, modelOverride, configId, step);
+                        maxSteps, readOnly, modelOverride, configId, step, ce.cancelled()::get);
                 Map<String, Object> payload = new LinkedHashMap<>(exp);
                 SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
                         objectMapper.writeValueAsString(payload));

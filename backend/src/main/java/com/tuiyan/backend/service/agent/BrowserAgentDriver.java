@@ -168,6 +168,21 @@ public class BrowserAgentDriver {
             }
         }
 
+        /**
+         * 登录后粗略判断是否已离开登录页：当前页不再有可见的密码输入框即认为登录成功。
+         * 用于在自动登录后给出准确反馈——账号/密码错误时不再谎报"已登录"。
+         * 判断本身失败时返回 true（不因校验问题阻断后续探索）。
+         */
+        public boolean looksLoggedIn() {
+            try {
+                Locator pwd = page.locator("input[type='password']");
+                if (pwd.count() == 0) return true;
+                return !pwd.first().isVisible();
+            } catch (RuntimeException e) {
+                return true;
+            }
+        }
+
         /** 后退一页。 */
         public void back() {
             page.goBack(new Page.GoBackOptions().setTimeout(NAV_TIMEOUT_MS));

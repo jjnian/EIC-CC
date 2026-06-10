@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 
 /**
  * 自动探索智能体:像人一样"用"一个 web 系统(只读导航),摸清功能、反推业务,
@@ -60,7 +61,9 @@ public class ExplorationAgentService {
      */
     public Map<String, Object> explore(String baseUrl, String storageState, String username, String password,
                                        int maxSteps, boolean readOnly,
-                                       String modelOverride, String configId, StepSink step) {
+                                       String modelOverride, String configId, StepSink step,
+                                       BooleanSupplier cancelled) {
+        BooleanSupplier isCancelled = cancelled != null ? cancelled : () -> false;
         int budget = Math.max(1, Math.min(maxSteps <= 0 ? 15 : maxSteps, MAX_STEPS_CAP));
         LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(modelOverride, configId);
         boolean anthropic = http.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
@@ -69,18 +72,27 @@ public class ExplorationAgentService {
         List<PageRecord> pages = new ArrayList<>();
         List<String> trail = new ArrayList<>();
         LinkedHashSet<String> visited = new LinkedHashSet<>();
+        String loginNote = null;
         int stuck = 0;
 
         try (Session session = driver.open(baseUrl, storageState)) {
-            // 若提供了账号密码,先在入口页自动登录,再开始探索
+            // 若提供了账号密码,先在入口页自动登录,再开始探索;并校验是否真的登录成功
             if (username != null && !username.isBlank()) {
                 step.emit("login", "正在用账号「" + username + "」自动登录系统…");
-                boolean ok = session.login(username, password);
-                step.emit(ok ? "act" : "blocked", ok
-                        ? "已提交登录表单,继续探索。"
-                        : "未找到登录表单/按钮,以未登录状态继续探索。");
+                boolean submitted = session.login(username, password);
+                if (!submitted) {
+                    loginNote = "提供了账号但未找到登录表单,以未登录状态探索";
+                    step.emit("blocked", "未找到登录表单/按钮,以未登录状态继续探索。");
+                } else if (session.looksLoggedIn()) {
+                    loginNote = "已用账号「" + username + "」登录后探索";
+                    step.emit("act", "✓ 登录成功,继续探索。");
+                } else {
+                    loginNote = "登录疑似失败(账号或密码可能有误),以未登录状态探索";
+                    step.emit("blocked", "⚠ 已提交登录但仍停留在登录页(账号或密码可能有误),将以未登录状态继续探索。");
+                }
             }
             for (int i = 1; i <= budget; i++) {
+                if (isCancelled.getAsBoolean()) throw new ExplorationCancelledException();
                 JsonNode snap = session.snapshot();
                 String url = snap.path("url").asText(session.currentUrl());
                 String norm = normalize(url);
@@ -120,8 +132,9 @@ public class ExplorationAgentService {
                 }
             }
 
+            if (isCancelled.getAsBoolean()) throw new ExplorationCancelledException();
             step.emit("synthesize", "探索结束,正在把功能地图归纳成业务文档…");
-            String rawReport = renderMarkdown(baseUrl, pages, trail, visited.size(), readOnly);
+            String rawReport = renderMarkdown(baseUrl, pages, trail, visited.size(), readOnly, loginNote);
             String bizDoc = synthesizeBusinessDoc(cfg, anthropic, rawReport);
             String content = composeBusinessFile(bizDoc, rawReport);
 
@@ -269,11 +282,13 @@ public class ExplorationAgentService {
 
     /** 把功能地图渲染成 markdown 经验。 */
     private String renderMarkdown(String baseUrl, List<PageRecord> pages, List<String> trail,
-                                  int pageCount, boolean readOnly) {
+                                  int pageCount, boolean readOnly, String loginNote) {
         StringBuilder sb = new StringBuilder();
         sb.append("# 「").append(hostOf(baseUrl)).append("」系统自动探索报告\n\n");
         sb.append("> 入口:").append(baseUrl).append(" · 覆盖 ").append(pageCount).append(" 个页面 · ")
           .append(readOnly ? "只读模式(已拦截写操作)" : "非只读模式").append(" · ").append(LocalDate.now()).append("\n>\n");
+        if (loginNote != null && !loginNote.isBlank())
+            sb.append("> 登录状态:").append(loginNote).append("\n>\n");
         sb.append("> 本报告由「自动探索智能体」模拟人工操作系统生成,用于摸清系统功能、反推业务。")
           .append("可直接作为经验库文件参与本体血缘图构建。\n\n");
 
@@ -356,5 +371,13 @@ public class ExplorationAgentService {
         final List<String> navs = new ArrayList<>();
         final List<String> blocked = new ArrayList<>();
         PageRecord(String norm, String url, String title) { this.norm = norm; this.url = url; this.title = title; }
+    }
+
+    /**
+     * 客户端中断探索(用户在前端点「停止」导致 SSE 断开)时抛出:
+     * 借 try-with-resources 立即关掉无头浏览器,并跳过后续的 LLM 归纳与落库,避免无谓开销。
+     */
+    private static final class ExplorationCancelledException extends RuntimeException {
+        ExplorationCancelledException() { super("探索已被客户端中断"); }
     }
 }

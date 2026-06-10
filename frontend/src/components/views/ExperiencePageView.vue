@@ -195,6 +195,18 @@ const startSavedExplore = (experienceId: string) => {
   );
 };
 
+// 手动停止正在进行的探索：中断 SSE 连接（后端在下一步感知到客户端断开后会关掉无头浏览器、跳过归纳落库）。
+// 注意：abort 不会触发 onClose，需在此手动复位 UI 状态。
+const stopExplore = () => {
+  if (!exploreRunning.value) return;
+  exploreHandle?.abort();
+  exploreHandle = null;
+  exploreRunning.value = false;
+  exploringId.value = null;
+  exploreSteps.value.push({ key: 'end', label: '已手动停止探索。' });
+  toast.info('已停止探索');
+};
+
 // 编辑器状态：id 为空 = 新建；非空 = 编辑已有
 interface Draft { id: string | null; title: string; tags: string; content: string; }
 const draft = ref<Draft | null>(null);
@@ -494,13 +506,20 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
               </div>
             </div>
             <template v-if="x.origin === 'websystem'">
-              <button class="exp-row-btn" title="编辑接入信息" @click.stop="editWebSystem(x)">编辑</button>
+              <button class="exp-row-btn" title="编辑接入信息" :disabled="exploringId === x.id" @click.stop="editWebSystem(x)">编辑</button>
               <button
+                v-if="exploringId === x.id"
+                class="exp-row-stop"
+                title="停止本次探索"
+                @click.stop="stopExplore"
+              >■ 停止</button>
+              <button
+                v-else
                 class="exp-row-explore"
                 :disabled="exploreRunning"
-                :title="exploringId === x.id ? '正在探索…' : '按保存的连接配置直接开始自动探索，生成业务说明文档'"
+                :title="exploreRunning ? '已有探索在进行中' : '按保存的连接配置直接开始自动探索，生成业务说明文档'"
                 @click.stop="startSavedExplore(x.id)"
-              >{{ exploringId === x.id ? '探索中…' : '🧭 探索' }}</button>
+              >🧭 探索</button>
             </template>
             <span class="exp-row-del" title="删除" @click.stop="remove(x)">×</span>
           </button>
@@ -941,6 +960,12 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 }
 .exp-row-explore:hover:not(:disabled) { background: rgba(125,211,252,0.2); color: #fff; }
 .exp-row-explore:disabled { opacity: 0.6; cursor: not-allowed; }
+.exp-row-stop {
+  flex-shrink: 0; border: 1px solid rgba(255,138,111,0.5); background: rgba(255,138,111,0.12);
+  color: #ff8a6f; font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 100px;
+  cursor: pointer; font-family: inherit; white-space: nowrap; transition: all 0.12s;
+}
+.exp-row-stop:hover { background: rgba(255,138,111,0.24); color: #fff; }
 .exp-row-btn {
   flex-shrink: 0; border: 1px solid rgba(255,255,255,0.16); background: transparent;
   color: var(--text-dim); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 100px;
