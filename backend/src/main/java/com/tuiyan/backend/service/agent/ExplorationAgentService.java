@@ -2,6 +2,8 @@ package com.tuiyan.backend.service.agent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.repository.ExperienceRepository;
 import com.tuiyan.backend.service.agent.BrowserAgentDriver.BlockedActionException;
 import com.tuiyan.backend.service.agent.BrowserAgentDriver.Session;
@@ -18,10 +20,14 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /**
  * 自动探索智能体:像人一样"用"一个 web 系统(只读导航),摸清功能、反推业务,
@@ -35,6 +41,8 @@ public class ExplorationAgentService {
     private static final Logger log = LoggerFactory.getLogger(ExplorationAgentService.class);
     private static final int MAX_STEPS_CAP = 40;     // 步数硬上限,防失控
     private static final int STUCK_LIMIT = 6;        // 连续无新页面则结束
+    /** 探索文档里嵌入「结构化图片段」的隐藏注释标记;建图侧据此解析并直接合并。 */
+    public static final String GRAPH_MARKER = "EXPLORE_GRAPH";
 
     private final ObjectMapper om = new ObjectMapper();
     private final BrowserAgentDriver driver;
@@ -62,7 +70,7 @@ public class ExplorationAgentService {
     public Map<String, Object> explore(String baseUrl, String storageState, String username, String password,
                                        int maxSteps, boolean readOnly,
                                        String modelOverride, String configId, StepSink step,
-                                       BooleanSupplier cancelled) {
+                                       BooleanSupplier cancelled, Consumer<String> onStorageState) {
         BooleanSupplier isCancelled = cancelled != null ? cancelled : () -> false;
         int budget = Math.max(1, Math.min(maxSteps <= 0 ? 15 : maxSteps, MAX_STEPS_CAP));
         LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(modelOverride, configId);
@@ -73,6 +81,7 @@ public class ExplorationAgentService {
         List<String> trail = new ArrayList<>();
         LinkedHashSet<String> visited = new LinkedHashSet<>();
         String loginNote = null;
+        boolean loggedIn = false;
         int stuck = 0;
 
         try (Session session = driver.open(baseUrl, storageState)) {
@@ -84,19 +93,35 @@ public class ExplorationAgentService {
                     loginNote = "提供了账号但未找到登录表单,以未登录状态探索";
                     step.emit("blocked", "未找到登录表单/按钮,以未登录状态继续探索。");
                 } else if (session.looksLoggedIn()) {
+                    loggedIn = true;
                     loginNote = "已用账号「" + username + "」登录后探索";
                     step.emit("act", "✓ 登录成功,继续探索。");
+                    // 登录态有价值:回存 storageState 供下次免登录(走服务端侧通道,绝不回前端)
+                    if (onStorageState != null) {
+                        try { String ss = session.exportStorageState(); if (ss != null) onStorageState.accept(ss); }
+                        catch (RuntimeException ignore) {}
+                    }
                 } else {
                     loginNote = "登录疑似失败(账号或密码可能有误),以未登录状态探索";
                     step.emit("blocked", "⚠ 已提交登录但仍停留在登录页(账号或密码可能有误),将以未登录状态继续探索。");
                 }
             }
+            // 启用网络层护栏:登录已完成,从这里起拦非幂等请求(只读)并锁定同源,防误改数据/防跑偏到第三方站点
+            session.armGuard(readOnly);
+
             for (int i = 1; i <= budget; i++) {
                 if (isCancelled.getAsBoolean()) throw new ExplorationCancelledException();
                 JsonNode snap = session.snapshot();
                 String url = snap.path("url").asText(session.currentUrl());
                 String norm = normalize(url);
                 String title = firstNonBlank(snap.path("title").asText(""), url);
+
+                // 会话失效检测:登录成功后又被重定向回登录页 → 提前结束,避免在登录页空转
+                if (loggedIn && !session.looksLoggedIn()) {
+                    step.emit("end", "检测到会话已失效(被登出/超时),结束探索。");
+                    break;
+                }
+
                 boolean isNew = visited.add(norm);
                 stuck = isNew ? 0 : stuck + 1;
 
@@ -137,6 +162,9 @@ public class ExplorationAgentService {
             String rawReport = renderMarkdown(baseUrl, pages, trail, visited.size(), readOnly, loginNote);
             String bizDoc = synthesizeBusinessDoc(cfg, anthropic, rawReport);
             String content = composeBusinessFile(bizDoc, rawReport);
+            // #1 结构化直连建图:把探索得到的页面/对象/属性结构化成图片段嵌进文档(隐藏注释),
+            // 建图时可直接合并,免去"散文 → 再用 LLM 抽结构"的有损往返。
+            content = embedGraphFragment(content, buildGraphFragment(pages));
 
             step.emit("save", "正在把业务文档写入经验库…");
             Map<String, Object> exp = expRepo.create(titleFor(baseUrl), content, "探索,业务文档,explore", "explore");
@@ -225,10 +253,17 @@ public class ExplorationAgentService {
         appendList(sb, "页面标题文字", snap.path("headings"));
 
         sb.append("可点击元素(编号 ref):\n");
+        int unvisited = 0;
         for (JsonNode el : snap.path("elements")) {
             sb.append("  [").append(el.path("ref").asInt()).append("] ")
               .append(el.path("role").asText("")).append(' ').append(el.path("name").asText(""));
             if (el.path("danger").asBoolean(false)) sb.append("  (危险:会改数据,只读禁止点)");
+            // 标注链接是否指向已访问页,帮助 LLM 做广度优先、避免在已看过的页面间打转
+            String href = el.path("href").asText("");
+            if (!href.isBlank()) {
+                if (visited.contains(normalize(href))) sb.append("  (→已访问页,勿重复点)");
+                else unvisited++;
+            }
             sb.append('\n');
         }
         for (JsonNode t : snap.path("tables")) {
@@ -243,6 +278,10 @@ public class ExplorationAgentService {
 
         sb.append("\n【已探索页面(勿重复进入)】\n");
         sb.append(visited.isEmpty() ? "(无)" : String.join("\n", visited)).append('\n');
+        if (unvisited > 0) {
+            sb.append("\n本页有 ").append(unvisited)
+              .append(" 个指向未访问页的链接,请优先点它们把功能树铺开(广度优先);若本页有价值的入口都已访问,就 back 或 done。\n");
+        }
         sb.append("\n进度:第 ").append(step).append(" / ").append(budget)
           .append(" 步。请输出对本页的业务理解 + 下一步动作的 JSON。");
         return sb.toString();
@@ -314,6 +353,86 @@ public class ExplorationAgentService {
             sb.append('\n');
         }
         return sb.toString();
+    }
+
+    // ── #1 结构化图片段 ───────────────────────────────────────
+    /**
+     * 把探索累积的页面记录结构化成一份图片段({nodes,edges}),用建图同一套 schema 表达:
+     * 页面→process 节点、业务对象→entity 节点、"页面涉及对象"→associated_with 边、业务属性→实体 props。
+     * 这些是高置信度的结构化事实,建图时可直接合并,免去"散文→再用 LLM 抽结构"的有损往返。
+     * @return 图片段 JSON 字符串;无可用节点时返回空串。
+     */
+    private String buildGraphFragment(List<PageRecord> pages) {
+        ObjectNode root = om.createObjectNode();
+        ArrayNode nodes = root.putArray("nodes");
+        ArrayNode edges = root.putArray("edges");
+        Map<String, String> entityId = new LinkedHashMap<>();        // 规范化 label → 实体节点 id
+        Map<String, ArrayNode> entityProps = new LinkedHashMap<>();  // 规范化 label → 该实体 props 数组
+        int pi = 0, ei = 0, edi = 0;
+        for (PageRecord p : pages) {
+            String pid = "xpg_" + (pi++);
+            ObjectNode pn = nodes.addObject();
+            pn.put("id", pid);
+            pn.put("label", (p.title == null || p.title.isBlank()) ? p.url : p.title);
+            pn.put("type", "process");
+            pn.put("source", "derived");
+            if (p.url != null && !p.url.isBlank()) pn.put("evidence", shorten(p.url));
+            ArrayNode pprops = pn.putArray("props");
+            if (!p.type.isBlank()) pprops.add(prop("页面类型", p.type));
+            if (!p.capabilities.isEmpty()) pprops.add(prop("功能", String.join("、", p.capabilities)));
+            for (String ent : p.entities) {
+                String key = ent.trim().toLowerCase();
+                if (key.isBlank()) continue;
+                String enid = entityId.get(key);
+                if (enid == null) {
+                    enid = "xen_" + (ei++);
+                    entityId.put(key, enid);
+                    ObjectNode en = nodes.addObject();
+                    en.put("id", enid);
+                    en.put("label", ent.trim());
+                    en.put("type", "entity");
+                    en.put("source", "derived");
+                    entityProps.put(key, en.putArray("props"));
+                }
+                ObjectNode edge = edges.addObject();
+                edge.put("id", "xed_" + (edi++));
+                edge.put("from", pid);
+                edge.put("to", enid);
+                edge.put("rel_type", "associated_with");
+                edge.put("label", "涉及");
+            }
+        }
+        // 业务属性作为各页所涉实体的候选属性附注(按 key 去重)
+        for (PageRecord p : pages) {
+            if (p.attributes.isEmpty()) continue;
+            for (String ent : p.entities) {
+                ArrayNode props = entityProps.get(ent.trim().toLowerCase());
+                if (props == null) continue;
+                Set<String> seen = new HashSet<>();
+                for (JsonNode ex : props) seen.add(ex.path("key").asText());
+                for (String attr : p.attributes) {
+                    String a = attr.trim();
+                    if (a.isBlank() || seen.contains(a)) continue;
+                    props.add(prop(a, ""));
+                    seen.add(a);
+                }
+            }
+        }
+        if (nodes.size() == 0) return "";
+        try { return om.writeValueAsString(root); } catch (Exception e) { return ""; }
+    }
+
+    private ObjectNode prop(String key, String value) {
+        ObjectNode o = om.createObjectNode();
+        o.put("key", key);
+        o.put("value", value);
+        return o;
+    }
+
+    /** 把结构化图片段以隐藏 HTML 注释块嵌进文档末尾:建图侧机器可解析,人看 markdown 不受影响。 */
+    private static String embedGraphFragment(String content, String fragmentJson) {
+        if (fragmentJson == null || fragmentJson.isBlank()) return content;
+        return content + "\n\n<!-- " + GRAPH_MARKER + "\n" + fragmentJson + "\n" + GRAPH_MARKER + " -->\n";
     }
 
     // ── 小工具 ───────────────────────────────────────────────

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.repository.ExperienceRepository;
+import com.tuiyan.backend.service.agent.ExplorationAgentService;
 import com.tuiyan.backend.support.IdSaltRewriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 经验库 → 本体血缘图：以「整个工作空间的经验库文件」为输入构建本体血缘图的专用 facade。
@@ -34,14 +36,22 @@ public class ExperienceOntologyService {
     /** 单篇经验正文截断上限（字符），过长正文按头部截断，整体切片仍由下游抽取管线负责。 */
     private static final int MAX_CHARS_PER_EXPERIENCE = 40_000;
 
+    /** 探索文档里内嵌结构化图片段的注释块:{@code <!-- EXPLORE_GRAPH {json} EXPLORE_GRAPH -->}。 */
+    private static final Pattern GRAPH_BLOCK = Pattern.compile(
+            "(?s)<!--\\s*" + ExplorationAgentService.GRAPH_MARKER + "\\s*(\\{.*?\\})\\s*"
+            + ExplorationAgentService.GRAPH_MARKER + "\\s*-->");
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ExperienceRepository repo;
     private final ExtractionLlmService extractionLlmService;
+    private final ExtractionGraphMerger merger;
 
     public ExperienceOntologyService(ExperienceRepository repo,
-                                     ExtractionLlmService extractionLlmService) {
+                                     ExtractionLlmService extractionLlmService,
+                                     ExtractionGraphMerger merger) {
         this.repo = repo;
         this.extractionLlmService = extractionLlmService;
+        this.merger = merger;
     }
 
     /** 进度回调，用于 SSE 上报「读经验库 / 调 LLM / 后处理」等阶段。 */
@@ -73,7 +83,9 @@ public class ExperienceOntologyService {
         StringBuilder combined = new StringBuilder();
         int used = 0;
         int skippedByCap = 0;
+        int preGraphCount = 0;
         long chars = 0;
+        JsonNode preExtracted = null; // 探索文档直采的结构化图片段(免 LLM 重抽),累积后与 LLM 草稿合并
         if (userHint != null && !userHint.isBlank()) {
             combined.append("【用户额外要求】").append(userHint.trim()).append("\n\n");
         }
@@ -83,6 +95,16 @@ public class ExperienceOntologyService {
             String content = contentObj == null ? "" : String.valueOf(contentObj);
             if (content.isBlank()) continue;
             if (used >= MAX_EXPERIENCES) { skippedByCap++; continue; }
+            // #1 结构化直连:抽出探索文档内嵌的图片段并从正文剥离,改走结构化合并而非散文重抽
+            JsonNode frag = extractGraphFragment(content);
+            if (frag != null) {
+                JsonNode prefixed = merger.prefixChunkIds(frag, "ex" + preGraphCount + "_");
+                preExtracted = (preExtracted == null) ? prefixed
+                        : merger.mergeExtractionByLabel(preExtracted, prefixed);
+                preGraphCount++;
+                content = stripGraphFragment(content);
+                if (content.isBlank()) { used++; continue; } // 纯结构化文档,无散文可喂 LLM
+            }
             if (content.length() > MAX_CHARS_PER_EXPERIENCE) {
                 content = content.substring(0, MAX_CHARS_PER_EXPERIENCE) + "\n…（正文过长已截断）";
             }
@@ -97,11 +119,26 @@ public class ExperienceOntologyService {
                     "当前工作空间经验库为空（或经验均无正文），请先在经验库中创建/上传经验文件，或把数据源结构导出到经验库供血后再建图。");
         }
         step.emit("load_done", "已聚合 " + used + " 篇经验（约 " + chars + " 字符）"
+                + (preGraphCount > 0 ? "；其中 " + preGraphCount + " 篇含探索直采的结构化图谱(直接合并)" : "")
                 + (skippedByCap > 0 ? "；超出单次建图上限，已跳过较早的 " + skippedByCap + " 篇" : ""));
 
-        step.emit("llm_call", "正在调用大模型从经验库构建本体血缘图…");
-        JsonNode draft = extractionLlmService.extractOntologyFromSources(
-                combined.toString(), null, modelOverride, configId);
+        JsonNode draft;
+        String combinedText = combined.toString();
+        if (combinedText.isBlank() && preExtracted != null) {
+            // 全部为探索直采的纯结构化文档,无散文可喂 LLM:直接用结构化图谱
+            step.emit("llm_call", "经验均为探索直采的结构化图谱,跳过大模型抽取,直接合并…");
+            draft = emptyGraph();
+        } else {
+            step.emit("llm_call", "正在调用大模型从经验库构建本体血缘图…");
+            draft = extractionLlmService.extractOntologyFromSources(
+                    combinedText, null, modelOverride, configId);
+        }
+
+        // 把探索直采的结构化图谱并入 LLM 草稿(按 label 去重合并),再统一校验
+        if (preExtracted != null) {
+            step.emit("normalizing", "正在合并探索直采的结构化图谱…");
+            draft = merger.sanitizeGraph(merger.mergeExtractionByLabel(draft, preExtracted));
+        }
 
         step.emit("normalizing", "正在整理抽取结果、消解 id 冲突…");
         String salt = Long.toString(System.currentTimeMillis(), 36);
@@ -118,6 +155,39 @@ public class ExperienceOntologyService {
 
         step.emit("done", "完成：从 " + used + " 篇经验生成 " + nodes + " 个节点 / " + edges + " 条边");
         return new ExtractResult(out, salt, used, nodes, edges);
+    }
+
+    /**
+     * 抽出探索文档内嵌的结构化图片段({nodes,edges}),转成抽取管线的 {add_nodes,add_edges} 形状;
+     * 没有或解析失败返回 null。
+     */
+    private JsonNode extractGraphFragment(String content) {
+        if (content == null) return null;
+        java.util.regex.Matcher m = GRAPH_BLOCK.matcher(content);
+        if (!m.find()) return null;
+        try {
+            JsonNode parsed = objectMapper.readTree(m.group(1));
+            ObjectNode frag = objectMapper.createObjectNode();
+            frag.set("add_nodes", parsed.has("nodes") ? parsed.get("nodes") : objectMapper.createArrayNode());
+            frag.set("add_edges", parsed.has("edges") ? parsed.get("edges") : objectMapper.createArrayNode());
+            return frag;
+        } catch (Exception e) {
+            log.warn("[exp-ontology] 解析探索结构化图片段失败,忽略: {}", e.toString());
+            return null;
+        }
+    }
+
+    /** 从正文里剥掉结构化图片段注释块(已单独走结构化合并,避免再被 LLM 当散文重抽一遍)。 */
+    private static String stripGraphFragment(String content) {
+        return content == null ? null : GRAPH_BLOCK.matcher(content).replaceAll("").trim();
+    }
+
+    /** 空图骨架 {add_nodes:[], add_edges:[]},作为无 LLM 草稿时的合并基底。 */
+    private JsonNode emptyGraph() {
+        ObjectNode g = objectMapper.createObjectNode();
+        g.set("add_nodes", objectMapper.createArrayNode());
+        g.set("add_edges", objectMapper.createArrayNode());
+        return g;
     }
 
     /** 给 nodes/edges 数组里每个对象补 derived_source=经验库，标明该图由经验库文件构建。 */

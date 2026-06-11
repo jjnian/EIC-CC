@@ -128,6 +128,25 @@ public class ExperienceRepository {
         return parseConfig(po.getSourceConfig());
     }
 
+    /**
+     * 增量合并 web 系统连接配置（按工作空间隔离,仅 origin=websystem 生效）。
+     * 用于探索时把登录成功后的 storageState 等回存进配置,patch 中的键覆盖同名旧值,其余保留。
+     * @return 是否更新成功;不存在/越权/非 websystem 返回 false。
+     */
+    @Transactional
+    public boolean patchSourceConfig(String id, Map<String, Object> patch) {
+        ExperiencePO po = mapper.selectById(id);
+        if (po == null) return false;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
+        if (!"websystem".equals(po.getOrigin())) return false;
+        Map<String, Object> cfg = parseConfig(po.getSourceConfig());
+        if (patch != null) cfg.putAll(patch);
+        po.setSourceConfig(toJson(cfg));
+        po.setUpdatedAt(System.currentTimeMillis());
+        mapper.updateById(po);
+        return true;
+    }
+
     /** 回填原始文件在对象存储中的 key（归档成功后调用）。 */
     @Transactional
     public void attachStoragePath(String id, String storagePath) {
