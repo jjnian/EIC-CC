@@ -90,6 +90,15 @@ const start = () => {
       phase.value = 'error';
       sseHandle = null;
     },
+    // 流意外关闭(无 complete/error 事件,如后端重启/网络断开)时不能让进度永远转圈
+    onClose: () => {
+      sseHandle = null;
+      if (phase.value === 'running') {
+        markRunningAs('error');
+        errMsg.value = '连接中断,未收到完整结果,请重试';
+        phase.value = 'error';
+      }
+    },
   });
 };
 

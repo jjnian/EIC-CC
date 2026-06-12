@@ -6,6 +6,8 @@ import com.tuiyan.backend.service.agent.ExplorationAgentService;
 import com.tuiyan.backend.support.SsePushUtils;
 import com.tuiyan.backend.support.WebUrls;
 import com.tuiyan.backend.support.WorkspaceContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.MediaType;
@@ -26,6 +28,7 @@ import java.util.Map;
 @RequestMapping("/api/explore")
 public class ExploreController {
 
+    private static final Logger log = LoggerFactory.getLogger(ExploreController.class);
     private final ExplorationAgentService agent;
     private final ExperienceRepository experienceRepo;
     private final AsyncTaskExecutor taskExecutor;
@@ -51,7 +54,7 @@ public class ExploreController {
                 str(body, "username"), str(body, "password"),
                 intOr(body, "maxSteps", 15),
                 !"false".equalsIgnoreCase(str(body, "readOnly")), // 默认只读
-                str(body, "modelOverride"), str(body, "configId"));
+                str(body, "modelOverride"), str(body, "configId"), null);
     }
 
     /**
@@ -75,12 +78,17 @@ public class ExploreController {
                 str(cfg, "username"), str(cfg, "password"),
                 intOr(cfg, "maxSteps", 15),
                 !Boolean.FALSE.equals(cfg.get("readOnly")), // 默认只读
-                str(body, "modelOverride"), str(body, "configId"));
+                str(body, "modelOverride"), str(body, "configId"), experienceId);
     }
 
-    /** 探索 SSE 主流程（/run 与 /run-saved 共用）：异步跑 agent.explore，step 流式推、complete 携带新建经验。 */
+    /**
+     * 探索 SSE 主流程（/run 与 /run-saved 共用）：异步跑 agent.explore，step 流式推、complete 携带新建经验。
+     * @param sourceExperienceId 已保存 web 系统的经验 id（仅 /run-saved 传入）；非空时,登录成功后把
+     *                           storageState 回存到该条目的连接配置,供下次免登录(走服务端通道,不经前端)。
+     */
     private SseEmitter runExploration(String baseUrl, String storageState, String username, String password,
-                                      int maxSteps, boolean readOnly, String modelOverride, String configId) {
+                                      int maxSteps, boolean readOnly, String modelOverride, String configId,
+                                      String sourceExperienceId) {
         String workspaceId = WorkspaceContext.get();
         SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(600_000L,
                 "系统探索超时 (>600s)，请缩小探索步数或稍后重试");
@@ -98,8 +106,13 @@ public class ExploreController {
                         SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
                     } catch (Exception ignore) {}
                 };
+                // 登录成功后回存 storageState（仅已保存的 web 系统;敏感,不经前端）
+                java.util.function.Consumer<String> onStorageState = sourceExperienceId == null ? null : ss -> {
+                    try { experienceRepo.patchSourceConfig(sourceExperienceId, Map.of("storageState", ss)); }
+                    catch (RuntimeException e) { log.warn("[explore] 回存 storageState 失败: {}", e.toString()); }
+                };
                 Map<String, Object> exp = agent.explore(entryUrl, storageState, username, password,
-                        maxSteps, readOnly, modelOverride, configId, step);
+                        maxSteps, readOnly, modelOverride, configId, step, ce.cancelled()::get, onStorageState);
                 Map<String, Object> payload = new LinkedHashMap<>(exp);
                 SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
                         objectMapper.writeValueAsString(payload));

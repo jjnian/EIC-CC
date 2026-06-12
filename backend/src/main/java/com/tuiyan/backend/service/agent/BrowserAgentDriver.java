@@ -8,14 +8,18 @@ import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.Request;
+import com.microsoft.playwright.options.LoadState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * 浏览器探索驱动：用 Playwright 像人一样"操作" web 系统(导航 / 点击),并把当前页编码成
@@ -25,8 +29,9 @@ import java.util.Set;
  *   <li><b>纯文本驱动</b>:不依赖视觉模型,快照是文本(可访问性/DOM 结构),普通文本模型即可用。</li>
  *   <li><b>线程隔离</b>:每个探索会话自带一个 Playwright/Browser/Context,全程在同一条探索线程上
  *       调用,规避 Playwright-java 的单线程约束。</li>
- *   <li><b>只读护栏</b>:快照阶段给"删除/提交/支付"等会改数据的元素打 danger 标记;只读模式下
- *       {@link Session#clickRef} 会拒绝点击它们,做到尽量零副作用的探索。</li>
+ *   <li><b>纵深只读护栏</b>:三层防护——快照阶段给"删除/提交/支付"等元素打 danger 标记;
+ *       {@link Session#clickRef} 拒绝点击危险元素与"登出";登录后在<b>网络层</b>拦掉一切非幂等
+ *       请求(POST/PUT/PATCH/DELETE)并锁定同源,即便误点也改不了数据、也不会跑到第三方站点。</li>
  * </ul>
  */
 @Component
@@ -35,8 +40,12 @@ public class BrowserAgentDriver {
     private static final Logger log = LoggerFactory.getLogger(BrowserAgentDriver.class);
     private static final int NAV_TIMEOUT_MS = 20_000;
     private static final int CLICK_TIMEOUT_MS = 8_000;
+    private static final int SETTLE_TIMEOUT_MS = 4_500;
     private static final String UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+    /** 登出类元素:任何模式下都绝不点击,避免把探索会话自己注销掉。 */
+    private static final Pattern LOGOUT = Pattern.compile(
+            "退出登录|退 出|注销|登出|logout|log\\s*out|sign\\s*out", Pattern.CASE_INSENSITIVE);
 
     private final ObjectMapper om = new ObjectMapper();
 
@@ -49,16 +58,46 @@ public class BrowserAgentDriver {
         Playwright pw = Playwright.create();
         try {
             Browser browser = pw.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
-            Browser.NewContextOptions opts = new Browser.NewContextOptions().setUserAgent(UA);
+            Browser.NewContextOptions opts = new Browser.NewContextOptions()
+                    .setUserAgent(UA)
+                    .setAcceptDownloads(false); // 只读探索不应触发任何文件下载
             if (storageStateJson != null && !storageStateJson.isBlank()) {
                 opts.setStorageState(storageStateJson);
             }
             BrowserContext ctx = browser.newContext(opts);
             Page page = ctx.newPage();
             page.setDefaultTimeout(CLICK_TIMEOUT_MS);
+
+            // 网络层护栏:登录前(未 arm)放行;arm 后拦非幂等请求 + 锁定同源主导航。
+            final Session[] ref = new Session[1];
+            ctx.route("**/*", route -> {
+                Session s = ref[0];
+                if (s == null || !s.guardArmed) { route.resume(); return; }
+                Request req = route.request();
+                String m = req.method() == null ? "GET" : req.method().toUpperCase();
+                boolean idempotent = m.equals("GET") || m.equals("HEAD") || m.equals("OPTIONS");
+                if (s.blockMutations && !idempotent) {
+                    log.debug("[browser-agent] 只读护栏拦截非幂等请求 {} {}", m, req.url());
+                    route.abort();
+                    return;
+                }
+                // 仅拦主框架的跨站导航(防探索跑偏到第三方站点);子资源(CDN/字体/图)跨域放行
+                if (req.isNavigationRequest() && s.lockHost != null && req.frame() == s.page.mainFrame()) {
+                    String h = hostOf(req.url());
+                    if (h != null && !sameSite(h, s.lockHost)) {
+                        log.debug("[browser-agent] 同站护栏拦截跨站导航 {}", req.url());
+                        route.abort();
+                        return;
+                    }
+                }
+                route.resume();
+            });
+
             page.navigate(baseUrl, new Page.NavigateOptions().setTimeout(NAV_TIMEOUT_MS));
             page.waitForLoadState();
-            return new Session(pw, browser, ctx, page);
+            Session session = new Session(pw, browser, ctx, page);
+            ref[0] = session;
+            return session;
         } catch (RuntimeException e) {
             pw.close();
             // Chromium 未安装是最常见的失败:给出可执行的修复指引
@@ -87,12 +126,35 @@ public class BrowserAgentDriver {
         // 最近一次快照里:ref → 元素名 / 是否危险元素
         private final Map<Integer, String> refNames = new HashMap<>();
         private final Set<Integer> dangerRefs = new HashSet<>();
+        // 护栏状态(由 driver 的 route lambda 读取):arm 后生效。lockHost 为登录后落点的主机。
+        volatile boolean guardArmed = false;
+        volatile boolean blockMutations = false;
+        volatile String lockHost = null;
 
         Session(Playwright pw, Browser browser, BrowserContext ctx, Page page) {
             this.pw = pw; this.browser = browser; this.ctx = ctx; this.page = page;
         }
 
         public String currentUrl() { return page.url(); }
+
+        /**
+         * 启用网络层护栏:以"当前所在页的主机"为同源基准(覆盖 SSO 登录后落到子域的情形),
+         * 只读模式额外拦截一切非幂等请求。应在登录完成后、正式探索前调用一次。
+         */
+        public void armGuard(boolean readOnly) {
+            this.lockHost = hostOf(page.url());
+            this.blockMutations = readOnly;
+            this.guardArmed = true;
+            log.debug("[browser-agent] 护栏已启用 lockHost={} blockMutations={}", lockHost, readOnly);
+        }
+
+        /** 导出当前会话的 storageState(登录态 cookies/localStorage)JSON,供下次免登录复用。失败返回 null。 */
+        public String exportStorageState() {
+            try { return ctx.storageState(); } catch (RuntimeException e) {
+                log.warn("[browser-agent] 导出 storageState 失败: {}", e.getMessage());
+                return null;
+            }
+        }
 
         /**
          * 把当前页编码成文本快照(JSON 字符串),并刷新 ref→元素 的映射。
@@ -117,14 +179,17 @@ public class BrowserAgentDriver {
         }
 
         /**
-         * 点击编号为 ref 的元素。只读模式下,若该元素被标记为危险(会改数据)则拒绝点击。
+         * 点击编号为 ref 的元素。
+         * <ul>
+         *   <li>登出类元素:任何模式都拒绝(保住探索会话);</li>
+         *   <li>只读模式下危险(会改数据)元素:拒绝。</li>
+         * </ul>
          * @return 实际点击的元素名;被拦截时抛 {@link BlockedActionException}
          */
         public String clickRef(int ref, boolean readOnly) {
             String name = refNames.getOrDefault(ref, "#" + ref);
-            if (readOnly && dangerRefs.contains(ref)) {
-                throw new BlockedActionException(name);
-            }
+            if (LOGOUT.matcher(name).find()) throw new BlockedActionException(name);
+            if (readOnly && dangerRefs.contains(ref)) throw new BlockedActionException(name);
             Locator loc = page.locator("[data-agent-ref='" + ref + "']").first();
             loc.click(new Locator.ClickOptions().setTimeout(CLICK_TIMEOUT_MS));
             settle();
@@ -168,15 +233,37 @@ public class BrowserAgentDriver {
             }
         }
 
+        /**
+         * 登录后粗略判断是否已离开登录页：当前页不再有可见的密码输入框即认为登录成功。
+         * 也用于探索途中检测会话失效(被重定向回登录页)。判断失败时返回 true(不阻断探索)。
+         */
+        public boolean looksLoggedIn() {
+            try {
+                Locator pwd = page.locator("input[type='password']");
+                if (pwd.count() == 0) return true;
+                return !pwd.first().isVisible();
+            } catch (RuntimeException e) {
+                return true;
+            }
+        }
+
         /** 后退一页。 */
         public void back() {
             page.goBack(new Page.GoBackOptions().setTimeout(NAV_TIMEOUT_MS));
             settle();
         }
 
-        /** 点击 / 导航后等待页面稳定;失败不致命(SPA 局部刷新可能无 load 事件)。 */
+        /**
+         * 点击 / 导航后等待页面稳定:优先等"网络空闲"(覆盖 SPA 局部刷新/异步加载,无 load 事件的情形),
+         * 超时则退回 load 事件。两者都失败也不致命。
+         */
         private void settle() {
-            try { page.waitForLoadState(); } catch (RuntimeException ignore) { /* SPA 局部更新 */ }
+            try {
+                page.waitForLoadState(LoadState.NETWORKIDLE,
+                        new Page.WaitForLoadStateOptions().setTimeout(SETTLE_TIMEOUT_MS));
+            } catch (RuntimeException ignore) {
+                try { page.waitForLoadState(); } catch (RuntimeException ignore2) { /* SPA 局部更新 */ }
+            }
         }
 
         @Override
@@ -192,9 +279,31 @@ public class BrowserAgentDriver {
         public BlockedActionException(String elementName) { super(elementName); }
     }
 
+    /** 从 URL 取主机名;解析失败返回 null。 */
+    private static String hostOf(String url) {
+        try { return URI.create(url).getHost(); } catch (RuntimeException e) { return null; }
+    }
+
+    /** 同站判断:主机相等,或同一可注册域(末两段相同),允许 app.x.com↔sso.x.com 这类同站子域互访。 */
+    private static boolean sameSite(String host, String lockHost) {
+        if (host == null || lockHost == null) return true; // 无法判断时放行,避免误伤
+        if (host.equalsIgnoreCase(lockHost)) return true;
+        String a = registrableDomain(host), b = registrableDomain(lockHost);
+        return a != null && a.equalsIgnoreCase(b);
+    }
+
+    /** 取可注册域(末两段域名);单段主机(localhost)/无点直接返回原值。 */
+    private static String registrableDomain(String host) {
+        if (host == null) return null;
+        String[] p = host.split("\\.");
+        if (p.length < 2) return host;
+        return p[p.length - 2] + "." + p[p.length - 1];
+    }
+
     /**
      * 注入到页面里的快照脚本:给可点击元素编号 + 抽出表格列/表单字段/标题/正文。
-     * 返回 JSON 字符串(避免跨语言类型转换)。danger 正则覆盖会改数据的操作。
+     * 返回 JSON 字符串(避免跨语言类型转换)。danger 正则覆盖会改数据的操作;元素附带 href 供上层
+     * 构建探索边界(frontier)与去重。
      */
     private static final String SNAPSHOT_JS = """
         () => {
@@ -212,13 +321,16 @@ public class BrowserAgentDriver {
             if (ref >= 80) break;
             if (!vis(el)) continue;
             const name = txt(el);
-            if (!name || seen.has(name + '@' + (el.getAttribute('href') || ''))) continue;
-            seen.add(name + '@' + (el.getAttribute('href') || ''));
+            const href = el.getAttribute('href') || '';
+            if (!name || seen.has(name + '@' + href)) continue;
+            seen.add(name + '@' + href);
             el.setAttribute('data-agent-ref', ref);
             const tag = el.tagName.toLowerCase();
             const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'button' ? 'button' : tag);
             const danger = DANGER.test(name) || el.type === 'submit';
-            elements.push({ ref, role, name, danger });
+            let abs = '';
+            try { abs = href ? new URL(href, location.href).href : ''; } catch (e) { abs = ''; }
+            elements.push({ ref, role, name, danger, href: abs });
             ref++;
           }
           const forms = Array.from(document.querySelectorAll('form')).slice(0, 6).map(f => ({

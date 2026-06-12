@@ -75,6 +75,40 @@ public class ExperienceRepository {
     }
 
     /**
+     * 数据源 DDL 导出经验（origin=ddl）的 upsert：同一数据源重复导出时原地刷新正文,不再堆副本。
+     * 以 source_config 里的 dataSourceId 为锚点;旧版(无 source_config)的 DDL 经验按标题完全相同收养。
+     * 内容是结构内省的机器快照,刷新即"重新导出"的自然语义。
+     */
+    @Transactional
+    public Map<String, Object> upsertDdl(String dataSourceId, String title, String content, String tags) {
+        String ws = WorkspaceContext.required();
+        List<ExperiencePO> existing = mapper.selectList(new LambdaQueryWrapper<ExperiencePO>()
+                .eq(ExperiencePO::getWorkspaceId, ws)
+                .eq(ExperiencePO::getOrigin, "ddl")
+                .orderByDesc(ExperiencePO::getCreatedAt));
+        ExperiencePO hit = null;
+        for (ExperiencePO po : existing) {
+            Object anchor = parseConfig(po.getSourceConfig()).get("dataSourceId");
+            if (dataSourceId.equals(anchor)) { hit = po; break; }
+            // 旧数据兜底:从未带锚点且标题一致的,视为同一数据源的历史导出,收养并补锚点
+            if (anchor == null && hit == null && title.equals(po.getTitle())) hit = po;
+        }
+        if (hit != null) {
+            hit.setTitle(title);
+            hit.setContent(content);
+            if (tags != null) hit.setTags(tags);
+            hit.setSourceConfig(toJson(Map.of("dataSourceId", dataSourceId)));
+            hit.setUpdatedAt(System.currentTimeMillis());
+            mapper.updateById(hit);
+            return toMap(hit);
+        }
+        ExperiencePO po = newPo(title, content, tags, "ddl");
+        po.setSourceConfig(toJson(Map.of("dataSourceId", dataSourceId)));
+        mapper.insert(po);
+        return toMap(po);
+    }
+
+    /**
      * 上传文件建经验（origin=upload）：正文为抽取文本，另携带原始文件元信息。
      * 原始文件字节由上层落对象存储后再用 {@link #attachStoragePath} 回填 storage_path。
      */
@@ -126,6 +160,25 @@ public class ExperienceRepository {
         if (po == null) return null;
         if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
         return parseConfig(po.getSourceConfig());
+    }
+
+    /**
+     * 增量合并 web 系统连接配置（按工作空间隔离,仅 origin=websystem 生效）。
+     * 用于探索时把登录成功后的 storageState 等回存进配置,patch 中的键覆盖同名旧值,其余保留。
+     * @return 是否更新成功;不存在/越权/非 websystem 返回 false。
+     */
+    @Transactional
+    public boolean patchSourceConfig(String id, Map<String, Object> patch) {
+        ExperiencePO po = mapper.selectById(id);
+        if (po == null) return false;
+        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
+        if (!"websystem".equals(po.getOrigin())) return false;
+        Map<String, Object> cfg = parseConfig(po.getSourceConfig());
+        if (patch != null) cfg.putAll(patch);
+        po.setSourceConfig(toJson(cfg));
+        po.setUpdatedAt(System.currentTimeMillis());
+        mapper.updateById(po);
+        return true;
     }
 
     /** 回填原始文件在对象存储中的 key（归档成功后调用）。 */

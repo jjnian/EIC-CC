@@ -30,6 +30,13 @@
   --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
   --font-sans: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+  /* 高端精修补充令牌：发丝描边 / 聚焦光环 / 青系辉光 / 高级面板渐变,统一在体系内增强质感 */
+  --hairline: rgba(255, 255, 255, 0.10);
+  --hairline-top: rgba(255, 255, 255, 0.07);
+  --ring: 0 0 0 3px rgba(56, 225, 214, 0.22), 0 0 12px rgba(56, 225, 214, 0.18);
+  --ring-accent: 0 0 0 3px rgba(66, 184, 131, 0.20);
+  --shadow-glow-cyan: 0 10px 30px rgba(56, 225, 214, 0.20);
+  --shadow-panel: 0 18px 50px rgba(0, 0, 0, 0.55), 0 2px 0 rgba(255, 255, 255, 0.05) inset;
 }
 
 * { margin:0; padding:0; box-sizing:border-box }
@@ -1259,3 +1266,123 @@ body::after {
 }
 .send-btn:hover { transform: scale(1.06) translateY(-1px); box-shadow: 0 8px 22px rgba(66, 184, 131, 0.45), inset 0 1px 0 rgba(255,255,255,0.36); }
 .send-btn:disabled { opacity:.3; cursor:not-allowed; transform:none; box-shadow:none; }
+
+/* ════════════════════════════════════════════════════════════════════
+   高端精修层 · Premium Refinement Layer
+   在既有暗色科技风体系内做克制增强:全局氛围、聚焦光环、面板描边、
+   节点辉光、外框微交互。全部为追加覆盖,删除本段即可整体回退。
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── 全局氛围:蓝图 HUD 网格 + 影院级暗角,叠在内容之下,极低存在感 ── */
+.app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 46px 46px;
+  -webkit-mask-image: radial-gradient(130% 100% at 50% 38%, #000 0%, transparent 72%);
+  mask-image: radial-gradient(130% 100% at 50% 38%, #000 0%, transparent 72%);
+}
+.app::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(125% 95% at 50% -8%, transparent 58%, rgba(0, 0, 0, 0.42) 100%);
+}
+
+/* ── 全局聚焦光环:作用到所有按钮/链接/输入(含各弹窗内),无障碍 + 高级感 ── */
+button:focus-visible,
+a:focus-visible,
+[role='button']:focus-visible,
+[tabindex]:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 1.5px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+/* ── 滚动条:更细、悬停泛起青色辉光 ── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(56, 225, 214, 0.6), rgba(66, 184, 131, 0.55));
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  box-shadow: 0 0 8px rgba(56, 225, 214, 0.45);
+}
+
+/* ── 外框微交互:侧栏项悬停轻微右移,激活态辉光更聚拢 ── */
+.sb-item { will-change: transform; }
+.sb-item:hover { transform: translateX(2px); }
+.sb-item.active {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08),
+              0 4px 16px rgba(66, 184, 131, 0.16),
+              0 0 0 1px rgba(56, 225, 214, 0.10);
+}
+.logo-mark { will-change: transform, box-shadow; }
+
+/* ── 顶栏主按钮:悬停时一道掠过的高光,质感更"贵" ── */
+.tb-btn.hi, .send-btn { position: relative; overflow: hidden; }
+.tb-btn.hi::after, .send-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.28) 48%, transparent 66%);
+  transform: translateX(-130%);
+  transition: transform .6s var(--ease-out);
+  pointer-events: none;
+}
+.tb-btn.hi:hover::after, .send-btn:hover::after { transform: translateX(130%); }
+
+/* ── 全局面板:发丝顶光 + 更深的投影,玻璃质感更立体 ── */
+.legend, .node-ctx-menu, .zoom-wrap button {
+  box-shadow: var(--shadow-panel);
+}
+.legend { border-color: var(--hairline); }
+.node-ctx-menu {
+  border-color: var(--hairline);
+  background: linear-gradient(180deg, rgba(16, 27, 45, 0.98), rgba(12, 20, 35, 0.98));
+}
+.node-ctx-menu::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  border-radius: 10px 10px 0 0;
+  background: linear-gradient(90deg, transparent, rgba(56, 225, 214, 0.35), transparent);
+  pointer-events: none;
+}
+
+/* ── 图谱画布:节点悬停泛青光、选中态双环辉光,科技感更强 ── */
+.node:hover {
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45),
+              0 0 0 1px rgba(56, 225, 214, 0.22),
+              0 0 18px rgba(56, 225, 214, 0.12),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.node-sel {
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55),
+              0 0 0 1px rgba(56, 225, 214, 0.5),
+              0 0 24px rgba(56, 225, 214, 0.28),
+              inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+}
+.node-dot { will-change: box-shadow; }
+
+/* ── 标题微铸:让顶栏标题与品牌名带极轻的呼吸辉光 ── */
+@keyframes premium-breathe {
+  0%, 100% { opacity: 0.85; }
+  50%      { opacity: 1; }
+}
+.tb-title-text { animation: premium-breathe 6s var(--ease-out) infinite; }
+
+/* ── 降噪:用户偏好减少动效时关闭掠光与呼吸 ── */
+@media (prefers-reduced-motion: reduce) {
+  .tb-btn.hi::after, .send-btn::after { transition: none; }
+  .tb-title-text { animation: none; }
+}
