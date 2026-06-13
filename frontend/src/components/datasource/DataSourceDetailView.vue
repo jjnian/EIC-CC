@@ -32,7 +32,7 @@ const exportDdlToExperience = async () => {
   if (!ds.value || exportingDdl.value) return;
   exportingDdl.value = true;
   try {
-    const created = await createExperienceFromDdl(ds.value.id, ddlWithSamples.value ? 3 : 0);
+    const created = await createExperienceFromDdl(ds.value.id, ddlWithSamples.value ? 10 : 0);
     const wsId = ws.currentId.value;
     if (wsId) tree.upsertExperience(wsId, created);
     toast.success(`已导出到经验库：${created.title}`);
@@ -114,15 +114,15 @@ watch(() => props.dsId, load);
         <h2>{{ ds.name }}</h2>
         <span class="kind-tag">{{ ds.kind }}</span>
         <span class="head-spacer" />
-        <label v-if="isDb" class="ddl-sample-opt" title="为每张表附带前 3 行真实数据作样例（注意脱敏）">
+        <label v-if="isDb" class="ddl-sample-opt" title="为每张表附带前 10 行真实数据作样例（注意脱敏）">
           <input type="checkbox" v-model="ddlWithSamples" :disabled="exportingDdl" />
-          <span>附带样例数据</span>
+          <span>附带样例数据（10 行/表）</span>
         </label>
         <button
           v-if="isDb"
           class="ddl-export"
           :disabled="exportingDdl"
-          :title="ddlWithSamples ? '把库表结构（DDL）+ 每表前 3 行样例数据导出为一条经验' : '把库表结构（DDL）导出为一条经验，供对话建模召回'"
+          :title="ddlWithSamples ? '把库表结构（DDL）+ 每表前 10 行样例数据导出为一条经验' : '把库表结构（DDL）导出为一条经验，供对话建模召回'"
           @click="exportDdlToExperience"
         >{{ exportingDdl ? '导出中…' : '⤴ 导出 DDL 到经验库' }}</button>
       </header>

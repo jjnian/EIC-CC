@@ -18,7 +18,7 @@ const err = ref<string>('');
 // 再到经验库一键「构建本体血缘图」。
 const depositing = ref(false);
 const withSamples = ref(false);          // 是否附带样例数据（含真实数据，默认关）
-const sampleRows = ref(3);
+const sampleRows = ref(10);
 const depositToExperience = async () => {
   depositing.value = true;
   try {
