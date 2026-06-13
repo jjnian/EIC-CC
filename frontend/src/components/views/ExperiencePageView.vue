@@ -444,20 +444,24 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           @click="extractDialogOpen = true"
         >🧬 构建本体血缘图</button>
         <div class="exp-add">
-          <button class="exp-new" @click.stop="toggleAddMenu">＋ 新增 <span class="exp-add-caret">▾</span></button>
+          <button class="exp-new" @click.stop="toggleAddMenu">＋ 新增 <span class="exp-add-caret" :class="{ open: addMenuOpen }">▾</span></button>
           <div v-if="addMenuOpen" class="exp-add-backdrop" @click="closeAddMenu"></div>
           <div v-if="addMenuOpen" class="exp-add-menu">
-            <button class="exp-add-item" @click="newDraft">
+            <div class="exp-add-kicker">添加经验来源</div>
+            <button class="exp-add-item c-write" @click="newDraft">
               <span class="exp-add-ico">✎</span>
               <span><strong>新建经验</strong><em>手写一篇 Markdown 经验</em></span>
+              <span class="exp-add-go">→</span>
             </button>
-            <button class="exp-add-item" :disabled="uploading" @click="triggerUpload">
+            <button class="exp-add-item c-upload" :disabled="uploading" @click="triggerUpload">
               <span class="exp-add-ico">⤓</span>
               <span><strong>{{ uploading ? '解析中…' : '上传文件' }}</strong><em>PDF / Word / TXT / MD / 音频</em></span>
+              <span class="exp-add-go">→</span>
             </button>
-            <button class="exp-add-item" @click="openExplore">
+            <button class="exp-add-item c-web" @click="openExplore">
               <span class="exp-add-ico">🌐</span>
               <span><strong>接入 Web 系统</strong><em>保存连接，随时探索反推业务生成文档</em></span>
+              <span class="exp-add-go">→</span>
             </button>
           </div>
         </div>
@@ -732,33 +736,75 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-new:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(66,184,131,0.4), inset 0 1px 0 rgba(255,255,255,0.34); }
 .exp-header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
-/* 「新增」下拉 */
+/* 「新增」下拉 — 科技感玻璃面板 */
 .exp-add { position: relative; }
-.exp-add-caret { font-size: 10px; opacity: 0.8; margin-left: 2px; }
+.exp-add-caret { font-size: 10px; opacity: 0.8; margin-left: 2px; display: inline-block; transition: transform .22s var(--ease-spring); }
+.exp-add-caret.open { transform: rotate(180deg); }
 .exp-add-backdrop { position: fixed; inset: 0; z-index: 40; }
 .exp-add-menu {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
-  min-width: 240px; padding: 6px;
-  background: linear-gradient(180deg, rgba(24,32,48,0.99), rgba(16,24,38,0.99));
-  border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
-  box-shadow: 0 18px 44px rgba(0,0,0,0.5);
-  display: flex; flex-direction: column; gap: 2px;
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 50;
+  min-width: 272px; padding: 8px;
+  background:
+    radial-gradient(120% 80% at 100% 0%, rgba(56,225,214,0.10), transparent 60%),
+    linear-gradient(180deg, rgba(20,28,44,0.96), rgba(11,17,29,0.97));
+  border: 1px solid var(--glass-border); border-radius: 14px;
+  box-shadow: var(--shadow-panel), 0 0 0 1px rgba(56,225,214,0.06);
+  backdrop-filter: blur(18px) saturate(1.2);
+  display: flex; flex-direction: column; gap: 3px;
+  transform-origin: top right;
+  animation: expAddPop .22s var(--ease-spring) both;
+  overflow: hidden;
+}
+.exp-add-menu::before {
+  content: ''; position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-2), var(--accent-3), transparent);
+  opacity: 0.7;
+}
+@keyframes expAddPop {
+  from { opacity: 0; transform: translateY(-6px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.exp-add-kicker {
+  font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 1.6px; text-transform: uppercase;
+  color: var(--text-muted); padding: 4px 8px 6px;
 }
 .exp-add-item {
-  display: flex; align-items: center; gap: 12px; text-align: left;
-  background: transparent; border: none; border-radius: 8px;
-  padding: 9px 10px; cursor: pointer; font-family: inherit; color: var(--text-main);
+  position: relative; display: flex; align-items: center; gap: 12px; text-align: left;
+  background: rgba(255,255,255,0.012); border: 1px solid transparent; border-radius: 10px;
+  padding: 10px 11px; cursor: pointer; font-family: inherit; color: var(--text-main);
+  transition: background .16s var(--ease-out), border-color .16s var(--ease-out), transform .16s var(--ease-out);
+  --c: var(--accent);
 }
-.exp-add-item:hover:not(:disabled) { background: rgba(66,184,131,0.12); }
+.exp-add-item.c-write  { --c: var(--accent); }
+.exp-add-item.c-upload { --c: var(--accent-2); }
+.exp-add-item.c-web    { --c: var(--accent-3); }
+.exp-add-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c) 12%, transparent);
+  border-color: color-mix(in srgb, var(--c) 38%, transparent);
+  transform: translateX(2px);
+}
 .exp-add-item:disabled { opacity: 0.55; cursor: default; }
 .exp-add-ico {
-  flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px;
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center; font-size: 16px;
-  background: rgba(255,255,255,0.06);
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, rgba(255,255,255,0.02));
+  border: 1px solid color-mix(in srgb, var(--c) 30%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  transition: box-shadow .18s var(--ease-out), transform .18s var(--ease-out);
 }
-.exp-add-item span:last-child { display: flex; flex-direction: column; gap: 2px; }
-.exp-add-item strong { font-size: 13px; font-weight: 600; }
+.exp-add-item:hover:not(:disabled) .exp-add-ico {
+  box-shadow: 0 0 16px color-mix(in srgb, var(--c) 45%, transparent), inset 0 1px 0 rgba(255,255,255,0.12);
+  transform: scale(1.06);
+}
+.exp-add-item > span:nth-child(2) { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.exp-add-item strong { font-size: 13px; font-weight: 600; letter-spacing: 0.1px; }
 .exp-add-item em { font-style: normal; font-size: 11px; color: var(--text-dim); }
+.exp-add-go {
+  font-family: var(--font-mono); font-size: 14px; color: var(--c); opacity: 0;
+  transform: translateX(-4px); transition: opacity .16s var(--ease-out), transform .16s var(--ease-out);
+}
+.exp-add-item:hover:not(:disabled) .exp-add-go { opacity: 0.9; transform: translateX(0); }
 .exp-build {
   background: linear-gradient(135deg, rgba(66,184,131,0.22), rgba(66,184,131,0.1));
   color: #6dd4a7; border: 1px solid rgba(66,184,131,0.5);
