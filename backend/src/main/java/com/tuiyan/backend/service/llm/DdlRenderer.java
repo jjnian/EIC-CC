@@ -4,11 +4,13 @@ import com.tuiyan.backend.service.connector.JdbcConnectorService.ColumnInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
+import com.tuiyan.backend.service.connector.JdbcConnectorService.TableSample;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.UniqueKeyInfo;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 把内省得到的 {@link DatabaseSchemaInfo} 渲染成可读的 DDL（CREATE TABLE / VIEW）。
@@ -19,23 +21,67 @@ import java.util.List;
 @Component
 public class DdlRenderer {
 
-    /** 渲染整库 DDL：表头说明 + 每张表/视图的 CREATE 语句。 */
+    /** 渲染整库 DDL（不含样例数据）。 */
     public String render(DatabaseSchemaInfo s) {
+        return render(s, Map.of());
+    }
+
+    /**
+     * 渲染整库 DDL：表头说明 + 每张表/视图的 CREATE 语句；若提供样例数据,则在对应基表
+     * CREATE 之后追加 {@code INSERT ... VALUES} 形式的样例行(便于阅读字段含义与数据形态)。
+     * @param samples 表名({@link TableInfo#name()}) → 样例;为空则不输出样例
+     */
+    public String render(DatabaseSchemaInfo s, Map<String, TableSample> samples) {
         boolean mysql = "mysql".equalsIgnoreCase(s.kind());
+        if (samples == null) samples = Map.of();
         StringBuilder sb = new StringBuilder();
         sb.append("-- 数据库类型: ").append(s.kind()).append('\n');
         sb.append("-- 数据库名:   ").append(s.database()).append('\n');
         sb.append("-- 对象数量:   ").append(s.tables().size()).append('\n');
-        sb.append("-- 说明: 以下 DDL 由 schema 内省元数据还原，面向阅读与检索，不保证可原样执行。\n\n");
+        sb.append("-- 说明: 以下 DDL 由 schema 内省元数据还原，面向阅读与检索，不保证可原样执行。\n");
+        if (!samples.isEmpty()) {
+            sb.append("-- 含样例数据: 每表 INSERT 为脱敏前的真实抽样,仅供理解字段含义与数据形态。\n");
+        }
+        sb.append('\n');
         for (TableInfo t : s.tables()) {
             if (t.isView()) {
                 appendView(sb, t, mysql);
             } else {
                 appendTable(sb, t, mysql);
+                TableSample sample = samples.get(t.name());
+                if (sample != null && !sample.rows().isEmpty()) {
+                    appendSample(sb, t, sample, mysql);
+                }
             }
             sb.append('\n');
         }
         return sb.toString();
+    }
+
+    /** 把样例行渲染成 INSERT 语句(多行 VALUES);单元格按类型转 SQL 字面量,长串截断。 */
+    private void appendSample(StringBuilder sb, TableInfo t, TableSample sample, boolean mysql) {
+        sb.append("-- 样例数据（节选 ").append(sample.rows().size()).append(" 行）:\n");
+        sb.append("INSERT INTO ").append(quote(t.name(), mysql)).append(" (")
+          .append(joinQuoted(sample.columns(), mysql)).append(") VALUES\n");
+        List<List<Object>> rows = sample.rows();
+        for (int r = 0; r < rows.size(); r++) {
+            List<Object> row = rows.get(r);
+            sb.append("  (");
+            for (int c = 0; c < row.size(); c++) {
+                if (c > 0) sb.append(", ");
+                sb.append(literal(row.get(c)));
+            }
+            sb.append(')').append(r < rows.size() - 1 ? ',' : ';').append('\n');
+        }
+    }
+
+    /** 值 → SQL 字面量：null→NULL，数字/布尔原样，其余加单引号并转义,过长截断。 */
+    private static String literal(Object v) {
+        if (v == null) return "NULL";
+        if (v instanceof Number || v instanceof Boolean) return String.valueOf(v);
+        String s = String.valueOf(v);
+        if (s.length() > 120) s = s.substring(0, 120) + "…";
+        return "'" + s.replace("'", "''").replace("\n", " ") + "'";
     }
 
     private void appendTable(StringBuilder sb, TableInfo t, boolean mysql) {

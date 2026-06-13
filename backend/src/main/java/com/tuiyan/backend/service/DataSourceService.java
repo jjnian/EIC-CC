@@ -169,20 +169,35 @@ public class DataSourceService {
         return schemaInfoDtoMapper.toMap(info);
     }
 
-    /** DDL 导出结果：数据源名 + 库名 + 渲染好的 DDL 文本 + 对象（表/视图）数量。 */
-    public record DdlExport(String sourceName, String database, String ddl, int objectCount) {}
+    /** 采样的最大表数与每表最大行数：防大库打太多查询 / 经验正文过长。 */
+    private static final int SAMPLE_MAX_TABLES = 60;
+    private static final int SAMPLE_MAX_PER_TABLE = 10;
+
+    /** DDL 导出结果：数据源名 + 库名 + 渲染好的 DDL 文本 + 对象（表/视图）数量 + 是否含样例数据。 */
+    public record DdlExport(String sourceName, String database, String ddl, int objectCount, boolean withSamples) {}
+
+    /** 不含样例数据的导出（向后兼容）。 */
+    public DdlExport exportDdl(String id) {
+        return exportDdl(id, 0);
+    }
 
     /**
      * 导出某个数据库数据源的 DDL（CREATE TABLE / VIEW），供「保存到经验库」使用。
      * <p>仅 mysql / pgsql；按当前工作空间做归属校验。
+     * @param sampleRows 每张基表附带的样例数据行数；&le;0 表示不抽样例。
      */
-    public DdlExport exportDdl(String id) {
+    public DdlExport exportDdl(String id, int sampleRows) {
         DataSourcePO po = ensureOwnership(id);
         requireKindIn(po, "mysql", "pgsql");
-        JdbcConnectorService.DatabaseSchemaInfo info =
-                jdbc.introspectSchema(po.getKind(), repo.readConfig(po), 500);
-        String ddl = ddlRenderer.render(info);
-        return new DdlExport(po.getName(), info.database(), ddl, info.tables().size());
+        Map<String, Object> cfg = repo.readConfig(po);
+        JdbcConnectorService.DatabaseSchemaInfo info = jdbc.introspectSchema(po.getKind(), cfg, 500);
+        Map<String, JdbcConnectorService.TableSample> samples = Map.of();
+        if (sampleRows > 0) {
+            samples = jdbc.sampleRows(po.getKind(), cfg, info.tables(),
+                    Math.min(sampleRows, SAMPLE_MAX_PER_TABLE), SAMPLE_MAX_TABLES);
+        }
+        String ddl = ddlRenderer.render(info, samples);
+        return new DdlExport(po.getName(), info.database(), ddl, info.tables().size(), !samples.isEmpty());
     }
 
     // ---------- HTTPS 专用 ----------

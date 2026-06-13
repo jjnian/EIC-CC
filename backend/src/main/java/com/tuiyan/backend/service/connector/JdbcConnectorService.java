@@ -266,4 +266,68 @@ public class JdbcConnectorService {
     private static boolean isSimple(Object v) {
         return v instanceof Number || v instanceof Boolean || v instanceof String;
     }
+
+    /** 单表样例数据：列名 + 若干行(单元格为简单值,复杂类型已转字符串)。 */
+    public record TableSample(List<String> columns, List<List<Object>> rows) {}
+
+    /**
+     * 为「导出 DDL 到经验库」附带少量样例数据：复用同一条连接,对每张<b>基表</b>(跳过视图)
+     * 取前 N 行。只读 SELECT、带查询超时与 setMaxRows;单表取数失败(如无权限)静默跳过,不影响导出。
+     * @param tables    内省得到的表(其 name 可能是 pgsql 的 schema.table 限定名)
+     * @param perTable  每表取多少行(夹到 1..20)
+     * @param maxTables 最多采样多少张表,防大库打太多查询
+     * @return 表名 → 样例;keyed by {@link TableInfo#name()},按入参顺序保留
+     */
+    public Map<String, TableSample> sampleRows(String kind, Map<String, Object> cfg,
+                                               List<TableInfo> tables, int perTable, int maxTables) {
+        int n = Math.max(1, Math.min(perTable, 20));
+        int capTables = Math.max(1, maxTables);
+        Map<String, TableSample> out = new LinkedHashMap<>();
+        try (HikariDataSource ds = (HikariDataSource) buildTempDataSource(kind, cfg);
+             Connection conn = ds.getConnection()) {
+            int used = 0;
+            for (TableInfo t : tables) {
+                if (t.isView()) continue;            // 视图取数可能很重,只采基表
+                if (used >= capTables) break;
+                used++;
+                String sql = "SELECT * FROM " + quotedRef(kind, t.name()) + " LIMIT " + n;
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setQueryTimeout(QUERY_TIMEOUT_SEC);
+                    ps.setMaxRows(n);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        ResultSetMetaData meta = rs.getMetaData();
+                        int colCount = meta.getColumnCount();
+                        List<String> cols = new ArrayList<>(colCount);
+                        for (int i = 1; i <= colCount; i++) cols.add(meta.getColumnLabel(i));
+                        List<List<Object>> rows = new ArrayList<>();
+                        while (rs.next() && rows.size() < n) {
+                            List<Object> row = new ArrayList<>(colCount);
+                            for (int i = 1; i <= colCount; i++) {
+                                Object v = rs.getObject(i);
+                                row.add(v == null ? null : (isSimple(v) ? v : String.valueOf(v)));
+                            }
+                            rows.add(row);
+                        }
+                        if (!rows.isEmpty()) out.put(t.name(), new TableSample(cols, rows));
+                    }
+                } catch (SQLException ex) {
+                    log.debug("[ds] 样例采集跳过表 {}: {}", t.name(), ex.getMessage());
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("[ds] 样例采集失败(整体跳过): {}", e.getMessage());
+        }
+        return out;
+    }
+
+    /** 把表名(可能是 pgsql 的 schema.table)安全地加引号:mysql 反引号,pgsql 双引号并按点拆分。 */
+    private static String quotedRef(String kind, String name) {
+        if ("mysql".equals(kind)) return "`" + name.replace("`", "``") + "`";
+        int dot = name.indexOf('.');
+        if (dot > 0) {
+            String sch = name.substring(0, dot), tbl = name.substring(dot + 1);
+            return "\"" + sch.replace("\"", "\"\"") + "\".\"" + tbl.replace("\"", "\"\"") + "\"";
+        }
+        return "\"" + name.replace("\"", "\"\"") + "\"";
+    }
 }

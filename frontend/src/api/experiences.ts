@@ -52,11 +52,14 @@ export function uploadExperienceFile(file: File, title?: string) {
   });
 }
 
-/** 从数据库数据源导出 DDL 并存为一条经验（CREATE TABLE/VIEW 作正文，自动建索引）。 */
-export function createExperienceFromDdl(dataSourceId: string) {
+/**
+ * 从数据库数据源导出 DDL 并存为一条经验（CREATE TABLE/VIEW 作正文，自动建索引）。
+ * @param sampleRows >0 时为每张基表附带前 N 行样例数据（INSERT 形式，含真实数据）；默认 0 仅导结构。
+ */
+export function createExperienceFromDdl(dataSourceId: string, sampleRows = 0) {
   return request<Experience>('/api/experiences/from-ddl', {
     method: 'POST',
-    body: JSON.stringify({ dataSourceId }),
+    body: JSON.stringify(sampleRows > 0 ? { dataSourceId, sampleRows } : { dataSourceId }),
   });
 }
 
