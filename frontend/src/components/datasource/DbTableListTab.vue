@@ -66,7 +66,7 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
           :title="tables.length === 0 ? '请先确保数据库连接成功' : '把库结构(DDL)沉淀到经验库，供经验库构建本体血缘图'"
           @click="depositToExperience"
         >{{ depositing ? '导出中…' : '⤓ 导出结构到经验库供血' }}</button>
-        <label class="sample-opt" title="为每张表附带前 N 行真实数据作样例（注意脱敏）">
+        <label class="sample-opt" title="为每张表附带前 N 行真实数据作样例（密码/手机/邮箱/证件/卡号等敏感字段已自动脱敏）">
           <input type="checkbox" v-model="withSamples" :disabled="depositing" />
           <span>附带样例数据</span>
           <input

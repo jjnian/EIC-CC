@@ -114,7 +114,7 @@ watch(() => props.dsId, load);
         <h2>{{ ds.name }}</h2>
         <span class="kind-tag">{{ ds.kind }}</span>
         <span class="head-spacer" />
-        <label v-if="isDb" class="ddl-sample-opt" title="为每张表附带前 10 行真实数据作样例（注意脱敏）">
+        <label v-if="isDb" class="ddl-sample-opt" title="为每张表附带前 10 行真实数据作样例（密码/手机/邮箱/证件/卡号等敏感字段已自动脱敏）">
           <input type="checkbox" v-model="ddlWithSamples" :disabled="exportingDdl" />
           <span>附带样例数据（10 行/表）</span>
         </label>
