@@ -10,7 +10,7 @@ import com.tuiyan.backend.service.agent.BrowserAgentDriver.Session;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
 import com.tuiyan.backend.service.llm.LlmHttpClient;
-import com.tuiyan.backend.service.llm.LlmPrompts;
+import com.tuiyan.backend.service.llm.prompt.ExplorePrompts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -182,8 +182,8 @@ public class ExplorationAgentService {
         try {
             String user = "以下是自动探索得到的功能地图,请据此撰写《业务说明文档》:\n\n" + rawReport;
             callLogger.logConversation("explore-bizdoc", cfg.modelName(),
-                    LlmPrompts.EXPLORE_BUSINESS_DOC_SYSTEM, null, user, null);
-            String body = http.buildBody(cfg, LlmPrompts.EXPLORE_BUSINESS_DOC_SYSTEM, user,
+                    ExplorePrompts.EXPLORE_BUSINESS_DOC_SYSTEM, null, user, null);
+            String body = http.buildBody(cfg, ExplorePrompts.EXPLORE_BUSINESS_DOC_SYSTEM, user,
                     null, null, false, false, LlmHttpClient.EXTRACT_TEMPERATURE);
             HttpRequest req = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, body, cfg.rawUrl());
             long t0 = System.currentTimeMillis();
@@ -216,8 +216,8 @@ public class ExplorationAgentService {
     private JsonNode decide(LlmHttpClient.ResolvedConfig cfg, boolean anthropic, String userPrompt) {
         try {
             callLogger.logConversation("explore-agent", cfg.modelName(),
-                    LlmPrompts.EXPLORE_AGENT_SYSTEM, null, userPrompt, null);
-            String body = http.buildBody(cfg, LlmPrompts.EXPLORE_AGENT_SYSTEM, userPrompt,
+                    ExplorePrompts.EXPLORE_AGENT_SYSTEM, null, userPrompt, null);
+            String body = http.buildBody(cfg, ExplorePrompts.EXPLORE_AGENT_SYSTEM, userPrompt,
                     null, null, false, true, LlmHttpClient.EXTRACT_TEMPERATURE);
             HttpRequest req = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, body, cfg.rawUrl());
             long t0 = System.currentTimeMillis();

@@ -6,6 +6,7 @@ import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.UniqueKeyInfo;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.tuiyan.backend.service.llm.prompt.ExtractPrompts;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -119,7 +120,7 @@ public class SchemaPromptRenderer {
 
     /**
      * 构造"DB schema → ontology lineage"的完整 prompt。
-     * <p>系统 prompt 用 {@link LlmPrompts#SCHEMA_TO_ONTOLOGY_SYSTEM}，user 部分把 schema 全量
+     * <p>系统 prompt 用 {@link ExtractPrompts#SCHEMA_TO_ONTOLOGY_SYSTEM}，user 部分把 schema 全量
      * 详尽展开（不像 chat 场景那样省略列），让 LLM 拿到最完整的"事实"。
      */
     public GraphPromptBuilder.SchemaExtractPrompt buildSchemaExtractPrompt(DatabaseSchemaInfo schema,
@@ -146,7 +147,7 @@ public class SchemaPromptRenderer {
         sb.append("  - 不要输出 `question` 字段；\n");
         sb.append("  - 不允许出现 add_nodes 之外的 from/to 引用（无悬空边）；\n");
         sb.append("  - ⚠ 服务端会做事实校验：编造的表/列/FK 会被自动删除。宁可少写也不要多写。\n");
-        return new GraphPromptBuilder.SchemaExtractPrompt(LlmPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
+        return new GraphPromptBuilder.SchemaExtractPrompt(ExtractPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
     }
 
     /** 两阶段抽取共享的前言：来源说明 + 完整 schema + 用户提示。 */
@@ -179,7 +180,7 @@ public class SchemaPromptRenderer {
         sb.append("  - ⚠ 本轮只输出 add_nodes；add_edges 必须为空数组 []（关系与血缘下一轮再做）；\n");
         sb.append("  - 服务端会做事实校验：编造的表/列会被删除，宁可少写也不要多写。\n");
         sb.append("输出 JSON：{\"add_nodes\":[...], \"add_edges\":[]}\n");
-        return new GraphPromptBuilder.SchemaExtractPrompt(LlmPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
+        return new GraphPromptBuilder.SchemaExtractPrompt(ExtractPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
     }
 
     /**
@@ -215,7 +216,7 @@ public class SchemaPromptRenderer {
         sb.append("  - ⚠ 本轮只输出 add_edges；add_nodes 必须为空数组 []；\n");
         sb.append("  - 没有 FK / 视图依据就不要硬造边（H8：少而准 > 多而错）。\n");
         sb.append("输出 JSON：{\"add_nodes\":[], \"add_edges\":[...]}\n");
-        return new GraphPromptBuilder.SchemaExtractPrompt(LlmPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
+        return new GraphPromptBuilder.SchemaExtractPrompt(ExtractPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM, sb.toString());
     }
 
     /** Full 版 schema 渲染：extract 场景用，每张表完整列出所有列 + 全部约束 + 全部外键。 */

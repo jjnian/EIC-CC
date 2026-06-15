@@ -12,7 +12,7 @@ import com.tuiyan.backend.service.chat.DerivedSourceStamper;
 import com.tuiyan.backend.service.llm.GraphPromptBuilder;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
 import com.tuiyan.backend.service.llm.LlmHttpClient;
-import com.tuiyan.backend.service.llm.LlmPrompts;
+import com.tuiyan.backend.service.llm.prompt.ChatPrompts;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,9 +72,9 @@ public class ChatLlmService {
                 anthropic ? "anthropic" : "openai");
 
         String prompt = promptBuilder.buildChatPrompt(nodes, edges, message);
-        callLogger.logConversation("LLM-chat", cfg.modelName(), LlmPrompts.CHAT_SYSTEM, history, prompt, attachments);
+        callLogger.logConversation("LLM-chat", cfg.modelName(), ChatPrompts.CHAT_SYSTEM, history, prompt, attachments);
 
-        String requestBody = http.buildBody(cfg, LlmPrompts.CHAT_SYSTEM, prompt, history, attachments, false, true);
+        String requestBody = http.buildBody(cfg, ChatPrompts.CHAT_SYSTEM, prompt, history, attachments, false, true);
         log.debug("[LLM-chat] 请求体大小: {} chars", requestBody.length());
 
         long startTime = System.currentTimeMillis();
@@ -167,10 +167,10 @@ public class ChatLlmService {
 
             String prompt = promptBuilder.buildChatPrompt(request.getNodes(), request.getEdges(),
                     request.getMessage(), ragChunks, dbSchemas, mentions);
-            callLogger.logConversation("LLM-chat-sse", cfg.modelName(), LlmPrompts.CHAT_SYSTEM,
+            callLogger.logConversation("LLM-chat-sse", cfg.modelName(), ChatPrompts.CHAT_SYSTEM,
                     request.getHistory(), prompt, request.getAttachments());
 
-            String requestBody = http.buildBody(cfg, LlmPrompts.CHAT_SYSTEM, prompt,
+            String requestBody = http.buildBody(cfg, ChatPrompts.CHAT_SYSTEM, prompt,
                     request.getHistory(), request.getAttachments(), false, true);
             log.debug("[LLM-chat-sse] 请求体大小: {} chars", requestBody.length());
 
