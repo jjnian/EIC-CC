@@ -17,10 +17,12 @@ const err = ref<string>('');
 // 新数据流：数据源不再直接出图，而是把库结构（DDL）沉淀成经验库文件「供血」，
 // 再到经验库一键「构建本体血缘图」。
 const depositing = ref(false);
+const withSamples = ref(false);          // 是否附带样例数据（含真实数据，默认关）
+const sampleRows = ref(10);
 const depositToExperience = async () => {
   depositing.value = true;
   try {
-    const exp = await createExperienceFromDdl(props.dsId);
+    const exp = await createExperienceFromDdl(props.dsId, withSamples.value ? sampleRows.value : 0);
     toast.success(`已把「${exp.title}」沉淀到经验库，去经验库即可「🧬 构建本体血缘图」`);
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '导出失败');
@@ -64,6 +66,16 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
           :title="tables.length === 0 ? '请先确保数据库连接成功' : '把库结构(DDL)沉淀到经验库，供经验库构建本体血缘图'"
           @click="depositToExperience"
         >{{ depositing ? '导出中…' : '⤓ 导出结构到经验库供血' }}</button>
+        <label class="sample-opt" title="为每张表附带前 N 行真实数据作样例（密码/手机/邮箱/证件/卡号等敏感字段已自动脱敏）">
+          <input type="checkbox" v-model="withSamples" :disabled="depositing" />
+          <span>附带样例数据</span>
+          <input
+            v-if="withSamples"
+            class="sample-n" type="number" min="1" max="10"
+            v-model.number="sampleRows" :disabled="depositing"
+          />
+          <span v-if="withSamples" class="sample-unit">行/表</span>
+        </label>
         <p class="extract-tip">数据源不再直接出图：先入经验库，再到经验库「🧬 构建本体血缘图」。</p>
       </div>
       <div v-if="loading" class="msg">加载中…</div>
@@ -107,6 +119,11 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
   background: linear-gradient(135deg, rgba(74,141,240,.32), rgba(74,141,240,.18));
   color: #fff; }
 .extract-btn:disabled { opacity: .35; cursor: not-allowed; }
+.sample-opt { display: flex; align-items: center; gap: 6px; margin: 7px 2px 0; font-size: 11.5px; color: #9aa3b2; cursor: pointer; user-select: none; }
+.sample-opt input[type=checkbox] { accent-color: #4a8df0; width: 13px; height: 13px; }
+.sample-n { width: 44px; padding: 2px 6px; font-size: 11.5px; border-radius: 5px;
+  background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.14); color: #e8eaed; }
+.sample-unit { color: #7a8290; }
 .extract-tip { margin: 6px 2px 0; font-size: 11px; color: #7a8290; line-height: 1.4; }
 .tlist ul { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }
 .tlist li { padding: 6px 12px; cursor: pointer; color: #c0c4cf; font-size: 13px; }

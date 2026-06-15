@@ -247,7 +247,9 @@ public class ExperienceController {
 
     /**
      * 从数据库数据源导出 DDL 并存为一条经验：抽取 mysql/pgsql 的 CREATE TABLE/VIEW 结构作正文，
-     * 保存后自动建向量索引，便于对话建模时召回库表结构。请求体：{ "dataSourceId": "..." }。
+     * 保存后自动建向量索引，便于对话建模时召回库表结构。
+     * <p>请求体：{ "dataSourceId": "...", "sampleRows": 3 }。sampleRows&gt;0 时为每张基表附带前 N 行
+     * 样例数据（INSERT 形式，含真实数据，注意脱敏），&le;0 / 缺省则仅导出结构。
      * <p>同一数据源重复导出走 upsert（原地刷新正文 + 重建索引），不再堆出多条副本。
      */
     @PostMapping("/from-ddl")
@@ -257,10 +259,16 @@ public class ExperienceController {
         if (dataSourceId == null || dataSourceId.isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "缺少 dataSourceId"));
         }
-        DataSourceService.DdlExport export = dataSourceService.exportDdl(dataSourceId);
+        int sampleRows = 0;
+        Object sr = body.get("sampleRows");
+        if (sr instanceof Number num) sampleRows = num.intValue();
+        else if (sr != null) { try { sampleRows = Integer.parseInt(String.valueOf(sr).trim()); } catch (NumberFormatException ignore) {} }
+
+        DataSourceService.DdlExport export = dataSourceService.exportDdl(dataSourceId, sampleRows);
         String title = "「" + export.sourceName() + "」数据库 DDL";
         String content = "# " + title + "\n\n"
                 + "> 库: `" + export.database() + "` · 对象数: " + export.objectCount()
+                + (export.withSamples() ? " · 含样例数据" : "")
                 + " · 由数据源结构内省自动生成\n\n"
                 + "```sql\n" + export.ddl() + "\n```\n";
         Map<String, Object> exp = repo.upsertDdl(dataSourceId, title, content, "DDL,schema");

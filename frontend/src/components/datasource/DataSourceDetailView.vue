@@ -25,13 +25,14 @@ const tab = ref<string>('overview');
 
 // 导出 DDL 到经验库（仅 mysql/pgsql）
 const exportingDdl = ref(false);
+const ddlWithSamples = ref(false);       // 是否附带样例数据（含真实数据，默认关）
 const isDb = computed(() => ds.value?.kind === 'mysql' || ds.value?.kind === 'pgsql');
 
 const exportDdlToExperience = async () => {
   if (!ds.value || exportingDdl.value) return;
   exportingDdl.value = true;
   try {
-    const created = await createExperienceFromDdl(ds.value.id);
+    const created = await createExperienceFromDdl(ds.value.id, ddlWithSamples.value ? 10 : 0);
     const wsId = ws.currentId.value;
     if (wsId) tree.upsertExperience(wsId, created);
     toast.success(`已导出到经验库：${created.title}`);
@@ -113,11 +114,15 @@ watch(() => props.dsId, load);
         <h2>{{ ds.name }}</h2>
         <span class="kind-tag">{{ ds.kind }}</span>
         <span class="head-spacer" />
+        <label v-if="isDb" class="ddl-sample-opt" title="为每张表附带前 10 行真实数据作样例（密码/手机/邮箱/证件/卡号等敏感字段已自动脱敏）">
+          <input type="checkbox" v-model="ddlWithSamples" :disabled="exportingDdl" />
+          <span>附带样例数据（10 行/表）</span>
+        </label>
         <button
           v-if="isDb"
           class="ddl-export"
           :disabled="exportingDdl"
-          title="把库表结构（DDL）导出为一条经验，供对话建模召回"
+          :title="ddlWithSamples ? '把库表结构（DDL）+ 每表前 10 行样例数据导出为一条经验' : '把库表结构（DDL）导出为一条经验，供对话建模召回'"
           @click="exportDdlToExperience"
         >{{ exportingDdl ? '导出中…' : '⤴ 导出 DDL 到经验库' }}</button>
       </header>
@@ -182,6 +187,8 @@ header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; bord
 header h2 { margin: 0; font-size: 16px; }
 .kind-tag { padding: 2px 8px; background: rgba(255,255,255,.06); border-radius: 4px; font-size: 11px; color: #aaa; }
 .head-spacer { flex: 1; }
+.ddl-sample-opt { display: flex; align-items: center; gap: 6px; margin-right: 10px; font-size: 12px; color: #9aa3b2; cursor: pointer; user-select: none; }
+.ddl-sample-opt input { accent-color: #6dd4a7; width: 14px; height: 14px; }
 .ddl-export {
   background: transparent; color: #6dd4a7; border: 1px solid rgba(66,184,131,.5);
   padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit;
