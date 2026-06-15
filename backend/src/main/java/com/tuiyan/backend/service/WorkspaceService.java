@@ -1,28 +1,9 @@
 package com.tuiyan.backend.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.tuiyan.backend.config.ResourceNotFoundException;
-import com.tuiyan.backend.entity.ConversationPO;
-import com.tuiyan.backend.entity.DataSourcePO;
-import com.tuiyan.backend.entity.ExperiencePO;
-import com.tuiyan.backend.entity.GraphTemplatePO;
-import com.tuiyan.backend.entity.HypothesisTemplatePO;
-import com.tuiyan.backend.entity.OntologyModelPO;
-import com.tuiyan.backend.entity.ScenarioPO;
 import com.tuiyan.backend.entity.WorkspacePO;
-import com.tuiyan.backend.mapper.ConversationMapper;
-import com.tuiyan.backend.mapper.DataSourceMapper;
-import com.tuiyan.backend.mapper.ExperienceMapper;
-import com.tuiyan.backend.mapper.GraphTemplateMapper;
-import com.tuiyan.backend.mapper.HypothesisTemplateMapper;
-import com.tuiyan.backend.mapper.OntologyModelMapper;
-import com.tuiyan.backend.mapper.ScenarioMapper;
 import com.tuiyan.backend.repository.WorkspaceRepository;
-import com.tuiyan.backend.service.connector.FileStoredService;
-import com.tuiyan.backend.service.connector.HttpScheduler;
 import com.tuiyan.backend.support.WorkspaceContext;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,45 +11,18 @@ import java.util.List;
 
 /**
  * 工作空间业务服务：CRUD + 删除时级联清空该 ws 下所有业务数据。
- * <p>级联策略：直接 DELETE 主体表（ontology_model / scenario / conversation / 两类模板），
- * 由现有外键 ON DELETE CASCADE 自动清理子表（节点、边、props、versions、消息、推演链等）。
+ * <p>级联清理细节（知道有哪些业务表、如何清副作用）委托给 {@link WorkspaceCascadeCleaner}，
+ * 本类只负责 CRUD 编排与默认 ws 的升级逻辑。
  */
 @Service
 public class WorkspaceService {
 
-    private static final Logger log = LoggerFactory.getLogger(WorkspaceService.class);
-
     private final WorkspaceRepository repo;
-    private final OntologyModelMapper ontologyModelMapper;
-    private final ScenarioMapper scenarioMapper;
-    private final ConversationMapper conversationMapper;
-    private final GraphTemplateMapper graphTemplateMapper;
-    private final HypothesisTemplateMapper hypothesisTemplateMapper;
-    private final DataSourceMapper dataSourceMapper;
-    private final ExperienceMapper experienceMapper;
-    private final FileStoredService fileStoredService;
-    private final HttpScheduler httpScheduler;
+    private final WorkspaceCascadeCleaner cascadeCleaner;
 
-    public WorkspaceService(WorkspaceRepository repo,
-                            OntologyModelMapper ontologyModelMapper,
-                            ScenarioMapper scenarioMapper,
-                            ConversationMapper conversationMapper,
-                            GraphTemplateMapper graphTemplateMapper,
-                            HypothesisTemplateMapper hypothesisTemplateMapper,
-                            DataSourceMapper dataSourceMapper,
-                            ExperienceMapper experienceMapper,
-                            FileStoredService fileStoredService,
-                            HttpScheduler httpScheduler) {
+    public WorkspaceService(WorkspaceRepository repo, WorkspaceCascadeCleaner cascadeCleaner) {
         this.repo = repo;
-        this.ontologyModelMapper = ontologyModelMapper;
-        this.scenarioMapper = scenarioMapper;
-        this.conversationMapper = conversationMapper;
-        this.graphTemplateMapper = graphTemplateMapper;
-        this.hypothesisTemplateMapper = hypothesisTemplateMapper;
-        this.dataSourceMapper = dataSourceMapper;
-        this.experienceMapper = experienceMapper;
-        this.fileStoredService = fileStoredService;
-        this.httpScheduler = httpScheduler;
+        this.cascadeCleaner = cascadeCleaner;
     }
 
     public List<WorkspacePO> list() {
@@ -105,9 +59,7 @@ public class WorkspaceService {
 
     /**
      * 删除工作空间：级联清空业务数据；删除默认 ws 时若还有其它 ws 则自动升级一个为默认，否则允许删光。
-     * <p>顺序：先取消该 ws 下 https_api 数据源的定时任务、删除 file_stored 的物理目录，
-     * 再走 DB 级联删除（外键 ON DELETE CASCADE 处理子表）。
-     * 副作用清理放在 DB 删除之前，文件层失败仅记日志，不影响事务。
+     * <p>顺序：先升级默认 ws，再由 {@link WorkspaceCascadeCleaner} 清理业务数据与副作用，最后删主记录。
      * @return true 表示成功删除
      */
     @Transactional
@@ -125,37 +77,7 @@ public class WorkspaceService {
                 repo.update(next);
             }
         }
-        // 1. 该 ws 下所有数据源：cancel 调度 + 清盘
-        List<DataSourcePO> dsList = dataSourceMapper.selectList(
-                new LambdaQueryWrapper<DataSourcePO>().eq(DataSourcePO::getWorkspaceId, id));
-        for (DataSourcePO ds : dsList) {
-            try {
-                if ("https_api".equals(ds.getKind())) {
-                    httpScheduler.cancel(ds.getId());
-                } else if ("file_stored".equals(ds.getKind())) {
-                    fileStoredService.deleteFiles(ds.getId());
-                }
-            } catch (Exception e) {
-                log.warn("cleanup datasource {} failed: {}", ds.getId(), e.toString());
-            }
-        }
-        // 2. 关联业务数据级联清空（外键 ON DELETE CASCADE 处理子表）
-        int models = ontologyModelMapper.delete(
-                new LambdaQueryWrapper<OntologyModelPO>().eq(OntologyModelPO::getWorkspaceId, id));
-        int scenarios = scenarioMapper.delete(
-                new LambdaQueryWrapper<ScenarioPO>().eq(ScenarioPO::getWorkspaceId, id));
-        int convs = conversationMapper.delete(
-                new LambdaQueryWrapper<ConversationPO>().eq(ConversationPO::getWorkspaceId, id));
-        int graphTpls = graphTemplateMapper.delete(
-                new LambdaQueryWrapper<GraphTemplatePO>().eq(GraphTemplatePO::getWorkspaceId, id));
-        int hypTpls = hypothesisTemplateMapper.delete(
-                new LambdaQueryWrapper<HypothesisTemplatePO>().eq(HypothesisTemplatePO::getWorkspaceId, id));
-        int dataSources = dataSourceMapper.delete(
-                new LambdaQueryWrapper<DataSourcePO>().eq(DataSourcePO::getWorkspaceId, id));
-        int experiences = experienceMapper.delete(
-                new LambdaQueryWrapper<ExperiencePO>().eq(ExperiencePO::getWorkspaceId, id));
-        log.info("delete workspace {}: models={}, scenarios={}, conversations={}, graphTpls={}, hypTpls={}, dataSources={}, experiences={}",
-                id, models, scenarios, convs, graphTpls, hypTpls, dataSources, experiences);
+        cascadeCleaner.cleanup(id);
         return repo.delete(id);
     }
 
