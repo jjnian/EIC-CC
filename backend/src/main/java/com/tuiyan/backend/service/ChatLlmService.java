@@ -4,14 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.tuiyan.backend.entity.DataSourcePO;
 import com.tuiyan.backend.model.ChatRequest;
 import com.tuiyan.backend.model.MentionRef;
-import com.tuiyan.backend.repository.DataSourceRepository;
-import com.tuiyan.backend.repository.ExperienceRepository;
-import com.tuiyan.backend.service.connector.JdbcConnectorService;
-import com.tuiyan.backend.service.indexing.DataSourceIndexService;
-import com.tuiyan.backend.service.indexing.ExperienceIndexService;
+import com.tuiyan.backend.service.chat.ChatContextCollector;
+import com.tuiyan.backend.service.chat.ChatStepEmitter;
+import com.tuiyan.backend.service.chat.DerivedSourceStamper;
 import com.tuiyan.backend.service.llm.GraphPromptBuilder;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
 import com.tuiyan.backend.service.llm.LlmHttpClient;
@@ -28,44 +25,38 @@ import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
  * 聊天业务 facade：把"用户消息 + 图谱上下文 + 历史 + 附件"翻译成 LLM 调用，
  * 同步返回 JSON 或通过 SSE 推送结果。
+ * <p>上下文取数（RAG / DB schema / @引用）委托给 {@link ChatContextCollector}，
+ * SSE 进度推送委托给 {@link ChatStepEmitter}，本类只负责编排与响应处理。
  */
 @Service
 public class ChatLlmService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatLlmService.class);
 
+    // 单次对话最多展示的"逐个构建"步骤数，避免大量实体淹没时间线；超出由 merging_graph 汇总兜底
+    private static final int MAX_BUILD_STEPS = 24;
+    // 每条构建步骤之间的间隔，制造"逐步生长"的视觉节奏（与推演编排一致）
+    private static final long BUILD_STEP_DELAY_MS = 70;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final LlmHttpClient http;
     private final GraphPromptBuilder promptBuilder;
     private final LlmCallLogger callLogger;
-    private final DataSourceIndexService indexService;
-    private final ExperienceIndexService experienceIndexService;
-    private final DataSourceRepository dsRepo;
-    private final ExperienceRepository experienceRepo;
-    private final JdbcConnectorService jdbcConnector;
+    private final ChatContextCollector context;
 
     public ChatLlmService(LlmHttpClient http,
                           GraphPromptBuilder promptBuilder,
                           LlmCallLogger callLogger,
-                          DataSourceIndexService indexService,
-                          ExperienceIndexService experienceIndexService,
-                          DataSourceRepository dsRepo,
-                          ExperienceRepository experienceRepo,
-                          JdbcConnectorService jdbcConnector) {
+                          ChatContextCollector context) {
         this.http = http;
         this.promptBuilder = promptBuilder;
         this.callLogger = callLogger;
-        this.indexService = indexService;
-        this.experienceIndexService = experienceIndexService;
-        this.dsRepo = dsRepo;
-        this.experienceRepo = experienceRepo;
-        this.jdbcConnector = jdbcConnector;
+        this.context = context;
     }
 
     /**
@@ -127,6 +118,7 @@ public class ChatLlmService {
      * 使用异步 HTTP 避免阻塞 servlet 线程。
      */
     public void chatStreaming(ChatRequest request, SseEmitter emitter) {
+        ChatStepEmitter step = new ChatStepEmitter(emitter, objectMapper);
         long startMs = System.currentTimeMillis();
         String modelName = "unknown";
         try {
@@ -134,16 +126,12 @@ public class ChatLlmService {
             boolean blankMessage = request.getMessage() == null || request.getMessage().isBlank();
             boolean noAttachments = request.getAttachments() == null || request.getAttachments().isEmpty();
             if (blankMessage && noAttachments) {
-                try {
-                    emitter.send(SseEmitter.event().name("error").data("消息内容为空，请输入描述或上传文件后再试。"));
-                } catch (IOException e) {
-                    log.warn("emit empty-message error failed", e);
-                }
+                step.send("error", "消息内容为空，请输入描述或上传文件后再试。");
                 emitter.complete();
                 return;
             }
 
-            emitStep(emitter, "resolving_config", "正在解析模型配置…");
+            step.step("resolving_config", "正在解析模型配置…");
 
             LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(request.getModelOverride(), request.getConfigId());
             modelName = cfg.modelName();
@@ -152,82 +140,23 @@ public class ChatLlmService {
             log.info("[LLM-chat-sse] 开始非流式请求 model={} url={} protocol={}", cfg.modelName(), cfg.baseURL(),
                     anthropic ? "anthropic" : "openai");
 
-            emitStep(emitter, "building_context", "正在构建图谱上下文…");
+            step.step("building_context", "正在构建图谱上下文…");
 
-            // RAG：从已索引的数据源中检索相关内容
-            List<GraphPromptBuilder.RagChunk> ragChunks = List.of();
+            // RAG：从已索引的数据源 + 经验库中检索相关内容
             String wsId = WorkspaceContext.get();
-            if (wsId != null && indexService.isConfigured()) {
-                try {
-                    emitStep(emitter, "searching_datasources", "正在检索工作空间数据源…");
-                    var results = indexService.searchRelevant(wsId, request.getMessage(), 5);
-                    if (!results.isEmpty()) {
-                        ragChunks = results.stream()
-                                .map(r -> new GraphPromptBuilder.RagChunk(r.content(), r.dataSourceName(), r.score()))
-                                .toList();
-                        log.info("[LLM-chat-sse] RAG 检索到 {} 条相关文本块", ragChunks.size());
-
-                        // 把命中的数据源列出来,让用户看到"根据什么"在构建
-                        String sources = results.stream()
-                                .map(r -> r.dataSourceName())
-                                .filter(java.util.Objects::nonNull)
-                                .distinct()
-                                .limit(4)
-                                .collect(java.util.stream.Collectors.joining("、"));
-                        long distinctCount = results.stream()
-                                .map(r -> r.dataSourceName())
-                                .filter(java.util.Objects::nonNull)
-                                .distinct()
-                                .count();
-                        String extra = distinctCount > 4 ? " 等 " + distinctCount + " 个" : "";
-                        emitStep(emitter, "matched_datasources",
-                                "已根据数据源「" + sources + extra + "」匹配 " + results.size() + " 段相关内容");
-                    } else {
-                        emitStep(emitter, "no_match_datasources", "工作空间内暂无相关数据源,按用户描述构建");
-                    }
-                } catch (Exception e) {
-                    log.warn("[LLM-chat-sse] RAG 检索失败（继续不带 RAG）: {}", e.getMessage());
-                }
-            }
-
-            // 经验库 RAG：从已索引的经验中检索相关内容，与数据源片段合并（来源名加「经验：」前缀以示区分）
-            if (wsId != null && experienceIndexService.isConfigured()) {
-                try {
-                    emitStep(emitter, "searching_experiences", "正在检索工作空间经验库…");
-                    var expResults = experienceIndexService.searchRelevant(wsId, request.getMessage(), 3);
-                    if (!expResults.isEmpty()) {
-                        List<GraphPromptBuilder.RagChunk> merged = new ArrayList<>(ragChunks);
-                        for (var r : expResults) {
-                            merged.add(new GraphPromptBuilder.RagChunk(
-                                    r.content(), "经验：" + r.experienceTitle(), r.score()));
-                        }
-                        ragChunks = merged;
-                        String titles = expResults.stream()
-                                .map(ExperienceIndexService.ChunkResult::experienceTitle)
-                                .filter(java.util.Objects::nonNull)
-                                .distinct().limit(4)
-                                .collect(java.util.stream.Collectors.joining("、"));
-                        emitStep(emitter, "matched_experiences",
-                                "已根据经验「" + titles + "」匹配 " + expResults.size() + " 段相关内容");
-                    } else {
-                        emitStep(emitter, "no_match_experiences", "工作空间内暂无相关经验");
-                    }
-                } catch (Exception e) {
-                    log.warn("[LLM-chat-sse] 经验库 RAG 检索失败（继续）: {}", e.getMessage());
-                }
-            }
+            List<GraphPromptBuilder.RagChunk> ragChunks = context.searchRag(wsId, request.getMessage(), step);
 
             // 数据库类数据源：默认枚举工作空间下的全部，但用户用 @ 显式引用了数据源时只拉那些
             List<MentionRef> mentions = request.getMentions();
-            List<String> explicitDsIds = pickMentionIds(mentions, "datasource");
+            List<String> explicitDsIds = ChatContextCollector.pickMentionIds(mentions, "datasource");
             List<GraphPromptBuilder.DbSchema> dbSchemas = explicitDsIds.isEmpty()
-                    ? collectDbSchemas(wsId, emitter)
-                    : collectDbSchemasByIds(explicitDsIds, emitter);
+                    ? context.collectDbSchemas(wsId, step)
+                    : context.collectDbSchemasByIds(explicitDsIds, step);
 
             // 经验库文件：用户用 @ 显式引用了经验文件时，把全文作为定向上下文注入（优先于自动 RAG 命中）
-            List<String> pinnedExpIds = pickMentionIds(mentions, "experience");
+            List<String> pinnedExpIds = ChatContextCollector.pickMentionIds(mentions, "experience");
             if (!pinnedExpIds.isEmpty() && wsId != null) {
-                List<GraphPromptBuilder.RagChunk> pinned = collectPinnedExperiences(pinnedExpIds, emitter);
+                List<GraphPromptBuilder.RagChunk> pinned = context.collectPinnedExperiences(pinnedExpIds, step);
                 if (!pinned.isEmpty()) {
                     // @ 指定的经验放在最前，确保它在上下文里优先于自动召回的片段
                     List<GraphPromptBuilder.RagChunk> merged = new ArrayList<>(pinned);
@@ -253,16 +182,12 @@ public class ChatLlmService {
             final List<GraphPromptBuilder.DbSchema> dbSchemasForStamp = dbSchemas;
 
             http.httpClient().sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(resp -> handleResponse(resp, emitter, anthropic, startMs, modelForMetrics, dbSchemasForStamp))
+                    .thenAccept(resp -> handleResponse(resp, step, emitter, anthropic, startMs, modelForMetrics, dbSchemasForStamp))
                     .exceptionally(ex -> {
                         long elapsed = System.currentTimeMillis() - startMs;
                         log.error("[LLM-chat-sse] 网络异常 耗时={}ms error={}", elapsed, ex.getMessage());
                         http.metrics().recordCall(modelForMetrics, elapsed, false);
-                        try {
-                            emitter.send(SseEmitter.event().name("error").data("Network error: " + ex.getMessage()));
-                        } catch (IOException e) {
-                            log.warn("emit network-error failed", e);
-                        }
+                        step.send("error", "Network error: " + ex.getMessage());
                         emitter.completeWithError(ex);
                         return null;
                     });
@@ -270,16 +195,12 @@ public class ChatLlmService {
             long elapsed = System.currentTimeMillis() - startMs;
             log.error("[LLM-chat-sse] 初始化失败: {}", e.getMessage());
             http.metrics().recordCall(modelName, elapsed, false);
-            try {
-                emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
-            } catch (IOException ioEx) {
-                log.warn("emit init-error failed", ioEx);
-            }
+            step.send("error", e.getMessage());
             emitter.completeWithError(e);
         }
     }
 
-    private void handleResponse(HttpResponse<String> resp, SseEmitter emitter,
+    private void handleResponse(HttpResponse<String> resp, ChatStepEmitter step, SseEmitter emitter,
                                 boolean anthropic, long startMs, String modelName,
                                 List<GraphPromptBuilder.DbSchema> dbSchemas) {
         long elapsed = System.currentTimeMillis() - startMs;
@@ -292,11 +213,7 @@ public class ChatLlmService {
             String upstreamMsg = extractUpstreamErrorMessage(resp.body());
             String userMsg = "LLM 调用失败 HTTP " + resp.statusCode()
                     + (upstreamMsg == null ? "（详情见服务器日志）" : ":" + upstreamMsg);
-            try {
-                emitter.send(SseEmitter.event().name("error").data(userMsg));
-            } catch (IOException e) {
-                log.warn("emit error event failed", e);
-            }
+            step.send("error", userMsg);
             emitter.complete();
             return;
         }
@@ -305,18 +222,13 @@ public class ChatLlmService {
         if (contentType.contains("text/html")) {
             log.error("[LLM-chat-sse] 收到 HTML 响应而非 JSON，base-url 可能缺少 /v1 路径前缀");
             http.metrics().recordCall(modelName, elapsed, false);
-            try {
-                emitter.send(SseEmitter.event().name("error").data(
-                        "LLM 代理返回了 HTML 页面而非 API 响应，请检查 base-url 配置是否包含 /v1 路径"));
-            } catch (IOException e) {
-                log.warn("emit html-error event failed", e);
-            }
+            step.send("error", "LLM 代理返回了 HTML 页面而非 API 响应，请检查 base-url 配置是否包含 /v1 路径");
             emitter.complete();
             return;
         }
 
         try {
-            emitStep(emitter, "parsing_response", "正在解析模型响应…");
+            step.step("parsing_response", "正在解析模型响应…");
 
             log.info("[LLM-chat-sse] 请求成功 耗时={}ms 响应大小={} chars", elapsed, resp.body().length());
             http.metrics().recordCall(modelName, elapsed, true);
@@ -325,13 +237,13 @@ public class ChatLlmService {
             String content = http.stripJsonFence(http.extractContent(responseJson, anthropic));
             callLogger.logLlmResponse("LLM-chat-sse", modelName, elapsed, content);
 
-            emitStep(emitter, "extracting_entities", "正在提取实体和关系…");
+            step.step("extracting_entities", "正在提取实体和关系…");
 
             JsonNode result = objectMapper.readTree(content);
 
             String reply = result.path("reply").asText("");
             if (!reply.isEmpty()) {
-                emitter.send(SseEmitter.event().name("text").data(reply));
+                step.send("text", reply);
             }
 
             JsonNode addNodes = result.path("add_nodes");
@@ -341,13 +253,13 @@ public class ChatLlmService {
 
             // 根据 derived_tables → schema 反查,把缺失的 derived_source / derived_database 补齐,
             // 保证前端在节点/关系上始终能看到"数据源 + 数据库 + 来源表"三段血缘
-            stampDerivedSourceFromSchemas(addNodes, dbSchemas);
-            stampDerivedSourceFromSchemas(addEdges, dbSchemas);
+            DerivedSourceStamper.stamp(addNodes, dbSchemas);
+            DerivedSourceStamper.stamp(addEdges, dbSchemas);
 
             // 逐个实体 / 关系上报，让用户看到本体被一步步"构建"出来，而不是只看到一个总数
-            emitBuildSteps(emitter, addNodes, addEdges);
+            emitBuildSteps(step, addNodes, addEdges);
 
-            emitStep(emitter, "merging_graph",
+            step.step("merging_graph",
                     "正在合并到图谱… (+" + nodeCount + " 节点 / +" + edgeCount + " 关系)");
 
             ObjectNode finalEvent = objectMapper.createObjectNode();
@@ -367,17 +279,12 @@ public class ChatLlmService {
                 appendValidQuestion(questions, result.path("question"));
             }
             if (!questions.isEmpty()) finalEvent.set("questions", questions);
-            emitter.send(SseEmitter.event().name("complete")
-                    .data(objectMapper.writeValueAsString(finalEvent)));
+            step.send("complete", objectMapper.writeValueAsString(finalEvent));
             emitter.complete();
         } catch (Exception e) {
             log.error("[LLM-chat-sse] 响应解析失败: {}", e.getMessage());
             http.metrics().recordCall(modelName, elapsed, false);
-            try {
-                emitter.send(SseEmitter.event().name("error").data("响应解析失败: " + e.getMessage()));
-            } catch (IOException ex) {
-                log.warn("emit parse-error failed", ex);
-            }
+            step.send("error", "响应解析失败: " + e.getMessage());
             emitter.complete();
         }
     }
@@ -403,7 +310,6 @@ public class ChatLlmService {
             JsonNode err = root.path("error");
             if (err.isObject() && err.has("message")) return err.path("message").asText(null);
             if (err.isTextual()) return err.asText(null);
-            // Anthropic 风格: { "error": { "message": "..." } } - 已被上面覆盖
             // 兜底: 直接看顶层 message
             if (root.has("message")) return root.path("message").asText(null);
         } catch (Exception ignored) {
@@ -414,17 +320,12 @@ public class ChatLlmService {
         return null;
     }
 
-    // 单次对话最多展示的"逐个构建"步骤数，避免大量实体淹没时间线；超出由 merging_graph 汇总兜底
-    private static final int MAX_BUILD_STEPS = 24;
-    // 每条构建步骤之间的间隔，制造"逐步生长"的视觉节奏（与推演编排一致）
-    private static final long BUILD_STEP_DELAY_MS = 70;
-
     /**
      * 把 LLM 一次性返回的 add_nodes / add_edges 拆成逐条 step 事件推给前端：
      * 先逐个"构建实体「X」(type)"，再逐个"建立关系「A —关系→ B」"，
      * 让用户直观看到本体的实体与关系是如何被构建出来的。总条数受 {@link #MAX_BUILD_STEPS} 限制。
      */
-    private void emitBuildSteps(SseEmitter emitter, JsonNode addNodes, JsonNode addEdges) {
+    private void emitBuildSteps(ChatStepEmitter step, JsonNode addNodes, JsonNode addEdges) {
         int budget = MAX_BUILD_STEPS;
 
         if (addNodes.isArray()) {
@@ -437,9 +338,9 @@ public class ChatLlmService {
                 String text = type.isBlank()
                         ? "构建实体「" + label + "」"
                         : "构建实体「" + label + "」(" + type + ")";
-                if (!emitStep(emitter, "build_node_" + (i++), text)) return; // emitter 已关闭，停止逐步推送
+                if (!step.step("build_node_" + (i++), text)) return; // emitter 已关闭，停止逐步推送
                 budget--;
-                sleepQuiet(BUILD_STEP_DELAY_MS);
+                ChatStepEmitter.sleepQuiet(BUILD_STEP_DELAY_MS);
             }
         }
 
@@ -463,226 +364,10 @@ public class ChatLlmService {
                 String text = rel.isBlank()
                         ? "建立关系「" + fromLabel + " → " + toLabel + "」"
                         : "建立关系「" + fromLabel + " —" + rel + "→ " + toLabel + "」";
-                if (!emitStep(emitter, "build_edge_" + (j++), text)) return; // emitter 已关闭，停止逐步推送
+                if (!step.step("build_edge_" + (j++), text)) return; // emitter 已关闭，停止逐步推送
                 budget--;
-                sleepQuiet(BUILD_STEP_DELAY_MS);
+                ChatStepEmitter.sleepQuiet(BUILD_STEP_DELAY_MS);
             }
         }
-    }
-
-    /**
-     * 用本次对话注入的 dbSchemas 反查每个节点/边的 derived_tables，把缺失的
-     * derived_source / derived_database 补齐。LLM 在 chat 流里只被要求填 derived_tables，
-     * 数据源名和库名要在服务端按表名兜底，否则前端"数据来源"卡片就会只显示来源表。
-     */
-    private void stampDerivedSourceFromSchemas(JsonNode arr,
-                                               List<GraphPromptBuilder.DbSchema> dbSchemas) {
-        if (arr == null || !arr.isArray() || dbSchemas == null || dbSchemas.isEmpty()) return;
-        // 表名（小写）→ {数据源名, 库名}；多个数据源含同名表时先到先得，避免误标
-        Map<String, String[]> tableIndex = new HashMap<>();
-        for (GraphPromptBuilder.DbSchema s : dbSchemas) {
-            if (s == null || s.tables() == null) continue;
-            for (String t : s.tables()) {
-                if (t == null || t.isBlank()) continue;
-                tableIndex.putIfAbsent(t.toLowerCase(Locale.ROOT),
-                        new String[] { s.sourceName(), s.database() });
-            }
-        }
-        if (tableIndex.isEmpty()) return;
-        for (JsonNode node : arr) {
-            if (!(node instanceof ObjectNode obj)) continue;
-            JsonNode tables = obj.path("derived_tables");
-            if (!tables.isArray() || tables.isEmpty()) continue;
-            for (JsonNode tn : tables) {
-                String t = tn.asText("");
-                if (t.isBlank()) continue;
-                String[] hit = tableIndex.get(t.toLowerCase(Locale.ROOT));
-                if (hit == null) continue;
-                if (obj.path("derived_source").asText("").isBlank() && hit[0] != null) {
-                    obj.put("derived_source", hit[0]);
-                }
-                if (obj.path("derived_database").asText("").isBlank() && hit[1] != null) {
-                    obj.put("derived_database", hit[1]);
-                }
-                break;
-            }
-        }
-    }
-
-    /** 安静地 sleep，保留中断标志；用于构建步骤间制造节奏。 */
-    private static void sleepQuiet(long ms) {
-        try {
-            Thread.sleep(ms);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    /**
-     * 推送一条 step 事件。
-     * @return true=发送成功；false=emitter 已关闭(超时/客户端断开)或发送失败，调用方应停止后续推送。
-     */
-    private boolean emitStep(SseEmitter emitter, String key, String label) {
-        try {
-            String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
-            emitter.send(SseEmitter.event().name("step").data(json));
-            return true;
-        } catch (IllegalStateException closed) {
-            // emitter 已 complete(常见于 180s 超时或客户端断开)：再 send 会抛此异常。
-            // 不再当作错误刷屏，仅 debug 记录，并让调用方据返回值提前收尾。
-            log.debug("emit step '{}' skipped, emitter closed: {}", key, closed.toString());
-            return false;
-        } catch (IOException e) {
-            log.warn("emit step '{}' failed (client disconnected?): {}", key, e.toString());
-            return false;
-        }
-    }
-
-    /**
-     * 枚举当前工作空间下已接入的 MySQL / PostgreSQL 数据源,拉表清单作为 LLM 结构化输入。
-     * <p>对每个 DB 单独 try-catch,坏的跳过；最多读 5 个数据源以控制总耗时；
-     * 每个数据源在 SSE 里 emit 一条 step,让用户看到"读取了哪个库的哪些表"。
-     */
-    private List<GraphPromptBuilder.DbSchema> collectDbSchemas(String wsId, SseEmitter emitter) {
-        if (wsId == null) return List.of();
-        List<Map<String, Object>> dsList;
-        try {
-            dsList = dsRepo.list(wsId);
-        } catch (Exception e) {
-            log.warn("[LLM-chat-sse] 列举工作空间数据源失败: {}", e.getMessage());
-            return List.of();
-        }
-
-        List<GraphPromptBuilder.DbSchema> out = new java.util.ArrayList<>();
-        int probed = 0;
-        for (Map<String, Object> ds : dsList) {
-            String kind = String.valueOf(ds.get("kind"));
-            if (!"mysql".equals(kind) && !"pgsql".equals(kind)) continue;
-            // status=error 的连不上,直接跳过避免拖慢聊天
-            Object statusObj = ds.get("status");
-            if ("error".equals(String.valueOf(statusObj))) continue;
-            if (probed >= 5) break;
-            probed++;
-
-            String id = String.valueOf(ds.get("id"));
-            String name = String.valueOf(ds.getOrDefault("name", id));
-            DataSourcePO po = dsRepo.findById(id);
-            if (po == null) continue;
-            Map<String, Object> cfg = dsRepo.readConfig(po);
-            String database = String.valueOf(cfg.getOrDefault("database", "?"));
-
-            try {
-                // 升级：拉完整 schema (表+列+FK+唯一键)，让 LLM 看到结构而不只看到表名
-                var schemaInfo = jdbcConnector.introspectSchema(kind, cfg, 80);
-                List<String> tables = schemaInfo.tables().stream()
-                        .map(t -> t.name()).toList();
-                int fkCount = schemaInfo.tables().stream()
-                        .mapToInt(t -> t.foreignKeys().size()).sum();
-                String preview = tables.stream().limit(6)
-                        .collect(java.util.stream.Collectors.joining("、"));
-                String tail = tables.size() > 6 ? " … 共 " + tables.size() + " 张" : "";
-                emitStep(emitter, "reading_db_" + id,
-                        "正在读取数据库「" + name + "」(" + kind + ":" + database
-                                + ") 共 " + tables.size() + " 张表 / " + fkCount + " 条外键"
-                                + (tables.isEmpty() ? "" : ":" + preview + tail));
-                out.add(new GraphPromptBuilder.DbSchema(name, kind, database, tables, schemaInfo));
-            } catch (Exception e) {
-                log.warn("[LLM-chat-sse] 读取数据库 {} 失败: {}", name, e.getMessage());
-                emitStep(emitter, "reading_db_" + id + "_err",
-                        "数据库「" + name + "」读取失败,跳过 (" + e.getMessage() + ")");
-            }
-        }
-        return out;
-    }
-
-    /**
-     * 按 @ 引用指定的 id 集合精确拉数据源,跳过全部"5 个上限"等启发式策略。
-     * <p>用户明确 @ 了哪个库,就只把哪个库的完整 schema 注入上下文 —
-     * 这才是"@真正影响上下文范围"的体现。
-     */
-    private List<GraphPromptBuilder.DbSchema> collectDbSchemasByIds(List<String> dsIds, SseEmitter emitter) {
-        List<GraphPromptBuilder.DbSchema> out = new java.util.ArrayList<>();
-        if (dsIds == null || dsIds.isEmpty()) return out;
-        for (String id : dsIds) {
-            DataSourcePO po;
-            try { po = dsRepo.findById(id); }
-            catch (Exception e) { log.warn("[LLM-chat-sse] @ 引用的数据源 {} 查询失败: {}", id, e.getMessage()); continue; }
-            if (po == null) {
-                emitStep(emitter, "missing_ref_ds_" + id, "@ 引用的数据源 " + id + " 不存在,已忽略");
-                continue;
-            }
-            String kind = po.getKind();
-            if (!"mysql".equals(kind) && !"pgsql".equals(kind)) {
-                emitStep(emitter, "skip_ref_ds_" + id,
-                        "@ 引用的数据源「" + po.getName() + "」非数据库类型,跳过 schema 注入");
-                continue;
-            }
-            Map<String, Object> cfg = dsRepo.readConfig(po);
-            String database = String.valueOf(cfg.getOrDefault("database", "?"));
-            String name = po.getName() == null ? id : po.getName();
-            try {
-                // 用户明确引用 → 限额可以适当放宽到 200 张
-                var schemaInfo = jdbcConnector.introspectSchema(kind, cfg, 200);
-                List<String> tables = schemaInfo.tables().stream()
-                        .map(t -> t.name()).toList();
-                int fkCount = schemaInfo.tables().stream()
-                        .mapToInt(t -> t.foreignKeys().size()).sum();
-                emitStep(emitter, "reading_ref_db_" + id,
-                        "🎯 按 @ 引用读取数据库「" + name + "」(" + kind + ":" + database
-                                + ") 共 " + tables.size() + " 张表 / " + fkCount + " 条外键");
-                out.add(new GraphPromptBuilder.DbSchema(name, kind, database, tables, schemaInfo));
-            } catch (Exception e) {
-                log.warn("[LLM-chat-sse] 读取 @ 引用的数据库 {} 失败: {}", name, e.getMessage());
-                emitStep(emitter, "reading_ref_db_" + id + "_err",
-                        "数据库「" + name + "」读取失败,跳过 (" + e.getMessage() + ")");
-            }
-        }
-        return out;
-    }
-
-    /** 单条经验注入的正文上限，避免一份大文档把上下文撑爆。 */
-    private static final int PINNED_EXP_CONTENT_MAX = 8000;
-
-    /**
-     * 把用户用 @ 显式引用的经验库文件读出全文，包装成 RagChunk（来源名带「经验(@指定)：」前缀以示区分）。
-     * <p>与自动 RAG 召回不同：这里是用户主动点名的文件，整篇正文注入并给最高相关度，确保 LLM 优先采信。
-     * 越权 / 不存在的 id 会发一条 step 提示并跳过。
-     */
-    private List<GraphPromptBuilder.RagChunk> collectPinnedExperiences(List<String> expIds, SseEmitter emitter) {
-        List<GraphPromptBuilder.RagChunk> out = new ArrayList<>();
-        if (expIds == null || expIds.isEmpty()) return out;
-        for (String id : expIds) {
-            Map<String, Object> exp;
-            try { exp = experienceRepo.findFull(id); }
-            catch (Exception e) { log.warn("[LLM-chat-sse] @ 引用的经验 {} 查询失败: {}", id, e.getMessage()); continue; }
-            if (exp == null) {
-                emitStep(emitter, "missing_ref_exp_" + id, "@ 引用的经验文件 " + id + " 不存在或不属于当前空间,已忽略");
-                continue;
-            }
-            String title = String.valueOf(exp.getOrDefault("title", "未命名经验"));
-            Object contentObj = exp.get("content");
-            String content = contentObj == null ? "" : String.valueOf(contentObj);
-            if (content.isBlank()) {
-                emitStep(emitter, "empty_ref_exp_" + id, "@ 引用的经验「" + title + "」无正文内容,已忽略");
-                continue;
-            }
-            boolean truncated = content.length() > PINNED_EXP_CONTENT_MAX;
-            if (truncated) content = content.substring(0, PINNED_EXP_CONTENT_MAX) + "\n…(正文过长已截断)";
-            out.add(new GraphPromptBuilder.RagChunk(content, "经验(@指定)：" + title, 1.0));
-            emitStep(emitter, "reading_ref_exp_" + id,
-                    "🎯 按 @ 引用读取经验「" + title + "」" + (truncated ? "(已截断)" : "") + " 作为定向上下文");
-        }
-        return out;
-    }
-
-    /** 从 mentions 列表中按 kind 过滤出 id 列表。 */
-    private static List<String> pickMentionIds(List<MentionRef> mentions, String kind) {
-        if (mentions == null || mentions.isEmpty()) return List.of();
-        java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
-        for (MentionRef m : mentions) {
-            if (m == null || m.getKind() == null || m.getId() == null) continue;
-            if (kind.equalsIgnoreCase(m.getKind())) set.add(m.getId());
-        }
-        return new java.util.ArrayList<>(set);
     }
 }
