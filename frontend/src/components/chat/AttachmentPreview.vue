@@ -1,13 +1,31 @@
 <script setup lang="ts">
-import { computed, type PropType } from 'vue';
+import { computed, ref, watch, type PropType } from 'vue';
 import type { ChatMsgAttachment } from '../../composables/useConversations';
 import { toast } from '../../composables/useToast';
+import { renderMarkdown } from '../../utils/markdown';
 
 const props = defineProps({
   attachment: { type: Object as PropType<ChatMsgAttachment | null>, default: null },
 });
 
 const emit = defineEmits<{ (e: 'close'): void }>();
+
+/** 是否为 Markdown 文本（按文件名后缀或 MIME 判断）。 */
+const isMarkdown = computed(() => {
+  const v = props.attachment;
+  if (!v || v.kind !== 'text' || !v.content) return false;
+  const name = (v.name || '').toLowerCase();
+  const type = (v.type || '').toLowerCase();
+  return name.endsWith('.md') || name.endsWith('.markdown') || type.includes('markdown');
+});
+
+/** Markdown 默认以「可读」渲染视图展示，可切换为源码。 */
+const showSource = ref(false);
+// 切换附件时重置回渲染视图
+watch(() => props.attachment, () => { showSource.value = false; });
+
+const renderedMd = computed(() =>
+  isMarkdown.value && props.attachment?.content ? renderMarkdown(props.attachment.content) : '');
 
 const formatSize = (bytes?: number) => {
   if (!bytes && bytes !== 0) return '';
@@ -75,7 +93,8 @@ const copyText = async () => {
           </div>
         </template>
         <template v-else-if="a.kind === 'text'">
-          <pre v-if="a.content" class="ap-text">{{ a.content }}</pre>
+          <div v-if="isMarkdown && !showSource" class="ap-md" v-html="renderedMd"></div>
+          <pre v-else-if="a.content" class="ap-text">{{ a.content }}</pre>
           <div v-else class="ap-msg">
             文本内容未保存。<br/>
             <span class="ap-hint">如需查看,请重新上传原文件。</span>
@@ -89,6 +108,10 @@ const copyText = async () => {
       </div>
 
       <div class="ap-foot">
+        <button v-if="isMarkdown" class="ap-btn" @click="showSource = !showSource">
+          {{ showSource ? '阅读视图' : '查看源码' }}
+        </button>
+        <span class="ap-foot-spacer"></span>
         <button v-if="a.content && a.kind === 'text'" class="ap-btn" @click="copyText">复制文本</button>
         <button v-if="a.content" class="ap-btn ap-btn-hi" @click="download">下载</button>
       </div>
@@ -156,6 +179,30 @@ const copyText = async () => {
   color: #d6e2f0; line-height: 1.55;
   white-space: pre-wrap; word-break: break-word;
 }
+/* 渲染后的 Markdown「阅读视图」 */
+.ap-md {
+  align-self: flex-start;
+  width: 100%; max-height: 64vh; overflow: auto;
+  background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px; padding: 18px 22px;
+  color: #d6e2f0; font-size: 13.5px; line-height: 1.7; overflow-wrap: anywhere;
+}
+.ap-md :deep(h1) { font-size: 19px; margin: 4px 0 10px; color: #fff; }
+.ap-md :deep(h2) { font-size: 16px; margin: 16px 0 8px; color: #fff; }
+.ap-md :deep(h3) { font-size: 14px; margin: 14px 0 6px; color: #fff; }
+.ap-md :deep(p) { margin: 8px 0; }
+.ap-md :deep(ul), .ap-md :deep(ol) { padding-left: 22px; margin: 8px 0; }
+.ap-md :deep(li) { margin: 3px 0; }
+.ap-md :deep(code) { background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.ap-md :deep(pre) { background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 10px 0; }
+.ap-md :deep(pre code) { background: none; padding: 0; }
+.ap-md :deep(blockquote) { border-left: 3px solid rgba(66,184,131,0.5); margin: 8px 0;
+  padding: 2px 12px; color: rgba(255,255,255,0.6); }
+.ap-md :deep(a) { color: #6dd4a7; }
+.ap-md :deep(hr) { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 14px 0; }
+
 .ap-msg {
   color: rgba(255,255,255,0.55); font-size: 13px; text-align: center;
   padding: 32px 16px;
@@ -164,9 +211,10 @@ const copyText = async () => {
 .ap-hint { color: rgba(255,255,255,0.35); font-size: 12px; }
 
 .ap-foot {
-  display: flex; justify-content: flex-end; gap: 8px;
+  display: flex; align-items: center; gap: 8px;
   padding: 12px 18px; border-top: 1px solid rgba(255,255,255,0.08);
 }
+.ap-foot-spacer { flex: 1; }
 .ap-btn {
   background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
   color: var(--text-main); padding: 7px 14px; border-radius: 8px;
