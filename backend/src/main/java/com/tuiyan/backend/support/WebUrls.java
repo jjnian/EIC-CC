@@ -1,6 +1,8 @@
 package com.tuiyan.backend.support;
 
+import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 
 /**
  * web 系统入口地址的规范化与校验。
@@ -40,6 +42,28 @@ public final class WebUrls {
         if (host == null || host.isBlank()) {
             throw new IllegalArgumentException("系统入口地址「" + raw.trim() + "」不是合法的网址" + EXAMPLE);
         }
+        rejectCloudMetadata(host, raw.trim());
         return url;
+    }
+
+    /**
+     * 拒绝指向「链路本地地址」(169.254.0.0/16 / fe80::/10) 的入口，主要挡住云元数据服务
+     * 169.254.169.254（窃取实例临时凭据的经典 SSRF 目标）。
+     * <p>有意只拦链路本地，不拦 loopback / 私网（10./192.168./127.0.0.1）——探索内网业务系统
+     * 是本功能的正当用途。解析不了的主机名（纯内网域名）放行，保持原有行为。
+     */
+    private static void rejectCloudMetadata(String host, String raw) {
+        InetAddress[] addrs;
+        try {
+            addrs = InetAddress.getAllByName(host);
+        } catch (UnknownHostException e) {
+            return; // 解析不了：交由后续导航判断，保持原行为
+        }
+        for (InetAddress a : addrs) {
+            if (a.isLinkLocalAddress()) {
+                throw new IllegalArgumentException(
+                        "系统入口地址「" + raw + "」指向链路本地/云元数据地址（169.254.x.x），已拒绝");
+            }
+        }
     }
 }
