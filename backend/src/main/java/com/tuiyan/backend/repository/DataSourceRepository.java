@@ -199,16 +199,23 @@ public class DataSourceRepository {
 
     /** 列表返回时把 password/Authorization 等敏感字段遮蔽。编辑表单单独调 /detail 端点拿原文。 */
     private static Map<String, Object> maskSensitive(Map<String, Object> cfg) {
+        return maskConfig(cfg);
+    }
+
+    /** 敏感字段遮蔽串：detail/list 回前端用它占位，更新时见到它表示"沿用原值"。 */
+    public static final String MASK = "********";
+
+    /** 把 config 中的 password 与 headers 里的鉴权字段遮蔽为 {@link #MASK}（不改原 Map）。 */
+    public static Map<String, Object> maskConfig(Map<String, Object> cfg) {
         Map<String, Object> out = new LinkedHashMap<>(cfg);
-        if (out.containsKey("password")) out.put("password", "********");
+        if (out.get("password") instanceof String s && !s.isBlank()) out.put("password", MASK);
         Object hdrs = out.get("headers");
         if (hdrs instanceof Map<?, ?> mp) {
             Map<String, Object> mh = new LinkedHashMap<>();
             mp.forEach((k, v) -> {
                 String kk = String.valueOf(k);
-                if (kk.equalsIgnoreCase("authorization") || kk.toLowerCase().contains("token")
-                        || kk.toLowerCase().contains("apikey") || kk.toLowerCase().contains("api-key")) {
-                    mh.put(kk, "********");
+                if (isSensitiveHeader(kk) && v instanceof String sv && !sv.isBlank()) {
+                    mh.put(kk, MASK);
                 } else {
                     mh.put(kk, v);
                 }
@@ -216,5 +223,37 @@ public class DataSourceRepository {
             out.put("headers", mh);
         }
         return out;
+    }
+
+    /**
+     * 更新时把"被遮蔽的占位值"还原成已存配置里的原值：编辑表单提交 {@link #MASK}（或留空）表示
+     * 用户没改该敏感字段，应沿用原密码/token，而不是把 {@code ********} 真写进库。
+     */
+    public static Map<String, Object> mergeMaskedConfig(Map<String, Object> incoming, Map<String, Object> existing) {
+        if (incoming == null) return existing;
+        Map<String, Object> out = new LinkedHashMap<>(incoming);
+        Object pwd = out.get("password");
+        if (pwd == null || (pwd instanceof String s && (s.isBlank() || MASK.equals(s)))) {
+            if (existing.get("password") != null) out.put("password", existing.get("password"));
+        }
+        if (out.get("headers") instanceof Map<?, ?> inHdrs && existing.get("headers") instanceof Map<?, ?> exHdrs) {
+            Map<String, Object> merged = new LinkedHashMap<>();
+            inHdrs.forEach((k, v) -> {
+                String kk = String.valueOf(k);
+                if (isSensitiveHeader(kk) && (v == null || MASK.equals(String.valueOf(v)))) {
+                    Object ex = ((Map<?, ?>) exHdrs).get(k);
+                    merged.put(kk, ex != null ? ex : v);
+                } else {
+                    merged.put(kk, v);
+                }
+            });
+            out.put("headers", merged);
+        }
+        return out;
+    }
+
+    private static boolean isSensitiveHeader(String key) {
+        String k = key.toLowerCase();
+        return k.equals("authorization") || k.contains("token") || k.contains("apikey") || k.contains("api-key");
     }
 }

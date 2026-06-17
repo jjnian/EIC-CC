@@ -53,11 +53,17 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", e.getMessage() == null ? "服务器 IO 异常" : e.getMessage()));
     }
 
-    /** 兜底：任何未匹配到上面规则的异常 → 500。 */
+    /**
+     * 兜底：任何未匹配到上面规则的异常 → 500。
+     * <p>不把原始 message 透给前端——未预期异常（JDBC/驱动/NPE 等）的 message 常含表名、SQL 片段、
+     * 连接串、内部路径等敏感细节。详情仅记服务端日志，对外统一返回通用文案。
+     * 需要给用户看的业务错误应主动抛 {@link IllegalArgumentException}/{@link IllegalStateException}
+     * （走上面的 400 处理器，message 可控）。
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleOther(Exception e) {
         log.warn("未处理异常: {}", e.toString(), e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Map.of("error", e.getMessage() == null ? "服务器内部错误" : e.getMessage()));
+                .body(Map.of("error", "服务器内部错误"));
     }
 }
