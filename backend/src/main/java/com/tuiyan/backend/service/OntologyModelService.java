@@ -78,8 +78,20 @@ public class OntologyModelService {
         return modelRepository.delete(id);
     }
 
+    /**
+     * 版本快照仓储不做工作空间隔离（只按 modelId 过滤），因此在调用前先确认该模型属于当前工作空间，
+     * 否则任何人知道 modelId 即可查看/恢复他人工作空间的历史快照（IDOR）。
+     * {@link OntologyModelRepository#get} 跨工作空间返回 null。
+     */
+    private void requireOwnedModel(String modelId) {
+        if (modelRepository.get(modelId) == null) {
+            throw new ResourceNotFoundException("Model not found: " + modelId);
+        }
+    }
+
     /** 列出版本快照（不含内容，只返回时间戳 + 节点 / 边数概要 + 文件大小）。 */
     public List<Map<String, Object>> listVersions(String modelId) {
+        requireOwnedModel(modelId);
         return versionRepository.listVersions(modelId);
     }
 
@@ -88,6 +100,7 @@ public class OntologyModelService {
      * <p>恢复过程调用 {@link #save}，所以当前版本会被自动备份为新的快照——恢复操作本身也是可撤销的。
      */
     public OntologyModel restoreVersion(String modelId, long timestamp) {
+        requireOwnedModel(modelId);
         OntologyModel snapshot = versionRepository.loadByTimestamp(modelId, timestamp);
         if (snapshot == null) {
             throw new ResourceNotFoundException("Version not found: " + timestamp);

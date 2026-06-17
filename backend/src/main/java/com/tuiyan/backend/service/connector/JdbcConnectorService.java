@@ -33,6 +33,13 @@ public class JdbcConnectorService {
             Pattern.compile("^\\s*(SELECT|SHOW|DESC|DESCRIBE|EXPLAIN)\\b.*",
                     Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
+    // 危险函数/子句黑名单：即便以 SELECT 开头，也可能读写后端文件或跨库（绕过只读语义），一律拦截
+    private static final Pattern DANGEROUS_SQL_PATTERN =
+            Pattern.compile("\\b(INTO\\s+OUTFILE|INTO\\s+DUMPFILE|LOAD_FILE|LOAD\\s+DATA"
+                    + "|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_file"
+                    + "|lo_import|lo_export|dblink|COPY|sys_exec|sys_eval|xp_cmdshell)\\b",
+                    Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
     // 方言专用内省协作类：introspectSchema 按 kind 委派给它们
     private final MysqlSchemaIntrospector mysqlSchemaIntrospector;
     private final PgsqlSchemaIntrospector pgsqlSchemaIntrospector;
@@ -91,13 +98,15 @@ public class JdbcConnectorService {
         String db = strOf(cfg, "database", "");
         String user = strOf(cfg, "username", "");
         String pwd = strOf(cfg, "password", "");
-        String params = strOf(cfg, "params", "");
+        String params = sanitizeJdbcParams(strOf(cfg, "params", ""));
 
         String url;
         String driver;
         if ("mysql".equals(kind)) {
-            url = "jdbc:mysql://" + host + ":" + port + "/" + db;
-            if (!params.isBlank()) url += "?" + params;
+            // 强制关闭本地文件加载/反序列化（防 JDBC 攻击：恶意服务器读取后端文件或反序列化 RCE）
+            String hardened = "allowLoadLocalInfile=false&allowUrlInLocalInfile=false&autoDeserialize=false";
+            url = "jdbc:mysql://" + host + ":" + port + "/" + db + "?" + hardened
+                    + (params.isBlank() ? "" : "&" + params);
             driver = "com.mysql.cj.jdbc.Driver";
         } else if ("pgsql".equals(kind)) {
             url = "jdbc:postgresql://" + host + ":" + port + "/" + db;
@@ -123,6 +132,31 @@ public class JdbcConnectorService {
     private static String strOf(Map<String, Object> m, String k, String dft) {
         Object v = m.get(k);
         return v == null ? dft : String.valueOf(v);
+    }
+
+    /**
+     * 用户自定义 JDBC 连接参数（"k1=v1&k2=v2"）剥离危险键，防 JDBC 攻击。
+     * <p>已知可被恶意 MySQL/PG 服务器利用读取后端本地文件 / 触发反序列化 RCE 的驱动参数一律丢弃；
+     * 其余如 useSSL / serverTimezone / characterEncoding 等正常参数原样保留。
+     */
+    private static final java.util.Set<String> DANGEROUS_JDBC_PARAMS = java.util.Set.of(
+            "allowloadlocalinfile", "allowurlinlocalinfile", "uselocalinfile", "allowlocalinfile",
+            "autodeserialize", "queryinterceptors", "statementinterceptors",
+            "detectcustomcollations", "allowmultiqueries", "loggerclassname", "profilersqlclass",
+            "servercertificate", "clientinfoprovider", "socketfactory", "authenticationplugins");
+
+    static String sanitizeJdbcParams(String raw) {
+        if (raw == null || raw.isBlank()) return "";
+        StringBuilder out = new StringBuilder();
+        for (String pair : raw.split("&")) {
+            if (pair.isBlank()) continue;
+            int eq = pair.indexOf('=');
+            String key = (eq >= 0 ? pair.substring(0, eq) : pair).trim().toLowerCase(java.util.Locale.ROOT);
+            if (DANGEROUS_JDBC_PARAMS.contains(key)) continue; // 丢弃危险参数
+            if (out.length() > 0) out.append('&');
+            out.append(pair.trim());
+        }
+        return out.toString();
     }
 
     /** 连接测试：建池 → getConnection → isValid(2s)；返回毫秒延迟或错误。 */
@@ -220,6 +254,10 @@ public class JdbcConnectorService {
         }
         if (!READONLY_PATTERN.matcher(sql).matches()) {
             throw new IllegalArgumentException("仅允许只读查询语句 (SELECT/SHOW/DESC/EXPLAIN)");
+        }
+        if (DANGEROUS_SQL_PATTERN.matcher(sql).find()) {
+            // 以 SELECT 开头但可读写后端文件 / 跨库的危险函数（绕过只读语义），一律拒绝
+            throw new IllegalArgumentException("SQL 含禁止的文件/系统操作（如 INTO OUTFILE / pg_read_file 等）");
         }
         int safeLimit = Math.max(1, Math.min(limit <= 0 ? DEFAULT_LIMIT : limit, MAX_LIMIT));
         // SELECT 类语句没有 LIMIT 时追加
