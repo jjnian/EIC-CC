@@ -171,7 +171,7 @@ public class GraphPromptBuilder {
 
     /**
      * 构造"DB schema → ontology lineage"的完整 prompt。
-     * <p>系统 prompt 用 {@link LlmPrompts#SCHEMA_TO_ONTOLOGY_SYSTEM}，user 部分把 schema 全量
+     * <p>系统 prompt 用 {@link com.tuiyan.backend.service.llm.prompt.ExtractPrompts#SCHEMA_TO_ONTOLOGY_SYSTEM}，user 部分把 schema 全量
      * 详尽展开（不像 chat 场景那样省略列），让 LLM 拿到最完整的"事实"。
      */
     public SchemaExtractPrompt buildSchemaExtractPrompt(DatabaseSchemaInfo schema,

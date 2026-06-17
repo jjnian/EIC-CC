@@ -61,11 +61,13 @@ public class DataSourceService {
 
     public Map<String, Object> update(String id, DataSourceUpdateRequest req) {
         DataSourcePO po = ensureOwnership(id);
-        boolean ok = repo.updateConfig(id, req.getName(), req.getConfig());
+        // 遮蔽字段合并：表单提交 ******** / 留空表示沿用原密码/token，避免把遮蔽串写进库
+        Map<String, Object> merged = DataSourceRepository.mergeMaskedConfig(req.getConfig(), repo.readConfig(po));
+        boolean ok = repo.updateConfig(id, req.getName(), merged);
         if (!ok) throw new IllegalStateException("更新失败");
         if ("https_api".equals(po.getKind())) {
             scheduler.cancel(id);
-            tryScheduleFromConfig(id, req.getConfig());
+            tryScheduleFromConfig(id, merged);
         }
         return findFull(id);
     }
@@ -79,7 +81,7 @@ public class DataSourceService {
         return repo.delete(id);
     }
 
-    /** 含 config 全字段的单条详情（不遮蔽，专供编辑表单用）。 */
+    /** 含 config 全字段的单条详情（密码/token 遮蔽为 ********，编辑表单留空/保留遮蔽串即沿用原值）。 */
     public Map<String, Object> findFull(String id) {
         DataSourcePO po = ensureOwnership(id);
         Map<String, Object> out = new LinkedHashMap<>();
@@ -91,7 +93,7 @@ public class DataSourceService {
         out.put("lastError", po.getLastError());
         out.put("createdAt", po.getCreatedAt());
         out.put("updatedAt", po.getUpdatedAt());
-        out.put("config", repo.readConfig(po));
+        out.put("config", DataSourceRepository.maskConfig(repo.readConfig(po)));
         return out;
     }
 

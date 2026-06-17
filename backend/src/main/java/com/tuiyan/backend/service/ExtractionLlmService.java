@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
 import com.tuiyan.backend.service.llm.LlmHttpClient;
-import com.tuiyan.backend.service.llm.LlmPrompts;
+import com.tuiyan.backend.service.llm.prompt.ExtractPrompts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -101,10 +101,10 @@ public class ExtractionLlmService {
         }
         userPrompt.append("请抽取所有可识别的本体节点（含规则）与关系，按 SCHEMA 输出 JSON。");
 
-        callLogger.logConversation("LLM-extract", cfg.modelName(), LlmPrompts.EXTRACT_SYSTEM,
+        callLogger.logConversation("LLM-extract", cfg.modelName(), ExtractPrompts.EXTRACT_SYSTEM,
                 null, userPrompt.toString(), imageAttachments);
 
-        String requestBody = http.buildBody(cfg, LlmPrompts.EXTRACT_SYSTEM, userPrompt.toString(),
+        String requestBody = http.buildBody(cfg, ExtractPrompts.EXTRACT_SYSTEM, userPrompt.toString(),
                 null, imageAttachments, false, true, LlmHttpClient.EXTRACT_TEMPERATURE);
 
         HttpRequest httpReq = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());

@@ -17,6 +17,8 @@ import {
   moveExperienceFolder, moveExperienceToFolder, type ExperienceFolder,
 } from '../api/experienceFolders';
 import { updateExperience, type Experience } from '../api/experiences';
+import { useSidebarSections } from '../composables/useSidebarSections';
+import { subtreeIds, flattenFolderTree, buildMoveTargets } from '../utils/sidebarTree';
 
 const props = defineProps<{
   workspace: Workspace;
@@ -61,30 +63,8 @@ const moveMenu = ref<null | {
   y: number;
 }>(null);
 
-// 三个区段(历史对话/血缘图/数据源)独立折叠;状态用 localStorage 持久化,
-// 全局共享(所有工作空间共用一份偏好,避免每个 ws 都要单独点开)。
-type SectionKey = 'convs' | 'ontologies' | 'ds' | 'exp';
-const SECTIONS_KEY = 'tuiyan.sidebar-sections';
-const defaultSections = (): Record<SectionKey, boolean> => ({ convs: true, ontologies: true, ds: true, exp: true });
-const readSections = (): Record<SectionKey, boolean> => {
-  try {
-    const raw = localStorage.getItem(SECTIONS_KEY);
-    if (!raw) return defaultSections();
-    const parsed = JSON.parse(raw) as Partial<Record<SectionKey, boolean>>;
-    return {
-      convs: parsed.convs !== false,
-      ontologies: parsed.ontologies !== false,
-      ds: parsed.ds !== false,
-      exp: parsed.exp !== false,
-    };
-  } catch { return defaultSections(); }
-};
-const sections = ref<Record<SectionKey, boolean>>(readSections());
-const toggleSection = (key: SectionKey, e: Event) => {
-  e.stopPropagation();
-  sections.value = { ...sections.value, [key]: !sections.value[key] };
-  try { localStorage.setItem(SECTIONS_KEY, JSON.stringify(sections.value)); } catch { /* noop */ }
-};
+// 三个区段(历史对话/血缘图/数据源/经验库)独立折叠;状态持久化逻辑见 useSidebarSections。
+const { sections, toggleSection } = useSidebarSections();
 
 watch(() => props.isCurrent, (v) => {
   if (v) expanded.value = true;
@@ -208,35 +188,13 @@ const toggleFolder = (id: string) => {
 interface DsRow { kind: 'folder' | 'ds'; depth: number; folder?: DataSourceFolder; ds?: DataSource; }
 
 // 文件夹(按 parentId 任意层级) + 数据源(按 folderId)扁平成带 depth 的行,折叠的文件夹不展开子节点。
-const dsRows = computed<DsRow[]>(() => {
-  const folders = tree.getFolders(wsId.value);
-  const dss = tree.getDataSources(wsId.value);
-  const byParent = new Map<string, DataSourceFolder[]>();
-  for (const f of folders) {
-    const k = f.parentId || '__root__';
-    if (!byParent.has(k)) byParent.set(k, []);
-    byParent.get(k)!.push(f);
-  }
-  const dsByFolder = new Map<string, DataSource[]>();
-  for (const d of dss) {
-    const k = d.folderId || '__root__';
-    if (!dsByFolder.has(k)) dsByFolder.set(k, []);
-    dsByFolder.get(k)!.push(d);
-  }
-  const rows: DsRow[] = [];
-  const walk = (parentKey: string, depth: number) => {
-    for (const f of (byParent.get(parentKey) ?? [])) {
-      rows.push({ kind: 'folder', depth, folder: f });
-      if (folderOpen.value.has(f.id)) {
-        walk(f.id, depth + 1);
-        for (const d of (dsByFolder.get(f.id) ?? [])) rows.push({ kind: 'ds', depth: depth + 1, ds: d });
-      }
-    }
-  };
-  walk('__root__', 0);
-  for (const d of (dsByFolder.get('__root__') ?? [])) rows.push({ kind: 'ds', depth: 0, ds: d });
-  return rows;
-});
+const dsRows = computed<DsRow[]>(() =>
+  flattenFolderTree<DataSourceFolder, DataSource>(
+    tree.getFolders(wsId.value), tree.getDataSources(wsId.value),
+    (d) => d.folderId, folderOpen.value,
+  ).map(r => r.kind === 'folder'
+    ? { kind: 'folder', depth: r.depth, folder: r.folder }
+    : { kind: 'ds', depth: r.depth, ds: r.leaf }));
 
 const folderDsCount = (folderId: string) =>
   tree.getDataSources(wsId.value).filter(d => d.folderId === folderId).length;
@@ -328,45 +286,16 @@ const deleteDataSourceAct = async () => {
   }
 };
 
-// 把某文件夹及其全部子孙 id 收集起来(移动文件夹时从候选目标里排除,避免成环)。
-const subtreeIds = (rootId: string, folders: { id: string; parentId?: string }[]): Set<string> => {
-  const out = new Set<string>([rootId]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const f of folders) {
-      if (f.parentId && out.has(f.parentId) && !out.has(f.id)) { out.add(f.id); changed = true; }
-    }
-  }
-  return out;
-};
-
 // 当前「移动到…」二级菜单作用于经验库(true)还是数据源(false)。
 const isExpMove = computed(() =>
   moveMenu.value?.kind === 'experience' || moveMenu.value?.kind === 'exp-folder');
 
 const moveTargets = computed<{ id: string; name: string; depth: number }[]>(() => {
   const mm = moveMenu.value;
-  const folders: (DataSourceFolder | ExperienceFolder)[] =
-    isExpMove.value ? tree.getExpFolders(wsId.value) : tree.getFolders(wsId.value);
+  const folders = isExpMove.value ? tree.getExpFolders(wsId.value) : tree.getFolders(wsId.value);
   // 移动「文件夹」本身时,排除自身子树避免成环;移动条目则无需排除。
-  const exclude = (mm?.kind === 'folder' || mm?.kind === 'exp-folder')
-    ? subtreeIds(mm.id, folders) : new Set<string>();
-  const byParent = new Map<string, (DataSourceFolder | ExperienceFolder)[]>();
-  for (const f of folders) {
-    const k = f.parentId || '__root__';
-    if (!byParent.has(k)) byParent.set(k, []);
-    byParent.get(k)!.push(f);
-  }
-  const out: { id: string; name: string; depth: number }[] = [];
-  const walk = (parentKey: string, depth: number) => {
-    for (const f of (byParent.get(parentKey) ?? [])) {
-      if (!exclude.has(f.id)) out.push({ id: f.id, name: f.name, depth });
-      walk(f.id, depth + 1);
-    }
-  };
-  walk('__root__', 0);
-  return out;
+  const exclude = (mm?.kind === 'folder' || mm?.kind === 'exp-folder') ? mm.id : null;
+  return buildMoveTargets(folders, exclude);
 });
 
 const openMoveMenu = () => {
@@ -465,35 +394,13 @@ const onDrop = async (family: 'ds' | 'exp', targetFolderId: string | null, e: Dr
 interface ExpRow { kind: 'folder' | 'exp'; depth: number; folder?: ExperienceFolder; exp?: Experience; }
 
 // 文件夹(按 parentId 任意层级) + 经验(按 folderId)扁平成带 depth 的行,折叠的文件夹不展开子节点。
-const expRows = computed<ExpRow[]>(() => {
-  const folders = tree.getExpFolders(wsId.value);
-  const exps = tree.getExperiences(wsId.value);
-  const byParent = new Map<string, ExperienceFolder[]>();
-  for (const f of folders) {
-    const k = f.parentId || '__root__';
-    if (!byParent.has(k)) byParent.set(k, []);
-    byParent.get(k)!.push(f);
-  }
-  const expByFolder = new Map<string, Experience[]>();
-  for (const x of exps) {
-    const k = x.folderId || '__root__';
-    if (!expByFolder.has(k)) expByFolder.set(k, []);
-    expByFolder.get(k)!.push(x);
-  }
-  const rows: ExpRow[] = [];
-  const walk = (parentKey: string, depth: number) => {
-    for (const f of (byParent.get(parentKey) ?? [])) {
-      rows.push({ kind: 'folder', depth, folder: f });
-      if (folderOpen.value.has(f.id)) {
-        walk(f.id, depth + 1);
-        for (const x of (expByFolder.get(f.id) ?? [])) rows.push({ kind: 'exp', depth: depth + 1, exp: x });
-      }
-    }
-  };
-  walk('__root__', 0);
-  for (const x of (expByFolder.get('__root__') ?? [])) rows.push({ kind: 'exp', depth: 0, exp: x });
-  return rows;
-});
+const expRows = computed<ExpRow[]>(() =>
+  flattenFolderTree<ExperienceFolder, Experience>(
+    tree.getExpFolders(wsId.value), tree.getExperiences(wsId.value),
+    (x) => x.folderId, folderOpen.value,
+  ).map(r => r.kind === 'folder'
+    ? { kind: 'folder', depth: r.depth, folder: r.folder }
+    : { kind: 'exp', depth: r.depth, exp: r.leaf }));
 
 const folderExpCount = (folderId: string) =>
   tree.getExperiences(wsId.value).filter(x => x.folderId === folderId).length;

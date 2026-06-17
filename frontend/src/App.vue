@@ -34,32 +34,11 @@ import { useGraphEditor } from './composables/useGraphEditor';
 import { useVersionTemplates } from './composables/useVersionTemplates';
 import { useWorkspaces } from './composables/useWorkspaces';
 import { useSidebarTree } from './composables/useSidebarTree';
+import { useSidebarResize } from './composables/useSidebarResize';
 import { getDataSource } from './api/dataSources';
 
 const sel = ref<string | null>(null);
-const sbExp = ref(true);
-const sidebarW = ref(240);
-const sbDragging = ref(false);
-const SIDEBAR_MIN_W = 72;
-const SIDEBAR_EDGE_GAP = 72;
-const startSbResize = (e: MouseEvent) => {
-  e.preventDefault();
-  const startX = e.clientX;
-  const startW = sidebarW.value;
-  sbDragging.value = true;
-  const onMove = (ev: MouseEvent) => {
-    const nextW = startW + ev.clientX - startX;
-    const maxW = Math.max(SIDEBAR_MIN_W, window.innerWidth - SIDEBAR_EDGE_GAP);
-    sidebarW.value = Math.max(SIDEBAR_MIN_W, Math.min(maxW, nextW));
-  };
-  const onUp = () => {
-    sbDragging.value = false;
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-  };
-  document.addEventListener('mousemove', onMove);
-  document.addEventListener('mouseup', onUp);
-};
+const { sbExp, sidebarW, sbDragging, startSbResize } = useSidebarResize(240);
 const graphRef = ref<any>(null);
 const chatRef = ref<any>(null);
 const { chatW, startDivider, isDragging } = useDivider(

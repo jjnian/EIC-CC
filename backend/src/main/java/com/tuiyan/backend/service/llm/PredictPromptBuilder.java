@@ -2,6 +2,7 @@ package com.tuiyan.backend.service.llm;
 
 import com.tuiyan.backend.model.Constraint;
 import com.tuiyan.backend.model.PredictRequest;
+import com.tuiyan.backend.service.llm.prompt.PredictPrompts;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -27,7 +28,7 @@ public class PredictPromptBuilder {
         int steps = req.getSteps() == null ? 4 : Math.max(1, Math.min(10, req.getSteps()));
         boolean backward = "backward".equalsIgnoreCase(req.getIntent());
 
-        String systemPrompt = backward ? LlmPrompts.PREDICT_BACKWARD_SYSTEM : LlmPrompts.PREDICT_SYSTEM;
+        String systemPrompt = backward ? PredictPrompts.PREDICT_BACKWARD_SYSTEM : PredictPrompts.PREDICT_SYSTEM;
         String seedRole = backward ? "目标节点 (seeds，需要溯因的结果)" : "起点节点 (seeds)";
         String taskWord = backward ? "请向上回溯 " : "请向前推演 ";
         String taskUnit = backward ? " 层上游原因" : " 步";

@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
 import com.tuiyan.backend.service.llm.LlmHttpClient;
-import com.tuiyan.backend.service.llm.LlmPrompts;
+import com.tuiyan.backend.service.llm.prompt.ExplainPrompts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -39,9 +39,9 @@ public class ExplainLlmService {
         boolean anthropic = http.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
         log.info("[LLM-explain] 开始 explain model={} url={}", cfg.modelName(), cfg.baseURL());
-        callLogger.logConversation("LLM-explain", cfg.modelName(), LlmPrompts.EXPLAIN_SYSTEM, null, userPrompt, null);
+        callLogger.logConversation("LLM-explain", cfg.modelName(), ExplainPrompts.EXPLAIN_SYSTEM, null, userPrompt, null);
 
-        String requestBody = http.buildBody(cfg, LlmPrompts.EXPLAIN_SYSTEM, userPrompt, null, null, false, true);
+        String requestBody = http.buildBody(cfg, ExplainPrompts.EXPLAIN_SYSTEM, userPrompt, null, null, false, true);
 
         long startTime = System.currentTimeMillis();
         try {
