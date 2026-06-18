@@ -201,6 +201,7 @@ const analysisOpen = ref(false);
         :isOpen="false"
         :model-id="modelId"
         @close="onCloseInfo"
+        @select-node="onSelect"
         @update-node-props="(id, props) => emit('update-node-props', id, props)"
         @delete-edge="(edgeId) => emit('delete-edge', edgeId)"
         @update-node-schema="(id, patch) => emit('update-node-schema', id, patch)"
