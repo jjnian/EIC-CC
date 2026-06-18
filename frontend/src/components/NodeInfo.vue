@@ -21,6 +21,7 @@ const emit = defineEmits<{
   (e: 'update-node-schema', id: string, patch: any): void;
   (e: 'edit-edge-relation', edgeId: string): void;
   (e: 'update-edge-schema', id: string, patch: any): void;
+  (e: 'select-node', id: string): void;
 }>();
 
 const tab = ref(0);
@@ -32,6 +33,21 @@ const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])))
 
 const outgoing = computed(() => props.node ? props.edges.filter(e => e.from === props.node.id) : []);
 const incoming = computed(() => props.node ? props.edges.filter(e => e.to === props.node.id) : []);
+
+// 左栏「关联节点」：出边 + 入边汇成一张连接列表，带方向 / 关系名 / 类型，点击可跳转选中
+const connectedNodes = computed(() => {
+  if (!props.node) return [] as { id: string; label: string; type: string; rel: string; dir: 'out' | 'in' }[];
+  const nm = nmap.value;
+  const out = outgoing.value
+    .map(e => { const tn = nm[e.to]; return tn ? { id: tn.id, label: tn.label, type: tn.type, rel: e.label || '', dir: 'out' as const } : null; })
+    .filter(Boolean) as { id: string; label: string; type: string; rel: string; dir: 'out' | 'in' }[];
+  const inc = incoming.value
+    .map(e => { const fn = nm[e.from]; return fn ? { id: fn.id, label: fn.label, type: fn.type, rel: e.label || '', dir: 'in' as const } : null; })
+    .filter(Boolean) as { id: string; label: string; type: string; rel: string; dir: 'out' | 'in' }[];
+  return [...out, ...inc];
+});
+
+const typeMeta = (type: string) => (NT as any)[type] || NT.class;
 
 // 关系上的约束: 当前选中节点参与的所有边里,把带约束的提出来,概览页直接展示一遍,
 // 这样"点对象"也能看到关联关系的约束,不必再切到关系 Tab。
@@ -151,6 +167,31 @@ const startResize = (e: MouseEvent) => {
     <template v-if="isOpen || node">
       <div class="ni-drag-handle" @mousedown="startResize" />
       <div class="ni-inner">
+        <!-- 左栏：关联节点列表（仅选中具体节点时显示） -->
+        <div v-if="node" class="ni-list">
+          <div class="ni-list-head">
+            <span class="ni-list-dot" :style="{ background: t?.color || 'var(--accent)', color: t?.color || 'var(--accent)' }" />
+            <span class="ni-list-title">{{ node.label }}</span>
+            <span class="ni-list-count">{{ connectedNodes.length }}</span>
+          </div>
+          <div class="ni-list-body">
+            <div v-if="connectedNodes.length === 0" class="ni-list-empty">暂无关联节点</div>
+            <button
+              v-for="(cn, i) in connectedNodes"
+              :key="cn.dir + cn.id + i"
+              class="ni-list-item"
+              :title="(cn.dir === 'out' ? '→ ' : '← ') + (cn.rel || '关联') + ' · ' + cn.label"
+              @click="emit('select-node', cn.id)"
+            >
+              <span class="ni-list-item-dot" :style="{ background: typeMeta(cn.type).color }" />
+              <span class="ni-list-item-info">
+                <span class="ni-list-item-label">{{ cn.label }}</span>
+                <span class="ni-list-item-sub">{{ cn.dir === 'out' ? '→ ' + (cn.rel || '关联') : '← ' + (cn.rel || '关联') }} · {{ typeMeta(cn.type).label }}</span>
+              </span>
+              <span class="ni-list-item-arrow">{{ cn.dir === 'out' ? '▶' : '◀' }}</span>
+            </button>
+          </div>
+        </div>
         <div class="ni-right">
           <div class="ni-header">
             <div class="ni-header-l">
