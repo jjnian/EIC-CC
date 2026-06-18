@@ -110,26 +110,31 @@ defineExpose({ scrollToBottom });
                         :class="{ selected: (q.selected || []).includes(opt.label) }"
                         :disabled="!!m.questionsDone"
                         @click="emit('pick-option', i, qi, opt)">
-                  {{ opt.label }}
+                  <span class="question-option-num">{{ oi + 1 }}</span>
+                  <span class="question-option-label">{{ opt.label }}</span>
+                </button>
+                <!-- 手动填写:每个问题最后一行,点了去下方输入框自己写答案 -->
+                <button type="button"
+                        class="question-option question-option-custom"
+                        :class="{ selected: customUsed(m) }"
+                        :disabled="!!m.questionsDone"
+                        :title="m.questionsDone ? '已回答' : '在下方输入框里写自己的答案'"
+                        @click="emit('custom-answer', i)">
+                  <span class="question-option-num">{{ q.options.length + 1 }}</span>
+                  <span class="question-option-label">
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    手动填写其它答案…
+                  </span>
                 </button>
               </div>
             </div>
 
-            <div class="question-actions">
-              <button v-if="showSubmit(m)" type="button"
+            <div v-if="showSubmit(m)" class="question-actions">
+              <button type="button"
                       class="question-submit"
                       :disabled="!!m.questionsDone || !allAnswered(m)"
                       @click="emit('submit-answers', i)">
                 {{ m.questionsDone ? '已提交' : '提交回答' }}
-              </button>
-              <button type="button"
-                      class="question-option question-option-custom"
-                      :class="{ selected: customUsed(m) }"
-                      :disabled="!!m.questionsDone"
-                      :title="m.questionsDone ? '已回答' : '在下方输入框里写自己的答案'"
-                      @click="emit('custom-answer', i)">
-                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                自己输入回答
               </button>
             </div>
           </div>
@@ -194,15 +199,20 @@ defineExpose({ scrollToBottom });
 }
 .question-options {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
 }
 .question-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
   background: rgba(251, 191, 36, 0.1);
   border: 1px solid rgba(251, 191, 36, 0.3);
   color: #fde68a;
-  padding: 5px 12px;
-  border-radius: 100px;
+  padding: 8px 12px;
+  border-radius: 8px;
   font-size: 12px;
   cursor: pointer;
   font-family: inherit;
@@ -212,7 +222,36 @@ defineExpose({ scrollToBottom });
   background: rgba(251, 191, 36, 0.22);
   border-color: rgba(251, 191, 36, 0.55);
   color: #fff;
-  transform: translateY(-1px);
+  transform: translateX(2px);
+}
+/* 行首的序号徽标:1 2 3 … */
+.question-option-num {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: rgba(251, 191, 36, 0.22);
+  color: #fde68a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.question-option-label {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.question-option.selected .question-option-num {
+  background: rgba(66, 184, 131, 0.28);
+  color: #6dd4a7;
+}
+.question-option-custom .question-option-num {
+  background: rgba(125, 211, 252, 0.2);
+  color: #bae6fd;
 }
 .question-option:disabled {
   cursor: default;
@@ -225,9 +264,6 @@ defineExpose({ scrollToBottom });
   opacity: 1;
 }
 .question-option-custom {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   background: rgba(125, 211, 252, 0.08);
   border-color: rgba(125, 211, 252, 0.28);
   color: #bae6fd;
