@@ -98,6 +98,11 @@ const conv = useConversations({
   msgs,
   abortChat: () => sender.abortChat(),
   clearGraph: () => emit('clear-graph'),
+  // 落库后把这条会话原地回填到侧栏:同一 id 只更新不新增,确保"一次对话一个条目"。
+  onPersisted: (c) => {
+    const wsId = ws.currentId.value;
+    if (wsId) tree.upsertConversation(wsId, c);
+  },
 });
 const {
   conversationTitle,

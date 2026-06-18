@@ -3,6 +3,7 @@ package com.tuiyan.backend.controller;
 import com.tuiyan.backend.entity.DataSourceFetchLogPO;
 import com.tuiyan.backend.model.dto.*;
 import com.tuiyan.backend.repository.DataSourceRepository;
+import com.tuiyan.backend.repository.NodeDataBindingRepository;
 import com.tuiyan.backend.service.DataSourceService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -23,11 +24,14 @@ public class DataSourceController {
 
     private final DataSourceRepository repo;
     private final DataSourceService service;
+    private final NodeDataBindingRepository bindingRepo;
 
     public DataSourceController(DataSourceRepository repo,
-                                DataSourceService service) {
+                                DataSourceService service,
+                                NodeDataBindingRepository bindingRepo) {
         this.repo = repo;
         this.service = service;
+        this.bindingRepo = bindingRepo;
     }
 
     // ---------- 列表 / CRUD ----------
@@ -43,6 +47,15 @@ public class DataSourceController {
             list = list.stream().filter(m -> kind.equals(m.get("kind"))).toList();
         }
         return ResponseEntity.ok(list);
+    }
+
+    /**
+     * 「数据源 → 引用它的工作空间 id 列表」映射（跨工作空间）。
+     * 公共数据源总览页据此展示每个数据源被哪些工作空间通过节点供血绑定引用。
+     */
+    @GetMapping("/references")
+    public ResponseEntity<Map<String, List<String>>> references() {
+        return ResponseEntity.ok(bindingRepo.referencingWorkspacesByDataSource());
     }
 
     @GetMapping("/{id}")

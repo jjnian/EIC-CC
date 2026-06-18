@@ -9,7 +9,6 @@ import com.tuiyan.backend.service.connector.FileStoredService;
 import com.tuiyan.backend.service.connector.HttpScheduler;
 import com.tuiyan.backend.service.connector.HttpConnectorService;
 import com.tuiyan.backend.service.connector.JdbcConnectorService;
-import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -73,9 +72,9 @@ public class DataSourceService {
     }
 
     public boolean delete(String id) {
+        // 数据源为全局公共资源：任意工作空间均可删除。
         DataSourcePO po = repo.findById(id);
         if (po == null) return false;
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
         scheduler.cancel(id);
         if ("file_stored".equals(po.getKind())) fileStored.deleteFiles(id);
         return repo.delete(id);
@@ -255,12 +254,13 @@ public class DataSourceService {
         }
     }
 
+    /**
+     * 取出数据源（全局公共资源，不再按工作空间隔离）：任意工作空间均可查看 / 查表 / 写 SQL / 编辑。
+     * 沿用原方法名以减少调用点改动，语义已放宽为「存在即可」。
+     */
     private DataSourcePO ensureOwnership(String id) {
         DataSourcePO po = repo.findById(id);
         if (po == null) throw new IllegalArgumentException("数据源不存在: " + id);
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) {
-            throw new IllegalArgumentException("数据源不属于当前工作空间");
-        }
         return po;
     }
 

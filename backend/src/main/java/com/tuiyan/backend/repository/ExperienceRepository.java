@@ -52,11 +52,10 @@ public class ExperienceRepository {
                 .stream().map(this::toMap).toList();
     }
 
-    /** 按 id 取一行并校验工作空间归属；不归属当前 ws 返回 null。 */
+    /** 按 id 取一行。经验库为全局公共资源，任意工作空间均可查看，不再按归属隔离。 */
     public Map<String, Object> findFull(String id) {
         ExperiencePO po = mapper.selectById(id);
         if (po == null) return null;
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
         return toMap(po);
     }
 
@@ -143,7 +142,6 @@ public class ExperienceRepository {
     public Map<String, Object> updateWebSystem(String id, String title, Map<String, Object> config) {
         ExperiencePO po = mapper.selectById(id);
         if (po == null) return null;
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
         if (title != null && !title.isBlank()) po.setTitle(title.trim());
         if (config != null) po.setSourceConfig(toJson(config));
         po.setUpdatedAt(System.currentTimeMillis());
@@ -158,7 +156,6 @@ public class ExperienceRepository {
     public Map<String, Object> readSourceConfigScoped(String id) {
         ExperiencePO po = mapper.selectById(id);
         if (po == null) return null;
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
         return parseConfig(po.getSourceConfig());
     }
 
@@ -171,7 +168,6 @@ public class ExperienceRepository {
     public boolean patchSourceConfig(String id, Map<String, Object> patch) {
         ExperiencePO po = mapper.selectById(id);
         if (po == null) return false;
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
         if (!"websystem".equals(po.getOrigin())) return false;
         Map<String, Object> cfg = parseConfig(po.getSourceConfig());
         if (patch != null) cfg.putAll(patch);
@@ -207,7 +203,6 @@ public class ExperienceRepository {
     public Map<String, Object> update(String id, String title, String content, String tags) {
         ExperiencePO po = mapper.selectById(id);
         if (po == null) return null;
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
         if (title != null && !title.isBlank()) po.setTitle(title.trim());
         if (content != null) po.setContent(content);
         if (tags != null) po.setTags(tags);
@@ -222,9 +217,10 @@ public class ExperienceRepository {
      */
     @Transactional
     public boolean moveToFolder(String id, String folderId) {
+        // 经验全局公共：不再校验经验归属，但目标文件夹仍须属于当前工作空间（侧栏按工作空间分目录）。
         String ws = WorkspaceContext.required();
         ExperiencePO po = mapper.selectById(id);
-        if (po == null || !ws.equals(po.getWorkspaceId())) return false;
+        if (po == null) return false;
         String target = (folderId == null || folderId.isBlank()) ? null : folderId.trim();
         if (target != null) {
             ExperienceFolderPO f = folderMapper.selectById(target);
@@ -242,19 +238,16 @@ public class ExperienceRepository {
         return mapper.selectById(id);
     }
 
-    /** 按 id 取 PO 并校验工作空间归属（供预览/下载原件用）；不归属当前 ws 返回 null。 */
+    /** 按 id 取 PO（供预览/下载原件用）。经验全局公共，任意工作空间均可访问。 */
     public ExperiencePO findPoScoped(String id) {
-        ExperiencePO po = mapper.selectById(id);
-        if (po == null) return null;
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return null;
-        return po;
+        return mapper.selectById(id);
     }
 
     @Transactional
     public boolean delete(String id) {
+        // 经验全局公共：任意工作空间均可删除。
         ExperiencePO po = mapper.selectById(id);
         if (po == null) return false;
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
         return mapper.deleteById(id) > 0;
     }
 

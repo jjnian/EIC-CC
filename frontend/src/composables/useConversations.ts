@@ -97,6 +97,20 @@ export interface Conversation {
 }
 
 const LEGACY_STORAGE_KEY = 'eic-conversations';
+/**
+ * 当前"活动会话"的 id。落库后写入,刷新/重挂载时优先据此续接同一条会话,
+ * 避免一轮一记录:任何重挂载都回到同一 conversationId,而不是按时间猜"最近"或重新生成。
+ */
+const ACTIVE_CONV_KEY = 'eic-active-conversation';
+const rememberActiveConv = (id: string) => {
+  try { if (id) localStorage.setItem(ACTIVE_CONV_KEY, id); } catch { /* noop */ }
+};
+const forgetActiveConv = () => {
+  try { localStorage.removeItem(ACTIVE_CONV_KEY); } catch { /* noop */ }
+};
+const readActiveConv = (): string | null => {
+  try { return localStorage.getItem(ACTIVE_CONV_KEY); } catch { return null; }
+};
 const WELCOME_TEXT = '你好!我是推演助手。\n\n用自然语言描述实体和关系,我会自动构建本体图谱。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试:「添加一个财务审计实体,与客户相关联」';
 const PERSIST_DEBOUNCE_MS = 600;
 
@@ -109,6 +123,8 @@ export interface ConversationsCtx {
   clearGraph: () => void;
   /** 侧边栏重命名当前会话时，由外部注入手动标题，避免后续自动标题覆盖。 */
   setConversationTitle?: (title: string) => void;
+  /** 每次成功落库后回调,用于把这条会话实时回填到侧栏(一条会话一个条目,原地更新)。 */
+  onPersisted?: (c: { id: string; title: string; updatedAt: number }) => void;
 }
 
 /**
@@ -225,6 +241,8 @@ export function useConversations(ctx: ConversationsCtx) {
       try {
         const saved = await updateConversation(id, payload);
         cache.value[id] = fromDto(saved);
+        rememberActiveConv(id);
+        ctx.onPersisted?.({ id, title: saved.title || payload.title, updatedAt: saved.updatedAt || Date.now() });
       } catch (e) {
         console.warn('persist conversation failed', e);
         if (e instanceof ApiError) {
@@ -264,6 +282,8 @@ export function useConversations(ctx: ConversationsCtx) {
       };
       const saved = await updateConversation(id, payload);
       cache.value[id] = fromDto(saved);
+      rememberActiveConv(id);
+      ctx.onPersisted?.({ id, title: saved.title || payload.title, updatedAt: saved.updatedAt || Date.now() });
     } catch (e) {
       console.warn('flush conversation failed', e);
     } finally {
@@ -305,6 +325,7 @@ export function useConversations(ctx: ConversationsCtx) {
       }
       if (conv) {
         conversationId.value = conv.id;
+        rememberActiveConv(conv.id);
         conversationTitle.value = conv.title || '新对话';
         conversationModelId.value = conv.modelId || '';
         manualTitle.value = !!conv.title && conv.title !== autoTitle(conv.msgs || []);
@@ -325,6 +346,9 @@ export function useConversations(ctx: ConversationsCtx) {
         return;
       }
     }
+    // 显式新对话:丢弃旧的活动会话句柄,避免重挂载时又把上一条会话续接回来。
+    // 这条新会话的 id 在首次落库时才写回 ACTIVE_CONV_KEY。
+    forgetActiveConv();
     conversationId.value = 'conv_' + Date.now();
     conversationTitle.value = '新对话';
     conversationModelId.value = '';
@@ -384,6 +408,13 @@ export function useConversations(ctx: ConversationsCtx) {
   const restoreLatestOrNew = async () => {
     await migrateLegacyIfAny();
     const list = await refreshList();
+    // 优先续接"上次活动的会话":重挂载/刷新都回到同一 conversationId,
+    // 这样后续每一轮都落到同一条记录上,而不是新建一条(一轮一记录的根因)。
+    const activeId = readActiveConv();
+    if (activeId && list.some(c => c.id === activeId)) {
+      await initConversation(activeId);
+      return;
+    }
     if (list.length > 0) {
       const latest = list.reduce((a, b) =>
         (a.updatedAt || a.createdAt) > (b.updatedAt || b.createdAt) ? a : b);

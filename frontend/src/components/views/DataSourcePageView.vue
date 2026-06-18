@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import {
-  listAllDataSources, createDataSource,
+  listAllDataSources, listDataSourceReferences, createDataSource,
   deleteDataSource, testDataSourceInline,
 } from '../../api/dataSources';
 import type { DataSource, DataSourceKind } from '../../api/dataSources';
@@ -24,13 +24,20 @@ const items = ref<DataSource[]>([]);
 const loading = ref(false);
 // 按工作空间筛选(null = 全部)
 const filterWs = ref<string | null>(null);
+// 数据源 id → 引用它的工作空间 id 列表(通过节点供血绑定)
+const refs = ref<Record<string, string[]>>({});
 
 const load = async () => {
   loading.value = true;
   try {
     // 顺带确保工作空间名映射可用
     if (!ws.workspaces.value.length) await ws.reload();
-    items.value = await listAllDataSources();
+    const [list, references] = await Promise.all([
+      listAllDataSources(),
+      listDataSourceReferences().catch(() => ({} as Record<string, string[]>)),
+    ]);
+    items.value = list;
+    refs.value = references;
   } catch (e) {
     toast.error(`加载失败：${e instanceof ApiError ? e.message : (e as Error).message}`);
   } finally {
@@ -62,6 +69,10 @@ const wsName = (id?: string) => {
   return ws.workspaces.value.find(w => w.id === id)?.name || '(已删除)';
 };
 
+// 引用某数据源的工作空间名列表(通过节点供血绑定)
+const refWsNames = (id: string): string[] =>
+  (refs.value[id] || []).map(wsName);
+
 // 用到的工作空间(用于筛选条)
 const usedWorkspaces = computed(() => {
   const ids = new Set(items.value.map(d => d.workspaceId).filter(Boolean) as string[]);
@@ -78,17 +89,15 @@ const previewItem = ref<DataSource | null>(null);
 const openPreview = (d: DataSource) => { previewItem.value = d; };
 const closePreview = () => { previewItem.value = null; };
 
-// 预览项是否属于当前工作空间(只有同工作空间才允许打开完整详情/编辑)
-const previewInCurrentWs = computed(() =>
-  !!previewItem.value && previewItem.value.workspaceId === ws.currentId.value);
-
 const SKIP_KEYS = new Set(['storagePath', 'extractedTextPath']);
 const previewRows = computed<{ label: string; value: string }[]>(() => {
   const d = previewItem.value;
   if (!d) return [];
+  const refNames = refWsNames(d.id);
   const rows: { label: string; value: string }[] = [
     { label: '类型', value: kindLabel[d.kind] ?? d.kind },
-    { label: '所属工作空间', value: wsName(d.workspaceId) },
+    { label: '创建于工作空间', value: wsName(d.workspaceId) },
+    { label: '被引用工作空间', value: refNames.length ? refNames.join('、') : '暂未被引用' },
     { label: '状态', value: d.status ? (statusLabel[d.status] ?? d.status) : '未测试' },
   ];
   if (d.createdAt) rows.push({ label: '创建时间', value: new Date(d.createdAt).toLocaleString('zh-CN') });
@@ -275,7 +284,7 @@ const submit = async () => {
       <div class="ds-row ds-head">
         <span class="row-ic"></span>
         <div class="ds-main"><span class="ds-name">数据源名称 / 类型</span></div>
-        <span class="ws-col">所属工作空间</span>
+        <span class="ws-col">被引用的工作空间</span>
         <span class="status-col">连接状态</span>
         <span class="actions-col">操作</span>
       </div>
@@ -290,8 +299,17 @@ const submit = async () => {
           <span class="ds-name">{{ d.name }}</span>
           <span class="ds-kind">{{ kindLabel[d.kind] ?? d.kind }}</span>
         </div>
-        <span class="ws-badge" :title="`所属工作空间：${wsName(d.workspaceId)}`">
-          <span class="ws-badge-ic">◆</span>{{ wsName(d.workspaceId) }}
+        <span
+          v-if="refWsNames(d.id).length"
+          class="ws-badge"
+          :title="`被引用工作空间：${refWsNames(d.id).join('、')}（创建于：${wsName(d.workspaceId)}）`"
+        >
+          <span class="ws-badge-ic">◆</span>{{ refWsNames(d.id)[0] }}<span
+            v-if="refWsNames(d.id).length > 1" class="ws-badge-more"
+          >+{{ refWsNames(d.id).length - 1 }}</span>
+        </span>
+        <span v-else class="ws-badge none" :title="`创建于：${wsName(d.workspaceId)}`">
+          <span class="ws-badge-ic">◇</span>未被引用
         </span>
         <span class="ds-status" :style="{ color: statusColor[d.status ?? 'idle'] ?? '#aaa' }">
           ● {{ statusLabel[d.status ?? 'idle'] ?? d.status }}
@@ -319,13 +337,11 @@ const submit = async () => {
           </div>
         </div>
         <div class="preview-foot">
-          <span v-if="!previewInCurrentWs" class="preview-hint">
-            只读预览 · 该数据源属于其它工作空间
-          </span>
+          <span class="preview-hint">公共数据源 · 所有工作空间均可查看与使用</span>
           <span style="flex:1" />
           <button class="btn-ghost" @click="closePreview">关闭</button>
           <button
-            v-if="previewInCurrentWs && canOpen(previewItem)"
+            v-if="canOpen(previewItem)"
             class="btn-primary"
             @click="openFullDetail"
           >打开完整详情</button>
@@ -408,6 +424,8 @@ const submit = async () => {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ws-badge-ic { font-size: 9px; opacity: .8; }
+.ws-badge-more { margin-left: 4px; font-size: 10px; opacity: .75; }
+.ws-badge.none { color: #8a909c; background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.12); }
 .ds-status { font-size: 12px; flex: none; width: 120px; }
 
 .row-actions { display: flex; gap: 4px; flex: none; width: 120px; justify-content: center; opacity: 0; transition: opacity .12s; }

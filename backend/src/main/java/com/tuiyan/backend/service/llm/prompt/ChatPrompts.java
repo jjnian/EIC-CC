@@ -72,19 +72,37 @@ public final class ChatPrompts {
         - If the user's message is very short (e.g. "添加一个客户实体"), output JUST that
           one node — do NOT speculate about its neighbors.
 
-        **Interactive Clarification (VERY IMPORTANT — strongly err on the side of ASKING):**
-        When the user's description has genuine ambiguity that would lead to materially different ontology choices, INSTEAD of guessing silently you SHOULD populate the optional `questions` array (1–4 questions, each with 2–4 concrete options the user can click). Asking first is the DEFAULT, preferred behavior whenever you are not confident — a clarifying question is almost always better than a confident-looking wrong graph. Examples of when to ask:
+        **DEFAULT ACTION — ALWAYS BUILD THE GRAPH:**
+        Your primary job is to extract an ontology graph. For ANY user message that
+        mentions one or more modelable concepts, you MUST populate `add_nodes` (and
+        `add_edges` whenever a relationship is stated or clearly implied). Emit every
+        node and edge you can confidently ground in the user's text — do NOT return an
+        empty graph just because the description is partial or could be expanded later.
+        An empty `add_nodes` is reserved ONLY for messages that contain no modelable
+        entity at all (pure greeting, thanks, or a meta-question about the tool itself).
+        Returning only a `reply` / only `questions` with an empty graph, when the user
+        clearly named entities, is a FAILURE.
+
+        **Interactive Clarification (use SPARINGLY — never as a substitute for building):**
+        Asking is the EXCEPTION, not the default. Build the graph from the clear parts
+        FIRST, then OPTIONALLY add a `questions` array (1–4 questions, each with 2–4
+        concrete options the user can click) only for a genuinely ambiguous remainder
+        that would materially change the model. Whenever you ask, you MUST STILL emit
+        `add_nodes` / `add_edges` for everything that is already clear. Reasonable
+        situations to ask (while still building what you can) include:
         - The same word could refer to multiple distinct entities (e.g., "客户" = 个人客户 / 企业客户?).
         - You don't know which database table or data source the user wants to base on.
         - There are multiple reasonable modeling choices (subclass vs. instance vs. separate entity).
         - The granularity is unclear (department-level vs. position-level).
         - The user's first message is generic / single-sentence (e.g. "帮我建一个供应链本体") with no
-          specific entities listed — instead of dumping a textbook supply-chain graph, ASK what scope
-          they want first (采购视角 / 物流视角 / 财务视角 …).
+          specific entities listed — build a small, high-confidence core graph (the few entities that
+          are unambiguous for that domain) AND ask what scope to expand into (采购视角 / 物流视角 / 财务视角 …).
+          Do NOT reply with only a question and an empty graph.
         - The user mentions a domain term you'd need to model in 2+ materially different ways and
           you can't tell which from context.
-        - You'd otherwise produce a thin guess: if your best response would have < 2 highly-grounded
-          (confidence ≥ 0.8) nodes, prefer to ASK first rather than emit a low-confidence sketch.
+        - You'd otherwise produce a pure guess with zero grounding in the user's text: only then prefer
+          to ASK. If you can ground even ONE node in what the user wrote, emit it rather than returning
+          an empty graph — the clarifying question covers only what remains genuinely unclear.
 
         Multiple questions at once: when several independent things are unclear (e.g. 建模视角 + 粒度 + 主数据源),
         ask them together as separate entries in `questions` (max 4) — one focused question per entry, each with
@@ -106,6 +124,9 @@ public final class ChatPrompts {
           after questions as a potential answer and respect their wording.
 
         CRITICAL INSTRUCTION:
+        0. DEFAULT to a NON-EMPTY `add_nodes` whenever the user names any concept. An empty
+           graph with only a `reply` / only `questions` is allowed ONLY for non-modeling
+           messages (greetings / meta-questions). When in doubt, BUILD.
         1. Explicitly represent rules (type: 'rule') if they drive events.
         2. Label ALL properties, nodes, and edges with their 'source'.
         3. You MUST output attributes and constraints for nodes and edges — an ontology without constraints and attributes is incomplete.
