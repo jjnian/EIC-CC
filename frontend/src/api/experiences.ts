@@ -107,6 +107,11 @@ export function listExperiences(opts?: { workspaceId?: string }) {
   return request<Experience[]>(`/api/experiences${tail}`);
 }
 
+/** 跨工作空间的全量经验列表，每条带 workspaceId（归属工作空间）。用于公共「经验库」总览页。 */
+export function listAllExperiences() {
+  return request<Experience[]>('/api/experiences?all=true');
+}
+
 export function getExperience(id: string) {
   return request<Experience>(`/api/experiences/${encodeURIComponent(id)}`);
 }

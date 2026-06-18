@@ -77,9 +77,9 @@ public class DataSourceRepository {
 
     @Transactional
     public boolean delete(String id) {
+        // 数据源为全局公共资源：任意工作空间均可删除，不再按归属隔离。
         DataSourcePO existing = mapper.selectById(id);
         if (existing == null) return false;
-        if (!WorkspaceContext.required().equals(existing.getWorkspaceId())) return false;
         return mapper.deleteById(id) > 0;
     }
 
@@ -130,19 +130,17 @@ public class DataSourceRepository {
     public boolean updateConfig(String id, String newName, Map<String, Object> newConfig) {
         DataSourcePO po = mapper.selectById(id);
         if (po == null) return false;
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
         if (newName != null && !newName.isBlank()) po.setName(newName);
         if (newConfig != null) po.setConfigJson(codec.toJson(newConfig));
         po.setUpdatedAt(System.currentTimeMillis());
         return mapper.updateById(po) > 0;
     }
 
-    /** 把数据源移动到指定文件夹（folderId 为 null/空 = 移到工作空间根）。按工作空间隔离。 */
+    /** 把数据源移动到指定文件夹（folderId 为 null/空 = 移到根）。数据源全局公共，不再按归属隔离。 */
     @Transactional
     public boolean moveToFolder(String id, String folderId) {
         DataSourcePO po = mapper.selectById(id);
         if (po == null) return false;
-        if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
         po.setFolderId(folderId == null || folderId.isBlank() ? null : folderId.trim());
         po.setUpdatedAt(System.currentTimeMillis());
         return mapper.updateById(po) > 0;

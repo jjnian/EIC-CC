@@ -246,6 +246,13 @@ export function useSidebarTree() {
     }
   };
 
+  /** 仅从侧栏缓存移除经验（调用方已自行调用删除接口，避免重复请求）。 */
+  const removeExperienceFromCache = (wsId: string, id: string) => {
+    if (cacheExp.value[wsId]) {
+      cacheExp.value[wsId] = cacheExp.value[wsId].filter(e => e.id !== id);
+    }
+  };
+
   /** 新增/更新经验后回填到缓存,不需要重新拉取接口。 */
   const upsertExperience = (wsId: string, exp: Experience) => {
     if (!wsId) return;
@@ -352,6 +359,7 @@ export function useSidebarTree() {
     removeOntology,
     removeDataSource,
     removeExperience,
+    removeExperienceFromCache,
     upsertConversation,
     upsertDataSource,
     upsertExperience,

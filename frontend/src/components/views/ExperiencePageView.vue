@@ -7,7 +7,7 @@ import { toast } from '../../composables/useToast';
 import { ApiError } from '../../api/http';
 import {
   createExperience, updateExperience, reindexExperience, uploadExperienceFile,
-  experienceFileUrl, type Experience,
+  experienceFileUrl, listAllExperiences, deleteExperience, type Experience,
 } from '../../api/experiences';
 import { useWebSystemExplore } from '../../composables/useWebSystemExplore';
 import ExpOntologyExtractDialog from '../ExpOntologyExtractDialog.vue';
@@ -35,14 +35,49 @@ const emit = defineEmits<{
 const ws = useWorkspaces();
 const tree = useSidebarTree();
 
-const loading = computed(() => tree.isLoadingExp(ws.currentId.value));
-const experiences = computed<Experience[]>(() => tree.getExperiences(ws.currentId.value));
+// ── 公共经验库：跨工作空间的全量列表 ───────────────────────────
+const items = ref<Experience[]>([]);
+const loading = ref(false);
+// 按归属工作空间筛选（null = 全部）
+const filterWs = ref<string | null>(null);
+
+// 兼容原有引用：experiences 即全量经验
+const experiences = computed<Experience[]>(() => items.value);
+
+const wsName = (id?: string) => {
+  if (!id) return '—';
+  return ws.workspaces.value.find(w => w.id === id)?.name || '(已删除)';
+};
+
+// 出现在列表里的归属工作空间（用于筛选条）
+const usedWorkspaces = computed(() => {
+  const ids = new Set(items.value.map(e => e.workspaceId).filter(Boolean) as string[]);
+  return ws.workspaces.value.filter(w => ids.has(w.id));
+});
 
 // 统一列表：手写 / DDL 供血 / 系统探索 / 上传文件 全部按更新时间倒序展示为「经验文件」
 const allExperiences = computed<Experience[]>(() =>
-  [...experiences.value].sort(
+  [...items.value].sort(
     (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0),
   ));
+
+// 按归属工作空间筛选后的展示列表
+const visibleExperiences = computed<Experience[]>(() =>
+  filterWs.value ? allExperiences.value.filter(e => e.workspaceId === filterWs.value) : allExperiences.value);
+
+// 当前工作空间下的经验数（「构建本体血缘图」按当前工作空间聚合，故据此判断可用）
+const currentWsCount = computed(() =>
+  items.value.filter(e => e.workspaceId === ws.currentId.value).length);
+
+// 列表本地增删改：保持公共列表与侧栏一致
+const upsertItem = (exp: Experience) => {
+  const arr = [...items.value];
+  const idx = arr.findIndex(x => x.id === exp.id);
+  if (idx >= 0) arr[idx] = { ...arr[idx], ...exp };
+  else arr.unshift(exp);
+  items.value = arr;
+};
+const removeItem = (id: string) => { items.value = items.value.filter(x => x.id !== id); };
 
 // ── 右上角「新增」下拉菜单 ──────────────────────────────────
 const addMenuOpen = ref(false);
@@ -66,15 +101,23 @@ const onExtractCommit = (payload: {
 interface Draft { id: string | null; title: string; tags: string; content: string; }
 const draft = ref<Draft | null>(null);
 const saving = ref(false);
-const editorPreview = ref(false);   // 编辑器内「编辑 / 预览」切换
+// 编辑器视图：edit=纯编辑 / split=实时分屏(边写边预览) / preview=纯预览。默认实时分屏。
+type EditorMode = 'edit' | 'split' | 'preview';
+const editorMode = ref<EditorMode>('split');
 
 // 上传文件预览：当前选中的上传经验
 const selectedUpload = ref<Experience | null>(null);
 
-const reload = async (force = false) => {
-  const id = ws.currentId.value;
-  if (!id) return;
-  await tree.loadExperiences(id, force);
+const reload = async (_force = false) => {
+  loading.value = true;
+  try {
+    if (!ws.workspaces.value.length) await ws.reload();
+    items.value = await listAllExperiences();
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载失败');
+  } finally {
+    loading.value = false;
+  }
 };
 
 // ── 接入 Web 系统 + 自动探索（状态与动作见 useWebSystemExplore）──────────
@@ -96,7 +139,7 @@ const newDraft = () => {
   closeAddMenu();
   selectedUpload.value = null;
   draft.value = { id: null, title: '', tags: '', content: '' };
-  editorPreview.value = false;
+  editorMode.value = 'split';
 };
 
 // ── 上传文件建经验：抽取文本作正文、文件名作标题，并归档原件供预览 ──
@@ -115,6 +158,7 @@ const onUploadPick = async (ev: Event) => {
     const created = await uploadExperienceFile(file);
     const wsId = ws.currentId.value;
     if (wsId) tree.upsertExperience(wsId, created);
+    upsertItem(created);
     draft.value = null;
     selectedUpload.value = created;   // 上传后直接预览
     toast.success('已从文件创建经验');
@@ -128,7 +172,7 @@ const onUploadPick = async (ev: Event) => {
 const editDraft = (x: Experience) => {
   selectedUpload.value = null;
   draft.value = { id: x.id, title: x.title || '', tags: x.tags || '', content: x.content || '' };
-  editorPreview.value = false;
+  editorMode.value = 'split';
 };
 
 const selectUpload = (x: Experience) => {
@@ -180,7 +224,10 @@ const save = async () => {
     const saved = d.id
       ? await updateExperience(d.id, payload)
       : await createExperience(payload);
-    if (wsId) tree.upsertExperience(wsId, saved);
+    // 新建归属当前工作空间；编辑沿用原归属。两处缓存都同步。
+    const ownerWs = saved.workspaceId || wsId;
+    if (ownerWs) tree.upsertExperience(ownerWs, saved);
+    upsertItem(saved);
     draft.value = null;
     toast.success(d.id ? '已保存' : '已创建');
   } catch (e) {
@@ -199,7 +246,10 @@ const remove = async (x: Experience) => {
   });
   if (!ok) return;
   try {
-    await tree.removeExperience(ws.currentId.value, x.id);
+    await deleteExperience(x.id);
+    removeItem(x.id);
+    // 同步侧栏归属工作空间的缓存
+    if (x.workspaceId) tree.removeExperienceFromCache(x.workspaceId, x.id);
     if (draft.value?.id === x.id) draft.value = null;
     if (selectedUpload.value?.id === x.id) selectedUpload.value = null;
     toast.success('已删除');
@@ -262,9 +312,12 @@ const reindex = async (id: string) => {
       toast.warn('未配置 Embedding 模型，无法建立向量索引');
     } else {
       toast.success('已触发重新索引，稍后生效');
-      const wsId = ws.currentId.value;
-      const found = experiences.value.find(e => e.id === id);
-      if (found && wsId) tree.upsertExperience(wsId, { ...found, indexStatus: 'indexing' });
+      const found = items.value.find(e => e.id === id);
+      if (found) {
+        const next = { ...found, indexStatus: 'indexing' as const };
+        upsertItem(next);
+        if (found.workspaceId) tree.upsertExperience(found.workspaceId, next);
+      }
     }
   } catch (e) {
     toast.warn(e instanceof ApiError ? e.message : '触发失败');
@@ -300,14 +353,14 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
   <div class="exp-view">
     <div class="exp-header">
       <div>
-        <h2>经验库</h2>
-        <p>沉淀可复用的经验文档：手写支持 Markdown，可上传 PDF / Word / TXT / MD（音频自动转写）并预览原件。</p>
+        <h2>经验库 <span class="exp-public-tag">公共</span></h2>
+        <p>公共经验库：所有工作空间共享，可查看与复用。手写支持 Markdown（实时预览），可上传 PDF / Word / TXT / MD（音频自动转写）并预览原件。</p>
       </div>
       <div class="exp-header-actions">
         <button
           class="exp-build"
-          :disabled="experiences.length === 0"
-          :title="experiences.length === 0 ? '请先在经验库中创建/上传经验' : '聚合整个工作空间经验库构建本体血缘图'"
+          :disabled="currentWsCount === 0"
+          :title="currentWsCount === 0 ? '当前工作空间还没有经验，请先在当前工作空间创建/上传经验' : '聚合当前工作空间的经验构建本体血缘图'"
           @click="extractDialogOpen = true"
         >🧬 构建本体血缘图</button>
         <div class="exp-add">
@@ -342,18 +395,28 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
       />
     </div>
 
+    <!-- 归属工作空间筛选条 -->
+    <div v-if="usedWorkspaces.length > 1" class="exp-ws-filter">
+      <button :class="['exp-chip', { on: filterWs === null }]" @click="filterWs = null">全部</button>
+      <button
+        v-for="w in usedWorkspaces" :key="w.id"
+        :class="['exp-chip', { on: filterWs === w.id }]"
+        @click="filterWs = w.id"
+      >{{ w.name }}</button>
+    </div>
+
     <!-- 统一经验文件列表 -->
     <div class="exp-body">
       <div class="exp-list">
         <div v-if="loading" class="exp-state">加载中…</div>
-        <div v-else-if="allExperiences.length === 0" class="exp-empty">
+        <div v-else-if="visibleExperiences.length === 0" class="exp-empty">
           <div class="exp-empty-icon">📚</div>
-          <p>当前工作空间还没有经验文件</p>
+          <p>{{ filterWs ? '该工作空间还没有经验文件' : '公共经验库还没有经验文件' }}</p>
           <button class="exp-new" @click="newDraft">新建第一条经验</button>
         </div>
         <template v-else>
           <button
-            v-for="x in allExperiences"
+            v-for="x in visibleExperiences"
             :key="x.id"
             :class="['exp-row', { active: activeId === x.id }]"
             @click="selectExperience(x)"
@@ -365,6 +428,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
                 <span class="exp-row-time">{{ fmtTime(x.updatedAt || x.createdAt) }}</span>
               </div>
               <div class="exp-row-meta">
+                <span class="exp-ws-badge" :title="`归属工作空间：${wsName(x.workspaceId)}`">◆ {{ wsName(x.workspaceId) }}</span>
                 <span :class="['exp-origin', originMeta(x).cls]">{{ originMeta(x).label }}</span>
                 <span v-if="fmtSize(x.fileSize)" class="exp-size">{{ fmtSize(x.fileSize) }}</span>
                 <span :class="['exp-idx', idxMeta(x.indexStatus).cls]" :title="`向量索引：${idxMeta(x.indexStatus).label}`">
@@ -443,8 +507,9 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         <button class="exp-fullpage-back" title="返回列表" @click="cancelEdit">← 返回</button>
         <span class="exp-fullpage-title">{{ draft.id ? '编辑经验' : '新建经验' }}</span>
         <div class="exp-editor-tabs">
-          <button :class="{ active: !editorPreview }" @click="editorPreview = false">编辑</button>
-          <button :class="{ active: editorPreview }" @click="editorPreview = true">预览</button>
+          <button :class="{ active: editorMode === 'edit' }" @click="editorMode = 'edit'">编辑</button>
+          <button :class="{ active: editorMode === 'split' }" @click="editorMode = 'split'">实时</button>
+          <button :class="{ active: editorMode === 'preview' }" @click="editorMode = 'preview'">预览</button>
         </div>
         <span class="exp-actions-spacer" />
         <button
@@ -468,16 +533,22 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         </label>
         <div class="exp-field exp-field-grow">
           <span class="exp-label">
-            正文<span class="exp-hint">（支持 Markdown）</span>
-            <button v-if="!editorPreview" class="exp-tpl" title="插入 Markdown 模板" @click="insertTemplate">插入模板</button>
+            正文<span class="exp-hint">（支持 Markdown · 实时预览）</span>
+            <button v-if="editorMode !== 'preview'" class="exp-tpl" title="插入 Markdown 模板" @click="insertTemplate">插入模板</button>
           </span>
-          <textarea
-            v-show="!editorPreview"
-            v-model="draft.content"
-            class="exp-textarea"
-            placeholder="粘贴或撰写经验文档内容（支持 Markdown）"
-          ></textarea>
-          <div v-show="editorPreview" class="exp-md" v-html="renderedDraft || '<p class=&quot;exp-md-empty&quot;>（暂无内容）</p>'"></div>
+          <div class="exp-edit-area" :class="editorMode">
+            <textarea
+              v-show="editorMode !== 'preview'"
+              v-model="draft.content"
+              class="exp-textarea"
+              placeholder="粘贴或撰写经验文档内容（支持 Markdown，右侧实时预览）"
+            ></textarea>
+            <div
+              v-show="editorMode !== 'edit'"
+              class="exp-md exp-md-live"
+              v-html="renderedDraft || '<p class=&quot;exp-md-empty&quot;>（暂无内容）</p>'"
+            ></div>
+          </div>
         </div>
         <p class="exp-rag-hint">保存后会自动建立向量索引，对话建模时按相关度自动召回为参考资料。</p>
       </div>
@@ -601,6 +672,28 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
 }
 .exp-header p { margin: 0; font-size: 13px; color: var(--text-dim); }
+.exp-public-tag {
+  font-size: 11px; font-weight: 600; vertical-align: middle; margin-left: 8px;
+  padding: 2px 9px; border-radius: 100px; -webkit-text-fill-color: initial;
+  color: #6dd4a7; background: rgba(66,184,131,.16); border: 1px solid rgba(66,184,131,.42);
+}
+
+/* 归属工作空间筛选条 */
+.exp-ws-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; flex-shrink: 0; }
+.exp-chip {
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
+  border-radius: 100px; padding: 4px 12px; color: #c0c4cf; cursor: pointer; font-size: 12px;
+  font-family: inherit; transition: background .12s, color .12s, border-color .12s;
+}
+.exp-chip:hover { background: rgba(255,255,255,.09); }
+.exp-chip.on { background: rgba(66,184,131,.18); border-color: rgba(66,184,131,.5); color: #6dd4a7; }
+
+/* 行内归属工作空间标签 */
+.exp-ws-badge {
+  font-size: 10px; padding: 1px 8px; border-radius: 100px;
+  color: #9fb6ff; background: rgba(93,158,255,.12); border: 1px solid rgba(93,158,255,.28);
+  white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+}
 .exp-new {
   flex-shrink: 0; background: linear-gradient(135deg, var(--accent-soft), var(--accent)); color: #00251a; border: none;
   padding: 9px 16px; border-radius: 9px; font-size: 13px; font-weight: 600;
@@ -1007,6 +1100,18 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 }
 .exp-input:focus, .exp-textarea:focus { outline: none; border-color: rgba(66,184,131,0.6); }
 .exp-textarea { flex: 1; min-height: 160px; resize: none; line-height: 1.6; }
+
+/* 编辑/实时分屏/预览 容器：实时模式左右各半，边写边渲染 */
+.exp-edit-area { flex: 1; min-height: 0; display: flex; gap: 12px; }
+.exp-edit-area .exp-textarea { min-height: 0; height: 100%; }
+.exp-edit-area.edit .exp-textarea { flex: 1; }
+.exp-edit-area.preview .exp-md-live { flex: 1; }
+.exp-edit-area.split .exp-textarea,
+.exp-edit-area.split .exp-md-live { flex: 1 1 50%; width: 50%; min-width: 0; }
+.exp-md-live {
+  overflow: auto; background: rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+}
 .exp-rag-hint { margin: 0; font-size: 11px; color: rgba(255,255,255,0.32); line-height: 1.4; }
 .exp-actions { display: flex; align-items: center; gap: 10px; }
 .exp-actions-spacer { flex: 1; }

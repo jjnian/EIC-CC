@@ -75,6 +75,14 @@ export function listAllDataSources() {
   return request<DataSource[]>('/api/data-sources?all=true');
 }
 
+/**
+ * 「数据源 id → 引用它的工作空间 id 列表」映射（跨工作空间）。
+ * 公共数据源总览页据此展示每个数据源被哪些工作空间通过节点供血绑定引用。
+ */
+export function listDataSourceReferences() {
+  return request<Record<string, string[]>>('/api/data-sources/references');
+}
+
 /** 操作其它工作空间的数据源时，显式带上该数据源所属的 workspaceId 作为请求头，绕过当前上下文。 */
 function wsHeader(workspaceId?: string): RequestInit {
   return workspaceId ? { headers: { 'X-Workspace-Id': workspaceId } } : {};
