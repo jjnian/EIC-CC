@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import BaseSwitch from '../form/BaseSwitch.vue';
 defineProps<{ prefs: any }>();
-defineEmits<{ (e: 'save'): void }>();
+const emit = defineEmits<{ (e: 'save'): void }>();
 </script>
 
 <template>
@@ -19,8 +20,7 @@ defineEmits<{ (e: 'save'): void }>();
           <div class="pref-desc">关闭后画布更清爽，悬停仍可看关系名</div>
         </div>
         <label class="switch">
-          <input type="checkbox" v-model="prefs.showEdgeLabels" @change="$emit('save')" />
-          <span class="switch-slider" />
+          <BaseSwitch :modelValue="prefs.showEdgeLabels" @update:modelValue="prefs.showEdgeLabels = $event; emit('save')" />
         </label>
       </div>
 
@@ -30,8 +30,7 @@ defineEmits<{ (e: 'save'): void }>();
           <div class="pref-desc">切换模型/分支后自动 fitView</div>
         </div>
         <label class="switch">
-          <input type="checkbox" v-model="prefs.autoFit" @change="$emit('save')" />
-          <span class="switch-slider" />
+          <BaseSwitch :modelValue="prefs.autoFit" @update:modelValue="prefs.autoFit = $event; emit('save')" />
         </label>
       </div>
 

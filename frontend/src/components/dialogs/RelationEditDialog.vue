@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import type { OntologyNode } from '../../types';
 import { NT } from '../../constants';
+import FormField from '../form/FormField.vue';
+import BaseInput from '../form/BaseInput.vue';
+import BaseCheckbox from '../form/BaseCheckbox.vue';
 
 interface EditingRelation {
   label: string;
@@ -26,20 +29,21 @@ const emit = defineEmits<{
   <div class="modal-mask" @click.self="emit('cancel')">
     <div class="add-node-dialog" @click.stop>
       <h3>编辑关系</h3>
-      <label class="anp-label">关系名称
-        <input v-model="editingRelation.label" class="edit-input" placeholder="输入关系名称…" @keydown.escape="emit('cancel')" />
-      </label>
+      <FormField label="关系名称" required>
+        <BaseInput v-model="editingRelation.label" placeholder="输入关系名称…" />
+      </FormField>
       <div v-if="editRelGraphNodes.length > 0" class="anp-section">
         <div class="anp-section-title">输入节点 <span class="anp-hint">（关系的起始节点，可多选）</span></div>
         <div class="anp-node-list">
           <div v-for="n in editRelGraphNodes.filter(x => !editingRelation.outputs.includes(x.id))" :key="'ri-'+n.id" class="anp-node-option">
-            <label class="anp-check-label" @click.prevent="emit('toggle-input', n.id)">
-              <span :class="['anp-checkbox', { checked: editingRelation.inputs.includes(n.id) }]">
-                <span v-if="editingRelation.inputs.includes(n.id)" class="anp-check-mark">✓</span>
-              </span>
+            <div class="anp-check-row">
+              <BaseCheckbox
+                :modelValue="editingRelation.inputs.includes(n.id)"
+                @update:modelValue="emit('toggle-input', n.id)"
+              />
               <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
               <span class="anp-node-name">{{ n.label }}</span>
-            </label>
+            </div>
           </div>
         </div>
       </div>
@@ -47,13 +51,14 @@ const emit = defineEmits<{
         <div class="anp-section-title">输出节点 <span class="anp-hint">（关系的目标节点，可多选）</span></div>
         <div class="anp-node-list">
           <div v-for="n in editRelGraphNodes.filter(x => !editingRelation.inputs.includes(x.id))" :key="'ro-'+n.id" class="anp-node-option">
-            <label class="anp-check-label" @click.prevent="emit('toggle-output', n.id)">
-              <span :class="['anp-checkbox', { checked: editingRelation.outputs.includes(n.id) }]">
-                <span v-if="editingRelation.outputs.includes(n.id)" class="anp-check-mark">✓</span>
-              </span>
+            <div class="anp-check-row">
+              <BaseCheckbox
+                :modelValue="editingRelation.outputs.includes(n.id)"
+                @update:modelValue="emit('toggle-output', n.id)"
+              />
               <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
               <span class="anp-node-name">{{ n.label }}</span>
-            </label>
+            </div>
           </div>
         </div>
       </div>
@@ -65,3 +70,8 @@ const emit = defineEmits<{
     </div>
   </div>
 </template>
+
+<style scoped>
+.anp-check-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; transition: background 0.12s; }
+.anp-check-row:hover { background: rgba(255, 255, 255, 0.06); }
+</style>

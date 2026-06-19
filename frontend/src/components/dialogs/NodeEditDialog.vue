@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { OntologyNode } from '../../types';
 import { NT } from '../../constants';
+import FormField from '../form/FormField.vue';
+import BaseInput from '../form/BaseInput.vue';
+import BaseSelect from '../form/BaseSelect.vue';
+import BaseCheckbox from '../form/BaseCheckbox.vue';
 
 defineProps<{
   editingNode: OntologyNode;
@@ -17,30 +21,31 @@ const emit = defineEmits<{
   (e: 'toggle-input', id: string): void;
   (e: 'toggle-output', id: string): void;
 }>();
+
+const typeOptions = Object.entries(NT).map(([k, t]) => ({ value: k, label: (t as any).label }));
 </script>
 <template>
   <div class="modal-mask" @click.self="emit('cancel')">
     <div class="add-node-dialog">
       <h3>编辑节点</h3>
-      <label class="anp-label">名称
-        <input v-model="editingNode.label" class="edit-input" @keydown.enter="emit('save')" />
-      </label>
-      <label class="anp-label">类型
-        <select v-model="editingNode.type" class="edit-input">
-          <option v-for="(t, k) in NT" :key="k" :value="k">{{ t.label }}</option>
-        </select>
-      </label>
+      <FormField label="名称" required>
+        <BaseInput v-model="editingNode.label" @enter="emit('save')" />
+      </FormField>
+      <FormField label="类型">
+        <BaseSelect v-model="editingNode.type" :options="typeOptions" />
+      </FormField>
       <div v-if="editableGraphNodes.length > 0" class="anp-section">
         <div class="anp-section-title">输入连接 <span class="anp-hint">（从哪些节点连入）</span></div>
         <div class="anp-node-list">
           <div v-for="n in editableGraphNodes" :key="'ein-'+n.id" class="anp-node-option">
-            <label class="anp-check-label" @click.prevent="emit('toggle-input', n.id)">
-              <span :class="['anp-checkbox', { checked: editNodeInputs.includes(n.id) }]">
-                <span v-if="editNodeInputs.includes(n.id)" class="anp-check-mark">✓</span>
-              </span>
+            <div class="anp-check-row">
+              <BaseCheckbox
+                :modelValue="editNodeInputs.includes(n.id)"
+                @update:modelValue="emit('toggle-input', n.id)"
+              />
               <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
               <span class="anp-node-name">{{ n.label }}</span>
-            </label>
+            </div>
             <input v-if="editNodeInputs.includes(n.id)" v-model="editInputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
           </div>
         </div>
@@ -49,13 +54,14 @@ const emit = defineEmits<{
         <div class="anp-section-title">输出连接 <span class="anp-hint">（连向哪些节点）</span></div>
         <div class="anp-node-list">
           <div v-for="n in editableGraphNodes" :key="'eout-'+n.id" class="anp-node-option">
-            <label class="anp-check-label" @click.prevent="emit('toggle-output', n.id)">
-              <span :class="['anp-checkbox', { checked: editNodeOutputs.includes(n.id) }]">
-                <span v-if="editNodeOutputs.includes(n.id)" class="anp-check-mark">✓</span>
-              </span>
+            <div class="anp-check-row">
+              <BaseCheckbox
+                :modelValue="editNodeOutputs.includes(n.id)"
+                @update:modelValue="emit('toggle-output', n.id)"
+              />
               <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
               <span class="anp-node-name">{{ n.label }}</span>
-            </label>
+            </div>
             <input v-if="editNodeOutputs.includes(n.id)" v-model="editOutputLabels[n.id]" class="anp-edge-label" placeholder="关系名称" @click.stop />
           </div>
         </div>
@@ -67,3 +73,8 @@ const emit = defineEmits<{
     </div>
   </div>
 </template>
+
+<style scoped>
+.anp-check-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; transition: background 0.12s; }
+.anp-check-row:hover { background: rgba(255, 255, 255, 0.06); }
+</style>

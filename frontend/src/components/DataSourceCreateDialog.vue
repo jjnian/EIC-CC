@@ -19,6 +19,7 @@ const submitting = ref(false);
 const testing = ref(false);
 const testMsg = ref<string>('');
 const testOk = ref<boolean | null>(null);
+const formValid = ref(false);
 
 const TYPES: { kind: DataSourceKind; icon: string; label: string; desc: string; tag: string; accent: string }[] = [
   { kind: 'mysql',     icon: '🗄', label: 'MySQL',      desc: '连接 MySQL 数据库，查表写 SQL',  tag: 'RDBMS', accent: 'var(--accent)' },
@@ -119,6 +120,7 @@ const submit = async () => {
             :kind="kind"
             v-model="cfg"
             v-model:name-value="name"
+            @validity="formValid = $event"
           />
           <div v-if="testMsg" class="test-msg" :class="{ ok: testOk === true, bad: testOk === false }">
             <span class="test-dot" />{{ testMsg }}
@@ -132,9 +134,9 @@ const submit = async () => {
         <button
           v-if="step === 'form' && kind"
           type="button"
-          class="ghost" :disabled="testing" @click="runTest"
+          class="ghost" :disabled="testing || !formValid" @click="runTest"
         >{{ testing ? '测试中…' : '⚡ 测试连接' }}</button>
-        <button type="button" class="primary" :disabled="step === 'pick' || submitting" @click="submit">
+        <button type="button" class="primary" :disabled="step === 'pick' || submitting || !formValid || !name.trim()" @click="submit">
           {{ submitting ? '提交中…' : '保存连接' }}
         </button>
       </div>
