@@ -9,6 +9,7 @@ import {
   createExperience, updateExperience, reindexExperience, uploadExperienceFile,
   experienceFileUrl, listAllExperiences, deleteExperience, type Experience,
 } from '../../api/experiences';
+import { listAllDataSources, type DataSource } from '../../api/dataSources';
 import { useWebSystemExplore } from '../../composables/useWebSystemExplore';
 import ExpOntologyExtractDialog from '../ExpOntologyExtractDialog.vue';
 import { renderMarkdown, MD_TEMPLATE } from '../../utils/markdown';
@@ -38,6 +39,14 @@ const tree = useSidebarTree();
 // ── 公共经验库：跨工作空间的全量列表 ───────────────────────────
 const items = ref<Experience[]>([]);
 const loading = ref(false);
+
+// 数据源名称解析：DDL 抽取的经验据此显示「来自哪个数据库」（实时名，随数据源重命名变化）。
+const dataSources = ref<DataSource[]>([]);
+const dsById = computed<Record<string, DataSource>>(() => {
+  const m: Record<string, DataSource> = {};
+  for (const d of dataSources.value) m[d.id] = d;
+  return m;
+});
 // 按归属工作空间筛选（null = 全部）
 const filterWs = ref<string | null>(null);
 
@@ -112,7 +121,12 @@ const reload = async (_force = false) => {
   loading.value = true;
   try {
     if (!ws.workspaces.value.length) await ws.reload();
-    items.value = await listAllExperiences();
+    const [exps, dss] = await Promise.all([
+      listAllExperiences(),
+      listAllDataSources().catch(() => [] as DataSource[]),
+    ]);
+    items.value = exps;
+    dataSources.value = dss;
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载失败');
   } finally {
@@ -285,14 +299,41 @@ const preview = (content?: string) => {
 // 列表里每条经验文件的图标与来源标签
 const originMeta = (x: Experience): { icon: string; label: string; cls: string } => {
   switch (x.origin) {
-    case 'upload': return { icon: '📄', label: (x.fileMime || '文件').split(';')[0], cls: 'upload' };
-    case 'ddl': return { icon: '🗄️', label: 'DDL 供血', cls: 'ddl' };
+    case 'upload': return { icon: '📄', label: '上传文件', cls: 'upload' };
+    case 'ddl': return { icon: '🗄️', label: '数据库抽取', cls: 'ddl' };
     case 'websystem': return { icon: '🌐', label: 'Web 系统', cls: 'websystem' };
     case 'explore': return { icon: '🧭', label: '系统探索', cls: 'explore' };
     default: return { icon: '✎', label: '手写经验', cls: 'manual' };
   }
 };
 const rowName = (x: Experience) => x.fileName || x.title || '未命名经验';
+
+// DDL 经验标题形如「<库名>」数据库 DDL —— 数据源被删时从标题兜底解析库名。
+const titleDbName = (title?: string): string => {
+  const m = (title || '').match(/^「(.+?)」/);
+  return m ? m[1] : '';
+};
+// DDL 经验来源数据库的显示名：优先用实时数据源名，回退到标题里的快照名。
+const ddlSourceName = (x: Experience): string => {
+  const ds = x.sourceDataSourceId ? dsById.value[x.sourceDataSourceId] : undefined;
+  return ds?.name || titleDbName(x.title) || '未知数据库';
+};
+// 来源数据源是否已被删除（有 id 但在数据源列表里解析不到）。
+const ddlSourceMissing = (x: Experience): boolean =>
+  !!x.sourceDataSourceId && !dsById.value[x.sourceDataSourceId];
+// 各来源的「来源详情」副标签（列表里跟在来源类型后，让来源一目了然）。
+const sourceExtra = (x: Experience): string => {
+  switch (x.origin) {
+    case 'ddl': return ddlSourceName(x);
+    case 'upload': return (x.fileMime || '').split(';')[0];
+    case 'websystem':
+    case 'explore': {
+      const url = x.connection?.baseUrl || '';
+      try { return url ? new URL(url).host : ''; } catch { return url; }
+    }
+    default: return '';
+  }
+};
 
 const idxMeta = (s?: string): { label: string; cls: string } => {
   switch (s) {
@@ -429,7 +470,15 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
               </div>
               <div class="exp-row-meta">
                 <span class="exp-ws-badge" :title="`归属工作空间：${wsName(x.workspaceId)}`">◆ {{ wsName(x.workspaceId) }}</span>
-                <span :class="['exp-origin', originMeta(x).cls]">{{ originMeta(x).label }}</span>
+                <span :class="['exp-origin', originMeta(x).cls]">{{ originMeta(x).icon }} 来源：{{ originMeta(x).label }}</span>
+                <span
+                  v-if="sourceExtra(x)"
+                  class="exp-source"
+                  :class="{ gone: ddlSourceMissing(x) }"
+                  :title="x.origin === 'ddl'
+                    ? (ddlSourceMissing(x) ? '来源数据源已删除，名称取自抽取时的快照' : `抽取自数据库「${sourceExtra(x)}」`)
+                    : `来源：${sourceExtra(x)}`"
+                >{{ x.origin === 'ddl' ? '🗄 ' : '' }}{{ sourceExtra(x) }}<span v-if="ddlSourceMissing(x)" class="exp-source-gone">（源已删除）</span></span>
                 <span v-if="fmtSize(x.fileSize)" class="exp-size">{{ fmtSize(x.fileSize) }}</span>
                 <span :class="['exp-idx', idxMeta(x.indexStatus).cls]" :title="`向量索引：${idxMeta(x.indexStatus).label}`">
                   {{ idxMeta(x.indexStatus).label }}
@@ -694,6 +743,14 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
   color: #9fb6ff; background: rgba(93,158,255,.12); border: 1px solid rgba(93,158,255,.28);
   white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
 }
+/* 来源详情：DDL 抽取显示来自哪个数据库，web 系统显示入口域名等 */
+.exp-source {
+  font-size: 10px; padding: 1px 8px; border-radius: 100px;
+  color: #f5c97a; background: rgba(245,201,122,.12); border: 1px solid rgba(245,201,122,.30);
+  white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+}
+.exp-source.gone { color: #c9a08a; background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.14); }
+.exp-source-gone { opacity: .75; }
 .exp-new {
   flex-shrink: 0; background: linear-gradient(135deg, var(--accent-soft), var(--accent)); color: #00251a; border: none;
   padding: 9px 16px; border-radius: 9px; font-size: 13px; font-weight: 600;

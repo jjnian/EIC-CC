@@ -24,6 +24,9 @@ const formValid = ref(false);
 const TYPES: { kind: DataSourceKind; icon: string; label: string; desc: string; tag: string; accent: string }[] = [
   { kind: 'mysql',     icon: '🗄', label: 'MySQL',      desc: '连接 MySQL 数据库，查表写 SQL',  tag: 'RDBMS', accent: 'var(--accent)' },
   { kind: 'pgsql',     icon: '🐘', label: 'PostgreSQL', desc: '连接 PgSQL 数据库，查表写 SQL',  tag: 'RDBMS', accent: 'var(--accent-2)' },
+  { kind: 'oracle',    icon: '🔶', label: 'Oracle',     desc: '连接 Oracle 数据库，查表写 SQL', tag: 'RDBMS', accent: 'var(--accent)' },
+  { kind: 'dm',        icon: '🏮', label: '达梦 DM',    desc: '国产库，兼容 Oracle 语法',      tag: '国产',  accent: 'var(--accent-2)' },
+  { kind: 'gbase',     icon: '🧩', label: 'GBase 8a',   desc: '国产 MPP 库，兼容 MySQL 协议',  tag: '国产',  accent: 'var(--accent-3)' },
   { kind: 'https_api', icon: '🌐', label: 'HTTPS 接口', desc: 'REST API，可定时拉取',           tag: 'API',   accent: 'var(--accent-3)' },
 ];
 
@@ -36,6 +39,9 @@ const pickType = (k: DataSourceKind) => {
   testMsg.value = ''; testOk.value = null;
   if (k === 'mysql') cfg.value = { host: 'localhost', port: 3306, database: '', username: '', password: '', params: '' };
   if (k === 'pgsql') cfg.value = { host: 'localhost', port: 5432, database: '', username: '', password: '', params: '' };
+  if (k === 'oracle') cfg.value = { host: 'localhost', port: 1521, database: '', username: '', password: '' };
+  if (k === 'dm') cfg.value = { host: 'localhost', port: 5236, database: '', username: '', password: '' };
+  if (k === 'gbase') cfg.value = { host: 'localhost', port: 5258, database: '', username: '', password: '', params: '' };
   if (k === 'https_api') cfg.value = { url: '', method: 'GET', headers: {}, body: '', timeoutMs: 15000, schedule: { enabled: false, intervalSec: 300 } };
 };
 

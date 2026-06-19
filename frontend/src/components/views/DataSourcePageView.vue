@@ -47,12 +47,12 @@ const load = async () => {
 onMounted(load);
 
 const kindLabel: Record<string, string> = {
-  mysql: 'MySQL', pgsql: 'PostgreSQL',
+  mysql: 'MySQL', pgsql: 'PostgreSQL', oracle: 'Oracle', dm: '达梦 DM', gbase: 'GBase 8a',
   file_stored: '文件', https_api: 'HTTPS 接口',
   file: '文件(旧)', url: 'URL(旧)',
 };
 const kindIcon: Record<string, string> = {
-  mysql: '🗄', pgsql: '🐘', file_stored: '📄', https_api: '🌐',
+  mysql: '🗄', pgsql: '🐘', oracle: '🔶', dm: '🏮', gbase: '🧩', file_stored: '📄', https_api: '🌐',
   file: '📄', url: '🔗',
 };
 const statusLabel: Record<string, string> = {
@@ -62,7 +62,7 @@ const statusColor: Record<string, string> = {
   connected: '#22dd88', error: 'tomato', idle: '#aaa',
 };
 const canOpen = (d: DataSource) =>
-  ['mysql', 'pgsql', 'file_stored', 'https_api'].includes(d.kind);
+  ['mysql', 'pgsql', 'oracle', 'dm', 'gbase', 'file_stored', 'https_api'].includes(d.kind);
 
 const wsName = (id?: string) => {
   if (!id) return '—';
@@ -161,6 +161,9 @@ const testMsg = ref('');
 const TYPES: { kind: DataSourceKind; icon: string; label: string; desc: string }[] = [
   { kind: 'mysql',       icon: '🗄', label: 'MySQL',       desc: '连接 MySQL 数据库，查表写 SQL' },
   { kind: 'pgsql',       icon: '🐘', label: 'PostgreSQL',  desc: '连接 PgSQL 数据库，查表写 SQL' },
+  { kind: 'oracle',      icon: '🔶', label: 'Oracle',      desc: '连接 Oracle 数据库，查表写 SQL' },
+  { kind: 'dm',          icon: '🏮', label: '达梦 DM',     desc: '国产库，兼容 Oracle 语法' },
+  { kind: 'gbase',       icon: '🧩', label: 'GBase 8a',    desc: '国产 MPP 库，兼容 MySQL 协议' },
   { kind: 'https_api',   icon: '🌐', label: 'HTTPS 接口',  desc: 'REST API，可定时拉取' },
 ];
 
@@ -179,6 +182,9 @@ const pickType = (k: DataSourceKind) => {
   step.value = 'form';
   if (k === 'mysql')     cfg.value = { host: 'localhost', port: 3306, database: '', username: '', password: '', params: '' };
   if (k === 'pgsql')     cfg.value = { host: 'localhost', port: 5432, database: '', username: '', password: '', params: '' };
+  if (k === 'oracle')    cfg.value = { host: 'localhost', port: 1521, database: '', username: '', password: '' };
+  if (k === 'dm')        cfg.value = { host: 'localhost', port: 5236, database: '', username: '', password: '' };
+  if (k === 'gbase')     cfg.value = { host: 'localhost', port: 5258, database: '', username: '', password: '', params: '' };
   if (k === 'https_api') cfg.value = { url: '', method: 'GET', headers: {}, body: '', timeoutMs: 15000, schedule: { enabled: false, intervalSec: 300 } };
 };
 

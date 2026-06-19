@@ -272,6 +272,14 @@ public class ExperienceRepository {
         if ("websystem".equals(po.getOrigin()) && po.getSourceConfig() != null) {
             out.put("connection", maskConfig(parseConfig(po.getSourceConfig())));
         }
+        // 数据库 DDL 抽取的经验：回传来源数据源 id，供前端标注「来自哪个数据库」
+        // （数据源名称会随重命名变化，故只存 id，由前端按数据源列表实时解析名称）。
+        if ("ddl".equals(po.getOrigin()) && po.getSourceConfig() != null) {
+            Object dsId = parseConfig(po.getSourceConfig()).get("dataSourceId");
+            if (dsId != null && !String.valueOf(dsId).isBlank()) {
+                out.put("sourceDataSourceId", String.valueOf(dsId));
+            }
+        }
         return out;
     }
 

@@ -2,7 +2,7 @@ import { request } from './http';
 
 export type DataSourceKind =
   | 'file' | 'url'                // 旧的导入历史
-  | 'mysql' | 'pgsql' | 'file_stored' | 'https_api';
+  | 'mysql' | 'pgsql' | 'oracle' | 'dm' | 'gbase' | 'file_stored' | 'https_api';
 
 export interface DataSource {
   id: string;
@@ -178,7 +178,7 @@ export interface TableSchema {
 }
 
 export interface DatabaseSchema {
-  kind: 'mysql' | 'pgsql';
+  kind: 'mysql' | 'pgsql' | 'oracle' | 'dm' | 'gbase';
   database: string;
   tables: TableSchema[];
 }

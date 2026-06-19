@@ -115,8 +115,14 @@ public class ChatContextCollector {
         return ragChunks;
     }
 
+    /** 是否为可内省 schema 的数据库类型（mysql/pgsql/oracle 及国产库 dm/gbase）。 */
+    private static boolean isDbKind(String kind) {
+        return "mysql".equals(kind) || "pgsql".equals(kind) || "oracle".equals(kind)
+                || "dm".equals(kind) || "gbase".equals(kind);
+    }
+
     /**
-     * 枚举当前工作空间下已接入的 MySQL / PostgreSQL 数据源,拉表清单作为 LLM 结构化输入。
+     * 枚举当前工作空间下已接入的数据库（mysql/pgsql/oracle/dm/gbase）数据源,拉表清单作为 LLM 结构化输入。
      * <p>对每个 DB 单独 try-catch,坏的跳过；最多读 5 个数据源以控制总耗时；
      * 每个数据源在 SSE 里 emit 一条 step,让用户看到"读取了哪个库的哪些表"。
      */
@@ -134,7 +140,7 @@ public class ChatContextCollector {
         int probed = 0;
         for (Map<String, Object> ds : dsList) {
             String kind = String.valueOf(ds.get("kind"));
-            if (!"mysql".equals(kind) && !"pgsql".equals(kind)) continue;
+            if (!isDbKind(kind)) continue;
             // status=error 的连不上,直接跳过避免拖慢聊天
             Object statusObj = ds.get("status");
             if ("error".equals(String.valueOf(statusObj))) continue;
@@ -186,7 +192,7 @@ public class ChatContextCollector {
                 continue;
             }
             String kind = po.getKind();
-            if (!"mysql".equals(kind) && !"pgsql".equals(kind)) {
+            if (!isDbKind(kind)) {
                 step.step("skip_ref_ds_" + id,
                         "@ 引用的数据源「" + po.getName() + "」非数据库类型,跳过 schema 注入");
                 continue;

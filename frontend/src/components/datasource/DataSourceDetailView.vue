@@ -26,7 +26,10 @@ const tab = ref<string>('overview');
 // 导出 DDL 到经验库（仅 mysql/pgsql）
 const exportingDdl = ref(false);
 const ddlWithSamples = ref(false);       // 是否附带样例数据（含真实数据，默认关）
-const isDb = computed(() => ds.value?.kind === 'mysql' || ds.value?.kind === 'pgsql');
+// 可内省/查表写 SQL 的数据库类型（含国产库 dm/gbase）
+const DB_KINDS = ['mysql', 'pgsql', 'oracle', 'dm', 'gbase'];
+const isDbKind = (k?: string) => !!k && DB_KINDS.includes(k);
+const isDb = computed(() => isDbKind(ds.value?.kind));
 
 const exportDdlToExperience = async () => {
   if (!ds.value || exportingDdl.value) return;
@@ -62,7 +65,7 @@ const load = async () => {
 
 const tabs = computed(() => {
   if (!ds.value) return [];
-  if (ds.value.kind === 'mysql' || ds.value.kind === 'pgsql') {
+  if (isDbKind(ds.value.kind)) {
     return [
       { id: 'overview', label: 'ℹ 概览' },
       { id: 'tables',   label: '📋 表列表' },
@@ -130,7 +133,7 @@ watch(() => props.dsId, load);
         <button v-for="t in tabs" :key="t.id" :class="{ active: tab === t.id }" @click="tab = t.id">{{ t.label }}</button>
       </nav>
       <section class="content">
-        <DbOverviewTab v-if="tab === 'overview' && (ds.kind === 'mysql' || ds.kind === 'pgsql')" :ds="ds" @updated="load" />
+        <DbOverviewTab v-if="tab === 'overview' && isDbKind(ds.kind)" :ds="ds" @updated="load" />
         <DbTableListTab v-if="tab === 'tables'"
                         :ds-id="ds.id"
                         :ds-name="ds.name"
