@@ -79,6 +79,8 @@ export interface Experience {
   indexStatus?: 'none' | 'indexing' | 'indexed' | 'error';
   /** 来源：manual（手写）| upload（上传文件）| ddl（数据源结构导出供血）| websystem（接入的 web 系统）| explore（自动探索系统产物） */
   origin?: 'manual' | 'upload' | 'ddl' | 'websystem' | 'explore';
+  /** DDL 抽取经验的来源数据源 id（origin=ddl 时返回），前端据此实时解析「来自哪个数据库」。 */
+  sourceDataSourceId?: string;
   /** 接入 web 系统的连接配置（origin=websystem 时返回，密码已遮蔽、storageState 仅返回是否已配置）。 */
   connection?: WebSystemConnection;
   /** 上传文件的原始文件名（origin=upload） */
