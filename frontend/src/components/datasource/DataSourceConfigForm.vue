@@ -60,13 +60,13 @@ const scheduleInterval = computed({
       <input v-model="name" @input="emitName" placeholder="数据源名称" />
     </label>
 
-    <template v-if="kind === 'mysql' || kind === 'pgsql'">
+    <template v-if="kind === 'mysql' || kind === 'pgsql' || kind === 'oracle'">
       <label class="row"><span>Host</span><input v-model="cfg.host" @input="emitConfig" placeholder="localhost" /></label>
-      <label class="row"><span>Port</span><input v-model.number="cfg.port" @input="emitConfig" :placeholder="kind === 'mysql' ? '3306' : '5432'" /></label>
-      <label class="row"><span>Database</span><input v-model="cfg.database" @input="emitConfig" /></label>
+      <label class="row"><span>Port</span><input v-model.number="cfg.port" @input="emitConfig" :placeholder="kind === 'mysql' ? '3306' : kind === 'oracle' ? '1521' : '5432'" /></label>
+      <label class="row"><span>{{ kind === 'oracle' ? 'Service Name' : 'Database' }}</span><input v-model="cfg.database" @input="emitConfig" :placeholder="kind === 'oracle' ? '服务名或 SID，如 ORCLPDB1' : ''" /></label>
       <label class="row"><span>Username</span><input v-model="cfg.username" @input="emitConfig" /></label>
       <label class="row"><span>Password</span><input type="password" v-model="cfg.password" @input="emitConfig" /></label>
-      <label class="row"><span>额外参数</span><input v-model="cfg.params" @input="emitConfig" placeholder="如 useSSL=false&serverTimezone=UTC" /></label>
+      <label v-if="kind !== 'oracle'" class="row"><span>额外参数</span><input v-model="cfg.params" @input="emitConfig" placeholder="如 useSSL=false&serverTimezone=UTC" /></label>
     </template>
 
     <template v-if="kind === 'https_api'">

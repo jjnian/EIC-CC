@@ -23,9 +23,9 @@ const runTest = async () => {
 <template>
   <div class="overview">
     <dl>
-      <dt>类型</dt><dd>{{ ds.kind === 'mysql' ? 'MySQL' : 'PostgreSQL' }}</dd>
+      <dt>类型</dt><dd>{{ ds.kind === 'mysql' ? 'MySQL' : ds.kind === 'oracle' ? 'Oracle' : 'PostgreSQL' }}</dd>
       <dt>Host</dt><dd>{{ (ds.config as any)?.host }}:{{ (ds.config as any)?.port }}</dd>
-      <dt>Database</dt><dd>{{ (ds.config as any)?.database }}</dd>
+      <dt>{{ ds.kind === 'oracle' ? 'Service Name' : 'Database' }}</dt><dd>{{ (ds.config as any)?.database }}</dd>
       <dt>Username</dt><dd>{{ (ds.config as any)?.username }}</dd>
       <dt>状态</dt><dd>
         <span :class="['status', ds.status]">{{ ds.status }}</span>

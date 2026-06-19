@@ -134,7 +134,7 @@ public class ChatContextCollector {
         int probed = 0;
         for (Map<String, Object> ds : dsList) {
             String kind = String.valueOf(ds.get("kind"));
-            if (!"mysql".equals(kind) && !"pgsql".equals(kind)) continue;
+            if (!"mysql".equals(kind) && !"pgsql".equals(kind) && !"oracle".equals(kind)) continue;
             // status=error 的连不上,直接跳过避免拖慢聊天
             Object statusObj = ds.get("status");
             if ("error".equals(String.valueOf(statusObj))) continue;
@@ -186,7 +186,7 @@ public class ChatContextCollector {
                 continue;
             }
             String kind = po.getKind();
-            if (!"mysql".equals(kind) && !"pgsql".equals(kind)) {
+            if (!"mysql".equals(kind) && !"pgsql".equals(kind) && !"oracle".equals(kind)) {
                 step.step("skip_ref_ds_" + id,
                         "@ 引用的数据源「" + po.getName() + "」非数据库类型,跳过 schema 注入");
                 continue;

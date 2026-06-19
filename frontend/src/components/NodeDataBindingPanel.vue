@@ -32,7 +32,7 @@ const fetchResults = ref<Record<string, BindingFetchResult>>({});
 const fetching = ref<string | null>(null);
 
 const dbSources = computed(() =>
-  dataSources.value.filter(d => d.kind === 'mysql' || d.kind === 'pgsql'));
+  dataSources.value.filter(d => d.kind === 'mysql' || d.kind === 'pgsql' || d.kind === 'oracle'));
 const dsName = (id: string) => dataSources.value.find(d => d.id === id)?.name || id;
 
 const loadBindings = async () => {

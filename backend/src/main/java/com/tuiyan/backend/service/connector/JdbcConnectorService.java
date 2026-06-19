@@ -43,11 +43,27 @@ public class JdbcConnectorService {
     // 方言专用内省协作类：introspectSchema 按 kind 委派给它们
     private final MysqlSchemaIntrospector mysqlSchemaIntrospector;
     private final PgsqlSchemaIntrospector pgsqlSchemaIntrospector;
+    private final OracleSchemaIntrospector oracleSchemaIntrospector;
 
     public JdbcConnectorService(MysqlSchemaIntrospector mysqlSchemaIntrospector,
-                                PgsqlSchemaIntrospector pgsqlSchemaIntrospector) {
+                                PgsqlSchemaIntrospector pgsqlSchemaIntrospector,
+                                OracleSchemaIntrospector oracleSchemaIntrospector) {
         this.mysqlSchemaIntrospector = mysqlSchemaIntrospector;
         this.pgsqlSchemaIntrospector = pgsqlSchemaIntrospector;
+        this.oracleSchemaIntrospector = oracleSchemaIntrospector;
+    }
+
+    /** 行数限制子句：Oracle 用 {@code FETCH FIRST n ROWS ONLY}，MySQL/PgSQL 用 {@code LIMIT n}。 */
+    private static String rowLimitClause(String kind, int n) {
+        return "oracle".equals(kind) ? " FETCH FIRST " + n + " ROWS ONLY" : " LIMIT " + n;
+    }
+
+    /** SQL 是否已自带行数限制（避免重复追加；upperSql 须为大写）。 */
+    private static boolean hasRowLimit(String kind, String upperSql) {
+        if ("oracle".equals(kind)) {
+            return upperSql.contains("FETCH FIRST") || upperSql.contains("FETCH NEXT") || upperSql.contains("ROWNUM");
+        }
+        return upperSql.contains(" LIMIT ");
     }
 
     // ============================================================
@@ -94,7 +110,11 @@ public class JdbcConnectorService {
     private DataSource buildTempDataSource(String kind, Map<String, Object> cfg) {
         String host = strOf(cfg, "host", "localhost");
         Object portObj = cfg.get("port");
-        int port = portObj instanceof Number n ? n.intValue() : ("mysql".equals(kind) ? 3306 : 5432);
+        int port = portObj instanceof Number n ? n.intValue() : switch (kind) {
+            case "mysql" -> 3306;
+            case "oracle" -> 1521;
+            default -> 5432;
+        };
         String db = strOf(cfg, "database", "");
         String user = strOf(cfg, "username", "");
         String pwd = strOf(cfg, "password", "");
@@ -112,6 +132,10 @@ public class JdbcConnectorService {
             url = "jdbc:postgresql://" + host + ":" + port + "/" + db;
             if (!params.isBlank()) url += "?" + params;
             driver = "org.postgresql.Driver";
+        } else if ("oracle".equals(kind)) {
+            // thin 驱动 service-name 形式：database 字段填服务名（或 SID）。thin URL 不接受 ?k=v 查询参数，故忽略 params。
+            url = "jdbc:oracle:thin:@//" + host + ":" + port + "/" + db;
+            driver = "oracle.jdbc.OracleDriver";
         } else {
             throw new IllegalArgumentException("不支持的 kind: " + kind);
         }
@@ -183,6 +207,9 @@ public class JdbcConnectorService {
             if ("mysql".equals(kind)) {
                 sql = "SELECT TABLE_NAME FROM information_schema.tables " +
                       "WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME";
+            } else if ("oracle".equals(kind)) {
+                // 当前登录用户(schema)下的表
+                sql = "SELECT table_name FROM user_tables ORDER BY table_name";
             } else {
                 sql = "SELECT tablename FROM pg_catalog.pg_tables " +
                       "WHERE schemaname NOT IN ('pg_catalog','information_schema') " +
@@ -216,6 +243,9 @@ public class JdbcConnectorService {
             if ("pgsql".equals(kind)) {
                 return pgsqlSchemaIntrospector.introspect(conn, dbName, safeLimit);
             }
+            if ("oracle".equals(kind)) {
+                return oracleSchemaIntrospector.introspect(conn, dbName, safeLimit);
+            }
             throw new IllegalArgumentException("不支持的 kind: " + kind);
         } catch (SQLException e) {
             throw new IllegalStateException("内省 schema 失败: " + e.getMessage(), e);
@@ -230,7 +260,7 @@ public class JdbcConnectorService {
         }
         int safeLimit = Math.max(1, Math.min(limit <= 0 ? 50 : limit, MAX_LIMIT));
         String quoted = "mysql".equals(kind) ? "`" + table + "`" : "\"" + table + "\"";
-        String sql = "SELECT * FROM " + quoted + " LIMIT " + safeLimit;
+        String sql = "SELECT * FROM " + quoted + rowLimitClause(kind, safeLimit);
         SqlExecuteResponse r = executeSql(kind, cfg, sql, safeLimit);
         TablePreviewResponse out = new TablePreviewResponse();
         out.setColumns(r.getColumns());
@@ -260,10 +290,10 @@ public class JdbcConnectorService {
             throw new IllegalArgumentException("SQL 含禁止的文件/系统操作（如 INTO OUTFILE / pg_read_file 等）");
         }
         int safeLimit = Math.max(1, Math.min(limit <= 0 ? DEFAULT_LIMIT : limit, MAX_LIMIT));
-        // SELECT 类语句没有 LIMIT 时追加
+        // SELECT 类语句没有行数限制时按方言追加（MySQL/PgSQL: LIMIT；Oracle: FETCH FIRST）
         boolean isSelect = sql.toUpperCase().startsWith("SELECT");
-        boolean hasLimit = sql.toUpperCase().contains(" LIMIT ");
-        if (isSelect && !hasLimit) sql = sql + " LIMIT " + safeLimit;
+        boolean hasLimit = hasRowLimit(kind, sql.toUpperCase());
+        if (isSelect && !hasLimit) sql = sql + rowLimitClause(kind, safeLimit);
 
         long t0 = System.currentTimeMillis();
         try (HikariDataSource ds = (HikariDataSource) buildTempDataSource(kind, cfg);
@@ -328,7 +358,7 @@ public class JdbcConnectorService {
                 if (t.isView()) continue;            // 视图取数可能很重,只采基表
                 if (used >= capTables) break;
                 used++;
-                String sql = "SELECT * FROM " + quotedRef(kind, t.name()) + " LIMIT " + n;
+                String sql = "SELECT * FROM " + quotedRef(kind, t.name()) + rowLimitClause(kind, n);
                 try (PreparedStatement ps = conn.prepareStatement(sql)) {
                     ps.setQueryTimeout(QUERY_TIMEOUT_SEC);
                     ps.setMaxRows(n);

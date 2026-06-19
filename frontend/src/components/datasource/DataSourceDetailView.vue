@@ -26,7 +26,7 @@ const tab = ref<string>('overview');
 // 导出 DDL 到经验库（仅 mysql/pgsql）
 const exportingDdl = ref(false);
 const ddlWithSamples = ref(false);       // 是否附带样例数据（含真实数据，默认关）
-const isDb = computed(() => ds.value?.kind === 'mysql' || ds.value?.kind === 'pgsql');
+const isDb = computed(() => ds.value?.kind === 'mysql' || ds.value?.kind === 'pgsql' || ds.value?.kind === 'oracle');
 
 const exportDdlToExperience = async () => {
   if (!ds.value || exportingDdl.value) return;
@@ -62,7 +62,7 @@ const load = async () => {
 
 const tabs = computed(() => {
   if (!ds.value) return [];
-  if (ds.value.kind === 'mysql' || ds.value.kind === 'pgsql') {
+  if (ds.value.kind === 'mysql' || ds.value.kind === 'pgsql' || ds.value.kind === 'oracle') {
     return [
       { id: 'overview', label: 'ℹ 概览' },
       { id: 'tables',   label: '📋 表列表' },
@@ -130,7 +130,7 @@ watch(() => props.dsId, load);
         <button v-for="t in tabs" :key="t.id" :class="{ active: tab === t.id }" @click="tab = t.id">{{ t.label }}</button>
       </nav>
       <section class="content">
-        <DbOverviewTab v-if="tab === 'overview' && (ds.kind === 'mysql' || ds.kind === 'pgsql')" :ds="ds" @updated="load" />
+        <DbOverviewTab v-if="tab === 'overview' && (ds.kind === 'mysql' || ds.kind === 'pgsql' || ds.kind === 'oracle')" :ds="ds" @updated="load" />
         <DbTableListTab v-if="tab === 'tables'"
                         :ds-id="ds.id"
                         :ds-name="ds.name"

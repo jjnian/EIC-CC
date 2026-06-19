@@ -294,7 +294,7 @@ const ctxDsKind = computed(() => {
 });
 // 只有「当前工作空间」下的库类数据源(mysql/pgsql)能抽取结构:from-ddl 走当前工作空间内省,跨空间会 403。
 const canExtractDdl = computed(() =>
-  props.isCurrent && (ctxDsKind.value === 'mysql' || ctxDsKind.value === 'pgsql'));
+  props.isCurrent && (ctxDsKind.value === 'mysql' || ctxDsKind.value === 'pgsql' || ctxDsKind.value === 'oracle'));
 
 // 右键数据源 →「抽取到经验库」:把库结构(DDL)沉淀成一条经验库文件,再刷新经验树。
 const extractToExperienceAct = async () => {
@@ -499,7 +499,7 @@ const deleteExpFolderAct = async () => {
 };
 
 const kindIcon: Record<string, string> = {
-  mysql: '🗄', pgsql: '🐘', file_stored: '📄', https_api: '🌐',
+  mysql: '🗄', pgsql: '🐘', oracle: '🔶', file_stored: '📄', https_api: '🌐',
 };
 
 /** 经验条目图标：上传文件 / DDL 导出 / 系统探索 / 手写经验区分。 */
@@ -598,6 +598,7 @@ const fmtTime = (t: number) => {
 const kindLabel: Record<string, string> = {
   mysql: 'MySQL',
   pgsql: 'PgSQL',
+  oracle: 'Oracle',
   file_stored: '文件',
   https_api: 'HTTPS',
 };
