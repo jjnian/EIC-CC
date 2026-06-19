@@ -5,6 +5,9 @@ import { confirm as uiConfirm } from '../../composables/useConfirm';
 import { toast } from '../../composables/useToast';
 import { ApiError } from '../../api/http';
 import type { Workspace } from '../../api/workspaces';
+import FormField from '../form/FormField.vue';
+import BaseInput from '../form/BaseInput.vue';
+import BaseTextarea from '../form/BaseTextarea.vue';
 
 const emit = defineEmits<{
   (e: 'switch', id: string): void;
@@ -160,14 +163,12 @@ const formatTime = (ts?: number) => ts ? new Date(ts).toLocaleString() : '';
           <button class="modal-close" @click="showCreate = false">×</button>
         </div>
         <div class="modal-body">
-          <div class="form-group">
-            <label>名称</label>
-            <input v-model="newName" maxlength="120" placeholder="例如：风控项目" @keydown.enter="submitCreate" />
-          </div>
-          <div class="form-group">
-            <label>描述（可选）</label>
-            <textarea v-model="newDesc" rows="3" class="form-textarea" placeholder="记录该工作空间的用途…"></textarea>
-          </div>
+          <FormField label="名称" required>
+            <BaseInput v-model="newName" placeholder="例如：风控项目" @enter="submitCreate" />
+          </FormField>
+          <FormField label="描述" hint="可选">
+            <BaseTextarea v-model="newDesc" :rows="3" placeholder="记录该工作空间的用途…" />
+          </FormField>
         </div>
         <div class="modal-footer">
           <button class="modal-btn cancel" @click="showCreate = false">取消</button>
@@ -188,14 +189,12 @@ const formatTime = (ts?: number) => ts ? new Date(ts).toLocaleString() : '';
           <button class="modal-close" @click="editing = null">×</button>
         </div>
         <div class="modal-body">
-          <div class="form-group">
-            <label>名称</label>
-            <input v-model="editName" maxlength="120" @keydown.enter="submitEdit" />
-          </div>
-          <div class="form-group">
-            <label>描述</label>
-            <textarea v-model="editDesc" rows="3" class="form-textarea"></textarea>
-          </div>
+          <FormField label="名称" required>
+            <BaseInput v-model="editName" @enter="submitEdit" />
+          </FormField>
+          <FormField label="描述">
+            <BaseTextarea v-model="editDesc" :rows="3" />
+          </FormField>
         </div>
         <div class="modal-footer">
           <button class="modal-btn cancel" @click="editing = null">取消</button>

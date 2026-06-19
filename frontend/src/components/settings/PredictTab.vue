@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { ModelConfig } from '../../types';
+import BaseSelect from '../form/BaseSelect.vue';
 
 defineProps<{
   prefs: any;
   models: ModelConfig[];
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'save'): void;
 }>();
 </script>
@@ -60,10 +61,10 @@ defineEmits<{
           <div class="pref-desc">不指定时使用此模型驱动推演与聊天</div>
         </div>
         <div class="pref-control">
-          <select class="preset-select" v-model="prefs.defaultModelConfigId" @change="$emit('save')">
+          <BaseSelect :modelValue="prefs.defaultModelConfigId" @update:modelValue="prefs.defaultModelConfigId = $event; emit('save')">
             <option value="">— 使用系统默认 —</option>
             <option v-for="m in models.filter(x => x.enabled)" :key="m.id" :value="m.id">{{ m.name }}</option>
-          </select>
+          </BaseSelect>
         </div>
       </div>
     </div>
