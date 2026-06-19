@@ -15,13 +15,16 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Oracle schema 内省：用数据字典视图（USER_*）拉当前登录用户（schema）下的表/视图/列/键。
+ * Oracle / 达梦(DM) schema 内省：用 Oracle 兼容的数据字典视图（USER_*）拉当前登录用户（schema）
+ * 下的表/视图/列/键。达梦高度兼容 Oracle 数据字典，故复用本内省器（调用方负责把结果的 kind
+ * 重新标记为 "dm"）。
  * <p>从 {@link JdbcConnectorService} 委派的方言专用内省逻辑，结构与
  * {@link MysqlSchemaIntrospector} / {@link PgsqlSchemaIntrospector} 平行。
  * <p>要点：
  * <ul>
  *   <li>只看当前 schema（USER_TABLES / USER_VIEWS），不跨用户，避免误扫系统对象。</li>
- *   <li>列类型由 DATA_TYPE 拼上长度/精度还原成 {@code VARCHAR2(50)} / {@code NUMBER(10,2)} 形式。</li>
+ *   <li>列类型由 DATA_TYPE 拼上长度/精度还原成 {@code VARCHAR2(50)} / {@code NUMBER(10,2)} 形式；
+ *       长度用 DATA_LENGTH（Oracle 与达梦都有该列，兼容性最好）。</li>
  *   <li>规避 LONG 字段坑：USER_TAB_COLUMNS.DATA_DEFAULT 与 USER_VIEWS.TEXT 均为 LONG，
  *       与其它列同查会报流错误，故默认值统一留空、视图定义体暂不取（仍登记为视图对象）。</li>
  *   <li>主键/外键/唯一键来自 USER_CONSTRAINTS（'P' / 'R' / 'U'）+ USER_CONS_COLUMNS。</li>
@@ -30,7 +33,7 @@ import java.util.Set;
 @Component
 public class OracleSchemaIntrospector {
 
-    /** Oracle schema 内省：USER_* 数据字典视图。 */
+    /** Oracle / 达梦 schema 内省：USER_* 数据字典视图。 */
     public JdbcConnectorService.DatabaseSchemaInfo introspect(Connection conn, String dbName, int tableLimit) throws SQLException {
         Map<String, TableBuilder> tables = new LinkedHashMap<>();
 
@@ -98,7 +101,7 @@ public class OracleSchemaIntrospector {
                        col.data_type
                          || CASE
                               WHEN col.data_type IN ('VARCHAR2','CHAR','NVARCHAR2','NCHAR','RAW')
-                                   THEN '(' || col.char_length || ')'
+                                   THEN '(' || col.data_length || ')'
                               WHEN col.data_type = 'NUMBER' AND col.data_precision IS NOT NULL
                                    THEN '(' || col.data_precision
                                         || CASE WHEN NVL(col.data_scale, 0) > 0 THEN ',' || col.data_scale ELSE '' END

@@ -110,7 +110,7 @@ public class DataSourceService {
     public DataSourceTestResponse testInline(String kind, Map<String, Object> config) {
         validateKind(kind);
         return switch (kind) {
-            case "mysql", "pgsql", "oracle" -> jdbc.test(kind, config);
+            case "mysql", "pgsql", "oracle", "dm", "gbase" -> jdbc.test(kind, config);
             case "https_api" -> {
                 HttpExecuteResponse r = http.execute(config);
                 yield new DataSourceTestResponse(
@@ -125,7 +125,7 @@ public class DataSourceService {
     private DataSourceTestResponse dispatchTest(DataSourcePO po) {
         Map<String, Object> cfg = repo.readConfig(po);
         return switch (po.getKind()) {
-            case "mysql", "pgsql", "oracle" -> jdbc.test(po.getKind(), cfg);
+            case "mysql", "pgsql", "oracle", "dm", "gbase" -> jdbc.test(po.getKind(), cfg);
             case "https_api" -> {
                 HttpExecuteResponse r = http.execute(cfg);
                 yield new DataSourceTestResponse(
@@ -141,19 +141,19 @@ public class DataSourceService {
 
     public List<String> listTables(String id) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "mysql", "pgsql", "oracle");
+        requireKindIn(po, "mysql", "pgsql", "oracle", "dm", "gbase");
         return jdbc.listTables(po.getKind(), repo.readConfig(po));
     }
 
     public TablePreviewResponse previewTable(String id, String table, int limit) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "mysql", "pgsql", "oracle");
+        requireKindIn(po, "mysql", "pgsql", "oracle", "dm", "gbase");
         return jdbc.previewTable(po.getKind(), repo.readConfig(po), table, limit);
     }
 
     public SqlExecuteResponse executeSql(String id, SqlExecuteRequest req) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "mysql", "pgsql", "oracle");
+        requireKindIn(po, "mysql", "pgsql", "oracle", "dm", "gbase");
         int limit = req.getLimit() == null ? JdbcConnectorService.DEFAULT_LIMIT : req.getLimit();
         return jdbc.executeSql(po.getKind(), repo.readConfig(po), req.getSql(), limit);
     }
@@ -164,7 +164,7 @@ public class DataSourceService {
      */
     public Map<String, Object> introspectSchema(String id) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "mysql", "pgsql", "oracle");
+        requireKindIn(po, "mysql", "pgsql", "oracle", "dm", "gbase");
         JdbcConnectorService.DatabaseSchemaInfo info =
                 jdbc.introspectSchema(po.getKind(), repo.readConfig(po), 500);
         return schemaInfoDtoMapper.toMap(info);
@@ -189,7 +189,7 @@ public class DataSourceService {
      */
     public DdlExport exportDdl(String id, int sampleRows) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "mysql", "pgsql", "oracle");
+        requireKindIn(po, "mysql", "pgsql", "oracle", "dm", "gbase");
         Map<String, Object> cfg = repo.readConfig(po);
         JdbcConnectorService.DatabaseSchemaInfo info = jdbc.introspectSchema(po.getKind(), cfg, 500);
         Map<String, JdbcConnectorService.TableSample> samples = Map.of();
@@ -246,7 +246,7 @@ public class DataSourceService {
 
     // file_stored 已不再作为可创建类型（文件上传迁移至经验库）；遗留行仍可删除。
     private static final Set<String> ALLOWED_KINDS =
-            Set.of("mysql", "pgsql", "oracle", "https_api");
+            Set.of("mysql", "pgsql", "oracle", "dm", "gbase", "https_api");
 
     private static void validateKind(String kind) {
         if (!ALLOWED_KINDS.contains(kind)) {

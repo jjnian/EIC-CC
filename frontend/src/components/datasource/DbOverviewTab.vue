@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import type { DataSource } from '../../api/dataSources';
 import { testDataSource } from '../../api/dataSources';
 import { toast } from '../../composables/useToast';
@@ -7,6 +7,10 @@ import { toast } from '../../composables/useToast';
 const props = defineProps<{ ds: DataSource }>();
 const emit = defineEmits<{ (e: 'updated'): void }>();
 const testing = ref(false);
+
+const kindLabel = computed(() => ({
+  mysql: 'MySQL', pgsql: 'PostgreSQL', oracle: 'Oracle', dm: '达梦 DM', gbase: 'GBase 8a',
+} as Record<string, string>)[props.ds.kind] || props.ds.kind);
 
 const fmtTime = (t?: number) => t ? new Date(t).toLocaleString() : '—';
 
@@ -23,9 +27,9 @@ const runTest = async () => {
 <template>
   <div class="overview">
     <dl>
-      <dt>类型</dt><dd>{{ ds.kind === 'mysql' ? 'MySQL' : ds.kind === 'oracle' ? 'Oracle' : 'PostgreSQL' }}</dd>
+      <dt>类型</dt><dd>{{ kindLabel }}</dd>
       <dt>Host</dt><dd>{{ (ds.config as any)?.host }}:{{ (ds.config as any)?.port }}</dd>
-      <dt>{{ ds.kind === 'oracle' ? 'Service Name' : 'Database' }}</dt><dd>{{ (ds.config as any)?.database }}</dd>
+      <dt>{{ ds.kind === 'oracle' ? 'Service Name' : ds.kind === 'dm' ? 'Schema' : 'Database' }}</dt><dd>{{ (ds.config as any)?.database }}</dd>
       <dt>Username</dt><dd>{{ (ds.config as any)?.username }}</dd>
       <dt>状态</dt><dd>
         <span :class="['status', ds.status]">{{ ds.status }}</span>

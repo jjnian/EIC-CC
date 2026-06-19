@@ -53,9 +53,19 @@ public class JdbcConnectorService {
         this.oracleSchemaIntrospector = oracleSchemaIntrospector;
     }
 
-    /** 行数限制子句：Oracle 用 {@code FETCH FIRST n ROWS ONLY}，MySQL/PgSQL 用 {@code LIMIT n}。 */
+    /** 反引号方言（MySQL 系：mysql / gbase 走 MySQL 协议）用反引号；其余（pgsql/oracle/dm）用双引号。 */
+    private static boolean usesBacktick(String kind) {
+        return "mysql".equals(kind) || "gbase".equals(kind);
+    }
+
+    /** 行数限制子句：Oracle 用 {@code FETCH FIRST n ROWS ONLY}，其余（mysql/pgsql/oracle 系达梦/gbase）用 {@code LIMIT n}。 */
     private static String rowLimitClause(String kind, int n) {
         return "oracle".equals(kind) ? " FETCH FIRST " + n + " ROWS ONLY" : " LIMIT " + n;
+    }
+
+    /** 把内省结果的 kind 重新标记（达梦复用 Oracle 内省器、GBase 复用 MySQL 内省器，需还原真实 kind）。 */
+    private static DatabaseSchemaInfo restamp(DatabaseSchemaInfo info, String kind) {
+        return new DatabaseSchemaInfo(kind, info.database(), info.tables());
     }
 
     /** SQL 是否已自带行数限制（避免重复追加；upperSql 须为大写）。 */
@@ -113,6 +123,8 @@ public class JdbcConnectorService {
         int port = portObj instanceof Number n ? n.intValue() : switch (kind) {
             case "mysql" -> 3306;
             case "oracle" -> 1521;
+            case "dm" -> 5236;
+            case "gbase" -> 5258;
             default -> 5432;
         };
         String db = strOf(cfg, "database", "");
@@ -122,7 +134,8 @@ public class JdbcConnectorService {
 
         String url;
         String driver;
-        if ("mysql".equals(kind)) {
+        if ("mysql".equals(kind) || "gbase".equals(kind)) {
+            // GBase 8a 走 MySQL 线协议，复用 MySQL 驱动直连。
             // 强制关闭本地文件加载/反序列化（防 JDBC 攻击：恶意服务器读取后端文件或反序列化 RCE）
             String hardened = "allowLoadLocalInfile=false&allowUrlInLocalInfile=false&autoDeserialize=false";
             url = "jdbc:mysql://" + host + ":" + port + "/" + db + "?" + hardened
@@ -136,6 +149,10 @@ public class JdbcConnectorService {
             // thin 驱动 service-name 形式：database 字段填服务名（或 SID）。thin URL 不接受 ?k=v 查询参数，故忽略 params。
             url = "jdbc:oracle:thin:@//" + host + ":" + port + "/" + db;
             driver = "oracle.jdbc.OracleDriver";
+        } else if ("dm".equals(kind)) {
+            // 达梦 DM8：jdbc:dm://host:port，登录用户即默认 schema（database 字段留空亦可）。
+            url = "jdbc:dm://" + host + ":" + port + (params.isBlank() ? "" : "?" + params);
+            driver = "dm.jdbc.driver.DmDriver";
         } else {
             throw new IllegalArgumentException("不支持的 kind: " + kind);
         }
@@ -204,11 +221,11 @@ public class JdbcConnectorService {
         try (HikariDataSource ds = (HikariDataSource) buildTempDataSource(kind, cfg);
              Connection conn = ds.getConnection()) {
             String sql;
-            if ("mysql".equals(kind)) {
+            if ("mysql".equals(kind) || "gbase".equals(kind)) {
                 sql = "SELECT TABLE_NAME FROM information_schema.tables " +
                       "WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME";
-            } else if ("oracle".equals(kind)) {
-                // 当前登录用户(schema)下的表
+            } else if ("oracle".equals(kind) || "dm".equals(kind)) {
+                // 当前登录用户(schema)下的表（Oracle / 达梦 数据字典）
                 sql = "SELECT table_name FROM user_tables ORDER BY table_name";
             } else {
                 sql = "SELECT tablename FROM pg_catalog.pg_tables " +
@@ -240,11 +257,19 @@ public class JdbcConnectorService {
             if ("mysql".equals(kind)) {
                 return mysqlSchemaIntrospector.introspect(conn, dbName, safeLimit);
             }
+            if ("gbase".equals(kind)) {
+                // GBase 8a 兼容 MySQL information_schema，复用 MySQL 内省器后还原 kind
+                return restamp(mysqlSchemaIntrospector.introspect(conn, dbName, safeLimit), "gbase");
+            }
             if ("pgsql".equals(kind)) {
                 return pgsqlSchemaIntrospector.introspect(conn, dbName, safeLimit);
             }
             if ("oracle".equals(kind)) {
                 return oracleSchemaIntrospector.introspect(conn, dbName, safeLimit);
+            }
+            if ("dm".equals(kind)) {
+                // 达梦兼容 Oracle 数据字典(USER_*)，复用 Oracle 内省器后还原 kind
+                return restamp(oracleSchemaIntrospector.introspect(conn, dbName, safeLimit), "dm");
             }
             throw new IllegalArgumentException("不支持的 kind: " + kind);
         } catch (SQLException e) {
@@ -259,7 +284,7 @@ public class JdbcConnectorService {
             throw new IllegalArgumentException("非法表名: " + table);
         }
         int safeLimit = Math.max(1, Math.min(limit <= 0 ? 50 : limit, MAX_LIMIT));
-        String quoted = "mysql".equals(kind) ? "`" + table + "`" : "\"" + table + "\"";
+        String quoted = usesBacktick(kind) ? "`" + table + "`" : "\"" + table + "\"";
         String sql = "SELECT * FROM " + quoted + rowLimitClause(kind, safeLimit);
         SqlExecuteResponse r = executeSql(kind, cfg, sql, safeLimit);
         TablePreviewResponse out = new TablePreviewResponse();
@@ -388,9 +413,9 @@ public class JdbcConnectorService {
         return out;
     }
 
-    /** 把表名(可能是 pgsql 的 schema.table)安全地加引号:mysql 反引号,pgsql 双引号并按点拆分。 */
+    /** 把表名(可能是 pgsql 的 schema.table)安全地加引号:mysql/gbase 反引号,pgsql/oracle/dm 双引号并按点拆分。 */
     private static String quotedRef(String kind, String name) {
-        if ("mysql".equals(kind)) return "`" + name.replace("`", "``") + "`";
+        if (usesBacktick(kind)) return "`" + name.replace("`", "``") + "`";
         int dot = name.indexOf('.');
         if (dot > 0) {
             String sch = name.substring(0, dot), tbl = name.substring(dot + 1);

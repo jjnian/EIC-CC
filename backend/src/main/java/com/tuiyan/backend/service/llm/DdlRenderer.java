@@ -32,7 +32,8 @@ public class DdlRenderer {
      * @param samples 表名({@link TableInfo#name()}) → 样例;为空则不输出样例
      */
     public String render(DatabaseSchemaInfo s, Map<String, TableSample> samples) {
-        boolean mysql = "mysql".equalsIgnoreCase(s.kind());
+        // mysql 与 gbase（8a 走 MySQL 协议）用反引号；pgsql/oracle/dm 用双引号
+        boolean mysql = "mysql".equalsIgnoreCase(s.kind()) || "gbase".equalsIgnoreCase(s.kind());
         if (samples == null) samples = Map.of();
         StringBuilder sb = new StringBuilder();
         sb.append("-- 数据库类型: ").append(s.kind()).append('\n');

@@ -22,6 +22,17 @@ watch(() => props.nameValue, (v) => { name.value = v || ''; });
 const emitConfig = () => emit('update:modelValue', { ...cfg.value });
 const emitName = () => emit('update:nameValue', name.value);
 
+// 各数据库类型的连接字段提示（端口默认值 / 库字段名称与占位）
+const dbPortHint = computed(() => ({
+  mysql: '3306', pgsql: '5432', oracle: '1521', dm: '5236', gbase: '5258',
+} as Record<string, string>)[props.kind] || '');
+const dbNameLabel = computed(() =>
+  props.kind === 'oracle' ? 'Service Name' : props.kind === 'dm' ? 'Schema' : 'Database');
+const dbNameHint = computed(() =>
+  props.kind === 'oracle' ? '服务名或 SID，如 ORCLPDB1'
+    : props.kind === 'dm' ? '模式名，可空（默认取登录用户）'
+    : '');
+
 // headers 走 [{key,value}] 列表方便编辑
 const headerList = ref<{ k: string; v: string }[]>(
   Object.entries(cfg.value.headers || {}).map(([k, v]) => ({ k, v: String(v) })),
@@ -60,13 +71,13 @@ const scheduleInterval = computed({
       <input v-model="name" @input="emitName" placeholder="数据源名称" />
     </label>
 
-    <template v-if="kind === 'mysql' || kind === 'pgsql' || kind === 'oracle'">
+    <template v-if="kind === 'mysql' || kind === 'pgsql' || kind === 'oracle' || kind === 'dm' || kind === 'gbase'">
       <label class="row"><span>Host</span><input v-model="cfg.host" @input="emitConfig" placeholder="localhost" /></label>
-      <label class="row"><span>Port</span><input v-model.number="cfg.port" @input="emitConfig" :placeholder="kind === 'mysql' ? '3306' : kind === 'oracle' ? '1521' : '5432'" /></label>
-      <label class="row"><span>{{ kind === 'oracle' ? 'Service Name' : 'Database' }}</span><input v-model="cfg.database" @input="emitConfig" :placeholder="kind === 'oracle' ? '服务名或 SID，如 ORCLPDB1' : ''" /></label>
+      <label class="row"><span>Port</span><input v-model.number="cfg.port" @input="emitConfig" :placeholder="dbPortHint" /></label>
+      <label class="row"><span>{{ dbNameLabel }}</span><input v-model="cfg.database" @input="emitConfig" :placeholder="dbNameHint" /></label>
       <label class="row"><span>Username</span><input v-model="cfg.username" @input="emitConfig" /></label>
       <label class="row"><span>Password</span><input type="password" v-model="cfg.password" @input="emitConfig" /></label>
-      <label v-if="kind !== 'oracle'" class="row"><span>额外参数</span><input v-model="cfg.params" @input="emitConfig" placeholder="如 useSSL=false&serverTimezone=UTC" /></label>
+      <label v-if="kind !== 'oracle' && kind !== 'dm'" class="row"><span>额外参数</span><input v-model="cfg.params" @input="emitConfig" placeholder="如 useSSL=false&serverTimezone=UTC" /></label>
     </template>
 
     <template v-if="kind === 'https_api'">
