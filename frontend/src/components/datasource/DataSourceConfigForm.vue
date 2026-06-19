@@ -71,15 +71,19 @@ const scheduleInterval = computed({
 });
 
 // ── 校验：按数据源类型组装规则 ──
-const isDb = computed(() => props.kind === 'mysql' || props.kind === 'pgsql');
-const ruleMap = computed(() => {
+const isDb = computed(() => ['mysql', 'pgsql', 'oracle', 'dm', 'gbase'].includes(props.kind));
+const ruleMap = computed<Record<string, any[]>>(() => {
   if (isDb.value) {
-    return {
+    const map: Record<string, any[]> = {
       host: [rules.required('请填写 Host')],
       port: [rules.required('请填写端口'), rules.port()],
-      database: [rules.required('请填写数据库名')],
       username: [rules.required('请填写用户名')],
     };
+    // 达梦的「Schema」可空（默认取登录用户）；其余库的库名/服务名必填
+    if (props.kind !== 'dm') {
+      map.database = [rules.required(props.kind === 'oracle' ? '请填写服务名' : '请填写数据库名')];
+    }
+    return map;
   }
   return {
     url: [rules.required('请填写 URL'), rules.url()],
@@ -110,13 +114,34 @@ watch([isValid, () => props.kind], () => emit('validity', isValid.value), { imme
       <BaseInput v-model="name" placeholder="数据源名称" @update:modelValue="emitName" />
     </FormField>
 
-    <template v-if="kind === 'mysql' || kind === 'pgsql' || kind === 'oracle' || kind === 'dm' || kind === 'gbase'">
-      <label class="row"><span>Host</span><input v-model="cfg.host" @input="emitConfig" placeholder="localhost" /></label>
-      <label class="row"><span>Port</span><input v-model.number="cfg.port" @input="emitConfig" :placeholder="dbPortHint" /></label>
-      <label class="row"><span>{{ dbNameLabel }}</span><input v-model="cfg.database" @input="emitConfig" :placeholder="dbNameHint" /></label>
-      <label class="row"><span>Username</span><input v-model="cfg.username" @input="emitConfig" /></label>
-      <label class="row"><span>Password</span><input type="password" v-model="cfg.password" @input="emitConfig" /></label>
-      <label v-if="kind !== 'oracle' && kind !== 'dm'" class="row"><span>额外参数</span><input v-model="cfg.params" @input="emitConfig" placeholder="如 useSSL=false&serverTimezone=UTC" /></label>
+    <template v-if="isDb">
+      <div class="ds-grid">
+        <FormField label="Host" required :error="fieldError('host')">
+          <BaseInput v-model="cfg.host" placeholder="localhost"
+            @update:modelValue="emitConfig" @blur="validateField('host')" />
+        </FormField>
+        <FormField label="端口" required :error="fieldError('port')">
+          <BaseInput v-model="cfg.port" numeric :placeholder="dbPortHint"
+            @update:modelValue="emitConfig" @blur="validateField('port')" />
+        </FormField>
+      </div>
+      <FormField :label="dbNameLabel" :required="kind !== 'dm'" :hint="dbNameHint || undefined" :error="fieldError('database')">
+        <BaseInput v-model="cfg.database" :placeholder="dbNameHint"
+          @update:modelValue="emitConfig" @blur="validateField('database')" />
+      </FormField>
+      <div class="ds-grid">
+        <FormField label="用户名" required :error="fieldError('username')">
+          <BaseInput v-model="cfg.username"
+            @update:modelValue="emitConfig" @blur="validateField('username')" />
+        </FormField>
+        <FormField label="密码">
+          <BaseInput v-model="cfg.password" type="password" @update:modelValue="emitConfig" />
+        </FormField>
+      </div>
+      <FormField v-if="kind !== 'oracle' && kind !== 'dm'" label="额外参数" hint="可选">
+        <BaseInput v-model="cfg.params" placeholder="如 useSSL=false&serverTimezone=UTC"
+          @update:modelValue="emitConfig" />
+      </FormField>
     </template>
 
     <template v-if="kind === 'https_api'">
