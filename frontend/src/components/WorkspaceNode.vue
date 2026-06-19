@@ -16,7 +16,7 @@ import {
   createExperienceFolder, renameExperienceFolder, deleteExperienceFolder,
   moveExperienceFolder, moveExperienceToFolder, type ExperienceFolder,
 } from '../api/experienceFolders';
-import { updateExperience, type Experience } from '../api/experiences';
+import { updateExperience, createExperienceFromDdl, type Experience } from '../api/experiences';
 import { useSidebarSections } from '../composables/useSidebarSections';
 import { subtreeIds, flattenFolderTree, buildMoveTargets } from '../utils/sidebarTree';
 
@@ -104,7 +104,7 @@ const openCtxMenu = (
   moveMenu.value = null;
   // 文件夹菜单条目更多,给它留更高的纵向空间。
   const reserveH = (kind === 'folder' || kind === 'exp-folder') ? 180
-    : kind === 'datasource' ? 96
+    : kind === 'datasource' ? 132
     : 132;
   ctxMenu.value = {
     kind,
@@ -283,6 +283,31 @@ const deleteDataSourceAct = async () => {
     toast.success('已删除');
   } catch (e) {
     toast.warn(e instanceof ApiError ? e.message : '删除失败');
+  }
+};
+
+// 右键菜单当前指向的数据源类型(仅 datasource 菜单有效),用于判断能否抽取 DDL。
+const ctxDsKind = computed(() => {
+  const c = ctxMenu.value;
+  if (!c || c.kind !== 'datasource') return null;
+  return tree.getDataSources(wsId.value).find(d => d.id === c.id)?.kind ?? null;
+});
+// 只有「当前工作空间」下的库类数据源(mysql/pgsql)能抽取结构:from-ddl 走当前工作空间内省,跨空间会 403。
+const canExtractDdl = computed(() =>
+  props.isCurrent && (ctxDsKind.value === 'mysql' || ctxDsKind.value === 'pgsql'));
+
+// 右键数据源 →「抽取到经验库」:把库结构(DDL)沉淀成一条经验库文件,再刷新经验树。
+const extractToExperienceAct = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind !== 'datasource') return;
+  closeCtxMenu();
+  try {
+    const exp = await createExperienceFromDdl(current.id);
+    await refreshExp();
+    sections.value = { ...sections.value, exp: true }; // 展开经验库区段,让新文件可见
+    toast.success(`已把「${exp.title}」抽取到经验库`);
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '抽取失败');
   }
 };
 
@@ -900,6 +925,11 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 
       <!-- 数据源条目 -->
       <template v-else-if="ctxMenu.kind === 'datasource'">
+        <button v-if="canExtractDdl" class="ctx-item" @click="extractToExperienceAct">
+          <span class="ctx-icon">⤓</span>
+          <span>抽取到经验库</span>
+          <span class="ctx-hint">DDL</span>
+        </button>
         <button class="ctx-item" @click="openMoveMenu">
           <span class="ctx-icon">⇄</span>
           <span>移动到文件夹…</span>
