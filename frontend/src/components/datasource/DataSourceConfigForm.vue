@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import type { DataSourceKind } from '../../api/dataSources';
+import FormField from '../form/FormField.vue';
+import BaseInput from '../form/BaseInput.vue';
+import BaseSelect from '../form/BaseSelect.vue';
+import BaseTextarea from '../form/BaseTextarea.vue';
+import BaseSwitch from '../form/BaseSwitch.vue';
+import { useFormValidation, rules } from '../../composables/useFormValidation';
 
 const props = defineProps<{
   kind: DataSourceKind;
@@ -11,6 +17,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:modelValue', v: Record<string, any>): void;
   (e: 'update:nameValue', v: string): void;
+  (e: 'validity', ok: boolean): void;
 }>();
 
 const cfg = ref<Record<string, any>>({ ...props.modelValue });
@@ -51,73 +58,132 @@ const scheduleInterval = computed({
     emitConfig();
   },
 });
+
+// ── 校验：按数据源类型组装规则 ──
+const isDb = computed(() => props.kind === 'mysql' || props.kind === 'pgsql');
+const ruleMap = computed(() => {
+  if (isDb.value) {
+    return {
+      host: [rules.required('请填写 Host')],
+      port: [rules.required('请填写端口'), rules.port()],
+      database: [rules.required('请填写数据库名')],
+      username: [rules.required('请填写用户名')],
+    };
+  }
+  return {
+    url: [rules.required('请填写 URL'), rules.url()],
+    timeoutMs: [rules.min(1, '超时需大于 0')],
+  };
+});
+
+const { fieldError, validateField, isValid } = useFormValidation(
+  () => ({
+    host: cfg.value.host,
+    port: cfg.value.port,
+    database: cfg.value.database,
+    username: cfg.value.username,
+    url: cfg.value.url,
+    timeoutMs: cfg.value.timeoutMs,
+  }),
+  // useFormValidation 接收静态规则映射；用 computed 包一层，切换类型时整体重建。
+  ruleMap.value,
+);
+
+// 类型变化或值变化时，把整体有效性抛给父级（控制“测试连接/保存”按钮）。
+watch([isValid, () => props.kind], () => emit('validity', isValid.value), { immediate: true });
 </script>
 
 <template>
   <div class="ds-form">
-    <label class="row">
-      <span>名称</span>
-      <input v-model="name" @input="emitName" placeholder="数据源名称" />
-    </label>
+    <FormField label="名称" required>
+      <BaseInput v-model="name" placeholder="数据源名称" @update:modelValue="emitName" />
+    </FormField>
 
     <template v-if="kind === 'mysql' || kind === 'pgsql'">
-      <label class="row"><span>Host</span><input v-model="cfg.host" @input="emitConfig" placeholder="localhost" /></label>
-      <label class="row"><span>Port</span><input v-model.number="cfg.port" @input="emitConfig" :placeholder="kind === 'mysql' ? '3306' : '5432'" /></label>
-      <label class="row"><span>Database</span><input v-model="cfg.database" @input="emitConfig" /></label>
-      <label class="row"><span>Username</span><input v-model="cfg.username" @input="emitConfig" /></label>
-      <label class="row"><span>Password</span><input type="password" v-model="cfg.password" @input="emitConfig" /></label>
-      <label class="row"><span>额外参数</span><input v-model="cfg.params" @input="emitConfig" placeholder="如 useSSL=false&serverTimezone=UTC" /></label>
+      <div class="ds-grid">
+        <FormField label="Host" required :error="fieldError('host')">
+          <BaseInput v-model="cfg.host" placeholder="localhost"
+            @update:modelValue="emitConfig" @blur="validateField('host')" />
+        </FormField>
+        <FormField label="Port" required :error="fieldError('port')">
+          <BaseInput v-model="cfg.port" numeric :placeholder="kind === 'mysql' ? '3306' : '5432'"
+            @update:modelValue="emitConfig" @blur="validateField('port')" />
+        </FormField>
+      </div>
+      <FormField label="Database" required :error="fieldError('database')">
+        <BaseInput v-model="cfg.database" @update:modelValue="emitConfig" @blur="validateField('database')" />
+      </FormField>
+      <div class="ds-grid">
+        <FormField label="Username" required :error="fieldError('username')">
+          <BaseInput v-model="cfg.username" @update:modelValue="emitConfig" @blur="validateField('username')" />
+        </FormField>
+        <FormField label="Password">
+          <BaseInput v-model="cfg.password" type="password" @update:modelValue="emitConfig" />
+        </FormField>
+      </div>
+      <FormField label="额外参数" hint="可选">
+        <BaseInput v-model="cfg.params" placeholder="如 useSSL=false&serverTimezone=UTC"
+          @update:modelValue="emitConfig" />
+      </FormField>
     </template>
 
     <template v-if="kind === 'https_api'">
-      <label class="row"><span>URL</span><input v-model="cfg.url" @input="emitConfig" placeholder="https://api.example.com/..." /></label>
-      <label class="row">
-        <span>方法</span>
-        <select v-model="cfg.method" @change="emitConfig">
-          <option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option>
-        </select>
-      </label>
-      <div class="row block">
-        <span>Headers</span>
+      <FormField label="URL" required :error="fieldError('url')">
+        <BaseInput v-model="cfg.url" placeholder="https://api.example.com/..."
+          @update:modelValue="emitConfig" @blur="validateField('url')" />
+      </FormField>
+      <FormField label="方法">
+        <BaseSelect v-model="cfg.method" :options="['GET', 'POST', 'PUT', 'DELETE']"
+          @update:modelValue="emitConfig" />
+      </FormField>
+      <FormField label="Headers" hint="可选">
         <div class="kv-list">
           <div v-for="(h, i) in headerList" :key="i" class="kv">
-            <input v-model="h.k" @input="syncHeaders" placeholder="Header" />
-            <input v-model="h.v" @input="syncHeaders" placeholder="Value" />
-            <button type="button" @click="removeHeader(i)">×</button>
+            <BaseInput v-model="h.k" placeholder="Header" @update:modelValue="syncHeaders" />
+            <BaseInput v-model="h.v" placeholder="Value" @update:modelValue="syncHeaders" />
+            <button type="button" class="kv-del" @click="removeHeader(i)">×</button>
           </div>
-          <button type="button" class="add" @click="addHeader">+ 添加 Header</button>
+          <button type="button" class="kv-add" @click="addHeader">+ 添加 Header</button>
         </div>
-      </div>
-      <label v-if="cfg.method === 'POST' || cfg.method === 'PUT'" class="row block">
-        <span>Body</span>
-        <textarea v-model="cfg.body" @input="emitConfig" rows="4" placeholder='{"key":"value"}'></textarea>
-      </label>
-      <label class="row"><span>超时(ms)</span><input v-model.number="cfg.timeoutMs" @input="emitConfig" placeholder="15000" /></label>
-      <div class="row schedule">
-        <label class="schedule-toggle">
-          <input type="checkbox" v-model="scheduleEnabled" />
-          <span>定时拉取</span>
-        </label>
-        <input v-if="scheduleEnabled" type="number" v-model.number="scheduleInterval" min="60" placeholder="秒，≥60" />
-      </div>
+      </FormField>
+      <FormField v-if="cfg.method === 'POST' || cfg.method === 'PUT'" label="Body">
+        <BaseTextarea v-model="cfg.body" :rows="4" placeholder='{"key":"value"}'
+          @update:modelValue="emitConfig" />
+      </FormField>
+      <FormField label="超时(ms)" :error="fieldError('timeoutMs')">
+        <BaseInput v-model="cfg.timeoutMs" numeric placeholder="15000"
+          @update:modelValue="emitConfig" @blur="validateField('timeoutMs')" />
+      </FormField>
+      <FormField label="定时拉取">
+        <div class="schedule">
+          <BaseSwitch v-model="scheduleEnabled" :label="scheduleEnabled ? '已启用' : '未启用'" />
+          <BaseInput v-if="scheduleEnabled" v-model="scheduleInterval" numeric :min="60" placeholder="秒，≥60" />
+        </div>
+      </FormField>
     </template>
   </div>
 </template>
 
 <style scoped>
-.ds-form { display: flex; flex-direction: column; gap: 10px; }
-.row { display: flex; align-items: center; gap: 8px; }
-.row > span { min-width: 88px; font-size: 13px; color: #c0c4cf; }
-.row > input, .row > select, .row > textarea {
-  flex: 1; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12);
-  border-radius: 6px; padding: 6px 8px; color: #e8eaed; font-size: 13px;
+.ds-form { display: flex; flex-direction: column; gap: 14px; }
+.ds-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.kv-list { display: flex; flex-direction: column; gap: 8px; }
+.kv { display: flex; gap: 8px; align-items: center; }
+.kv-del {
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--glass-border);
+  border-radius: 8px; width: 32px; height: 36px; flex-shrink: 0;
+  color: var(--text-dim); cursor: pointer; font-size: 16px;
+  transition: color 0.15s var(--ease-out), background 0.15s var(--ease-out);
 }
-.row.block { flex-direction: column; align-items: stretch; }
-.row.block > span { margin-bottom: 4px; }
-.kv-list { display: flex; flex-direction: column; gap: 6px; }
-.kv { display: flex; gap: 6px; }
-.kv input { flex: 1; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 6px 8px; color: #e8eaed; }
-.kv button, .add { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 4px 10px; color: #c0c4cf; cursor: pointer; }
-.schedule { gap: 12px; }
-.schedule-toggle { display: flex; align-items: center; gap: 6px; color: #c0c4cf; }
+.kv-del:hover { color: #ff8a8a; background: rgba(255, 107, 107, 0.12); }
+.kv-add {
+  align-self: flex-start;
+  background: transparent; border: 1px dashed var(--glass-border);
+  border-radius: 8px; padding: 7px 14px; color: var(--text-dim);
+  cursor: pointer; font-size: 12.5px; font-family: inherit;
+  transition: color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+}
+.kv-add:hover { color: var(--accent); border-color: var(--accent); }
+.schedule { display: flex; align-items: center; gap: 12px; }
+.schedule :deep(.f-input-wrap) { width: 140px; }
 </style>
