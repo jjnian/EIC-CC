@@ -22,7 +22,8 @@ export interface ChatSendCtx {
   currentModel: Ref<ModelOption | null>;
   /** 当前打开的本体模型 ID (getter)，用于分析完成后在消息里挂载"查看图谱"链接。 */
   currentModelId: () => string;
-  emit: (event: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[]) => void;
+  emit: (event: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[],
+         removeNodeIds?: string[], removeEdgeIds?: string[]) => void;
   closeMention: () => void;
   /** 取走并清空当前已激活的 @ 引用，与 input 一起送给后端 */
   consumeMentions?: () => ActiveMention[];
@@ -30,6 +31,27 @@ export interface ChatSendCtx {
 
 const PERSIST_TEXT_MAX = 100_000;
 const PERSIST_IMG_MAX = 2_000_000;
+
+/**
+ * 把后端透传的 remove_nodes / remove_edges 归一成字符串 id 数组。
+ * 容错两种形态:['id1','id2'] 或 [{ id, label }],只取 id(回退 label),去空去重。
+ */
+function toIdList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    let id = '';
+    if (typeof item === 'string') id = item;
+    else if (item && typeof item === 'object') {
+      const o = item as { id?: unknown; label?: unknown };
+      id = String(o.id ?? o.label ?? '');
+    }
+    id = id.trim();
+    if (id && !seen.has(id)) { seen.add(id); out.push(id); }
+  }
+  return out;
+}
 
 /**
  * Chat 发送 + SSE 流式接收的状态机。
@@ -230,19 +252,32 @@ export function useChatSend(ctx: ChatSendCtx) {
 
               const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
               const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
+              const removeNodeIds = toIdList(parsed.remove_nodes);
+              const removeEdgeIds = toIdList(parsed.remove_edges);
+              const changed = addNodes.length || addEdges.length || removeNodeIds.length || removeEdgeIds.length;
               const reply = (parsed.reply || '').trim();
               if (reply) {
                 aiMsg.text = reply;
-              } else if (addNodes.length || addEdges.length) {
-                aiMsg.text = `已从对话内容提取 ${addNodes.length} 个节点 / ${addEdges.length} 条关系,已加入图谱。`;
+              } else if (changed) {
+                const parts: string[] = [];
+                if (addNodes.length || addEdges.length) {
+                  parts.push(`新增 ${addNodes.length} 个节点 / ${addEdges.length} 条关系`);
+                }
+                if (removeNodeIds.length || removeEdgeIds.length) {
+                  parts.push(`删除 ${removeNodeIds.length} 个节点 / ${removeEdgeIds.length} 条关系`);
+                }
+                aiMsg.text = `已更新图谱:${parts.join(',')}。`;
               } else {
-                aiMsg.text = '未识别到可加入图谱的实体或关系,请补充更具体的描述。';
+                aiMsg.text = '未识别到可加入或删除的实体或关系,请补充更具体的描述。';
               }
 
-              ctx.emit('update', addNodes.map(n => ({ ...n })), addEdges);
+              ctx.emit('update', addNodes.map(n => ({ ...n })), addEdges, removeNodeIds, removeEdgeIds);
 
-              if (addNodes.length || addEdges.length) {
-                toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
+              if (changed) {
+                const add = `+${addNodes.length} 节点 / +${addEdges.length} 关系`;
+                const del = (removeNodeIds.length || removeEdgeIds.length)
+                  ? `,-${removeNodeIds.length} 节点 / -${removeEdgeIds.length} 关系` : '';
+                toast.success(`图谱已更新:${add}${del}`);
                 const mid = ctx.currentModelId();
                 if (mid) aiMsg.graphModelId = mid;
               }
@@ -308,9 +343,13 @@ export function useChatSend(ctx: ChatSendCtx) {
                   aiMsg.text = reply || '已收到回复,但未识别到图谱更新。';
                   const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
                   const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
-                  if (addNodes.length || addEdges.length) {
-                    ctx.emit('update', addNodes.map(n => ({ ...n })), addEdges);
-                    toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
+                  const removeNodeIds = toIdList(parsed.remove_nodes);
+                  const removeEdgeIds = toIdList(parsed.remove_edges);
+                  if (addNodes.length || addEdges.length || removeNodeIds.length || removeEdgeIds.length) {
+                    ctx.emit('update', addNodes.map(n => ({ ...n })), addEdges, removeNodeIds, removeEdgeIds);
+                    const del = (removeNodeIds.length || removeEdgeIds.length)
+                      ? `,-${removeNodeIds.length} 节点 / -${removeEdgeIds.length} 关系` : '';
+                    toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系${del}`);
                   }
                 } catch {
                   aiMsg.text = '未收到有效回复';

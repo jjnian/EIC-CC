@@ -256,16 +256,30 @@ public class ChatLlmService {
             DerivedSourceStamper.stamp(addNodes, dbSchemas);
             DerivedSourceStamper.stamp(addEdges, dbSchemas);
 
+            // 删除/替换:LLM 可返回待删除的现有节点/边 id(仅 chat 场景),透传给前端从画布移除
+            ArrayNode removeNodes = collectIdArray(result.path("remove_nodes"));
+            ArrayNode removeEdges = collectIdArray(result.path("remove_edges"));
+            int removeNodeCount = removeNodes.size();
+            int removeEdgeCount = removeEdges.size();
+
             // 逐个实体 / 关系上报，让用户看到本体被一步步"构建"出来，而不是只看到一个总数
             emitBuildSteps(step, addNodes, addEdges);
 
-            step.step("merging_graph",
-                    "正在合并到图谱… (+" + nodeCount + " 节点 / +" + edgeCount + " 关系)");
+            StringBuilder mergeLabel = new StringBuilder("正在合并到图谱… (+")
+                    .append(nodeCount).append(" 节点 / +").append(edgeCount).append(" 关系");
+            if (removeNodeCount > 0 || removeEdgeCount > 0) {
+                mergeLabel.append(" · -").append(removeNodeCount).append(" 节点 / -")
+                        .append(removeEdgeCount).append(" 关系");
+            }
+            mergeLabel.append(")");
+            step.step("merging_graph", mergeLabel.toString());
 
             ObjectNode finalEvent = objectMapper.createObjectNode();
             finalEvent.put("reply", reply);
             finalEvent.set("add_nodes", addNodes);
             finalEvent.set("add_edges", addEdges);
+            if (removeNodeCount > 0) finalEvent.set("remove_nodes", removeNodes);
+            if (removeEdgeCount > 0) finalEvent.set("remove_edges", removeEdges);
             // 透传 LLM 返回的 clarifying questions(支持一次多个问题、单题多选);
             // 兼容旧的单 question 字段。前端渲染为可点击选项卡片。最多 4 个问题。
             ArrayNode questions = objectMapper.createArrayNode();
@@ -287,6 +301,31 @@ public class ChatLlmService {
             step.send("error", "响应解析失败: " + e.getMessage());
             emitter.complete();
         }
+    }
+
+    /**
+     * 把 LLM 返回的 remove_nodes / remove_edges 归一成「字符串 id 数组」。
+     * 容错两种形态:["id1","id2"] 或 [{"id":"..","label":".."}],只取 id(回退 label);
+     * 去重、去空白,非数组时返回空数组。
+     */
+    private ArrayNode collectIdArray(JsonNode node) {
+        ArrayNode out = objectMapper.createArrayNode();
+        if (node == null || !node.isArray()) return out;
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        for (JsonNode item : node) {
+            String id;
+            if (item.isTextual()) {
+                id = item.asText("");
+            } else if (item.isObject()) {
+                id = item.path("id").asText("");
+                if (id.isBlank()) id = item.path("label").asText("");
+            } else {
+                continue;
+            }
+            id = id.trim();
+            if (!id.isBlank() && seen.add(id)) out.add(id);
+        }
+        return out;
     }
 
     /** 校验并收录一个 clarifying question:需有非空 text 与非空 options 数组,否则跳过。 */

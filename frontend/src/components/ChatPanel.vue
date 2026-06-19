@@ -36,7 +36,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[]): void;
+  (e: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[],
+     removeNodeIds?: string[], removeEdgeIds?: string[]): void;
   (e: 'clear-graph'): void;
   (e: 'seed-consumed'): void;
   (e: 'focus-node', id: string): void;
@@ -129,7 +130,8 @@ const sender = useChatSend({
   autoTitle,
   currentModel,
   currentModelId: () => props.modelId || '',
-  emit: (event, addNodes, addEdges) => emit(event, addNodes, addEdges),
+  emit: (event, addNodes, addEdges, removeNodeIds, removeEdgeIds) =>
+    emit(event, addNodes, addEdges, removeNodeIds, removeEdgeIds),
   closeMention: () => mention.closeMention(),
   consumeMentions: () => consumeActiveMentions(),
 });

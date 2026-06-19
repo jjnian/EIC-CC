@@ -36,7 +36,8 @@ const livePrediction = computed(() => ({
 }));
 
 const emit = defineEmits<{
-  (e: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[]): void;
+  (e: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[],
+     removeNodeIds?: string[], removeEdgeIds?: string[]): void;
   (e: 'clear-graph'): void;
   (e: 'seed-consumed'): void;
   (e: 'abort-prediction'): void;
@@ -89,7 +90,7 @@ const bindRef = (el: any) => {
         :model-id="modelId"
         :ensure-model="ensureModel"
         class="cc-chat"
-        @update="(addNodes, addEdges) => emit('update', addNodes, addEdges)"
+        @update="(addNodes, addEdges, removeNodeIds, removeEdgeIds) => emit('update', addNodes, addEdges, removeNodeIds, removeEdgeIds)"
         @clear-graph="emit('clear-graph')"
         @seed-consumed="emit('seed-consumed')"
         @abort-prediction="emit('abort-prediction')"

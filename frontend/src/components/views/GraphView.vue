@@ -60,7 +60,8 @@ const emit = defineEmits<{
   (e: 'switch-branch', id: string): void;
   (e: 'close-timeline'): void;
   (e: 'focus-node', id: string): void;
-  (e: 'update'/* 图谱增量 */, addNodes: OntologyNode[], addEdges: OntologyEdge[]): void;
+  (e: 'update'/* 图谱增量 */, addNodes: OntologyNode[], addEdges: OntologyEdge[],
+     removeNodeIds?: string[], removeEdgeIds?: string[]): void;
   (e: 'seed-consumed'): void;
   (e: 'start-divider', ev: MouseEvent): void;
   (e: 'graph-ref', el: any): void;
@@ -253,7 +254,7 @@ const analysisOpen = ref(false);
       :width="chatW"
       :seed="pendingChatSeed"
       :live-prediction="livePrediction"
-      @update="(addNodes, addEdges) => emit('update', addNodes, addEdges)"
+      @update="(addNodes, addEdges, removeNodeIds, removeEdgeIds) => emit('update', addNodes, addEdges, removeNodeIds, removeEdgeIds)"
       @clear-graph="emit('clear')"
       @seed-consumed="emit('seed-consumed')"
       @focus-node="(id) => emit('focus-node', id)"

@@ -7,6 +7,20 @@ public final class ChatPrompts {
 
     private ChatPrompts() {}
 
+    /**
+     * chat 场景独有的「删除/替换」字段说明,追加在通用 schema 之后。
+     * 通用 {@link GraphSchema} 被文档抽取等只增不删的流程共享,故删除字段只在此处对 chat 暴露。
+     */
+    private static final String CHAT_EDIT_SCHEMA = """
+
+        ADDITIONAL chat-only fields — include these ONLY when the user asks to delete / replace / rename
+        (omit them entirely otherwise). They sit at the SAME top level as add_nodes / add_edges:
+        {
+          "remove_nodes": ["An EXISTING node id to delete (from the graph context above). Deletes its edges too."],
+          "remove_edges": ["An EXISTING edge id to delete (use when only a relationship should be removed)."]
+        }
+        """;
+
     public static final String CHAT_SYSTEM = """
         You are an AI Ontology Developer. Your task is to build a static ontology graph (TBox) from the user's description.
 
@@ -112,6 +126,27 @@ public final class ChatPrompts {
         once (e.g. "要包含哪些视角？" → 采购 / 物流 / 财务 can all apply). Use single-select (default) for
         mutually-exclusive choices.
 
+        **EDITING & DELETION (the graph is MUTABLE — you can also remove things, not only add):**
+        Besides `add_nodes` / `add_edges`, you may delete existing graph elements:
+        - `remove_nodes`: array of EXISTING node ids to delete. Use the EXACT id as shown in the
+          "Existing ontology graph" summary or in the "@ 锚点节点" block. Deleting a node
+          automatically deletes every edge touching it — do NOT also list those edges in
+          `remove_edges`.
+        - `remove_edges`: array of EXISTING edge ids to delete — use only when a relationship
+          (not a whole node) should be removed.
+        - Map user intent to these fields:
+          · "删除 / 去掉 / 移除 X 这个节点" → put X's id in `remove_nodes`.
+          · "把 A 换成 / 替换为 B" (replace) → `remove_nodes`:[A's id] AND `add_nodes`:[B] AND
+            re-create B's relationships in `add_edges` so the new node keeps A's connections.
+          · "把 A 重命名为 B" → same as replace (remove old + add renamed node + reconnect).
+          · "删掉 A 和 B 之间的关系" → put that edge's id in `remove_edges`.
+        - HARD RULE: put ONLY ids that literally appear in the provided graph context into
+          `remove_nodes` / `remove_edges`. NEVER invent an id. If you cannot find the node/edge
+          the user means, ask a clarifying question instead of guessing.
+        - A delete request is a fully VALID, NON-EMPTY response: returning `remove_nodes`
+          (even with an empty `add_nodes`) is correct — never treat a pure deletion as
+          "nothing to do" or an empty result.
+
         Rules for `questions`:
         - Omit the array entirely (or leave empty) when the user's intent is clear — never ask trivial questions,
           and never re-ask something the user already answered earlier in the conversation.
@@ -133,5 +168,5 @@ public final class ChatPrompts {
         4. You MUST return ONLY valid JSON strictly matching this schema. NO markdown wrapping, just the raw JSON object.
 
         SCHEMA:
-        """ + GraphSchema.SCHEMA_STRING;
+        """ + GraphSchema.SCHEMA_STRING + CHAT_EDIT_SCHEMA;
 }

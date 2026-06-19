@@ -62,9 +62,36 @@ export function useImportMerge(ctx: ImportMergeCtx) {
     }};
   };
 
-  const onUpdate = (addNodes: OntologyNode[], addEdges: OntologyEdge[]) => {
+  /**
+   * 按 id 或 label 解析"待删除"的节点/边:LLM 优先返回现有 id,但也兜底按 label 匹配,
+   * 以防模型用了节点名而非 id。返回真正命中当前画布的 id 集合。
+   */
+  const resolveRemovals = (removeNodeIds: string[], removeEdgeIds: string[]) => {
+    const norm = (s?: string) => (s || '').trim().toLowerCase();
+    const nodeIds = new Set<string>();
+    for (const ref of removeNodeIds) {
+      const r = (ref || '').trim();
+      if (!r) continue;
+      const hit = ctx.nodes.value.find(n => n.id === r || norm(n.label) === norm(r));
+      if (hit) nodeIds.add(hit.id);
+    }
+    const edgeIds = new Set<string>();
+    for (const ref of removeEdgeIds) {
+      const r = (ref || '').trim();
+      if (!r) continue;
+      const hit = ctx.edges.value.find(e => e.id === r || norm(e.label) === norm(r));
+      if (hit) edgeIds.add(hit.id);
+    }
+    return { nodeIds, edgeIds };
+  };
+
+  const onUpdate = (addNodes: OntologyNode[], addEdges: OntologyEdge[],
+                    removeNodeIds: string[] = [], removeEdgeIds: string[] = []) => {
     const { nodes: newNodes, edges: newEdges, skipped } = dedupeIncoming(addNodes, addEdges);
-    if (newNodes.length === 0 && newEdges.length === 0) {
+    const { nodeIds: delNodeIds, edgeIds: delEdgeIds } = resolveRemovals(removeNodeIds, removeEdgeIds);
+    const hasRemoval = delNodeIds.size > 0 || delEdgeIds.size > 0;
+
+    if (newNodes.length === 0 && newEdges.length === 0 && !hasRemoval) {
       if (skipped.nodes || skipped.edges) {
         toast.info(`已忽略 ${skipped.nodes} 个重复节点 / ${skipped.edges} 条重复关系`);
       }
@@ -72,6 +99,25 @@ export function useImportMerge(ctx: ImportMergeCtx) {
     }
 
     ctx.snapshotHistory();
+
+    // 先删:移除指定节点(连带其相关边)与指定边,再做新增合并
+    if (hasRemoval) {
+      const removedNodeCount = ctx.nodes.value.filter(n => delNodeIds.has(n.id)).length;
+      ctx.nodes.value = ctx.nodes.value.filter(n => !delNodeIds.has(n.id));
+      const before = ctx.edges.value.length;
+      ctx.edges.value = ctx.edges.value.filter(
+        e => !delEdgeIds.has(e.id) && !delNodeIds.has(e.from) && !delNodeIds.has(e.to),
+      );
+      const removedEdgeCount = before - ctx.edges.value.length;
+      if (removedNodeCount || removedEdgeCount) {
+        toast.info(`已从图谱删除 ${removedNodeCount} 个节点 / ${removedEdgeCount} 条关系`);
+      }
+    }
+
+    if (newNodes.length === 0 && newEdges.length === 0) {
+      ctx.persist();
+      return;
+    }
 
     const existingIds = new Set(ctx.nodes.value.map(n => n.id));
     const connectsToExisting = newEdges.some(e => existingIds.has(e.from) || existingIds.has(e.to));
