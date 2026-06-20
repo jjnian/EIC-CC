@@ -20,25 +20,65 @@ import java.util.Map;
 public class DataSourceRepository {
 
     private final DataSourceMapper mapper;
+    private final DataSourceRefRepository refRepo;
     private final JsonCodec codec;
 
-    public DataSourceRepository(DataSourceMapper mapper, ObjectMapper objectMapper) {
+    public DataSourceRepository(DataSourceMapper mapper, DataSourceRefRepository refRepo,
+                                ObjectMapper objectMapper) {
         this.mapper = mapper;
+        this.refRepo = refRepo;
         this.codec = new JsonCodec(objectMapper);
     }
 
-    /** 当前工作空间下全部数据源，按创建时间倒序。 */
+    /** 当前工作空间「引用」的全部数据源，按创建时间倒序。 */
     public List<Map<String, Object>> list() {
         return list(WorkspaceContext.required());
     }
 
-    /** 指定工作空间下全部数据源（侧栏跨工作空间懒加载）。 */
+    /**
+     * 指定工作空间「引用」的全部数据源（侧栏树 / 当前工作空间数据源）。
+     * <p>数据源为全局公共资源，工作空间通过引用纳入：返回该工作空间引用的数据源，并把每条的
+     * {@code folderId} 覆盖为「该引用在本工作空间内的归类文件夹」（而非数据源本体的 folder_id）。
+     */
     public List<Map<String, Object>> list(String workspaceId) {
-        List<DataSourcePO> pos = mapper.selectList(
-                new LambdaQueryWrapper<DataSourcePO>()
-                        .eq(DataSourcePO::getWorkspaceId, workspaceId)
-                        .orderByDesc(DataSourcePO::getCreatedAt));
-        return pos.stream().map(this::toMap).toList();
+        Map<String, String> folderByDs = refRepo.folderByDataSource(workspaceId);
+        if (folderByDs.isEmpty()) return List.of();
+        return mapper.selectBatchIds(folderByDs.keySet())
+                .stream()
+                .sorted((a, b) -> Long.compare(
+                        b.getCreatedAt() == null ? 0 : b.getCreatedAt(),
+                        a.getCreatedAt() == null ? 0 : a.getCreatedAt()))
+                .map(po -> {
+                    Map<String, Object> m = toMap(po);
+                    String folderId = folderByDs.get(po.getId());
+                    if (folderId != null && !folderId.isBlank()) m.put("folderId", folderId);
+                    else m.remove("folderId");
+                    return m;
+                })
+                .toList();
+    }
+
+    /** 当前工作空间「尚未引用」的公共数据源（供引用选择器列出可引入的数据源）。 */
+    public List<Map<String, Object>> listReferencable(String workspaceId) {
+        Map<String, String> referenced = refRepo.folderByDataSource(workspaceId);
+        return mapper.selectList(new LambdaQueryWrapper<DataSourcePO>()
+                        .orderByDesc(DataSourcePO::getCreatedAt))
+                .stream()
+                .filter(po -> !referenced.containsKey(po.getId()))
+                .map(this::toMap)
+                .toList();
+    }
+
+    /** 把一批数据源引用进当前工作空间（已引用的跳过），返回新增条数。 */
+    @Transactional
+    public int reference(List<String> dataSourceIds) {
+        return refRepo.reference(WorkspaceContext.required(), dataSourceIds, null);
+    }
+
+    /** 取消当前工作空间对某数据源的引用（不删除数据源本体）。 */
+    @Transactional
+    public boolean unreference(String dataSourceId) {
+        return refRepo.unreference(WorkspaceContext.required(), dataSourceId);
     }
 
     /** 跨工作空间的全量数据源列表，按创建时间倒序。用于「数据源」总览页(不区分工作空间)。 */
@@ -77,9 +117,10 @@ public class DataSourceRepository {
 
     @Transactional
     public boolean delete(String id) {
-        // 数据源为全局公共资源：任意工作空间均可删除，不再按归属隔离。
+        // 数据源为全局公共资源：任意工作空间均可删除；删除本体时清理其全部工作空间引用。
         DataSourcePO existing = mapper.selectById(id);
         if (existing == null) return false;
+        refRepo.deleteByDataSource(id);
         return mapper.deleteById(id) > 0;
     }
 
@@ -136,14 +177,14 @@ public class DataSourceRepository {
         return mapper.updateById(po) > 0;
     }
 
-    /** 把数据源移动到指定文件夹（folderId 为 null/空 = 移到根）。数据源全局公共，不再按归属隔离。 */
+    /**
+     * 把数据源移动到指定文件夹（folderId 为 null/空 = 移到根）。
+     * <p>数据源全局公共：归类作用于「当前工作空间对该数据源的引用」，而非数据源本体，
+     * 各工作空间各自归类、互不影响。
+     */
     @Transactional
     public boolean moveToFolder(String id, String folderId) {
-        DataSourcePO po = mapper.selectById(id);
-        if (po == null) return false;
-        po.setFolderId(folderId == null || folderId.isBlank() ? null : folderId.trim());
-        po.setUpdatedAt(System.currentTimeMillis());
-        return mapper.updateById(po) > 0;
+        return refRepo.setFolder(WorkspaceContext.required(), id, folderId);
     }
 
     @Transactional

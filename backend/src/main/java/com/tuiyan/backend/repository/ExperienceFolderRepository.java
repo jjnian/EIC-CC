@@ -2,9 +2,7 @@ package com.tuiyan.backend.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.tuiyan.backend.entity.ExperienceFolderPO;
-import com.tuiyan.backend.entity.ExperiencePO;
 import com.tuiyan.backend.mapper.ExperienceFolderMapper;
-import com.tuiyan.backend.mapper.ExperienceMapper;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,11 +20,11 @@ import java.util.Map;
 public class ExperienceFolderRepository {
 
     private final ExperienceFolderMapper mapper;
-    private final ExperienceMapper expMapper;
+    private final ExperienceRefRepository refRepo;
 
-    public ExperienceFolderRepository(ExperienceFolderMapper mapper, ExperienceMapper expMapper) {
+    public ExperienceFolderRepository(ExperienceFolderMapper mapper, ExperienceRefRepository refRepo) {
         this.mapper = mapper;
-        this.expMapper = expMapper;
+        this.refRepo = refRepo;
     }
 
     /** 指定工作空间下全部文件夹（前端自行拼成树）。 */
@@ -101,15 +99,8 @@ public class ExperienceFolderRepository {
             child.setUpdatedAt(now);
             mapper.updateById(child);
         }
-        // 2) 本文件夹下的经验上提
-        List<ExperiencePO> exps = expMapper.selectList(new LambdaQueryWrapper<ExperiencePO>()
-                .eq(ExperiencePO::getWorkspaceId, ws)
-                .eq(ExperiencePO::getFolderId, id));
-        for (ExperiencePO exp : exps) {
-            exp.setFolderId(parentId);
-            exp.setUpdatedAt(now);
-            expMapper.updateById(exp);
-        }
+        // 2) 本工作空间内归在本文件夹下的「经验引用」上提到父级（作用于引用而非经验本体）
+        refRepo.reparentFolder(ws, id, parentId);
         return mapper.deleteById(id) > 0;
     }
 

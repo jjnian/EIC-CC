@@ -35,7 +35,6 @@ import { useVersionTemplates } from './composables/useVersionTemplates';
 import { useWorkspaces } from './composables/useWorkspaces';
 import { useSidebarTree } from './composables/useSidebarTree';
 import { useSidebarResize } from './composables/useSidebarResize';
-import { getDataSource } from './api/dataSources';
 
 const sel = ref<string | null>(null);
 const { sbExp, sidebarW, sbDragging, startSbResize } = useSidebarResize(240);
@@ -97,14 +96,7 @@ const openDataSourceDetail = (id: string) => {
 const onDsCreated = async (id: string) => {
   currentDataSourceId.value = id;
   view.value = 'datasource';
-  // 创建后立即回填侧栏缓存，让用户不需要手动刷新就能看到新数据源
-  try {
-    const ds = await getDataSource(id);
-    const wsId = wsManager.currentId.value;
-    if (wsId) sidebarTree.upsertDataSource(wsId, ds);
-  } catch {
-    // 回填失败不影响主流程；侧栏展开时会重新懒加载
-  }
+  // 数据源为公共库：新建只进公共库，不自动进任何工作空间侧栏（需在工作空间右键「引用」纳入）。
 };
 
 // 经验库视图状态：聚焦的经验 id（打开页面时定位/编辑该条）+ 是否自动打开新建表单

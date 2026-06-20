@@ -2,9 +2,7 @@ package com.tuiyan.backend.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.tuiyan.backend.entity.DataSourceFolderPO;
-import com.tuiyan.backend.entity.DataSourcePO;
 import com.tuiyan.backend.mapper.DataSourceFolderMapper;
-import com.tuiyan.backend.mapper.DataSourceMapper;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,11 +20,11 @@ import java.util.Map;
 public class DataSourceFolderRepository {
 
     private final DataSourceFolderMapper mapper;
-    private final DataSourceMapper dsMapper;
+    private final DataSourceRefRepository refRepo;
 
-    public DataSourceFolderRepository(DataSourceFolderMapper mapper, DataSourceMapper dsMapper) {
+    public DataSourceFolderRepository(DataSourceFolderMapper mapper, DataSourceRefRepository refRepo) {
         this.mapper = mapper;
-        this.dsMapper = dsMapper;
+        this.refRepo = refRepo;
     }
 
     /** 指定工作空间下全部文件夹（前端自行拼成树）。 */
@@ -101,15 +99,8 @@ public class DataSourceFolderRepository {
             child.setUpdatedAt(now);
             mapper.updateById(child);
         }
-        // 2) 本文件夹下的数据源上提
-        List<DataSourcePO> dss = dsMapper.selectList(new LambdaQueryWrapper<DataSourcePO>()
-                .eq(DataSourcePO::getWorkspaceId, ws)
-                .eq(DataSourcePO::getFolderId, id));
-        for (DataSourcePO ds : dss) {
-            ds.setFolderId(parentId);
-            ds.setUpdatedAt(now);
-            dsMapper.updateById(ds);
-        }
+        // 2) 本工作空间内归在本文件夹下的「数据源引用」上提到父级（作用于引用而非数据源本体）
+        refRepo.reparentFolder(ws, id, parentId);
         return mapper.deleteById(id) > 0;
     }
 

@@ -5,6 +5,7 @@ import com.tuiyan.backend.model.dto.*;
 import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.repository.NodeDataBindingRepository;
 import com.tuiyan.backend.service.DataSourceService;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -56,6 +57,31 @@ public class DataSourceController {
     @GetMapping("/references")
     public ResponseEntity<Map<String, List<String>>> references() {
         return ResponseEntity.ok(bindingRepo.referencingWorkspacesByDataSource());
+    }
+
+    /** 当前工作空间「尚未引用」的公共数据源（引用选择器列出可引入的数据源）。 */
+    @GetMapping("/referencable")
+    public ResponseEntity<List<Map<String, Object>>> referencable() {
+        return ResponseEntity.ok(repo.listReferencable(WorkspaceContext.required()));
+    }
+
+    /** 把一批公共数据源引用进当前工作空间（已引用的跳过）。请求体：{ dataSourceIds: [...] }。 */
+    @PostMapping("/refs")
+    public ResponseEntity<Map<String, Object>> reference(@RequestBody Map<String, Object> body) {
+        Object ids = body == null ? null : body.get("dataSourceIds");
+        List<String> list = new java.util.ArrayList<>();
+        if (ids instanceof List<?> arr) {
+            for (Object o : arr) if (o != null) list.add(String.valueOf(o));
+        }
+        int added = repo.reference(list);
+        return ResponseEntity.ok(Map.of("added", added));
+    }
+
+    /** 取消当前工作空间对某数据源的引用（不删除数据源本体）。 */
+    @DeleteMapping("/{id}/ref")
+    public ResponseEntity<SuccessCountResponse> unreference(@PathVariable String id) {
+        boolean ok = repo.unreference(id);
+        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 
     @GetMapping("/{id}")

@@ -212,11 +212,10 @@ const submit = async () => {
   submitting.value = true;
   try {
     const created: DataSource = await createDataSource({ name: name.value.trim(), kind: kind.value, config: cfg.value });
+    // 数据源为公共库：新建只进公共库，不自动进任何工作空间侧栏（需在工作空间右键「引用」纳入）。
     items.value.unshift(created);
-    const curWs = ws.currentId.value;
-    if (curWs) tree.upsertDataSource(curWs, created);
     showForm.value = false;
-    toast.success(`数据源「${created.name}」已创建`);
+    toast.success(`数据源「${created.name}」已添加到公共库（在工作空间右键「引用」纳入）`);
   } catch (e) {
     const msg = e instanceof ApiError ? e.message : (e as Error).message;
     toast.error(`创建失败：${msg}`);

@@ -83,6 +83,26 @@ export function listDataSourceReferences() {
   return request<Record<string, string[]>>('/api/data-sources/references');
 }
 
+/** 当前工作空间「尚未引用」的公共数据源（引用选择器列出可引入的数据源）。 */
+export function listReferencableDataSources() {
+  return request<DataSource[]>('/api/data-sources/referencable');
+}
+
+/** 把一批公共数据源引用进当前工作空间（已引用的跳过）。 */
+export function referenceDataSources(dataSourceIds: string[]) {
+  return request<{ added: number }>('/api/data-sources/refs', {
+    method: 'POST',
+    body: JSON.stringify({ dataSourceIds }),
+  });
+}
+
+/** 取消当前工作空间对某数据源的引用（不删除数据源本体）。 */
+export function unreferenceDataSource(id: string) {
+  return request<{ success: boolean }>(`/api/data-sources/${encodeURIComponent(id)}/ref`, {
+    method: 'DELETE',
+  });
+}
+
 /** 操作其它工作空间的数据源时，显式带上该数据源所属的 workspaceId 作为请求头，绕过当前上下文。 */
 function wsHeader(workspaceId?: string): RequestInit {
   return workspaceId ? { headers: { 'X-Workspace-Id': workspaceId } } : {};

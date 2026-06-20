@@ -23,26 +23,56 @@ public class ExperienceRepository {
 
     private final ExperienceMapper mapper;
     private final ExperienceFolderMapper folderMapper;
+    private final ExperienceRefRepository refRepo;
     private final ObjectMapper objectMapper = new ObjectMapper();
     /** 连接配置里的敏感字段，列表/详情对外一律遮蔽，仅服务端探索时读原文。 */
     private static final String MASK = "********";
 
-    public ExperienceRepository(ExperienceMapper mapper, ExperienceFolderMapper folderMapper) {
+    public ExperienceRepository(ExperienceMapper mapper, ExperienceFolderMapper folderMapper,
+                                ExperienceRefRepository refRepo) {
         this.mapper = mapper;
         this.folderMapper = folderMapper;
+        this.refRepo = refRepo;
     }
 
-    /** 当前工作空间下全部经验，按创建时间倒序。 */
+    /** 当前工作空间「引用」的全部经验，按创建时间倒序。 */
     public List<Map<String, Object>> list() {
         return list(WorkspaceContext.required());
     }
 
-    /** 指定工作空间下全部经验（侧栏跨工作空间懒加载）。 */
+    /**
+     * 指定工作空间「引用」的全部经验（侧栏树 / 当前工作空间经验库）。
+     * <p>经验库为全局公共资源，工作空间通过引用纳入：这里返回该工作空间引用的经验，并把每条的
+     * {@code folderId} 覆盖为「该引用在本工作空间内的归类文件夹」（而非经验本体的 folder_id）。
+     */
     public List<Map<String, Object>> list(String workspaceId) {
+        Map<String, String> folderByExp = refRepo.folderByExperience(workspaceId);
+        if (folderByExp.isEmpty()) return List.of();
+        return mapper.selectBatchIds(folderByExp.keySet())
+                .stream()
+                .sorted((a, b) -> Long.compare(
+                        b.getCreatedAt() == null ? 0 : b.getCreatedAt(),
+                        a.getCreatedAt() == null ? 0 : a.getCreatedAt()))
+                .map(po -> {
+                    Map<String, Object> m = toMap(po);
+                    // 侧栏按「引用所在工作空间」的归类文件夹分目录，覆盖经验本体的 folderId
+                    String folderId = folderByExp.get(po.getId());
+                    if (folderId != null && !folderId.isBlank()) m.put("folderId", folderId);
+                    else m.remove("folderId");
+                    return m;
+                })
+                .toList();
+    }
+
+    /** 当前工作空间「尚未引用」的公共经验（供引用选择器列出可引入的经验）。 */
+    public List<Map<String, Object>> listReferencable(String workspaceId) {
+        Map<String, String> referenced = refRepo.folderByExperience(workspaceId);
         return mapper.selectList(new LambdaQueryWrapper<ExperiencePO>()
-                        .eq(ExperiencePO::getWorkspaceId, workspaceId)
                         .orderByDesc(ExperiencePO::getCreatedAt))
-                .stream().map(this::toMap).toList();
+                .stream()
+                .filter(po -> !referenced.containsKey(po.getId()))
+                .map(this::toMap)
+                .toList();
     }
 
     /** 跨工作空间的全量经验列表，按创建时间倒序。 */
@@ -217,10 +247,9 @@ public class ExperienceRepository {
      */
     @Transactional
     public boolean moveToFolder(String id, String folderId) {
-        // 经验全局公共：不再校验经验归属，但目标文件夹仍须属于当前工作空间（侧栏按工作空间分目录）。
+        // 经验全局公共：归类作用于「当前工作空间对该经验的引用」，而非经验本体。
+        // 目标文件夹须属于当前工作空间（侧栏按工作空间分目录）。
         String ws = WorkspaceContext.required();
-        ExperiencePO po = mapper.selectById(id);
-        if (po == null) return false;
         String target = (folderId == null || folderId.isBlank()) ? null : folderId.trim();
         if (target != null) {
             ExperienceFolderPO f = folderMapper.selectById(target);
@@ -228,9 +257,7 @@ public class ExperienceRepository {
                 throw new IllegalArgumentException("目标文件夹不存在或不属于当前工作空间");
             }
         }
-        po.setFolderId(target);
-        po.setUpdatedAt(System.currentTimeMillis());
-        return mapper.updateById(po) > 0;
+        return refRepo.setFolder(ws, id, target);
     }
 
     /** 按 id 取一行（不做工作空间隔离，索引服务在异步线程里调用，自行不依赖请求上下文）。 */
@@ -245,10 +272,29 @@ public class ExperienceRepository {
 
     @Transactional
     public boolean delete(String id) {
-        // 经验全局公共：任意工作空间均可删除。
+        // 经验全局公共：任意工作空间均可删除；删除本体时清理其全部工作空间引用。
         ExperiencePO po = mapper.selectById(id);
         if (po == null) return false;
+        refRepo.deleteByExperience(id);
         return mapper.deleteById(id) > 0;
+    }
+
+    /** 把一批经验引用进当前工作空间（已引用的跳过），返回新增条数。 */
+    @Transactional
+    public int reference(List<String> experienceIds) {
+        return refRepo.reference(WorkspaceContext.required(), experienceIds, null);
+    }
+
+    /** 把一条经验引用进当前工作空间（用于 DDL 抽取等工作空间内动作的即时纳入）。 */
+    @Transactional
+    public int reference(String experienceId) {
+        return refRepo.reference(WorkspaceContext.required(), List.of(experienceId), null);
+    }
+
+    /** 取消当前工作空间对某经验的引用（不删除经验本体）。 */
+    @Transactional
+    public boolean unreference(String experienceId) {
+        return refRepo.unreference(WorkspaceContext.required(), experienceId);
     }
 
     private Map<String, Object> toMap(ExperiencePO po) {

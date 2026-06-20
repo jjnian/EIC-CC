@@ -159,7 +159,8 @@ public class DataSourceIndexService {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT c.content, c.data_source_id, e.embedding " +
             "FROM ds_chunk c JOIN ds_embedding e ON e.chunk_id = c.id " +
-            "WHERE c.workspace_id = ?",
+            // 数据源为公共库：召回本工作空间「引用」的数据源（与侧栏/取数口径一致）
+            "WHERE c.data_source_id IN (SELECT data_source_id FROM data_source_ref WHERE workspace_id = ?)",
             workspaceId
         );
 
