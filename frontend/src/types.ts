@@ -51,6 +51,25 @@ export interface OntologyEdge {
   [k: string]: any;
 }
 
+/**
+ * chat 一轮对话对图谱产生的「增删改」集合,经 update 事件从 ChatPanel 透传到 App 的合并器。
+ * 用单一对象承载,避免在多层组件间透传一长串位置参数。
+ */
+export interface GraphMutation {
+  /** 新增节点 */
+  addNodes?: OntologyNode[];
+  /** 新增关系 */
+  addEdges?: OntologyEdge[];
+  /** 待删除的现有节点 id(连带删除其相关边) */
+  removeNodeIds?: string[];
+  /** 待删除的现有边 id */
+  removeEdgeIds?: string[];
+  /** 对现有节点的局部 patch(须含 id);只覆盖给出的字段(label/type/props/attributes…)。 */
+  updateNodes?: (Partial<OntologyNode> & { id: string })[];
+  /** 对现有边的局部 patch(须含 id);只覆盖给出的字段(label/rel_type/from/to…)。 */
+  updateEdges?: (Partial<OntologyEdge> & { id: string })[];
+}
+
 /** 属性来源方式: 数据库提取 / 文件提取 / 自定义 */
 export type AttrSourceMethod = 'db' | 'file' | 'custom';
 

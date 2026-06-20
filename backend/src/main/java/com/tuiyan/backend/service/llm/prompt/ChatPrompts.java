@@ -7,6 +7,42 @@ public final class ChatPrompts {
 
     private ChatPrompts() {}
 
+    /**
+     * chat 场景独有的「删除/替换」字段说明,追加在通用 schema 之后。
+     * 通用 {@link GraphSchema} 被文档抽取等只增不删的流程共享,故删除字段只在此处对 chat 暴露。
+     */
+    private static final String CHAT_EDIT_SCHEMA = """
+
+        ADDITIONAL chat-only fields — include these ONLY when the user asks to delete / modify / rename
+        existing graph elements (omit them entirely otherwise). They sit at the SAME top level as
+        add_nodes / add_edges:
+        {
+          "remove_nodes": ["An EXISTING node id to delete (from the graph context above). Deletes its edges too."],
+          "remove_edges": ["An EXISTING edge id to delete (use when only a relationship should be removed)."],
+          "update_nodes": [
+            {
+              "id": "An EXISTING node id to modify in place (REQUIRED — copy it verbatim from the graph context).",
+              "label": "OPTIONAL new label (for rename).",
+              "type": "OPTIONAL new type — one of entity/event/rule/process/data/external.",
+              "props": "OPTIONAL — full replacement props array (same shape as in add_nodes).",
+              "attributes": "OPTIONAL — full replacement attributes array.",
+              "constraints": "OPTIONAL — full replacement constraints array."
+            }
+          ],
+          "update_edges": [
+            {
+              "id": "An EXISTING edge id to modify in place (REQUIRED).",
+              "label": "OPTIONAL new display phrasing.",
+              "rel_type": "OPTIONAL new controlled rel_type.",
+              "from": "OPTIONAL new source node id.",
+              "to": "OPTIONAL new target node id.",
+              "constraints": "OPTIONAL — full replacement constraints array."
+            }
+          ]
+        }
+        Each update_* entry is a PARTIAL patch: include only the fields that change plus the required id;
+        omitted fields are left untouched.""";
+
     public static final String CHAT_SYSTEM = """
         You are an AI Ontology Developer. Your task is to build a static ontology graph (TBox) from the user's description.
 
@@ -112,6 +148,39 @@ public final class ChatPrompts {
         once (e.g. "要包含哪些视角？" → 采购 / 物流 / 财务 can all apply). Use single-select (default) for
         mutually-exclusive choices.
 
+        **EDITING — ADD / DELETE / MODIFY (the graph is MUTABLE; support full 增删改):**
+        Besides `add_nodes` / `add_edges` (增), you may also DELETE (删) and MODIFY-IN-PLACE (改)
+        existing graph elements. Pick the RIGHT operation for the user's intent:
+
+        删 — `remove_nodes` / `remove_edges`:
+        - `remove_nodes`: array of EXISTING node ids to delete. Deleting a node automatically deletes
+          every edge touching it — do NOT also list those edges in `remove_edges`.
+        - `remove_edges`: array of EXISTING edge ids — use only when a relationship (not a whole node)
+          should be removed.
+        - "删除 / 去掉 / 移除 X 这个节点" → X's id in `remove_nodes`. "删掉 A 和 B 之间的关系" →
+          that edge's id in `remove_edges`.
+
+        改 — `update_nodes` / `update_edges` (PREFER this over delete+add when the SAME element persists,
+        because it keeps the node's id, position and history):
+        - "把 A 重命名为 B" / "把 A 改名叫 B" → `update_nodes`:[{id:A, label:"B"}]. (NOT remove+add.)
+        - "把 A 的类型改成 流程/事件…" → `update_nodes`:[{id:A, type:"process"}].
+        - "给 A 加 / 改一个属性 X" → `update_nodes`:[{id:A, attributes:[…full new list…]}]
+          (return the COMPLETE attributes/props array, not just the delta — it replaces the old one).
+        - "把 A→B 这条关系改成『触发』/ 改成 triggers / 改指向 C" →
+          `update_edges`:[{id:<edgeId>, label:"触发"}] / {rel_type:"triggers"} / {to:C}.
+
+        替换(整体换成另一个不同概念)用 删+增:
+        - "把 A 换成 / 替换为 B"(B 是完全不同的实体)→ `remove_nodes`:[A] + `add_nodes`:[B] +
+          在 `add_edges` 中重建 B 的关系,让新节点继承 A 的连接。
+          (而仅仅是改名,用上面的 `update_nodes` 改 label,不要删旧建新。)
+
+        - HARD RULE: every id in `remove_*` / `update_*` MUST literally appear in the provided graph
+          context. NEVER invent an id. If you cannot find the node/edge the user means, ask a
+          clarifying question instead of guessing.
+        - A delete- or update-only request is a fully VALID, NON-EMPTY response: returning just
+          `remove_nodes` or just `update_nodes` (with an empty `add_nodes`) is correct — never treat
+          it as "nothing to do" or an empty result.
+
         Rules for `questions`:
         - Omit the array entirely (or leave empty) when the user's intent is clear — never ask trivial questions,
           and never re-ask something the user already answered earlier in the conversation.
@@ -133,5 +202,5 @@ public final class ChatPrompts {
         4. You MUST return ONLY valid JSON strictly matching this schema. NO markdown wrapping, just the raw JSON object.
 
         SCHEMA:
-        """ + GraphSchema.SCHEMA_STRING;
+        """ + GraphSchema.SCHEMA_STRING + CHAT_EDIT_SCHEMA;
 }

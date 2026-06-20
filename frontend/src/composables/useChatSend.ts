@@ -1,5 +1,5 @@
 import { type Ref } from 'vue';
-import type { OntologyNode, OntologyEdge } from '../types';
+import type { OntologyNode, OntologyEdge, GraphMutation } from '../types';
 import { chatStream, type ChatPayload, type ChatResult, type BuildStep, type ChatMentionRef } from '../api/chat';
 import type { SseHandle } from '../api/http';
 import { toast } from './useToast';
@@ -22,7 +22,7 @@ export interface ChatSendCtx {
   currentModel: Ref<ModelOption | null>;
   /** 当前打开的本体模型 ID (getter)，用于分析完成后在消息里挂载"查看图谱"链接。 */
   currentModelId: () => string;
-  emit: (event: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[]) => void;
+  emit: (event: 'update', mutation: GraphMutation) => void;
   closeMention: () => void;
   /** 取走并清空当前已激活的 @ 引用，与 input 一起送给后端 */
   consumeMentions?: () => ActiveMention[];
@@ -30,6 +30,64 @@ export interface ChatSendCtx {
 
 const PERSIST_TEXT_MAX = 100_000;
 const PERSIST_IMG_MAX = 2_000_000;
+
+/**
+ * 把后端透传的 remove_nodes / remove_edges 归一成字符串 id 数组。
+ * 容错两种形态:['id1','id2'] 或 [{ id, label }],只取 id(回退 label),去空去重。
+ */
+function toIdList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    let id = '';
+    if (typeof item === 'string') id = item;
+    else if (item && typeof item === 'object') {
+      const o = item as { id?: unknown; label?: unknown };
+      id = String(o.id ?? o.label ?? '');
+    }
+    id = id.trim();
+    if (id && !seen.has(id)) { seen.add(id); out.push(id); }
+  }
+  return out;
+}
+
+/**
+ * 把后端透传的 update_nodes / update_edges 归一成「含 id 的 patch 对象数组」。
+ * 丢弃非对象或缺 id 的项。
+ */
+function toPatchList<T extends { id: string }>(raw: unknown): T[] {
+  if (!Array.isArray(raw)) return [];
+  const out: T[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const id = String((item as { id?: unknown }).id ?? '').trim();
+    if (!id) continue;
+    out.push({ ...(item as object), id } as T);
+  }
+  return out;
+}
+
+/** 把后端 ChatResult 归一成一份「增删改」集合(所有字段都已填好,不会是 undefined)。 */
+function parseMutation(parsed: ChatResult): Required<GraphMutation> {
+  return {
+    addNodes: ((parsed.add_nodes as OntologyNode[]) || []).map(n => ({ ...n })),
+    addEdges: (parsed.add_edges as OntologyEdge[]) || [],
+    removeNodeIds: toIdList(parsed.remove_nodes),
+    removeEdgeIds: toIdList(parsed.remove_edges),
+    updateNodes: toPatchList<Partial<OntologyNode> & { id: string }>(parsed.update_nodes),
+    updateEdges: toPatchList<Partial<OntologyEdge> & { id: string }>(parsed.update_edges),
+  };
+}
+
+/** 把一份增删改集合渲染成「+x 节点 / ~y 节点 / -z 节点」式的简短文案。 */
+function mutationSummary(m: Required<GraphMutation>): string {
+  const parts: string[] = [];
+  if (m.addNodes.length || m.addEdges.length) parts.push(`+${m.addNodes.length} 节点 / +${m.addEdges.length} 关系`);
+  if (m.updateNodes.length || m.updateEdges.length) parts.push(`~${m.updateNodes.length} 节点 / ~${m.updateEdges.length} 关系`);
+  if (m.removeNodeIds.length || m.removeEdgeIds.length) parts.push(`-${m.removeNodeIds.length} 节点 / -${m.removeEdgeIds.length} 关系`);
+  return parts.join(',');
+}
 
 /**
  * Chat 发送 + SSE 流式接收的状态机。
@@ -228,21 +286,23 @@ export function useChatSend(ctx: ChatSendCtx) {
               }
               aiMsg.buildDone = true;
 
-              const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
-              const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
+              const mutation = parseMutation(parsed);
+              const { addNodes, addEdges, removeNodeIds, removeEdgeIds, updateNodes, updateEdges } = mutation;
+              const changed = addNodes.length || addEdges.length || removeNodeIds.length
+                || removeEdgeIds.length || updateNodes.length || updateEdges.length;
               const reply = (parsed.reply || '').trim();
               if (reply) {
                 aiMsg.text = reply;
-              } else if (addNodes.length || addEdges.length) {
-                aiMsg.text = `已从对话内容提取 ${addNodes.length} 个节点 / ${addEdges.length} 条关系,已加入图谱。`;
+              } else if (changed) {
+                aiMsg.text = `已更新图谱:${mutationSummary(mutation)}。`;
               } else {
-                aiMsg.text = '未识别到可加入图谱的实体或关系,请补充更具体的描述。';
+                aiMsg.text = '未识别到可增删改的实体或关系,请补充更具体的描述。';
               }
 
-              ctx.emit('update', addNodes.map(n => ({ ...n })), addEdges);
+              ctx.emit('update', mutation);
 
-              if (addNodes.length || addEdges.length) {
-                toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
+              if (changed) {
+                toast.success(`图谱已更新:${mutationSummary(mutation)}`);
                 const mid = ctx.currentModelId();
                 if (mid) aiMsg.graphModelId = mid;
               }
@@ -306,11 +366,10 @@ export function useChatSend(ctx: ChatSendCtx) {
                   const parsed = JSON.parse(fallback) as ChatResult;
                   const reply = (parsed.reply || '').trim();
                   aiMsg.text = reply || '已收到回复,但未识别到图谱更新。';
-                  const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
-                  const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
-                  if (addNodes.length || addEdges.length) {
-                    ctx.emit('update', addNodes.map(n => ({ ...n })), addEdges);
-                    toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系`);
+                  const mutation = parseMutation(parsed);
+                  if (mutationSummary(mutation)) {
+                    ctx.emit('update', mutation);
+                    toast.success(`图谱已更新:${mutationSummary(mutation)}`);
                   }
                 } catch {
                   aiMsg.text = '未收到有效回复';
