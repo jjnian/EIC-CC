@@ -123,6 +123,31 @@ public class ExperienceController {
         return ResponseEntity.ok(list);
     }
 
+    /** 当前工作空间「尚未引用」的公共经验（引用选择器列出可引入的经验）。 */
+    @GetMapping("/referencable")
+    public ResponseEntity<List<Map<String, Object>>> referencable() {
+        return ResponseEntity.ok(repo.listReferencable(WorkspaceContext.required()));
+    }
+
+    /** 把一批公共经验引用进当前工作空间（已引用的跳过）。请求体：{ experienceIds: [...] }。 */
+    @PostMapping("/refs")
+    public ResponseEntity<Map<String, Object>> reference(@RequestBody Map<String, Object> body) {
+        Object ids = body == null ? null : body.get("experienceIds");
+        List<String> list = new java.util.ArrayList<>();
+        if (ids instanceof List<?> arr) {
+            for (Object o : arr) if (o != null) list.add(String.valueOf(o));
+        }
+        int added = repo.reference(list);
+        return ResponseEntity.ok(Map.of("added", added));
+    }
+
+    /** 取消当前工作空间对某经验的引用（不删除经验本体）。 */
+    @DeleteMapping("/{id}/ref")
+    public ResponseEntity<SuccessCountResponse> unreference(@PathVariable String id) {
+        boolean ok = repo.unreference(id);
+        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> detail(@PathVariable String id) {
         Map<String, Object> exp = repo.findFull(id);
@@ -189,6 +214,12 @@ public class ExperienceController {
         else if (sr != null) { try { sampleRows = Integer.parseInt(String.valueOf(sr).trim()); } catch (NumberFormatException ignore) {} }
 
         Map<String, Object> exp = fileService.createFromDdl(dataSourceId, sampleRows);
+        // 「抽取到经验库」是工作空间内的明确动作：直接把生成的经验引用进当前工作空间，
+        // 让它立刻出现在该工作空间侧栏（其余公共库新增不自动引用，需手动「引用」）。
+        if (exp != null && exp.get("id") != null) {
+            try { repo.reference(String.valueOf(exp.get("id"))); }
+            catch (Exception e) { log.warn("[experience] DDL 抽取自动引用失败: {}", e.toString()); }
+        }
         triggerReindex(exp);
         return ResponseEntity.ok(exp);
     }

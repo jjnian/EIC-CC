@@ -11,6 +11,8 @@ import com.tuiyan.backend.mapper.GraphTemplateMapper;
 import com.tuiyan.backend.mapper.HypothesisTemplateMapper;
 import com.tuiyan.backend.mapper.OntologyModelMapper;
 import com.tuiyan.backend.mapper.ScenarioMapper;
+import com.tuiyan.backend.repository.DataSourceRefRepository;
+import com.tuiyan.backend.repository.ExperienceRefRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -31,17 +33,23 @@ public class WorkspaceCascadeCleaner {
     private final ConversationMapper conversationMapper;
     private final GraphTemplateMapper graphTemplateMapper;
     private final HypothesisTemplateMapper hypothesisTemplateMapper;
+    private final ExperienceRefRepository experienceRefRepository;
+    private final DataSourceRefRepository dataSourceRefRepository;
 
     public WorkspaceCascadeCleaner(OntologyModelMapper ontologyModelMapper,
                                    ScenarioMapper scenarioMapper,
                                    ConversationMapper conversationMapper,
                                    GraphTemplateMapper graphTemplateMapper,
-                                   HypothesisTemplateMapper hypothesisTemplateMapper) {
+                                   HypothesisTemplateMapper hypothesisTemplateMapper,
+                                   ExperienceRefRepository experienceRefRepository,
+                                   DataSourceRefRepository dataSourceRefRepository) {
         this.ontologyModelMapper = ontologyModelMapper;
         this.scenarioMapper = scenarioMapper;
         this.conversationMapper = conversationMapper;
         this.graphTemplateMapper = graphTemplateMapper;
         this.hypothesisTemplateMapper = hypothesisTemplateMapper;
+        this.experienceRefRepository = experienceRefRepository;
+        this.dataSourceRefRepository = dataSourceRefRepository;
     }
 
     /**
@@ -60,7 +68,10 @@ public class WorkspaceCascadeCleaner {
                 new LambdaQueryWrapper<GraphTemplatePO>().eq(GraphTemplatePO::getWorkspaceId, workspaceId));
         int hypTpls = hypothesisTemplateMapper.delete(
                 new LambdaQueryWrapper<HypothesisTemplatePO>().eq(HypothesisTemplatePO::getWorkspaceId, workspaceId));
-        log.info("delete workspace {}: models={}, scenarios={}, conversations={}, graphTpls={}, hypTpls={}（数据源/经验为公共资源，保留）",
+        // 数据源/经验本体保留为公共资源，但清理该工作空间对它们的引用关系（避免悬挂引用）。
+        experienceRefRepository.deleteByWorkspace(workspaceId);
+        dataSourceRefRepository.deleteByWorkspace(workspaceId);
+        log.info("delete workspace {}: models={}, scenarios={}, conversations={}, graphTpls={}, hypTpls={}（数据源/经验为公共资源，保留本体、清引用）",
                 workspaceId, models, scenarios, convs, graphTpls, hypTpls);
     }
 }

@@ -7,7 +7,9 @@ import { prompt as uiPrompt } from '../composables/usePrompt';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
 import type { Workspace } from '../api/workspaces';
-import type { DataSource } from '../api/dataSources';
+import {
+  listReferencableDataSources, referenceDataSources, unreferenceDataSource, type DataSource,
+} from '../api/dataSources';
 import {
   createFolder, renameFolder, deleteFolder, moveFolder,
   moveDataSourceToFolder, type DataSourceFolder,
@@ -16,7 +18,10 @@ import {
   createExperienceFolder, renameExperienceFolder, deleteExperienceFolder,
   moveExperienceFolder, moveExperienceToFolder, type ExperienceFolder,
 } from '../api/experienceFolders';
-import { updateExperience, createExperienceFromDdl, type Experience } from '../api/experiences';
+import {
+  updateExperience, createExperienceFromDdl,
+  listReferencableExperiences, referenceExperiences, unreferenceExperience, type Experience,
+} from '../api/experiences';
 import { useSidebarSections } from '../composables/useSidebarSections';
 import { subtreeIds, flattenFolderTree, buildMoveTargets } from '../utils/sidebarTree';
 
@@ -155,22 +160,119 @@ const renameExperienceAct = async () => {
   }
 };
 
-const deleteExperienceAct = async () => {
+// ── 引用公共库（经验 / 数据源）选择器 ───────────────────────
+// 经验库 / 数据源均为全局公共资源,新增不自动进工作空间;右键区段「引用」从公共库勾选纳入本工作空间。
+interface RefPickerItem { id: string; name: string; sub?: string; }
+const refPicker = ref<null | {
+  kind: 'experience' | 'datasource';
+  loading: boolean;
+  saving: boolean;
+  query: string;
+  items: RefPickerItem[];
+  selected: Set<string>;
+}>(null);
+
+const expRefName = (x: Experience) => x.fileName || x.title || '未命名经验';
+const dsRefSub: Record<string, string> = {
+  mysql: 'MySQL', pgsql: 'PgSQL', oracle: 'Oracle', dm: '达梦', gbase: 'GBase',
+  file_stored: '文件', https_api: 'HTTPS',
+};
+
+const openExperienceRefPicker = async () => {
+  closeCtxMenu();
+  refPicker.value = { kind: 'experience', loading: true, saving: false, query: '', items: [], selected: new Set() };
+  try {
+    const list = await listReferencableExperiences();
+    if (refPicker.value) {
+      refPicker.value.items = list.map(x => ({ id: x.id, name: expRefName(x), sub: x.origin }));
+      refPicker.value.loading = false;
+    }
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '加载失败');
+    refPicker.value = null;
+  }
+};
+
+const openDataSourceRefPicker = async () => {
+  closeCtxMenu();
+  refPicker.value = { kind: 'datasource', loading: true, saving: false, query: '', items: [], selected: new Set() };
+  try {
+    const list = await listReferencableDataSources();
+    if (refPicker.value) {
+      refPicker.value.items = list.map(d => ({ id: d.id, name: d.name, sub: dsRefSub[d.kind] || d.kind }));
+      refPicker.value.loading = false;
+    }
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '加载失败');
+    refPicker.value = null;
+  }
+};
+
+const refPickerVisible = computed<RefPickerItem[]>(() => {
+  const p = refPicker.value;
+  if (!p) return [];
+  const q = p.query.trim().toLowerCase();
+  return q ? p.items.filter(i => i.name.toLowerCase().includes(q)) : p.items;
+});
+
+const toggleRefSelect = (id: string) => {
+  const p = refPicker.value;
+  if (!p) return;
+  const next = new Set(p.selected);
+  next.has(id) ? next.delete(id) : next.add(id);
+  p.selected = next;
+};
+
+const closeRefPicker = () => { refPicker.value = null; };
+
+const confirmRefPicker = async () => {
+  const p = refPicker.value;
+  if (!p || p.saving) return;
+  const ids = [...p.selected];
+  if (!ids.length) { closeRefPicker(); return; }
+  p.saving = true;
+  try {
+    if (p.kind === 'experience') {
+      await referenceExperiences(ids);
+      await refreshExp();
+      sections.value = { ...sections.value, exp: true };
+    } else {
+      await referenceDataSources(ids);
+      await refreshDS();
+      sections.value = { ...sections.value, ds: true };
+    }
+    toast.success(`已引用 ${ids.length} 项`);
+    closeRefPicker();
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '引用失败');
+    if (refPicker.value) refPicker.value.saving = false;
+  }
+};
+
+// 右键经验/数据源条目「取消引用」:仅从本工作空间移除引用,不删除公共库里的本体。
+const unreferenceExperienceAct = async () => {
   const current = ctxMenu.value;
   if (!current || current.kind !== 'experience') return;
   closeCtxMenu();
-  const ok = await uiConfirm({
-    title: '删除经验',
-    message: `确认删除「${current.title}」吗？此操作不可恢复。`,
-    confirmLabel: '删除',
-    danger: true,
-  });
-  if (!ok) return;
   try {
-    await tree.removeExperience(wsId.value, current.id);
-    toast.success('已删除');
+    await unreferenceExperience(current.id);
+    await refreshExp();
+    toast.success('已从本工作空间移除引用');
   } catch (e) {
-    toast.warn(e instanceof ApiError ? e.message : '删除失败');
+    toast.warn(e instanceof ApiError ? e.message : '操作失败');
+  }
+};
+
+const unreferenceDataSourceAct = async () => {
+  const current = ctxMenu.value;
+  if (!current || current.kind !== 'datasource') return;
+  closeCtxMenu();
+  try {
+    await unreferenceDataSource(current.id);
+    await refreshDS();
+    toast.success('已从本工作空间移除引用');
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '操作失败');
   }
 };
 
@@ -262,25 +364,6 @@ const deleteFolderAct = async () => {
     await deleteFolder(current.id);
     await refreshDS();
     toast.success('已删除文件夹');
-  } catch (e) {
-    toast.warn(e instanceof ApiError ? e.message : '删除失败');
-  }
-};
-
-const deleteDataSourceAct = async () => {
-  const current = ctxMenu.value;
-  if (!current || current.kind !== 'datasource') return;
-  closeCtxMenu();
-  const ok = await uiConfirm({
-    title: '删除数据源',
-    message: `确认删除「${current.title}」吗？此操作不可恢复。`,
-    confirmLabel: '删除',
-    danger: true,
-  });
-  if (!ok) return;
-  try {
-    await tree.removeDataSource(wsId.value, current.id);
-    toast.success('已删除');
   } catch (e) {
     toast.warn(e instanceof ApiError ? e.message : '删除失败');
   }
@@ -833,6 +916,11 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
           <span>添加数据源</span>
           <span class="ctx-hint">Add</span>
         </button>
+        <button class="ctx-item" @click="openDataSourceRefPicker">
+          <span class="ctx-icon">🔗</span>
+          <span>引用公共数据源</span>
+          <span class="ctx-hint">Ref</span>
+        </button>
         <button class="ctx-item" @click="createFolderIn(null)">
           <span class="ctx-icon">📁</span>
           <span>新建文件夹</span>
@@ -875,6 +963,11 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
           <span class="ctx-icon">＋</span>
           <span>新建经验</span>
           <span class="ctx-hint">Add</span>
+        </button>
+        <button class="ctx-item" @click="openExperienceRefPicker">
+          <span class="ctx-icon">🔗</span>
+          <span>引用公共经验</span>
+          <span class="ctx-hint">Ref</span>
         </button>
         <button class="ctx-item" @click="createExpFolderIn(null)">
           <span class="ctx-icon">📁</span>
@@ -919,10 +1012,10 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
           <span>重新命名</span>
           <span class="ctx-hint">Rename</span>
         </button>
-        <button class="ctx-item ctx-danger" @click="deleteExperienceAct">
-          <span class="ctx-icon">🗑</span>
-          <span>删除</span>
-          <span class="ctx-hint">Delete</span>
+        <button class="ctx-item ctx-danger" @click="unreferenceExperienceAct">
+          <span class="ctx-icon">⊘</span>
+          <span>取消引用</span>
+          <span class="ctx-hint">Unref</span>
         </button>
       </template>
 
@@ -938,10 +1031,10 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
           <span>移动到文件夹…</span>
           <span class="ctx-hint">Move</span>
         </button>
-        <button class="ctx-item ctx-danger" @click="deleteDataSourceAct">
-          <span class="ctx-icon">🗑</span>
-          <span>删除</span>
-          <span class="ctx-hint">Delete</span>
+        <button class="ctx-item ctx-danger" @click="unreferenceDataSourceAct">
+          <span class="ctx-icon">⊘</span>
+          <span>取消引用</span>
+          <span class="ctx-hint">Unref</span>
         </button>
       </template>
 
@@ -983,6 +1076,45 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
         <span class="ctx-icon">📁</span>
         <span class="ctx-move-label">{{ t.name }}</span>
       </button>
+    </div>
+
+    <!-- 引用公共库选择器：从公共经验/数据源勾选，引用进本工作空间 -->
+    <div v-if="refPicker" class="ref-mask" @click.self="closeRefPicker">
+      <div class="ref-dialog">
+        <div class="ref-head">
+          <span class="ref-title">
+            引用公共{{ refPicker.kind === 'experience' ? '经验' : '数据源' }}
+            <span class="ref-sub">到「{{ workspace.name }}」</span>
+          </span>
+          <button class="ref-x" @click="closeRefPicker">×</button>
+        </div>
+        <input v-model="refPicker.query" class="ref-search" :placeholder="`搜索${refPicker.kind === 'experience' ? '经验' : '数据源'}名称…`" />
+        <div class="ref-body">
+          <div v-if="refPicker.loading" class="ref-state">加载中…</div>
+          <div v-else-if="refPickerVisible.length === 0" class="ref-state">
+            {{ refPicker.query ? '无匹配项' : '公共库里没有可引用的项（都已引用或为空）' }}
+          </div>
+          <template v-else>
+            <button
+              v-for="it in refPickerVisible"
+              :key="it.id"
+              :class="['ref-row', { on: refPicker.selected.has(it.id) }]"
+              @click="toggleRefSelect(it.id)"
+            >
+              <span class="ref-check">{{ refPicker.selected.has(it.id) ? '☑' : '☐' }}</span>
+              <span class="ref-name">{{ it.name }}</span>
+              <span v-if="it.sub" class="ref-kind">{{ it.sub }}</span>
+            </button>
+          </template>
+        </div>
+        <div class="ref-foot">
+          <span class="ref-count">已选 {{ refPicker.selected.size }} 项</span>
+          <button class="ref-cancel" @click="closeRefPicker">取消</button>
+          <button class="ref-ok" :disabled="refPicker.saving || refPicker.selected.size === 0" @click="confirmRefPicker">
+            {{ refPicker.saving ? '引用中…' : '引用所选' }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -1253,4 +1385,68 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   text-overflow: ellipsis;
 }
 .ctx-move-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── 引用公共库选择器 ───────────────────────────────── */
+.ref-mask {
+  position: fixed; inset: 0; z-index: 2100;
+  background: rgba(3,6,12,0.62); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+}
+.ref-dialog {
+  width: 460px; max-width: calc(100vw - 40px); max-height: 78vh;
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, rgba(18,26,42,0.98), rgba(10,15,26,0.98));
+  border: 1px solid rgba(255,255,255,.14); border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.ref-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 18px 10px;
+}
+.ref-title { font-size: 15px; font-weight: 600; color: var(--text-main); }
+.ref-sub { font-size: 12px; font-weight: 400; color: var(--text-dim); margin-left: 4px; }
+.ref-x {
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,.12); color: var(--text-dim);
+  width: 26px; height: 26px; border-radius: 7px; font-size: 17px; line-height: 1; cursor: pointer;
+}
+.ref-x:hover { color: var(--text-main); background: rgba(255,255,255,0.08); }
+.ref-search {
+  margin: 0 18px 10px; padding: 8px 11px; border-radius: 9px;
+  background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,.12);
+  color: var(--text-main); font-size: 13px; font-family: inherit;
+}
+.ref-search:focus { outline: none; border-color: rgba(66,184,131,.55); }
+.ref-body { flex: 1; min-height: 80px; overflow-y: auto; padding: 0 10px; display: flex; flex-direction: column; gap: 2px; }
+.ref-state { padding: 28px 12px; text-align: center; color: var(--text-muted); font-size: 12.5px; }
+.ref-row {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  padding: 9px 10px; border-radius: 8px; cursor: pointer; font-family: inherit;
+  background: transparent; border: 1px solid transparent; color: var(--text-main); font-size: 13px;
+  transition: background .12s ease, border-color .12s ease;
+}
+.ref-row:hover { background: rgba(255,255,255,.05); }
+.ref-row.on { background: rgba(66,184,131,.14); border-color: rgba(66,184,131,.4); }
+.ref-check { flex-shrink: 0; font-size: 15px; color: #6dd4a7; width: 18px; text-align: center; }
+.ref-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ref-kind {
+  flex-shrink: 0; font-size: 9px; padding: 1px 6px; border-radius: 100px;
+  background: rgba(255,255,255,.06); color: rgba(255,255,255,.45);
+  font-family: 'JetBrains Mono', monospace; letter-spacing: 0.3px;
+}
+.ref-foot {
+  display: flex; align-items: center; gap: 10px; padding: 12px 18px 16px;
+  border-top: 1px solid rgba(255,255,255,.08); margin-top: 6px;
+}
+.ref-count { flex: 1; font-size: 12px; color: var(--text-dim); }
+.ref-cancel {
+  background: transparent; border: 1px solid rgba(255,255,255,.15); color: var(--text-dim);
+  padding: 7px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; font-family: inherit;
+}
+.ref-cancel:hover { color: var(--text-main); border-color: rgba(255,255,255,.3); }
+.ref-ok {
+  background: linear-gradient(135deg, var(--accent-soft, #5fd4a3), var(--accent, #42b883)); color: #00251a;
+  border: none; padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+.ref-ok:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

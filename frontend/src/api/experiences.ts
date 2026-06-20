@@ -114,6 +114,26 @@ export function listAllExperiences() {
   return request<Experience[]>('/api/experiences?all=true');
 }
 
+/** 当前工作空间「尚未引用」的公共经验（引用选择器列出可引入的经验）。 */
+export function listReferencableExperiences() {
+  return request<Experience[]>('/api/experiences/referencable');
+}
+
+/** 把一批公共经验引用进当前工作空间（已引用的跳过）。 */
+export function referenceExperiences(experienceIds: string[]) {
+  return request<{ added: number }>('/api/experiences/refs', {
+    method: 'POST',
+    body: JSON.stringify({ experienceIds }),
+  });
+}
+
+/** 取消当前工作空间对某经验的引用（不删除经验本体）。 */
+export function unreferenceExperience(id: string) {
+  return request<{ success: boolean }>(`/api/experiences/${encodeURIComponent(id)}/ref`, {
+    method: 'DELETE',
+  });
+}
+
 export function getExperience(id: string) {
   return request<Experience>(`/api/experiences/${encodeURIComponent(id)}`);
 }

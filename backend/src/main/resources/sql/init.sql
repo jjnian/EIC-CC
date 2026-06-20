@@ -562,6 +562,61 @@ CREATE TABLE IF NOT EXISTS node_data_binding (
 CREATE INDEX IF NOT EXISTS idx_ndb_model_node ON node_data_binding (model_id, node_id);
 CREATE INDEX IF NOT EXISTS idx_ndb_ws ON node_data_binding (workspace_id);
 
+-- ---------------------------------------------------------------------------
+-- 9. 公共库 + 工作空间引用（reference）
+--    经验库 / 数据源均为「全局公共资源」：新增时只进公共库，不再自动归属任何工作空间。
+--    工作空间通过「引用（reference）」把公共库里的经验/数据源纳入自己的侧栏树；
+--    每条引用记录归类文件夹（folder_id，按引用所在工作空间各自归类，互不影响）。
+-- ---------------------------------------------------------------------------
+
+-- 9.1 经验库引用：工作空间 → 经验（多对多）。folder_id = 该工作空间内的归类文件夹（NULL=根）。
+CREATE TABLE IF NOT EXISTS experience_ref (
+    id            VARCHAR(160) PRIMARY KEY,
+    workspace_id  VARCHAR(64)  NOT NULL,
+    experience_id VARCHAR(64)  NOT NULL,
+    folder_id     VARCHAR(64),
+    created_at    BIGINT       NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_experience_ref ON experience_ref (workspace_id, experience_id);
+CREATE INDEX IF NOT EXISTS idx_experience_ref_ws ON experience_ref (workspace_id);
+
+-- 9.2 数据源引用：工作空间 → 数据源（多对多）。folder_id 同上。
+CREATE TABLE IF NOT EXISTS data_source_ref (
+    id             VARCHAR(160) PRIMARY KEY,
+    workspace_id   VARCHAR(64)  NOT NULL,
+    data_source_id VARCHAR(64)  NOT NULL,
+    folder_id      VARCHAR(64),
+    created_at     BIGINT       NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_data_source_ref ON data_source_ref (workspace_id, data_source_id);
+CREATE INDEX IF NOT EXISTS idx_data_source_ref_ws ON data_source_ref (workspace_id);
+
+-- 9.3 一次性迁移标记表：让回填脚本只在首次升级时执行一次（init.sql 每次启动都跑，需幂等且不重复回填）。
+CREATE TABLE IF NOT EXISTS schema_migration (
+    mig_key     VARCHAR(128) PRIMARY KEY,
+    applied_at  BIGINT       NOT NULL
+);
+
+-- 9.4 一次性回填：升级前已存在的经验/数据源，按其原归属工作空间 + 文件夹各补一条引用，
+--     保证升级后这些条目仍出现在原工作空间侧栏（不丢可见性）。新建条目此后不再自动回填。
+INSERT INTO experience_ref (id, workspace_id, experience_id, folder_id, created_at)
+SELECT 'expref_' || e.id || '_' || e.workspace_id, e.workspace_id, e.id, e.folder_id, e.created_at
+FROM experience e
+WHERE e.workspace_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM schema_migration m WHERE m.mig_key = 'backfill_refs_v1')
+ON CONFLICT (workspace_id, experience_id) DO NOTHING;
+
+INSERT INTO data_source_ref (id, workspace_id, data_source_id, folder_id, created_at)
+SELECT 'dsref_' || d.id || '_' || d.workspace_id, d.workspace_id, d.id, d.folder_id, d.created_at
+FROM data_source d
+WHERE d.workspace_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM schema_migration m WHERE m.mig_key = 'backfill_refs_v1')
+ON CONFLICT (workspace_id, data_source_id) DO NOTHING;
+
+INSERT INTO schema_migration (mig_key, applied_at)
+SELECT 'backfill_refs_v1', (extract(epoch from now()) * 1000)::bigint
+WHERE NOT EXISTS (SELECT 1 FROM schema_migration m WHERE m.mig_key = 'backfill_refs_v1');
+
 -- ===========================================================================
 -- 初始化完成
 -- ===========================================================================

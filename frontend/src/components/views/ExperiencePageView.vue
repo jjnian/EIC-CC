@@ -7,7 +7,7 @@ import { toast } from '../../composables/useToast';
 import { ApiError } from '../../api/http';
 import {
   createExperience, updateExperience, reindexExperience, uploadExperienceFile,
-  experienceFileUrl, listAllExperiences, deleteExperience, type Experience,
+  experienceFileUrl, listAllExperiences, listExperiences, deleteExperience, type Experience,
 } from '../../api/experiences';
 import { listAllDataSources, type DataSource } from '../../api/dataSources';
 import { useWebSystemExplore } from '../../composables/useWebSystemExplore';
@@ -74,9 +74,8 @@ const allExperiences = computed<Experience[]>(() =>
 const visibleExperiences = computed<Experience[]>(() =>
   filterWs.value ? allExperiences.value.filter(e => e.workspaceId === filterWs.value) : allExperiences.value);
 
-// 当前工作空间下的经验数（「构建本体血缘图」按当前工作空间聚合，故据此判断可用）
-const currentWsCount = computed(() =>
-  items.value.filter(e => e.workspaceId === ws.currentId.value).length);
+// 当前工作空间「引用」的经验数（「构建本体血缘图」按当前工作空间引用的经验聚合，故据此判断可用）
+const currentWsCount = ref(0);
 
 // 列表本地增删改：保持公共列表与侧栏一致
 const upsertItem = (exp: Experience) => {
@@ -121,12 +120,15 @@ const reload = async (_force = false) => {
   loading.value = true;
   try {
     if (!ws.workspaces.value.length) await ws.reload();
-    const [exps, dss] = await Promise.all([
+    const curWs = ws.currentId.value;
+    const [exps, dss, refExps] = await Promise.all([
       listAllExperiences(),
       listAllDataSources().catch(() => [] as DataSource[]),
+      curWs ? listExperiences({ workspaceId: curWs }).catch(() => [] as Experience[]) : Promise.resolve([] as Experience[]),
     ]);
     items.value = exps;
     dataSources.value = dss;
+    currentWsCount.value = refExps.length;
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载失败');
   } finally {
@@ -170,12 +172,11 @@ const onUploadPick = async (ev: Event) => {
   uploading.value = true;
   try {
     const created = await uploadExperienceFile(file);
-    const wsId = ws.currentId.value;
-    if (wsId) tree.upsertExperience(wsId, created);
+    // 经验库为公共库：上传只进公共库，不自动进任何工作空间侧栏（需在工作空间右键「引用」纳入）。
     upsertItem(created);
     draft.value = null;
     selectedUpload.value = created;   // 上传后直接预览
-    toast.success('已从文件创建经验');
+    toast.success('已添加到公共经验库（在工作空间右键「引用」纳入）');
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '上传失败');
   } finally {
@@ -238,12 +239,13 @@ const save = async () => {
     const saved = d.id
       ? await updateExperience(d.id, payload)
       : await createExperience(payload);
-    // 新建归属当前工作空间；编辑沿用原归属。两处缓存都同步。
-    const ownerWs = saved.workspaceId || wsId;
-    if (ownerWs) tree.upsertExperience(ownerWs, saved);
+    // 经验库为公共库：新建只进公共库、不自动进工作空间侧栏；编辑则同步已引用本经验的当前工作空间缓存。
+    if (wsId && tree.getExperiences(wsId).some(e => e.id === saved.id)) {
+      tree.upsertExperience(wsId, saved);
+    }
     upsertItem(saved);
     draft.value = null;
-    toast.success(d.id ? '已保存' : '已创建');
+    toast.success(d.id ? '已保存' : '已添加到公共经验库（在工作空间右键「引用」纳入）');
   } catch (e) {
     toast.warn(e instanceof ApiError ? e.message : '保存失败');
   } finally {

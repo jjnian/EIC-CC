@@ -227,7 +227,9 @@ public class ExperienceIndexService {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT c.content, c.experience_id, 1 - (e.embedding_vec <=> ?::vector) AS score " +
             "FROM exp_chunk c JOIN exp_embedding e ON e.chunk_id = c.id " +
-            "WHERE c.workspace_id = ? AND e.embedding_vec IS NOT NULL " +
+            // 经验库为公共库：召回本工作空间「引用」的经验（而非仅本空间创建的），与侧栏/建图口径一致
+            "WHERE c.experience_id IN (SELECT experience_id FROM experience_ref WHERE workspace_id = ?) " +
+            "AND e.embedding_vec IS NOT NULL " +
             "ORDER BY e.embedding_vec <=> ?::vector LIMIT ?",
             qLit, workspaceId, qLit, topK);
 
@@ -251,7 +253,8 @@ public class ExperienceIndexService {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT c.content, c.experience_id, e.embedding " +
             "FROM exp_chunk c JOIN exp_embedding e ON e.chunk_id = c.id " +
-            "WHERE c.workspace_id = ?",
+            // 经验库为公共库：召回本工作空间「引用」的经验（口径与 ANN 路径一致）
+            "WHERE c.experience_id IN (SELECT experience_id FROM experience_ref WHERE workspace_id = ?)",
             workspaceId
         );
         if (rows.isEmpty()) return List.of();
