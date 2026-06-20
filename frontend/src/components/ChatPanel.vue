@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
-import type { OntologyNode, OntologyEdge, ChainStep } from '../types';
+import type { OntologyNode, OntologyEdge, ChainStep, GraphMutation } from '../types';
 import { useConversations, type ChatMsg, type ChatMsgAttachment, type ChatQuestionMsg } from '../composables/useConversations';
 import { useAttachments } from '../composables/useAttachments';
 import { useMention } from '../composables/useMention';
@@ -36,8 +36,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[],
-     removeNodeIds?: string[], removeEdgeIds?: string[]): void;
+  (e: 'update', mutation: GraphMutation): void;
   (e: 'clear-graph'): void;
   (e: 'seed-consumed'): void;
   (e: 'focus-node', id: string): void;
@@ -130,8 +129,7 @@ const sender = useChatSend({
   autoTitle,
   currentModel,
   currentModelId: () => props.modelId || '',
-  emit: (event, addNodes, addEdges, removeNodeIds, removeEdgeIds) =>
-    emit(event, addNodes, addEdges, removeNodeIds, removeEdgeIds),
+  emit: (event, mutation) => emit(event, mutation),
   closeMention: () => mention.closeMention(),
   consumeMentions: () => consumeActiveMentions(),
 });

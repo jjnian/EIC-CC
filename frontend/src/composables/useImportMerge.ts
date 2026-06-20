@@ -1,5 +1,5 @@
 import { type Ref, nextTick } from 'vue';
-import type { OntologyNode, OntologyEdge } from '../types';
+import type { OntologyNode, OntologyEdge, GraphMutation } from '../types';
 import { toast } from './useToast';
 
 export interface ImportMergeCtx {
@@ -85,13 +85,50 @@ export function useImportMerge(ctx: ImportMergeCtx) {
     return { nodeIds, edgeIds };
   };
 
-  const onUpdate = (addNodes: OntologyNode[], addEdges: OntologyEdge[],
-                    removeNodeIds: string[] = [], removeEdgeIds: string[] = []) => {
-    const { nodes: newNodes, edges: newEdges, skipped } = dedupeIncoming(addNodes, addEdges);
-    const { nodeIds: delNodeIds, edgeIds: delEdgeIds } = resolveRemovals(removeNodeIds, removeEdgeIds);
-    const hasRemoval = delNodeIds.size > 0 || delEdgeIds.size > 0;
+  /**
+   * 就地修改现有节点/边:按 id(回退 label)定位目标,把 patch 的字段浅合并进去。
+   * 不通过 patch 改 id 与坐标 x/y,保持节点在画布上的位置不动。返回命中的条数。
+   */
+  const applyUpdates = (
+    updateNodes: (Partial<OntologyNode> & { id: string })[],
+    updateEdges: (Partial<OntologyEdge> & { id: string })[],
+  ) => {
+    const norm = (s?: string) => (s || '').trim().toLowerCase();
+    const strip = (p: Record<string, any>, drop: string[]) => {
+      const out: Record<string, any> = {};
+      for (const [k, v] of Object.entries(p)) if (!drop.includes(k)) out[k] = v;
+      return out;
+    };
+    let nodeCount = 0;
+    for (const p of updateNodes) {
+      const ref = (p.id || '').trim();
+      if (!ref) continue;
+      const i = ctx.nodes.value.findIndex(n => n.id === ref || norm(n.label) === norm(ref));
+      if (i === -1) continue;
+      ctx.nodes.value[i] = { ...ctx.nodes.value[i], ...strip(p, ['id', 'x', 'y']) };
+      nodeCount++;
+    }
+    let edgeCount = 0;
+    for (const p of updateEdges) {
+      const ref = (p.id || '').trim();
+      if (!ref) continue;
+      const i = ctx.edges.value.findIndex(e => e.id === ref || norm(e.label) === norm(ref));
+      if (i === -1) continue;
+      ctx.edges.value[i] = { ...ctx.edges.value[i], ...strip(p, ['id']) };
+      edgeCount++;
+    }
+    return { nodeCount, edgeCount };
+  };
 
-    if (newNodes.length === 0 && newEdges.length === 0 && !hasRemoval) {
+  const onUpdate = (m: GraphMutation) => {
+    const addNodes = m.addNodes || [];
+    const addEdges = m.addEdges || [];
+    const { nodes: newNodes, edges: newEdges, skipped } = dedupeIncoming(addNodes, addEdges);
+    const { nodeIds: delNodeIds, edgeIds: delEdgeIds } = resolveRemovals(m.removeNodeIds || [], m.removeEdgeIds || []);
+    const hasRemoval = delNodeIds.size > 0 || delEdgeIds.size > 0;
+    const hasUpdate = (m.updateNodes?.length || 0) > 0 || (m.updateEdges?.length || 0) > 0;
+
+    if (newNodes.length === 0 && newEdges.length === 0 && !hasRemoval && !hasUpdate) {
       if (skipped.nodes || skipped.edges) {
         toast.info(`已忽略 ${skipped.nodes} 个重复节点 / ${skipped.edges} 条重复关系`);
       }
@@ -100,7 +137,7 @@ export function useImportMerge(ctx: ImportMergeCtx) {
 
     ctx.snapshotHistory();
 
-    // 先删:移除指定节点(连带其相关边)与指定边,再做新增合并
+    // 先删:移除指定节点(连带其相关边)与指定边
     if (hasRemoval) {
       const removedNodeCount = ctx.nodes.value.filter(n => delNodeIds.has(n.id)).length;
       ctx.nodes.value = ctx.nodes.value.filter(n => !delNodeIds.has(n.id));
@@ -111,6 +148,14 @@ export function useImportMerge(ctx: ImportMergeCtx) {
       const removedEdgeCount = before - ctx.edges.value.length;
       if (removedNodeCount || removedEdgeCount) {
         toast.info(`已从图谱删除 ${removedNodeCount} 个节点 / ${removedEdgeCount} 条关系`);
+      }
+    }
+
+    // 再改:就地更新现有节点/边(改名/改类型/改属性/改关系)
+    if (hasUpdate) {
+      const { nodeCount, edgeCount } = applyUpdates(m.updateNodes || [], m.updateEdges || []);
+      if (nodeCount || edgeCount) {
+        toast.info(`已更新 ${nodeCount} 个节点 / ${edgeCount} 条关系`);
       }
     }
 

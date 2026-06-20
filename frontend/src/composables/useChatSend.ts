@@ -1,5 +1,5 @@
 import { type Ref } from 'vue';
-import type { OntologyNode, OntologyEdge } from '../types';
+import type { OntologyNode, OntologyEdge, GraphMutation } from '../types';
 import { chatStream, type ChatPayload, type ChatResult, type BuildStep, type ChatMentionRef } from '../api/chat';
 import type { SseHandle } from '../api/http';
 import { toast } from './useToast';
@@ -22,8 +22,7 @@ export interface ChatSendCtx {
   currentModel: Ref<ModelOption | null>;
   /** 当前打开的本体模型 ID (getter)，用于分析完成后在消息里挂载"查看图谱"链接。 */
   currentModelId: () => string;
-  emit: (event: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[],
-         removeNodeIds?: string[], removeEdgeIds?: string[]) => void;
+  emit: (event: 'update', mutation: GraphMutation) => void;
   closeMention: () => void;
   /** 取走并清空当前已激活的 @ 引用，与 input 一起送给后端 */
   consumeMentions?: () => ActiveMention[];
@@ -51,6 +50,43 @@ function toIdList(raw: unknown): string[] {
     if (id && !seen.has(id)) { seen.add(id); out.push(id); }
   }
   return out;
+}
+
+/**
+ * 把后端透传的 update_nodes / update_edges 归一成「含 id 的 patch 对象数组」。
+ * 丢弃非对象或缺 id 的项。
+ */
+function toPatchList<T extends { id: string }>(raw: unknown): T[] {
+  if (!Array.isArray(raw)) return [];
+  const out: T[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const id = String((item as { id?: unknown }).id ?? '').trim();
+    if (!id) continue;
+    out.push({ ...(item as object), id } as T);
+  }
+  return out;
+}
+
+/** 把后端 ChatResult 归一成一份「增删改」集合(所有字段都已填好,不会是 undefined)。 */
+function parseMutation(parsed: ChatResult): Required<GraphMutation> {
+  return {
+    addNodes: ((parsed.add_nodes as OntologyNode[]) || []).map(n => ({ ...n })),
+    addEdges: (parsed.add_edges as OntologyEdge[]) || [],
+    removeNodeIds: toIdList(parsed.remove_nodes),
+    removeEdgeIds: toIdList(parsed.remove_edges),
+    updateNodes: toPatchList<Partial<OntologyNode> & { id: string }>(parsed.update_nodes),
+    updateEdges: toPatchList<Partial<OntologyEdge> & { id: string }>(parsed.update_edges),
+  };
+}
+
+/** 把一份增删改集合渲染成「+x 节点 / ~y 节点 / -z 节点」式的简短文案。 */
+function mutationSummary(m: Required<GraphMutation>): string {
+  const parts: string[] = [];
+  if (m.addNodes.length || m.addEdges.length) parts.push(`+${m.addNodes.length} 节点 / +${m.addEdges.length} 关系`);
+  if (m.updateNodes.length || m.updateEdges.length) parts.push(`~${m.updateNodes.length} 节点 / ~${m.updateEdges.length} 关系`);
+  if (m.removeNodeIds.length || m.removeEdgeIds.length) parts.push(`-${m.removeNodeIds.length} 节点 / -${m.removeEdgeIds.length} 关系`);
+  return parts.join(',');
 }
 
 /**
@@ -250,34 +286,23 @@ export function useChatSend(ctx: ChatSendCtx) {
               }
               aiMsg.buildDone = true;
 
-              const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
-              const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
-              const removeNodeIds = toIdList(parsed.remove_nodes);
-              const removeEdgeIds = toIdList(parsed.remove_edges);
-              const changed = addNodes.length || addEdges.length || removeNodeIds.length || removeEdgeIds.length;
+              const mutation = parseMutation(parsed);
+              const { addNodes, addEdges, removeNodeIds, removeEdgeIds, updateNodes, updateEdges } = mutation;
+              const changed = addNodes.length || addEdges.length || removeNodeIds.length
+                || removeEdgeIds.length || updateNodes.length || updateEdges.length;
               const reply = (parsed.reply || '').trim();
               if (reply) {
                 aiMsg.text = reply;
               } else if (changed) {
-                const parts: string[] = [];
-                if (addNodes.length || addEdges.length) {
-                  parts.push(`新增 ${addNodes.length} 个节点 / ${addEdges.length} 条关系`);
-                }
-                if (removeNodeIds.length || removeEdgeIds.length) {
-                  parts.push(`删除 ${removeNodeIds.length} 个节点 / ${removeEdgeIds.length} 条关系`);
-                }
-                aiMsg.text = `已更新图谱:${parts.join(',')}。`;
+                aiMsg.text = `已更新图谱:${mutationSummary(mutation)}。`;
               } else {
-                aiMsg.text = '未识别到可加入或删除的实体或关系,请补充更具体的描述。';
+                aiMsg.text = '未识别到可增删改的实体或关系,请补充更具体的描述。';
               }
 
-              ctx.emit('update', addNodes.map(n => ({ ...n })), addEdges, removeNodeIds, removeEdgeIds);
+              ctx.emit('update', mutation);
 
               if (changed) {
-                const add = `+${addNodes.length} 节点 / +${addEdges.length} 关系`;
-                const del = (removeNodeIds.length || removeEdgeIds.length)
-                  ? `,-${removeNodeIds.length} 节点 / -${removeEdgeIds.length} 关系` : '';
-                toast.success(`图谱已更新:${add}${del}`);
+                toast.success(`图谱已更新:${mutationSummary(mutation)}`);
                 const mid = ctx.currentModelId();
                 if (mid) aiMsg.graphModelId = mid;
               }
@@ -341,15 +366,10 @@ export function useChatSend(ctx: ChatSendCtx) {
                   const parsed = JSON.parse(fallback) as ChatResult;
                   const reply = (parsed.reply || '').trim();
                   aiMsg.text = reply || '已收到回复,但未识别到图谱更新。';
-                  const addNodes = (parsed.add_nodes as OntologyNode[]) || [];
-                  const addEdges = (parsed.add_edges as OntologyEdge[]) || [];
-                  const removeNodeIds = toIdList(parsed.remove_nodes);
-                  const removeEdgeIds = toIdList(parsed.remove_edges);
-                  if (addNodes.length || addEdges.length || removeNodeIds.length || removeEdgeIds.length) {
-                    ctx.emit('update', addNodes.map(n => ({ ...n })), addEdges, removeNodeIds, removeEdgeIds);
-                    const del = (removeNodeIds.length || removeEdgeIds.length)
-                      ? `,-${removeNodeIds.length} 节点 / -${removeEdgeIds.length} 关系` : '';
-                    toast.success(`图谱已更新:+${addNodes.length} 节点 / +${addEdges.length} 关系${del}`);
+                  const mutation = parseMutation(parsed);
+                  if (mutationSummary(mutation)) {
+                    ctx.emit('update', mutation);
+                    toast.success(`图谱已更新:${mutationSummary(mutation)}`);
                   }
                 } catch {
                   aiMsg.text = '未收到有效回复';

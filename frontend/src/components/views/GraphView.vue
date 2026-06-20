@@ -8,7 +8,7 @@ import ExplanationPanel from '../ExplanationPanel.vue';
 import SchemaPanel from '../SchemaPanel.vue';
 import GraphAnalysisPanel from '../GraphAnalysisPanel.vue';
 import { toast } from '../../composables/useToast';
-import type { OntologyNode, OntologyEdge, ChainStep } from '../../types';
+import type { OntologyNode, OntologyEdge, ChainStep, GraphMutation } from '../../types';
 
 const props = defineProps({
   nodes:           { type: Array as PropType<OntologyNode[]>, required: true },
@@ -60,8 +60,7 @@ const emit = defineEmits<{
   (e: 'switch-branch', id: string): void;
   (e: 'close-timeline'): void;
   (e: 'focus-node', id: string): void;
-  (e: 'update'/* 图谱增量 */, addNodes: OntologyNode[], addEdges: OntologyEdge[],
-     removeNodeIds?: string[], removeEdgeIds?: string[]): void;
+  (e: 'update'/* 图谱增删改 */, mutation: GraphMutation): void;
   (e: 'seed-consumed'): void;
   (e: 'start-divider', ev: MouseEvent): void;
   (e: 'graph-ref', el: any): void;
@@ -254,7 +253,7 @@ const analysisOpen = ref(false);
       :width="chatW"
       :seed="pendingChatSeed"
       :live-prediction="livePrediction"
-      @update="(addNodes, addEdges, removeNodeIds, removeEdgeIds) => emit('update', addNodes, addEdges, removeNodeIds, removeEdgeIds)"
+      @update="(mutation) => emit('update', mutation)"
       @clear-graph="emit('clear')"
       @seed-consumed="emit('seed-consumed')"
       @focus-node="(id) => emit('focus-node', id)"

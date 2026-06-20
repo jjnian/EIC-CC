@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, type PropType } from 'vue';
 import ChatPanel from '../ChatPanel.vue';
-import type { OntologyNode, OntologyEdge, ChainStep } from '../../types';
+import type { OntologyNode, OntologyEdge, ChainStep, GraphMutation } from '../../types';
 
 const props = defineProps({
   nodes:           { type: Array as PropType<OntologyNode[]>, required: true },
@@ -36,8 +36,7 @@ const livePrediction = computed(() => ({
 }));
 
 const emit = defineEmits<{
-  (e: 'update', addNodes: OntologyNode[], addEdges: OntologyEdge[],
-     removeNodeIds?: string[], removeEdgeIds?: string[]): void;
+  (e: 'update', mutation: GraphMutation): void;
   (e: 'clear-graph'): void;
   (e: 'seed-consumed'): void;
   (e: 'abort-prediction'): void;
@@ -90,7 +89,7 @@ const bindRef = (el: any) => {
         :model-id="modelId"
         :ensure-model="ensureModel"
         class="cc-chat"
-        @update="(addNodes, addEdges, removeNodeIds, removeEdgeIds) => emit('update', addNodes, addEdges, removeNodeIds, removeEdgeIds)"
+        @update="(mutation) => emit('update', mutation)"
         @clear-graph="emit('clear-graph')"
         @seed-consumed="emit('seed-consumed')"
         @abort-prediction="emit('abort-prediction')"

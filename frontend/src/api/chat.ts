@@ -39,10 +39,14 @@ export interface ChatResult {
   reply: string;
   add_nodes?: unknown[];
   add_edges?: unknown[];
-  /** 待从图谱删除的现有节点 id(删节点会连带删除其相关边);用于「删除/替换/重命名」类指令。 */
+  /** 待从图谱删除的现有节点 id(删节点会连带删除其相关边);用于「删除/替换」类指令。 */
   remove_nodes?: unknown[];
   /** 待从图谱删除的现有边 id。 */
   remove_edges?: unknown[];
+  /** 对现有节点的局部 patch(含 id);用于「重命名/改类型/改属性」类指令。 */
+  update_nodes?: unknown[];
+  /** 对现有边的局部 patch(含 id)。 */
+  update_edges?: unknown[];
   /** LLM 抛回的澄清问题(支持一次多个、单题多选)。 */
   questions?: ChatQuestion[];
   /** 旧格式:单个问题。新后端只发 questions,保留以兼容历史会话解析。 */

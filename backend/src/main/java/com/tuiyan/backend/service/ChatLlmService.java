@@ -256,17 +256,26 @@ public class ChatLlmService {
             DerivedSourceStamper.stamp(addNodes, dbSchemas);
             DerivedSourceStamper.stamp(addEdges, dbSchemas);
 
-            // 删除/替换:LLM 可返回待删除的现有节点/边 id(仅 chat 场景),透传给前端从画布移除
+            // 删除:LLM 可返回待删除的现有节点/边 id(仅 chat 场景),透传给前端从画布移除
             ArrayNode removeNodes = collectIdArray(result.path("remove_nodes"));
             ArrayNode removeEdges = collectIdArray(result.path("remove_edges"));
             int removeNodeCount = removeNodes.size();
             int removeEdgeCount = removeEdges.size();
+            // 修改:LLM 可返回对现有节点/边的局部 patch(须含 id),透传给前端就地更新
+            ArrayNode updateNodes = collectPatchArray(result.path("update_nodes"));
+            ArrayNode updateEdges = collectPatchArray(result.path("update_edges"));
+            int updateNodeCount = updateNodes.size();
+            int updateEdgeCount = updateEdges.size();
 
             // 逐个实体 / 关系上报，让用户看到本体被一步步"构建"出来，而不是只看到一个总数
             emitBuildSteps(step, addNodes, addEdges);
 
             StringBuilder mergeLabel = new StringBuilder("正在合并到图谱… (+")
                     .append(nodeCount).append(" 节点 / +").append(edgeCount).append(" 关系");
+            if (updateNodeCount > 0 || updateEdgeCount > 0) {
+                mergeLabel.append(" · ~").append(updateNodeCount).append(" 节点 / ~")
+                        .append(updateEdgeCount).append(" 关系");
+            }
             if (removeNodeCount > 0 || removeEdgeCount > 0) {
                 mergeLabel.append(" · -").append(removeNodeCount).append(" 节点 / -")
                         .append(removeEdgeCount).append(" 关系");
@@ -280,6 +289,8 @@ public class ChatLlmService {
             finalEvent.set("add_edges", addEdges);
             if (removeNodeCount > 0) finalEvent.set("remove_nodes", removeNodes);
             if (removeEdgeCount > 0) finalEvent.set("remove_edges", removeEdges);
+            if (updateNodeCount > 0) finalEvent.set("update_nodes", updateNodes);
+            if (updateEdgeCount > 0) finalEvent.set("update_edges", updateEdges);
             // 透传 LLM 返回的 clarifying questions(支持一次多个问题、单题多选);
             // 兼容旧的单 question 字段。前端渲染为可点击选项卡片。最多 4 个问题。
             ArrayNode questions = objectMapper.createArrayNode();
@@ -325,6 +336,24 @@ public class ChatLlmService {
             id = id.trim();
             if (!id.isBlank() && seen.add(id)) out.add(id);
         }
+        return out;
+    }
+
+    /**
+     * 把 LLM 返回的 update_nodes / update_edges 归一成「带 id 的 patch 对象数组」。
+     * 仅保留是对象且含非空 id 的项,按 id 去重(后者覆盖前者)。非数组时返回空数组。
+     */
+    private ArrayNode collectPatchArray(JsonNode node) {
+        ArrayNode out = objectMapper.createArrayNode();
+        if (node == null || !node.isArray()) return out;
+        java.util.LinkedHashMap<String, JsonNode> byId = new java.util.LinkedHashMap<>();
+        for (JsonNode item : node) {
+            if (item == null || !item.isObject()) continue;
+            String id = item.path("id").asText("").trim();
+            if (id.isBlank()) continue;
+            byId.put(id, item);
+        }
+        for (JsonNode v : byId.values()) out.add(v);
         return out;
     }
 
