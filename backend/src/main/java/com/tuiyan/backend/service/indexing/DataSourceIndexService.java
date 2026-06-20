@@ -27,6 +27,7 @@ public class DataSourceIndexService {
     private final FileStoredService fileService;
     private final EmbeddingClient embeddingClient;
     private final EmbeddingProperties embeddingProps;
+    private final PgVectorSupport pgVector;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -36,11 +37,13 @@ public class DataSourceIndexService {
                                   FileStoredService fileService,
                                   EmbeddingClient embeddingClient,
                                   EmbeddingProperties embeddingProps,
+                                  PgVectorSupport pgVector,
                                   JdbcTemplate jdbc) {
         this.dsRepo = dsRepo;
         this.fileService = fileService;
         this.embeddingClient = embeddingClient;
         this.embeddingProps = embeddingProps;
+        this.pgVector = pgVector;
         this.jdbc = jdbc;
     }
 
@@ -128,6 +131,9 @@ public class DataSourceIndexService {
                 );
             }
 
+            // pgvector 可用时，把 TEXT 向量回填到 vector 列（尽力而为，失败则检索回退余弦）
+            populateVectorColumn(dataSourceId);
+
             markIndexStatus(dataSourceId, "indexed");
             emitStep(emitter, "done", "索引完成: " + chunks.size() + " 个文本块");
             emitter.complete();
@@ -144,6 +150,8 @@ public class DataSourceIndexService {
 
     /**
      * 在当前工作空间中检索与查询最相关的文本块。
+     * <p>pgvector 可用时走 HNSW ANN（近似最近邻），否则回退 TEXT 向量的暴力余弦；
+     * ANN 路径异常或空结果时也会兜底到余弦，保证可用性。
      */
     public List<ChunkResult> searchRelevant(String workspaceId, String query, int topK) {
         if (!embeddingClient.isConfigured()) return List.of();
@@ -156,6 +164,46 @@ public class DataSourceIndexService {
             return List.of();
         }
 
+        if (pgVector.isAvailable()) {
+            try {
+                List<ChunkResult> ann = searchAnn(workspaceId, queryVec, topK);
+                if (!ann.isEmpty()) return ann;
+            } catch (Exception e) {
+                log.warn("[Index] ANN 检索失败,回退余弦: {}", e.getMessage());
+            }
+        }
+        return searchBruteForce(workspaceId, queryVec, topK);
+    }
+
+    /** pgvector HNSW 近似最近邻：用 cosine 距离算子 <=>，score = 1 - 距离。 */
+    private List<ChunkResult> searchAnn(String workspaceId, float[] queryVec, int topK) throws Exception {
+        String qLit = objectMapper.writeValueAsString(queryVec);   // "[..]"，pgvector 文本字面量
+        List<Map<String, Object>> rows = jdbc.queryForList(
+            "SELECT c.content, c.data_source_id, 1 - (e.embedding_vec <=> ?::vector) AS score " +
+            "FROM ds_chunk c JOIN ds_embedding e ON e.chunk_id = c.id " +
+            // 数据源为公共库：召回本工作空间「引用」的数据源（与侧栏/取数口径一致）
+            "WHERE c.data_source_id IN (SELECT data_source_id FROM data_source_ref WHERE workspace_id = ?) " +
+            "AND e.embedding_vec IS NOT NULL " +
+            "ORDER BY e.embedding_vec <=> ?::vector LIMIT ?",
+            qLit, workspaceId, qLit, topK);
+
+        Map<String, String> dsNames = new HashMap<>();
+        List<ChunkResult> results = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            double score = ((Number) row.get("score")).doubleValue();
+            if (score < 0.1) continue;
+            String dsId = (String) row.get("data_source_id");
+            String name = dsNames.computeIfAbsent(dsId, id -> {
+                DataSourcePO po = dsRepo.findById(id);
+                return po != null ? po.getName() : id;
+            });
+            results.add(new ChunkResult((String) row.get("content"), name, score));
+        }
+        return results;
+    }
+
+    /** TEXT 向量暴力余弦（无 pgvector 时的兜底）。 */
+    private List<ChunkResult> searchBruteForce(String workspaceId, float[] queryVec, int topK) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT c.content, c.data_source_id, e.embedding " +
             "FROM ds_chunk c JOIN ds_embedding e ON e.chunk_id = c.id " +
@@ -199,6 +247,19 @@ public class DataSourceIndexService {
             results.add(new ChunkResult(s.content, name, s.score));
         }
         return results;
+    }
+
+    /** 把 TEXT 向量回填到 pgvector 列；扩展不可用或维度不符时安全忽略。 */
+    private void populateVectorColumn(String dataSourceId) {
+        if (!pgVector.isAvailable()) return;
+        try {
+            jdbc.update(
+                "UPDATE ds_embedding e SET embedding_vec = e.embedding::vector " +
+                "FROM ds_chunk c WHERE e.chunk_id = c.id AND c.data_source_id = ? AND e.embedding_vec IS NULL",
+                dataSourceId);
+        } catch (Exception ex) {
+            log.warn("[Index] 回填 vector 列失败(检索将回退余弦): {}", ex.getMessage());
+        }
     }
 
     public Map<String, Object> getIndexStatus(String dataSourceId) {
