@@ -28,6 +28,20 @@ public class IndexController {
         return ce.emitter();
     }
 
+    /**
+     * 批量索引工作空间下「已引用」的全部 file_stored 数据源。
+     * <p>立即返回调度概况（total/scheduled/skipped），实际索引后台进行；
+     * 单源进度仍可通过 {@code GET /api/index/{id}/status} 查询。
+     *
+     * @param force 传 true 连已索引的也重建；默认 false 只补未索引的
+     */
+    @PostMapping("/workspace/{workspaceId}/reindex-all")
+    public ResponseEntity<Map<String, Object>> reindexWorkspace(
+            @PathVariable String workspaceId,
+            @RequestParam(defaultValue = "false") boolean force) {
+        return ResponseEntity.ok(indexService.reindexWorkspace(workspaceId, force));
+    }
+
     @GetMapping("/{dataSourceId}/status")
     public ResponseEntity<Map<String, Object>> getStatus(@PathVariable String dataSourceId) {
         return ResponseEntity.ok(indexService.getIndexStatus(dataSourceId));

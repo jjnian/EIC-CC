@@ -14,6 +14,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 数据源向量索引服务：读取文件内容 → 分块 → 嵌入 → 存储，并提供相似度检索。
@@ -58,6 +60,55 @@ public class DataSourceIndexService {
         CompletableFuture.runAsync(() -> doIndex(dataSourceId, emitter));
     }
 
+    /**
+     * 批量索引一个工作空间下「已引用」的全部 file_stored 数据源。
+     * <p>立即返回调度概况，实际索引在有界线程池中后台进行（并发度 = {@code app.embedding.concurrency}，
+     * 默认 3，避免打爆 embedding 服务限流）。逐个数据源的进度仍可通过 {@code GET /api/index/{id}/status} 查询。
+     *
+     * @param force true 则连已 indexed 的也重建；false 仅索引 status != indexed 的
+     * @return total=候选总数, scheduled=本次调度数, skipped=已索引跳过数
+     */
+    public Map<String, Object> reindexWorkspace(String workspaceId, boolean force) {
+        if (!embeddingClient.isConfigured()) {
+            return Map.of("configured", false, "total", 0, "scheduled", 0, "skipped", 0);
+        }
+
+        List<DataSourcePO> all = dsRepo.list(workspaceId).stream()
+                .map(m -> dsRepo.findById((String) m.get("id")))
+                .filter(Objects::nonNull)
+                .filter(po -> "file_stored".equals(po.getKind()))
+                .toList();
+
+        List<String> toIndex = new ArrayList<>();
+        int skipped = 0;
+        for (DataSourcePO po : all) {
+            if (!force && "indexed".equals(po.getIndexStatus())) {
+                skipped++;
+            } else {
+                toIndex.add(po.getId());
+            }
+        }
+
+        if (!toIndex.isEmpty()) {
+            ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, embeddingProps.getConcurrency()));
+            for (String dsId : toIndex) {
+                pool.submit(() -> {
+                    try {
+                        doIndex(dsId, null);   // emitter=null：批量场景不推 SSE，进度落 index_status
+                    } catch (Exception e) {
+                        log.warn("[Index] 批量索引失败 ds={}: {}", dsId, e.getMessage());
+                    }
+                });
+            }
+            pool.shutdown();   // 不阻塞等待：任务在后台跑完后线程池自动回收
+        }
+
+        log.info("[Index] 工作空间批量索引 ws={} 候选={} 调度={} 跳过={} force={}",
+                workspaceId, all.size(), toIndex.size(), skipped, force);
+        return Map.of("configured", true,
+                "total", all.size(), "scheduled", toIndex.size(), "skipped", skipped);
+    }
+
     private void doIndex(String dataSourceId, SseEmitter emitter) {
         try {
             emitStep(emitter, "reading_content", "正在读取数据源内容…");
@@ -70,7 +121,7 @@ public class DataSourceIndexService {
 
             if (!"file_stored".equals(po.getKind())) {
                 emitStep(emitter, "skip", "数据库/API 类型暂不支持向量索引");
-                emitter.complete();
+                if (emitter != null) emitter.complete();
                 return;
             }
 
@@ -81,7 +132,7 @@ public class DataSourceIndexService {
             if (content == null || content.isBlank()) {
                 emitStep(emitter, "skip", "数据源无可索引的文本内容");
                 markIndexStatus(dataSourceId, "none");
-                emitter.complete();
+                if (emitter != null) emitter.complete();
                 return;
             }
 
@@ -92,7 +143,7 @@ public class DataSourceIndexService {
             if (chunks.isEmpty()) {
                 emitStep(emitter, "skip", "文本分块后无有效内容");
                 markIndexStatus(dataSourceId, "none");
-                emitter.complete();
+                if (emitter != null) emitter.complete();
                 return;
             }
 
@@ -113,38 +164,44 @@ public class DataSourceIndexService {
 
             emitStep(emitter, "storing", "正在存储向量…");
             long now = System.currentTimeMillis();
+            // 批量入库：逐条 insert 在大文件(几千~几万 chunk)时往返开销极大，改用 batchUpdate
+            List<Object[]> chunkArgs = new ArrayList<>(chunks.size());
+            List<Object[]> embArgs = new ArrayList<>(chunks.size());
             for (int i = 0; i < chunks.size(); i++) {
                 String chunkId = "chk_" + dataSourceId + "_" + i;
                 String embId = "emb_" + dataSourceId + "_" + i;
                 int tokenCount = TextChunker.estimateTokens(chunks.get(i));
-
-                jdbc.update(
-                    "INSERT INTO ds_chunk (id, data_source_id, workspace_id, chunk_index, content, token_count, created_at) VALUES (?,?,?,?,?,?,?)",
+                chunkArgs.add(new Object[]{
                     chunkId, dataSourceId, po.getWorkspaceId(), i, chunks.get(i), tokenCount, now
-                );
-
-                String embJson = objectMapper.writeValueAsString(embeddings.get(i));
-                jdbc.update(
-                    "INSERT INTO ds_embedding (id, chunk_id, embedding, model_name, dimension, created_at) VALUES (?,?,?,?,?,?)",
-                    embId, chunkId, embJson, embeddingProps.getModel(),
-                    embeddings.get(i).length, now
-                );
+                });
+                embArgs.add(new Object[]{
+                    embId, chunkId, objectMapper.writeValueAsString(embeddings.get(i)),
+                    embeddingProps.getModel(), embeddings.get(i).length, now
+                });
             }
+            jdbc.batchUpdate(
+                "INSERT INTO ds_chunk (id, data_source_id, workspace_id, chunk_index, content, token_count, created_at) VALUES (?,?,?,?,?,?,?)",
+                chunkArgs);
+            jdbc.batchUpdate(
+                "INSERT INTO ds_embedding (id, chunk_id, embedding, model_name, dimension, created_at) VALUES (?,?,?,?,?,?)",
+                embArgs);
 
             // pgvector 可用时，把 TEXT 向量回填到 vector 列（尽力而为，失败则检索回退余弦）
             populateVectorColumn(dataSourceId);
 
             markIndexStatus(dataSourceId, "indexed");
             emitStep(emitter, "done", "索引完成: " + chunks.size() + " 个文本块");
-            emitter.complete();
+            if (emitter != null) emitter.complete();
 
         } catch (Exception e) {
             log.error("[Index] 索引失败 ds={}: {}", dataSourceId, e.getMessage(), e);
             markIndexStatus(dataSourceId, "error");
-            try {
-                emitter.send(SseEmitter.event().name("error").data("索引失败: " + e.getMessage()));
-            } catch (IOException ignored) {}
-            emitter.completeWithError(e);
+            if (emitter != null) {
+                try {
+                    emitter.send(SseEmitter.event().name("error").data("索引失败: " + e.getMessage()));
+                } catch (IOException ignored) {}
+                emitter.completeWithError(e);
+            }
         }
     }
 
@@ -281,6 +338,7 @@ public class DataSourceIndexService {
     }
 
     private void emitStep(SseEmitter emitter, String key, String label) {
+        if (emitter == null) return;   // 批量索引无 SSE，进度落 index_status
         try {
             String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
             emitter.send(SseEmitter.event().name("step").data(json));
@@ -290,12 +348,13 @@ public class DataSourceIndexService {
     }
 
     private void emitError(SseEmitter emitter, String msg) {
+        if (emitter == null) return;
         try {
             emitter.send(SseEmitter.event().name("error").data(msg));
         } catch (IOException e) {
             log.warn("emit error failed: {}", e.toString());
         }
-        emitter.complete();
+        if (emitter != null) emitter.complete();
     }
 
     static double cosineSimilarity(float[] a, float[] b) {
