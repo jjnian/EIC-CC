@@ -1304,6 +1304,12 @@ backend/src/main/java/com/tuiyan/backend/
 - **ANN 检索（可选）**：装了 pgvector 扩展时走 HNSW 近似最近邻（`embedding_vec <=> ?::vector`）；
   没装则回退 TEXT 向量的暴力余弦。pgvector 在应用就绪后由 `PgVectorSupport` **尝试性启用**，
   失败不影响启动（故意不放进 `init.sql`，因其 `continue-on-error: false`）。TEXT `embedding` 列始终是真值来源。
+- **限流友好**：embedding 调用带 429/5xx 指数退避重试；保存即自动索引与批量/补索引均提交到**有界线程池排队**
+  （并发度 `app.embedding.concurrency`，默认 3），大量文件一次性上传也不会瞬间打爆 embedding 服务。
+- **启动自动补索引**：应用就绪后 `IndexBackfillRunner` 自动把历史 `index_status≠indexed` 且有正文的经验
+  （及 `file_stored` 数据源）排队重建，解决「配置 embedding 晚于内容上传」的存量数据搜不到的问题——
+  重启即跟上，无需手动逐条触发。开关 `app.embedding.backfill-on-startup`（默认 `true`）；未配置 embedding 时静默跳过。
+  也可随时调 `POST /api/experiences/reindex-all` 手动全量补建，用 `GET /api/experiences/index-summary` 查进度。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
@@ -1314,6 +1320,8 @@ backend/src/main/java/com/tuiyan/backend/
 | `DELETE` | `/api/experiences/{id}` | 删除经验（索引随外键级联清理） |
 | `POST` | `/api/experiences/{id}/reindex` | 手动重建向量索引（embedding 配置变更后补建） |
 | `GET` | `/api/experiences/{id}/index-status` | 查询索引状态 + 文本块数量 |
+| `POST` | `/api/experiences/reindex-all` | 全量补索引（`?force=true` 连已索引的也重建），后台排队，返回调度概况 |
+| `GET` | `/api/experiences/index-summary` | 索引状态汇总（经验总数 + 各 `index_status` 计数，查补索引进度） |
 | `POST` | `/api/experiences/file` | 上传文件建经验（PDF/Word/TXT/MD 抽正文，音频走 ASR） |
 | `POST` | `/api/experiences/from-ddl` | 数据源导出 DDL 沉淀为经验（`{dataSourceId}`，「供血」入口） |
 | `POST` | `/api/experiences/extract-ontology` | **聚合整个工作空间经验库构建本体血缘图（SSE）** |

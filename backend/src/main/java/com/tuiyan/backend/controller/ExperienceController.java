@@ -300,6 +300,23 @@ public class ExperienceController {
         return ResponseEntity.ok(indexService.getIndexStatus(id));
     }
 
+    /**
+     * 全量补索引经验库（embedding 配置变更后手动触发）。立即返回调度概况，实际索引后台排队进行。
+     *
+     * @param force true 连已索引的也重建；默认 false 只补未索引的
+     */
+    @PostMapping("/reindex-all")
+    public ResponseEntity<Map<String, Object>> reindexAll(
+            @RequestParam(defaultValue = "false") boolean force) {
+        return ResponseEntity.ok(indexService.reindexAll(force));
+    }
+
+    /** 索引状态汇总：经验总数 + 各 index_status 计数，用于查看补索引进度。 */
+    @GetMapping("/index-summary")
+    public ResponseEntity<Map<String, Object>> indexSummary() {
+        return ResponseEntity.ok(indexService.indexSummary());
+    }
+
     /** 创建/编辑成功后异步重建该条经验的向量索引；未配置 embedding 时静默跳过。 */
     private void triggerReindex(Map<String, Object> exp) {
         Object id = exp == null ? null : exp.get("id");

@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -82,21 +83,59 @@ public class ExperienceIndexService {
 
     /**
      * 启动补索引：把历史未索引(index_status≠indexed)且有正文的经验全部排队重建。
-     * <p>逐条走 {@link #reindexAsync}，提交到有界线程池排队，不阻塞调用方；embedding 未配置时返回 0。
-     * 用于「配 embedding 晚于上传」的存量数据在启动后自动跟上。
+     * <p>等价于 {@code reindexAll(false)}，供启动钩子调用。
      *
      * @return 本次调度的经验条数
      */
     public int backfillUnindexed() {
-        if (!isConfigured()) return 0;
-        List<String> ids = jdbc.queryForList(
-                "SELECT id FROM experience " +
-                "WHERE coalesce(index_status, '') <> 'indexed' " +
-                "AND content IS NOT NULL AND length(trim(content)) > 0",
-                String.class);
-        for (String id : ids) reindexAsync(id);
-        if (!ids.isEmpty()) log.info("[ExpIndex] 启动补索引：调度 {} 条未索引经验", ids.size());
-        return ids.size();
+        Object scheduled = reindexAll(false).get("scheduled");
+        return scheduled instanceof Number n ? n.intValue() : 0;
+    }
+
+    /**
+     * 全量重建经验库索引：把有正文的经验排队重建，提交到有界线程池排队消化，不阻塞调用方。
+     *
+     * @param force true 连已 indexed 的也重建；false 仅补 index_status≠indexed 的
+     * @return configured/total（有正文的候选数）/scheduled（本次调度数）/skipped（已索引跳过数）
+     */
+    public Map<String, Object> reindexAll(boolean force) {
+        if (!isConfigured()) {
+            return Map.of("configured", false, "total", 0, "scheduled", 0, "skipped", 0);
+        }
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT id, coalesce(index_status, '') AS st FROM experience " +
+                "WHERE content IS NOT NULL AND length(trim(content)) > 0");
+        int skipped = 0;
+        List<String> toIndex = new ArrayList<>();
+        for (Map<String, Object> r : rows) {
+            if (!force && "indexed".equals(r.get("st"))) skipped++;
+            else toIndex.add(String.valueOf(r.get("id")));
+        }
+        for (String id : toIndex) reindexAsync(id);
+        if (!toIndex.isEmpty()) {
+            log.info("[ExpIndex] 全量补索引：候选={} 调度={} 跳过={} force={}",
+                    rows.size(), toIndex.size(), skipped, force);
+        }
+        return Map.of("configured", true,
+                "total", rows.size(), "scheduled", toIndex.size(), "skipped", skipped);
+    }
+
+    /**
+     * 索引状态汇总：按 index_status 分组计数，用于运维查看补索引进度。
+     *
+     * @return configured / total（经验总数）/ byStatus（各状态条数，如 indexed/indexing/none）
+     */
+    public Map<String, Object> indexSummary() {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT coalesce(index_status, 'none') AS st, count(*) AS c FROM experience GROUP BY 1");
+        Map<String, Object> byStatus = new LinkedHashMap<>();
+        long total = 0;
+        for (Map<String, Object> r : rows) {
+            long c = ((Number) r.get("c")).longValue();
+            byStatus.put(String.valueOf(r.get("st")), c);
+            total += c;
+        }
+        return Map.of("configured", isConfigured(), "total", total, "byStatus", byStatus);
     }
 
     /**
