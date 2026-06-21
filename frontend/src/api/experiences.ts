@@ -53,8 +53,8 @@ export function uploadExperienceFile(file: File, title?: string) {
 }
 
 /**
- * 从数据库数据源导出 DDL 并存为一条经验（CREATE TABLE/VIEW 作正文，自动建索引）。
- * @param sampleRows >0 时为每张基表附带前 N 行样例数据（INSERT 形式，含真实数据）；默认 0 仅导结构。
+ * 把数据源抽取成一条经验并自动建索引：关系型库导 DDL（CREATE TABLE/VIEW），HTTPS 接口导请求配置 + 最近响应样例。
+ * @param sampleRows >0 时（仅库类）为每张基表附带前 N 行样例数据（INSERT 形式）；默认 0 仅导结构。
  */
 export function createExperienceFromDdl(dataSourceId: string, sampleRows = 0) {
   return request<Experience>('/api/experiences/from-ddl', {

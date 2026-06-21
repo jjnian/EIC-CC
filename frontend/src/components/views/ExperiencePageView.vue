@@ -305,7 +305,7 @@ const preview = (content?: string) => {
 const originMeta = (x: Experience): { icon: string; label: string; cls: string } => {
   switch (x.origin) {
     case 'upload': return { icon: '📄', label: '上传文件', cls: 'upload' };
-    case 'ddl': return { icon: '🗄️', label: '数据库抽取', cls: 'ddl' };
+    case 'ddl': return { icon: '🗄️', label: '数据源抽取', cls: 'ddl' };
     case 'websystem': return { icon: '🌐', label: 'Web 系统', cls: 'websystem' };
     case 'explore': return { icon: '🧭', label: '系统探索', cls: 'explore' };
     default: return { icon: '✎', label: '手写经验', cls: 'manual' };

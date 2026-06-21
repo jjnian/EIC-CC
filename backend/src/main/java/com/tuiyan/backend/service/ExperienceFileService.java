@@ -95,21 +95,16 @@ public class ExperienceFileService {
     }
 
     /**
-     * 从数据库数据源导出 DDL 并存为一条经验：抽取 mysql/pgsql 的 CREATE TABLE/VIEW 结构作正文。
-     * <p>sampleRows&gt;0 时为每张基表附带前 N 行样例数据；同一数据源重复导出走 upsert。
+     * 把「任意类型」的数据源抽取成一条经验：关系型库导 DDL（sampleRows&gt;0 附样例数据），
+     * HTTPS 接口导请求配置 + 最近响应样例。文档形态与正文由 {@link DataSourceService#exportSourceDoc} 决定，
+     * 本方法只负责按数据源 id upsert（同一数据源重复抽取覆盖同一条经验）。
      */
-    public Map<String, Object> createFromDdl(String dataSourceId, int sampleRows) {
+    public Map<String, Object> createFromDataSource(String dataSourceId, int sampleRows) {
         if (dataSourceId == null || dataSourceId.isBlank()) {
             throw new IllegalArgumentException("缺少 dataSourceId");
         }
-        DataSourceService.DdlExport export = dataSourceService.exportDdl(dataSourceId, sampleRows);
-        String title = "「" + export.sourceName() + "」数据库 DDL";
-        String content = "# " + title + "\n\n"
-                + "> 库: `" + export.database() + "` · 对象数: " + export.objectCount()
-                + (export.withSamples() ? " · 含样例数据" : "")
-                + " · 由数据源结构内省自动生成\n\n"
-                + "```sql\n" + export.ddl() + "\n```\n";
-        return repo.upsertDdl(dataSourceId, title, content, "DDL,schema");
+        DataSourceService.SourceDocExport doc = dataSourceService.exportSourceDoc(dataSourceId, sampleRows);
+        return repo.upsertDdl(dataSourceId, doc.title(), doc.content(), doc.tags());
     }
 
     /** content-type 兜底：上传头缺失 / 为通用二进制流时按扩展名推断常见可预览类型。 */

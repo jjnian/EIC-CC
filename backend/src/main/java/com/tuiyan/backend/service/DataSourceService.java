@@ -10,6 +10,7 @@ import com.tuiyan.backend.service.connector.HttpScheduler;
 import com.tuiyan.backend.service.connector.HttpConnectorService;
 import com.tuiyan.backend.service.connector.JdbcConnectorService;
 import com.tuiyan.backend.service.connector.SourceKind;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -29,6 +30,7 @@ public class DataSourceService {
     private final FileStoredService fileStored;
     private final SchemaInfoDtoMapper schemaInfoDtoMapper;
     private final com.tuiyan.backend.service.llm.DdlRenderer ddlRenderer;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DataSourceService(DataSourceRepository repo,
                              DataSourceFetchLogRepository logRepo,
@@ -200,6 +202,88 @@ public class DataSourceService {
         }
         String ddl = ddlRenderer.render(info, samples);
         return new DdlExport(po.getName(), info.database(), ddl, info.tables().size(), !samples.isEmpty());
+    }
+
+    /** 抽取到经验库的通用文档：数据源名 + 标题 + Markdown 正文 + 标签。 */
+    public record SourceDocExport(String sourceName, String title, String content, String tags) {}
+
+    /**
+     * 把「任意类型」的数据源抽取成一篇可入经验库的 Markdown 文档：
+     * <ul>
+     *   <li>关系型数据库（JDBC）→ DDL（CREATE TABLE/VIEW，sampleRows&gt;0 附样例数据）；</li>
+     *   <li>HTTPS 接口 → 请求配置（脱敏）+ 最近一次响应样例（无历史则即时执行一次）。</li>
+     * </ul>
+     * 其余类型暂不支持，抛 {@link IllegalArgumentException}（由全局处理器映射为 400）。
+     */
+    public SourceDocExport exportSourceDoc(String id, int sampleRows) {
+        DataSourcePO po = ensureOwnership(id);
+        String kind = po.getKind();
+        if (SourceKind.isJdbc(kind)) {
+            DdlExport e = exportDdl(id, sampleRows);
+            String title = "「" + e.sourceName() + "」数据库 DDL";
+            String content = "# " + title + "\n\n"
+                    + "> 库: `" + e.database() + "` · 对象数: " + e.objectCount()
+                    + (e.withSamples() ? " · 含样例数据" : "")
+                    + " · 由数据源结构内省自动生成\n\n"
+                    + "```sql\n" + e.ddl() + "\n```\n";
+            return new SourceDocExport(e.sourceName(), title, content, "DDL,schema");
+        }
+        if (SourceKind.HTTPS_API.equals(kind)) {
+            return exportHttpDoc(po);
+        }
+        // 文件类数据源（含历史 file_stored）：用已抽取/归档的纯文本作正文
+        String text = fileStored.readText(repo.readConfig(po), 0, 200_000);
+        if (text != null && !text.isBlank()) {
+            String title = "「" + po.getName() + "」文件";
+            String content = "# " + title + "\n\n> 由文件数据源抽取的文本自动生成\n\n" + text;
+            return new SourceDocExport(po.getName(), title, content, "file");
+        }
+        throw new IllegalArgumentException("该数据源类型(" + kind + ")没有可抽取到经验库的内容");
+    }
+
+    /** HTTPS 接口 → 文档：脱敏请求配置 + 最近一次响应（无历史日志则即时执行一次）。 */
+    private SourceDocExport exportHttpDoc(DataSourcePO po) {
+        String id = po.getId();
+        Map<String, Object> cfg = DataSourceRepository.maskConfig(repo.readConfig(po));
+
+        Integer status; Integer ms; String body; Long when; boolean ok; String err;
+        DataSourceFetchLogPO latest = logRepo.listLatest(id).stream().findFirst().orElse(null);
+        if (latest != null) {
+            status = latest.getStatusCode(); ms = latest.getDurationMs(); body = latest.getResponseBody();
+            when = latest.getFetchedAt(); ok = Boolean.TRUE.equals(latest.getSuccess()); err = latest.getErrorMsg();
+        } else {
+            HttpExecuteResponse r = scheduler.runOnce(id);   // 无历史：即时拉一次拿到样例
+            status = r.getStatusCode(); ms = r.getDurationMs(); body = r.getBody();
+            when = System.currentTimeMillis(); ok = r.isSuccess(); err = r.getErrorMsg();
+        }
+
+        String title = "「" + po.getName() + "」HTTP 接口";
+        StringBuilder sb = new StringBuilder();
+        sb.append("# ").append(title).append("\n\n")
+          .append("> 类型: HTTPS 接口 · 由数据源配置与最近一次响应自动生成\n\n")
+          .append("## 请求配置\n\n")
+          .append("```json\n").append(toPrettyJson(cfg)).append("\n```\n\n")
+          .append("## 最近一次响应\n\n");
+        if (ok) {
+            sb.append("- 状态: HTTP ").append(status).append(" · 耗时 ").append(ms).append("ms");
+            if (when != null) sb.append(" · 时间 ").append(new Date(when));
+            sb.append("\n\n");
+            String sample = body == null ? "" : body;
+            int cap = 20_000;
+            if (sample.length() > cap) sample = sample.substring(0, cap) + "\n…（响应过长已截断）";
+            sb.append("```json\n").append(sample).append("\n```\n");
+        } else {
+            sb.append("- 调用失败: ").append(err == null || err.isBlank() ? "未知错误" : err).append("\n");
+        }
+        return new SourceDocExport(po.getName(), title, sb.toString(), "http,api");
+    }
+
+    private String toPrettyJson(Object v) {
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(v);
+        } catch (Exception e) {
+            return String.valueOf(v);
+        }
     }
 
     // ---------- HTTPS 专用 ----------

@@ -201,8 +201,9 @@ public class ExperienceController {
     }
 
     /**
-     * 从数据库数据源导出 DDL 并存为一条经验，保存后自动建向量索引，便于对话建模时召回库表结构。
-     * <p>请求体：{ "dataSourceId": "...", "sampleRows": 3 }。sampleRows&gt;0 时附带前 N 行样例数据。
+     * 把数据源抽取成一条经验（任意类型：关系型库导 DDL、HTTPS 接口导配置+响应样例），
+     * 保存后自动建向量索引，便于对话建模时召回。
+     * <p>请求体：{ "dataSourceId": "...", "sampleRows": 3 }。sampleRows&gt;0 时（仅库类）附带前 N 行样例数据。
      */
     @PostMapping("/from-ddl")
     public ResponseEntity<Map<String, Object>> fromDdl(@RequestBody Map<String, Object> body) {
@@ -213,7 +214,7 @@ public class ExperienceController {
         if (sr instanceof Number num) sampleRows = num.intValue();
         else if (sr != null) { try { sampleRows = Integer.parseInt(String.valueOf(sr).trim()); } catch (NumberFormatException ignore) {} }
 
-        Map<String, Object> exp = fileService.createFromDdl(dataSourceId, sampleRows);
+        Map<String, Object> exp = fileService.createFromDataSource(dataSourceId, sampleRows);
         // 「抽取到经验库」是工作空间内的明确动作：直接把生成的经验引用进当前工作空间，
         // 让它立刻出现在该工作空间侧栏（其余公共库新增不自动引用，需手动「引用」）。
         if (exp != null && exp.get("id") != null) {
