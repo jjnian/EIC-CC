@@ -7,30 +7,66 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
- * PgSQL schema 内省：用 pg_catalog + information_schema 拼装。
- * <p>从 {@link JdbcConnectorService} 拆出的方言专用内省逻辑。
- * <p>要点:
- * <ul>
- *   <li><b>schema 限定</b>:内部一律以 {@code schema.table} 为 key,跨 schema 同名表不会互相覆盖;
- *       对外展示名在 public schema 下省略前缀,其余保留 {@code schema.table}。</li>
- *   <li><b>完整列类型</b>:用 {@code format_type(atttypid, atttypmod)} 还原
- *       {@code varchar(255)} / {@code numeric(10,2)} / {@code text[]} 等完整形式,
- *       拿不到时回退 {@code udt_name}。</li>
- *   <li><b>按表收敛</b>:列/外键/唯一键查询都用首查拿到的表清单过滤,表很多的库不再全库扫列。</li>
- * </ul>
- * <p>元信息 record（ColumnInfo / TableInfo 等）仍原地保留在 {@link JdbcConnectorService}，此处以全限定名引用。
+ * PostgreSQL 方言：pg_catalog + information_schema 内省、双引号（按 schema.table 拆分）、LIMIT。
+ * <p>内部一律以 {@code schema.table} 为 key，跨 schema 同名表不互相覆盖；展示名在 public 下省略前缀。
  */
 @Component
-public class PgsqlSchemaIntrospector {
+public class PgsqlDialect extends AbstractSqlDialect {
 
-    /** PgSQL schema 内省：用 pg_catalog + information_schema 拼装。 */
+    @Override
+    public String kind() {
+        return SourceKind.PGSQL;
+    }
+
+    @Override
+    public int defaultPort() {
+        return 5432;
+    }
+
+    @Override
+    public String jdbcUrl(String host, int port, String database, String params) {
+        String url = "jdbc:postgresql://" + host + ":" + port + "/" + database;
+        if (params != null && !params.isBlank()) url += "?" + params;
+        return url;
+    }
+
+    @Override
+    public String driverClass() {
+        return "org.postgresql.Driver";
+    }
+
+    @Override
+    public String quote(String name) {
+        int dot = name.indexOf('.');
+        if (dot > 0) {
+            String sch = name.substring(0, dot), tbl = name.substring(dot + 1);
+            return "\"" + sch.replace("\"", "\"\"") + "\".\"" + tbl.replace("\"", "\"\"") + "\"";
+        }
+        return "\"" + name.replace("\"", "\"\"") + "\"";
+    }
+
+    @Override
+    public String rowLimitClause(int n) {
+        return " LIMIT " + n;
+    }
+
+    @Override
+    public boolean hasRowLimit(String upperSql) {
+        return upperSql.contains("LIMIT");
+    }
+
+    @Override
+    public String listTablesSql() {
+        return "SELECT tablename FROM pg_catalog.pg_tables " +
+               "WHERE schemaname NOT IN ('pg_catalog','information_schema') " +
+               "ORDER BY tablename";
+    }
+
+    @Override
     public JdbcConnectorService.DatabaseSchemaInfo introspect(Connection conn, String dbName, int tableLimit) throws SQLException {
         // key 一律 schema.table,防跨 schema 同名表互相覆盖
         Map<String, TableBuilder> tables = new LinkedHashMap<>();
@@ -68,7 +104,7 @@ public class PgsqlSchemaIntrospector {
             }
         }
         if (tables.isEmpty()) {
-            return new JdbcConnectorService.DatabaseSchemaInfo("pgsql", dbName, List.of());
+            return build(dbName, tables);
         }
         Array keyArray = conn.createArrayOf("text", tables.keySet().toArray());
 
@@ -173,26 +209,17 @@ public class PgsqlSchemaIntrospector {
         try (PreparedStatement ps = conn.prepareStatement(uniqSql)) {
             ps.setArray(1, keyArray);
             try (ResultSet rs = ps.executeQuery()) {
-                // tableKey::index_name -> 累积 columns
-                Map<String, List<String>> tmp = new LinkedHashMap<>();
-                Map<String, String> idxToTable = new HashMap<>();
+                UniqueKeyAccumulator acc = new UniqueKeyAccumulator();
                 while (rs.next()) {
                     String tableKey = rs.getString(1) + "." + rs.getString(2);
                     if (!tables.containsKey(tableKey)) continue;
-                    String key = tableKey + "::" + rs.getString(3);
-                    tmp.computeIfAbsent(key, k -> new ArrayList<>()).add(rs.getString(4));
-                    idxToTable.put(key, tableKey);
+                    acc.add(tableKey, rs.getString(3), rs.getString(4));
                 }
-                for (Map.Entry<String, List<String>> e : tmp.entrySet()) {
-                    String tableKey = idxToTable.get(e.getKey());
-                    String idxName = e.getKey().substring(tableKey.length() + 2);
-                    tables.get(tableKey).uniqueKeys.add(new JdbcConnectorService.UniqueKeyInfo(idxName, e.getValue()));
-                }
+                acc.flushTo(tables);
             }
         }
 
-        return new JdbcConnectorService.DatabaseSchemaInfo("pgsql", dbName,
-                tables.values().stream().map(TableBuilder::build).toList());
+        return build(dbName, tables);
     }
 
     /** 对外展示名:public 下省略 schema 前缀,其余 schema.table。 */

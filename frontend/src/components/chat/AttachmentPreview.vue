@@ -198,9 +198,9 @@ const copyText = async () => {
 .ap-md :deep(pre) { background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08);
   border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 10px 0; }
 .ap-md :deep(pre code) { background: none; padding: 0; }
-.ap-md :deep(blockquote) { border-left: 3px solid rgba(66,184,131,0.5); margin: 8px 0;
+.ap-md :deep(blockquote) { border-left: 3px solid rgba(47,134,214,0.5); margin: 8px 0;
   padding: 2px 12px; color: rgba(255,255,255,0.6); }
-.ap-md :deep(a) { color: #6dd4a7; }
+.ap-md :deep(a) { color: #5aa6ee; }
 .ap-md :deep(hr) { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 14px 0; }
 
 .ap-msg {
@@ -222,7 +222,7 @@ const copyText = async () => {
 }
 .ap-btn:hover { background: rgba(255,255,255,0.16); }
 .ap-btn-hi {
-  background: var(--accent); color: #002418; border-color: transparent; font-weight: 600;
+  background: var(--accent); color: #fff; border-color: transparent; font-weight: 600;
 }
 .ap-btn-hi:hover { opacity: 0.9; background: var(--accent); }
 </style>

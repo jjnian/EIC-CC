@@ -11,7 +11,7 @@ export function useGraphStats(
   getEdges: () => OntologyEdge[],
 ) {
   // ── 辅助 ────────────────────────────────────────────
-  const typeColor = (type: string) => (NT as any)[type]?.color || '#42b883';
+  const typeColor = (type: string) => (NT as any)[type]?.color || '#22dd88';
   const typeLabel = (type: string) => (NT as any)[type]?.label || type;
 
   const sourceBadge = (s?: string) => {

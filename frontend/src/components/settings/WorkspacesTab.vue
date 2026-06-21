@@ -208,11 +208,11 @@ const formatTime = (ts?: number) => ts ? new Date(ts).toLocaleString() : '';
 <style scoped>
 .ws-current {
   font-size: 11px;
-  background: rgba(66, 184, 131, 0.18);
-  color: #6dd4a7;
+  background: rgba(47, 134, 214, 0.18);
+  color: #5aa6ee;
   padding: 1px 8px;
   border-radius: 100px;
-  border: 1px solid rgba(66, 184, 131, 0.35);
+  border: 1px solid rgba(47, 134, 214, 0.35);
   margin-left: 6px;
 }
 .ws-meta {

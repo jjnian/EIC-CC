@@ -4,6 +4,7 @@ import { useWorkspaces } from '../composables/useWorkspaces';
 import WorkspaceNode from './WorkspaceNode.vue';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
+import { isNavActive, type NavRoute, type ViewId } from '../views';
 
 const props = defineProps<{
   expanded: boolean;
@@ -35,14 +36,7 @@ const items: [string, string, string][] = [
   ['📚', '经验库', 'experience'],
 ];
 
-const isActive = (route: string): boolean => {
-  switch (route) {
-    case 'welcome': return props.view === 'chat';
-    case 'datasource': return props.view === 'datasource-list' || props.view === 'datasource';
-    case 'experience': return props.view === 'experience-list';
-    default: return false;
-  }
-};
+const isActive = (route: string): boolean => isNavActive(route as NavRoute, props.view as ViewId);
 
 const onPick = (route: string) => emit('nav', route);
 
@@ -252,9 +246,9 @@ const submitCreate = async () => {
   transition: all 0.18s ease;
 }
 .sb-ws-new:hover .sb-ws-avatar.plus {
-  border-color: rgba(66, 184, 131, 0.5);
-  color: #5fd4a3;
-  background: rgba(66, 184, 131, 0.08);
+  border-color: rgba(47, 134, 214, 0.5);
+  color: #5aa6ee;
+  background: rgba(47, 134, 214, 0.08);
 }
 .sb-ws-name {
   flex: 1;
@@ -311,8 +305,8 @@ const submitCreate = async () => {
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .sb-dialog input:focus {
-  border-color: rgba(66, 184, 131, 0.55);
-  box-shadow: 0 0 0 3px rgba(66, 184, 131, 0.10);
+  border-color: rgba(47, 134, 214, 0.55);
+  box-shadow: 0 0 0 3px rgba(47, 134, 214, 0.10);
 }
 .sb-dialog-actions {
   display: flex;
@@ -320,8 +314,8 @@ const submitCreate = async () => {
   gap: 10px;
 }
 .sb-btn-primary {
-  background: linear-gradient(135deg, #5fd4a3, #42b883);
-  color: #062a1c;
+  background: linear-gradient(135deg, #5aa6ee, #2f86d6);
+  color: #fff;
   border: none;
   padding: 9px 20px;
   border-radius: 9px;
@@ -330,12 +324,12 @@ const submitCreate = async () => {
   cursor: pointer;
   font-family: inherit;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 6px 16px rgba(66, 184, 131, 0.30), inset 0 1px 0 rgba(255,255,255,0.32);
+  box-shadow: 0 6px 16px rgba(47, 134, 214, 0.30), inset 0 1px 0 rgba(255,255,255,0.32);
   letter-spacing: 0.2px;
 }
 .sb-btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(66, 184, 131, 0.40), inset 0 1px 0 rgba(255,255,255,0.36);
+  box-shadow: 0 8px 20px rgba(47, 134, 214, 0.40), inset 0 1px 0 rgba(255,255,255,0.36);
 }
 .sb-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; }
 .sb-btn-cancel {

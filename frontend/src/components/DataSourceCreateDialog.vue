@@ -153,7 +153,7 @@ const submit = async () => {
 <style scoped>
 .dlg-mask {
   position: fixed; inset: 0; z-index: 1000;
-  background: radial-gradient(120% 120% at 50% 0%, rgba(56,225,214,0.06), transparent 50%), rgba(3,6,12,0.66);
+  background: radial-gradient(120% 120% at 50% 0%, rgba(61,155,255,0.06), transparent 50%), rgba(3,6,12,0.66);
   backdrop-filter: blur(6px);
   display: flex; align-items: center; justify-content: center;
   animation: dlgFade .2s var(--ease-out) both;
@@ -233,7 +233,7 @@ const submit = async () => {
 .form { display: flex; flex-direction: column; gap: 12px; }
 .test-msg { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--text-dim); padding: 9px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 9px; font-family: var(--font-mono); }
 .test-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
-.test-msg.ok { color: var(--accent-soft); border-color: rgba(66,184,131,0.4); background: var(--accent-tint); }
+.test-msg.ok { color: var(--accent-soft); border-color: rgba(47,134,214,0.4); background: var(--accent-tint); }
 .test-msg.ok .test-dot { background: var(--accent); box-shadow: 0 0 9px var(--accent-glow); }
 .test-msg.bad { color: #ff8d8d; border-color: rgba(255,120,120,0.4); background: rgba(255,120,120,0.08); }
 .test-msg.bad .test-dot { background: #ff6b6b; box-shadow: 0 0 9px rgba(255,107,107,0.5); }
@@ -241,12 +241,12 @@ const submit = async () => {
 .dlg-foot { display: flex; align-items: center; gap: 9px; padding: 14px 20px; border-top: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); }
 .spacer { flex: 1; }
 .primary {
-  background: linear-gradient(135deg, var(--accent-soft), var(--accent)); color: #00251a; border: none;
+  background: linear-gradient(135deg, var(--accent-soft), var(--accent)); color: #fff; border: none;
   padding: 9px 18px; border-radius: 9px; font-size: 13px; font-weight: 650; cursor: pointer; font-family: inherit;
-  box-shadow: 0 6px 16px rgba(66,184,131,0.3), inset 0 1px 0 rgba(255,255,255,0.3);
+  box-shadow: 0 6px 16px rgba(47,134,214,0.3), inset 0 1px 0 rgba(255,255,255,0.26);
   transition: transform .15s var(--ease-out), box-shadow .15s var(--ease-out);
 }
-.primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 9px 22px rgba(66,184,131,0.42), inset 0 1px 0 rgba(255,255,255,0.34); }
+.primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 9px 22px rgba(47,134,214,0.42), inset 0 1px 0 rgba(255,255,255,0.3); }
 .primary:disabled { opacity: 0.4; cursor: not-allowed; }
 .ghost { background: rgba(255,255,255,0.04); border: 1px solid var(--glass-border); border-radius: 9px; padding: 9px 14px; color: var(--text-dim); cursor: pointer; font-family: inherit; font-size: 13px; transition: all .15s var(--ease-out); }
 .ghost:hover:not(:disabled) { color: var(--text-main); background: rgba(255,255,255,0.08); border-color: var(--glass-border-strong); }

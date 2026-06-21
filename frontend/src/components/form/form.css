@@ -211,10 +211,10 @@
 .f-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .f-btn--primary {
   background: linear-gradient(135deg, var(--accent-soft), var(--accent));
-  color: #00251a;
+  color: #fff;
   border: none;
   font-weight: 650;
-  box-shadow: 0 6px 16px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  box-shadow: 0 6px 16px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.26);
 }
 .f-btn--primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 9px 22px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.34); }
 .f-btn--ghost {

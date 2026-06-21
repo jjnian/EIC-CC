@@ -326,7 +326,7 @@ const onBackdrop = (e: MouseEvent) => {
 .imp-dialog {
   width: 720px; max-width: 94vw; max-height: 90vh;
   background: rgba(15, 23, 42, 0.96);
-  border: 1px solid rgba(66, 184, 131, 0.25);
+  border: 1px solid rgba(47, 134, 214,0.25);
   border-radius: 16px;
   display: flex; flex-direction: column;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
@@ -349,15 +349,15 @@ const onBackdrop = (e: MouseEvent) => {
 .imp-section { display: flex; flex-direction: column; gap: 8px; }
 .imp-label { font-size: 12px; color: var(--text-dim); letter-spacing: 0.5px; }
 .imp-drop {
-  border: 2px dashed rgba(66, 184, 131, 0.25);
-  background: rgba(66, 184, 131, 0.04);
+  border: 2px dashed rgba(47, 134, 214,0.25);
+  background: rgba(47, 134, 214,0.04);
   border-radius: 12px;
   padding: 28px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   transition: all 0.15s;
 }
-.imp-drop:hover { border-color: rgba(66, 184, 131, 0.5); background: rgba(66, 184, 131, 0.08); }
+.imp-drop:hover { border-color: rgba(47, 134, 214,0.5); background: rgba(47, 134, 214,0.08); }
 .imp-drop-msg { text-align: center; font-size: 13px; color: var(--text-dim); display: flex; flex-direction: column; gap: 6px; }
 .imp-drop-hint { font-size: 11px; color: rgba(255,255,255,0.3); font-family: 'JetBrains Mono', monospace; }
 .imp-files { display: flex; flex-direction: column; gap: 4px; }
@@ -388,7 +388,7 @@ const onBackdrop = (e: MouseEvent) => {
   resize: vertical;
   min-height: 56px;
 }
-.imp-url-area:focus { border-color: rgba(66, 184, 131, 0.5); }
+.imp-url-area:focus { border-color: rgba(47, 134, 214,0.5); }
 .imp-url-meta { font-size: 11px; color: var(--text-dim); }
 .imp-url-warn { color: #ff8a8a; margin-left: 6px; }
 
@@ -408,9 +408,9 @@ const onBackdrop = (e: MouseEvent) => {
 .imp-tab:hover:not(:disabled) { background: rgba(10, 16, 27, 0.9); border-color: rgba(255,255,255,0.15); }
 .imp-tab:disabled { opacity: 0.4; cursor: not-allowed; }
 .imp-tab-on {
-  background: rgba(66, 184, 131, 0.12);
-  border-color: rgba(66, 184, 131, 0.5);
-  color: #42b883;
+  background: rgba(47, 134, 214,0.12);
+  border-color: rgba(47, 134, 214,0.5);
+  color: var(--accent);
 }
 .imp-tab-title { font-size: 13px; font-weight: 600; }
 .imp-tab-sub { font-size: 10px; opacity: 0.7; }
@@ -425,13 +425,13 @@ const onBackdrop = (e: MouseEvent) => {
   font-family: inherit;
   outline: none;
 }
-.imp-input:focus { border-color: rgba(66, 184, 131, 0.5); }
+.imp-input:focus { border-color: rgba(47, 134, 214,0.5); }
 
 .imp-reply {
   font-size: 12px;
   color: var(--text-dim);
-  background: rgba(66, 184, 131, 0.06);
-  border-left: 2px solid #42b883;
+  background: rgba(47, 134, 214,0.06);
+  border-left: 2px solid var(--accent);
   padding: 8px 12px;
   border-radius: 4px;
   line-height: 1.5;
@@ -467,7 +467,7 @@ const onBackdrop = (e: MouseEvent) => {
 .imp-cols { display: flex; gap: 12px; }
 .imp-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .imp-col-head { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text-dim); font-weight: 600; letter-spacing: 0.5px; }
-.imp-link { background: none; border: none; color: #42b883; font-size: 10px; cursor: pointer; padding: 0; font-family: inherit; }
+.imp-link { background: none; border: none; color: var(--accent); font-size: 10px; cursor: pointer; padding: 0; font-family: inherit; }
 .imp-link:hover { text-decoration: underline; }
 .imp-list {
   max-height: 220px;
@@ -486,7 +486,7 @@ const onBackdrop = (e: MouseEvent) => {
   cursor: pointer;
 }
 .imp-list-row:hover { background: rgba(255,255,255,0.04); }
-.imp-list-row input { accent-color: #42b883; flex-shrink: 0; }
+.imp-list-row input { accent-color: var(--accent); flex-shrink: 0; }
 .imp-row-label { color: var(--text-main); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-row-tag {
   font-size: 9px;
@@ -499,7 +499,7 @@ const onBackdrop = (e: MouseEvent) => {
 }
 .imp-tag-rule { background: rgba(255,51,153,0.12); color: #ff3399; }
 .imp-tag-event { background: rgba(99,179,237,0.12); color: #63b3ed; }
-.imp-tag-entity { background: rgba(66,184,131,0.12); color: #42b883; }
+.imp-tag-entity { background: rgba(47,134,214,0.12); color: var(--accent); }
 .imp-tag-process { background: rgba(251,191,36,0.12); color: #fbbf24; }
 .imp-row-inf { font-size: 9px; color: #fbbf24; }
 .imp-row-rule { color: #ff3399; }
@@ -512,7 +512,7 @@ const onBackdrop = (e: MouseEvent) => {
 /* 抽取过程分步展示 */
 .imp-steps {
   background: rgba(10, 16, 27, 0.5);
-  border: 1px solid rgba(66, 184, 131, 0.18);
+  border: 1px solid rgba(47, 134, 214,0.18);
   border-radius: 12px;
   padding: 14px 16px;
 }
@@ -547,7 +547,7 @@ const onBackdrop = (e: MouseEvent) => {
   margin-top: 1px;
   z-index: 1;
 }
-.imp-step-done .imp-step-ico { color: #42b883; }
+.imp-step-done .imp-step-ico { color: var(--accent); }
 .imp-step-error .imp-step-ico { color: #ff8a8a; }
 .imp-step-label { color: var(--text-dim); }
 .imp-step-running .imp-step-label { color: var(--text-main); }
@@ -555,8 +555,8 @@ const onBackdrop = (e: MouseEvent) => {
 .imp-step-error .imp-step-label { color: #ff8a8a; }
 .imp-step-spin {
   width: 12px; height: 12px;
-  border: 2px solid rgba(66, 184, 131, 0.25);
-  border-top-color: #42b883;
+  border: 2px solid rgba(47, 134, 214,0.25);
+  border-top-color: var(--accent);
   border-radius: 50%;
   display: inline-block;
   animation: impSpin 0.8s linear infinite;
@@ -574,8 +574,8 @@ const onBackdrop = (e: MouseEvent) => {
 }
 .imp-btn-cancel { background: rgba(255,255,255,0.06); color: var(--text-dim); }
 .imp-btn-cancel:hover { background: rgba(255,255,255,0.12); color: var(--text-main); }
-.imp-btn-primary { background: #42b883; color: #1a1a1a; }
-.imp-btn-primary:hover:not(:disabled) { background: #5cc99a; transform: translateY(-1px); }
+.imp-btn-primary { background: var(--accent); color: #fff; }
+.imp-btn-primary:hover:not(:disabled) { background: #5aa6ee; transform: translateY(-1px); }
 .imp-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 .imp-spin {
   width: 12px; height: 12px;

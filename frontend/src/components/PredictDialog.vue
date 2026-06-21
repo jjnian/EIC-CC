@@ -661,8 +661,8 @@ watch(intent, (newVal, oldVal) => {
   transition: all 0.15s;
 }
 .pd-template-row:hover {
-  background: rgba(66, 184, 131, 0.08);
-  border-color: rgba(66, 184, 131, 0.3);
+  background: rgba(47, 134, 214, 0.08);
+  border-color: rgba(47, 134, 214, 0.3);
 }
 .pd-template-info {
   flex: 1;
@@ -710,18 +710,18 @@ watch(intent, (newVal, oldVal) => {
 .pd-btn-save {
   padding: 8px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(66, 184, 131, 0.3);
+  border: 1px solid rgba(47, 134, 214, 0.3);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
-  background: rgba(66, 184, 131, 0.15);
-  color: #42b883;
+  background: rgba(47, 134, 214, 0.15);
+  color: var(--accent);
   white-space: nowrap;
   flex-shrink: 0;
 }
 .pd-btn-save:hover:not(:disabled) {
-  background: rgba(66, 184, 131, 0.25);
+  background: rgba(47, 134, 214, 0.25);
 }
 .pd-btn-save:disabled {
   opacity: 0.4;

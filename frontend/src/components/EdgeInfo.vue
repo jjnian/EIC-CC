@@ -78,9 +78,9 @@ const addOutputNode = (nodeId: string) => {
 };
 
 const typeColor = (n: OntologyNode | null) => {
-  if (!n) return '#42b883';
+  if (!n) return '#2f86d6';
   const t = (NT as any)[n.type] || NT.class;
-  return t.color || '#42b883';
+  return t.color || '#2f86d6';
 };
 const typeLabel = (n: OntologyNode | null) => {
   if (!n) return '—';

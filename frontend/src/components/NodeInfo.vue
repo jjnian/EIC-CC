@@ -201,7 +201,7 @@ const startResize = (e: MouseEvent) => {
             </div>
             <div class="ni-header-r">
               <span v-if="node" class="ni-current">
-                <span class="ni-current-dot" :style="t ? { background: t.color || '#42b883' } : {}" />
+                <span class="ni-current-dot" :style="t ? { background: t.color || '#2f86d6' } : {}" />
                 <span class="ni-current-lb">{{ node.label }}</span>
               </span>
               <span v-else class="ni-current ni-current-global">
@@ -643,14 +643,14 @@ const startResize = (e: MouseEvent) => {
   border-color: rgba(255,255,255,0.22);
 }
 .ni-edit-btn--save {
-  background: var(--accent, #42b883);
-  border-color: var(--accent, #42b883);
-  color: #064e3b;
+  background: var(--accent, #2f86d6);
+  border-color: var(--accent, #2f86d6);
+  color: #fff;
   font-weight: 600;
 }
 .ni-edit-btn--save:hover {
   opacity: 0.9;
-  background: var(--accent, #42b883);
+  background: var(--accent, #2f86d6);
 }
 .ni-edit-btn--cancel {
   color: rgba(255,255,255,0.7);

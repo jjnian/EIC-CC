@@ -49,7 +49,7 @@ const fmtTime = (t: number) => {
     <div v-if="loading" class="cl-state">加载中…</div>
     <div v-else-if="conversations.length === 0" class="cl-empty">
       <div class="cl-empty-icon">💬</div>
-      <p>当前工作空间还没有对话</p>
+      <p>还没有对话。用一句话描述实体与关系，就能生成本体图谱。</p>
       <button class="cl-new" @click="emit('new')">开始新对话</button>
     </div>
     <div v-else class="cl-grid">
@@ -86,8 +86,8 @@ const fmtTime = (t: number) => {
 }
 .cl-new {
   flex-shrink: 0;
-  background: #42b883;
-  color: #002418;
+  background: var(--accent);
+  color: #fff;
   border: none;
   padding: 9px 16px;
   border-radius: 8px;
@@ -96,7 +96,7 @@ const fmtTime = (t: number) => {
   cursor: pointer;
   font-family: inherit;
 }
-.cl-new:hover { background: #50caa3; }
+.cl-new:hover { background: var(--accent-soft); }
 .cl-state, .cl-empty {
   color: var(--text-dim);
   font-size: 13px;
@@ -125,8 +125,8 @@ const fmtTime = (t: number) => {
   min-height: 78px;
 }
 .cl-card:hover {
-  background: rgba(66, 184, 131, 0.08);
-  border-color: rgba(66, 184, 131, 0.4);
+  background: rgba(47, 134, 214, 0.08);
+  border-color: rgba(47, 134, 214, 0.4);
 }
 .cl-card-title {
   font-size: 14px;

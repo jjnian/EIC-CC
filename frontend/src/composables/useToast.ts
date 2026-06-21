@@ -18,7 +18,7 @@ const STYLE_ID = 'eic-toast-style';
 const ROOT_ID = 'eic-toast-root';
 
 const KIND_STYLE: Record<ToastKind, { bg: string; fg: string; border: string; icon: string }> = {
-  success: { bg: 'rgba(66,184,131,0.16)', fg: '#5cc99a', border: 'rgba(66,184,131,0.45)', icon: '✓' },
+  success: { bg: 'rgba(34,221,136,0.16)', fg: '#22dd88', border: 'rgba(34,221,136,0.45)', icon: '✓' },
   info:    { bg: 'rgba(99,179,237,0.16)', fg: '#63b3ed', border: 'rgba(99,179,237,0.45)', icon: 'ⓘ' },
   warn:    { bg: 'rgba(251,191,36,0.16)', fg: '#fbbf24', border: 'rgba(251,191,36,0.45)', icon: '⚠' },
   error:   { bg: 'rgba(255,99,99,0.16)',  fg: '#ff8a8a', border: 'rgba(255,99,99,0.45)',  icon: '✕' },

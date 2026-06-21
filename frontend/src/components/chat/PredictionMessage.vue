@@ -173,7 +173,7 @@ const canShowRawPrompt = computed(() =>
   background: rgba(255,255,255,0.05); color: var(--text-dim);
 }
 .pmsg-running .pmsg-status { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
-.pmsg-done .pmsg-status { background: rgba(66, 184, 131, 0.15); color: #5cc99a; }
+.pmsg-done .pmsg-status { background: rgba(34, 221, 136, 0.15); color: #22dd88; }
 .pmsg-error .pmsg-status { background: rgba(255, 99, 99, 0.15); color: #ff8a8a; }
 .pmsg-aborted .pmsg-status { background: rgba(255, 255, 255, 0.08); }
 .pmsg-stop {

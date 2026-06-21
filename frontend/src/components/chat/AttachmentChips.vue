@@ -36,7 +36,7 @@ const previewable = (a: Attachment) => !a.loading && !a.error && !!a.content;
 <style scoped>
 .att-chip { transition: background .15s, border-color .15s; }
 .att-clickable { cursor: pointer; }
-.att-clickable:hover { background: rgba(66, 184, 131, 0.14); border-color: rgba(66, 184, 131, 0.4); }
+.att-clickable:hover { background: rgba(47, 134, 214, 0.14); border-color: rgba(47, 134, 214, 0.4); }
 .att-x {
   background: none; border: none; color: inherit;
   cursor: pointer; padding: 0 2px; margin-left: 2px;

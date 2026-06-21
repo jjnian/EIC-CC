@@ -9,6 +9,7 @@ import com.tuiyan.backend.service.connector.FileStoredService;
 import com.tuiyan.backend.service.connector.HttpScheduler;
 import com.tuiyan.backend.service.connector.HttpConnectorService;
 import com.tuiyan.backend.service.connector.JdbcConnectorService;
+import com.tuiyan.backend.service.connector.SourceKind;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -54,7 +55,7 @@ public class DataSourceService {
         validateKind(kind);
         DataSourcePO po = repo.create(null, kind, req.getName(), null, null, req.getConfig());
         // https_api 若 schedule.enabled=true，立即注册
-        if ("https_api".equals(kind)) tryScheduleFromConfig(po.getId(), req.getConfig());
+        if (SourceKind.HTTPS_API.equals(kind)) tryScheduleFromConfig(po.getId(), req.getConfig());
         return findFull(po.getId());
     }
 
@@ -64,7 +65,7 @@ public class DataSourceService {
         Map<String, Object> merged = DataSourceRepository.mergeMaskedConfig(req.getConfig(), repo.readConfig(po));
         boolean ok = repo.updateConfig(id, req.getName(), merged);
         if (!ok) throw new IllegalStateException("更新失败");
-        if ("https_api".equals(po.getKind())) {
+        if (SourceKind.HTTPS_API.equals(po.getKind())) {
             scheduler.cancel(id);
             tryScheduleFromConfig(id, merged);
         }
@@ -76,7 +77,7 @@ public class DataSourceService {
         DataSourcePO po = repo.findById(id);
         if (po == null) return false;
         scheduler.cancel(id);
-        if ("file_stored".equals(po.getKind())) fileStored.deleteFiles(id);
+        if (SourceKind.FILE_STORED.equals(po.getKind())) fileStored.deleteFiles(id);
         return repo.delete(id);
     }
 
@@ -109,51 +110,51 @@ public class DataSourceService {
     /** 创建前的"立即测试"：不入库，仅用 kind+config 调连接器。 */
     public DataSourceTestResponse testInline(String kind, Map<String, Object> config) {
         validateKind(kind);
-        return switch (kind) {
-            case "mysql", "pgsql", "oracle", "dm", "gbase" -> jdbc.test(kind, config);
-            case "https_api" -> {
-                HttpExecuteResponse r = http.execute(config);
-                yield new DataSourceTestResponse(
-                        r.isSuccess(),
-                        r.isSuccess() ? "HTTP " + r.getStatusCode() : r.getErrorMsg(),
-                        r.getDurationMs());
-            }
-            default -> new DataSourceTestResponse(false, "该 kind 不支持测试", null);
-        };
+        if (SourceKind.isJdbc(kind)) {
+            return jdbc.test(kind, config);
+        }
+        if (SourceKind.HTTPS_API.equals(kind)) {
+            HttpExecuteResponse r = http.execute(config);
+            return new DataSourceTestResponse(
+                    r.isSuccess(),
+                    r.isSuccess() ? "HTTP " + r.getStatusCode() : r.getErrorMsg(),
+                    r.getDurationMs());
+        }
+        return new DataSourceTestResponse(false, "该 kind 不支持测试", null);
     }
 
     private DataSourceTestResponse dispatchTest(DataSourcePO po) {
         Map<String, Object> cfg = repo.readConfig(po);
-        return switch (po.getKind()) {
-            case "mysql", "pgsql", "oracle", "dm", "gbase" -> jdbc.test(po.getKind(), cfg);
-            case "https_api" -> {
-                HttpExecuteResponse r = http.execute(cfg);
-                yield new DataSourceTestResponse(
-                        r.isSuccess(),
-                        r.isSuccess() ? "HTTP " + r.getStatusCode() : r.getErrorMsg(),
-                        r.getDurationMs());
-            }
-            default -> new DataSourceTestResponse(true, "无需测试", 0);
-        };
+        if (SourceKind.isJdbc(po.getKind())) {
+            return jdbc.test(po.getKind(), cfg);
+        }
+        if (SourceKind.HTTPS_API.equals(po.getKind())) {
+            HttpExecuteResponse r = http.execute(cfg);
+            return new DataSourceTestResponse(
+                    r.isSuccess(),
+                    r.isSuccess() ? "HTTP " + r.getStatusCode() : r.getErrorMsg(),
+                    r.getDurationMs());
+        }
+        return new DataSourceTestResponse(true, "无需测试", 0);
     }
 
     // ---------- 数据库专用 ----------
 
     public List<String> listTables(String id) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "mysql", "pgsql", "oracle", "dm", "gbase");
+        requireJdbc(po);
         return jdbc.listTables(po.getKind(), repo.readConfig(po));
     }
 
     public TablePreviewResponse previewTable(String id, String table, int limit) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "mysql", "pgsql", "oracle", "dm", "gbase");
+        requireJdbc(po);
         return jdbc.previewTable(po.getKind(), repo.readConfig(po), table, limit);
     }
 
     public SqlExecuteResponse executeSql(String id, SqlExecuteRequest req) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "mysql", "pgsql", "oracle", "dm", "gbase");
+        requireJdbc(po);
         int limit = req.getLimit() == null ? JdbcConnectorService.DEFAULT_LIMIT : req.getLimit();
         return jdbc.executeSql(po.getKind(), repo.readConfig(po), req.getSql(), limit);
     }
@@ -164,7 +165,7 @@ public class DataSourceService {
      */
     public Map<String, Object> introspectSchema(String id) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "mysql", "pgsql", "oracle", "dm", "gbase");
+        requireJdbc(po);
         JdbcConnectorService.DatabaseSchemaInfo info =
                 jdbc.introspectSchema(po.getKind(), repo.readConfig(po), 500);
         return schemaInfoDtoMapper.toMap(info);
@@ -189,7 +190,7 @@ public class DataSourceService {
      */
     public DdlExport exportDdl(String id, int sampleRows) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "mysql", "pgsql", "oracle", "dm", "gbase");
+        requireJdbc(po);
         Map<String, Object> cfg = repo.readConfig(po);
         JdbcConnectorService.DatabaseSchemaInfo info = jdbc.introspectSchema(po.getKind(), cfg, 500);
         Map<String, JdbcConnectorService.TableSample> samples = Map.of();
@@ -205,7 +206,7 @@ public class DataSourceService {
 
     public HttpExecuteResponse executeHttp(String id) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "https_api");
+        requireKindIn(po, SourceKind.HTTPS_API);
         return scheduler.runOnce(id);
     }
 
@@ -216,7 +217,7 @@ public class DataSourceService {
 
     public void schedule(String id, HttpScheduleRequest req) {
         DataSourcePO po = ensureOwnership(id);
-        requireKindIn(po, "https_api");
+        requireKindIn(po, SourceKind.HTTPS_API);
         Map<String, Object> cfg = repo.readConfig(po);
         Map<String, Object> sched = new LinkedHashMap<>();
         sched.put("enabled", req.isEnabled());
@@ -245,11 +246,8 @@ public class DataSourceService {
     // ---------- 通用辅助 ----------
 
     // file_stored 已不再作为可创建类型（文件上传迁移至经验库）；遗留行仍可删除。
-    private static final Set<String> ALLOWED_KINDS =
-            Set.of("mysql", "pgsql", "oracle", "dm", "gbase", "https_api");
-
     private static void validateKind(String kind) {
-        if (!ALLOWED_KINDS.contains(kind)) {
+        if (!SourceKind.CREATABLE.contains(kind)) {
             throw new IllegalArgumentException("不支持的 kind: " + kind);
         }
     }
@@ -267,5 +265,12 @@ public class DataSourceService {
     private static void requireKindIn(DataSourcePO po, String... kinds) {
         for (String k : kinds) if (k.equals(po.getKind())) return;
         throw new IllegalArgumentException("当前数据源 kind=" + po.getKind() + " 不支持该操作");
+    }
+
+    /** 要求数据源为关系型数据库（走 JDBC 连接器）。 */
+    private static void requireJdbc(DataSourcePO po) {
+        if (!SourceKind.isJdbc(po.getKind())) {
+            throw new IllegalArgumentException("当前数据源 kind=" + po.getKind() + " 不支持该操作");
+        }
     }
 }

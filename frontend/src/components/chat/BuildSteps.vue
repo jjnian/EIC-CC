@@ -32,7 +32,7 @@ const toggleCollapse = () => {
         <svg v-else-if="!done" class="bsteps-spin" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
           <path d="M12 2a10 10 0 0 1 10 10" />
         </svg>
-        <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#42b883" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#2f86d6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="20 6 9 17 4 12" />
         </svg>
       </span>
@@ -46,7 +46,7 @@ const toggleCollapse = () => {
           <div v-for="s in steps" :key="s.key" class="bstep" :class="`bstep-${s.status}`">
             <div class="bstep-indicator">
               <span v-if="s.status === 'running'" class="bstep-spin" />
-              <svg v-else-if="s.status === 'done'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#42b883" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <svg v-else-if="s.status === 'done'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#2f86d6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
               <svg v-else-if="s.status === 'error'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="#ff6b6b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -65,8 +65,8 @@ const toggleCollapse = () => {
 
 <style scoped>
 .bsteps {
-  background: rgba(66, 184, 131, 0.06);
-  border: 1px solid rgba(66, 184, 131, 0.2);
+  background: rgba(47, 134, 214, 0.06);
+  border: 1px solid rgba(47, 134, 214, 0.2);
   border-radius: 10px;
   padding: 0;
   font-size: 13px;
@@ -74,8 +74,8 @@ const toggleCollapse = () => {
   margin-bottom: 6px;
 }
 .bsteps-done {
-  background: rgba(66, 184, 131, 0.04);
-  border-color: rgba(66, 184, 131, 0.12);
+  background: rgba(47, 134, 214, 0.04);
+  border-color: rgba(47, 134, 214, 0.12);
 }
 .bsteps-error {
   background: rgba(255, 107, 107, 0.06);
@@ -97,7 +97,7 @@ const toggleCollapse = () => {
   transition: background 0.15s;
 }
 .bsteps-head:hover {
-  background: rgba(66, 184, 131, 0.08);
+  background: rgba(47, 134, 214, 0.08);
 }
 .bsteps-icon {
   display: flex;
@@ -107,7 +107,7 @@ const toggleCollapse = () => {
 }
 .bsteps-spin {
   animation: bsteps-rotate 1s linear infinite;
-  stroke: #42b883;
+  stroke: #2f86d6;
 }
 @keyframes bsteps-rotate { to { transform: rotate(360deg); } }
 .bsteps-title {
@@ -123,10 +123,10 @@ const toggleCollapse = () => {
 }
 .bsteps-toggle {
   font-size: 10.5px;
-  color: rgba(66, 184, 131, 0.7);
+  color: rgba(47, 134, 214, 0.7);
   padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(66, 184, 131, 0.08);
+  background: rgba(47, 134, 214, 0.08);
 }
 .bsteps-list {
   padding: 0 12px 10px;
@@ -162,13 +162,13 @@ const toggleCollapse = () => {
   top: 22px;
   bottom: -2px;
   width: 1px;
-  background: rgba(66, 184, 131, 0.15);
+  background: rgba(47, 134, 214, 0.15);
 }
 .bstep-spin {
   width: 12px;
   height: 12px;
-  border: 2px solid rgba(66, 184, 131, 0.25);
-  border-top-color: #42b883;
+  border: 2px solid rgba(47, 134, 214, 0.25);
+  border-top-color: #2f86d6;
   border-radius: 50%;
   animation: bstep-spin 0.8s linear infinite;
 }

@@ -369,7 +369,7 @@ const submit = async () => {
   transition: background .12s, color .12s, border-color .12s;
 }
 .chip:hover { background: rgba(255,255,255,.09); }
-.chip.on { background: rgba(66,184,131,.18); border-color: rgba(66,184,131,.5); color: #6dd4a7; }
+.chip.on { background: rgba(47,134,214,.18); border-color: rgba(47,134,214,.5); color: var(--accent-soft); }
 
 .add-panel { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; margin-bottom: 20px; }
 .add-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 14px; font-weight: 500; }

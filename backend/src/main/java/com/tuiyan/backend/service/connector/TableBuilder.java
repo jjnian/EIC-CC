@@ -5,7 +5,7 @@ import java.util.List;
 
 /**
  * 内部 builder：边拉数据边累加，最后 build() 成不可变 TableInfo。
- * <p>包内可见，供 MysqlSchemaIntrospector / PgsqlSchemaIntrospector 共用。
+ * <p>包内可见，供各 {@link SqlDialect} 方言内省器共用。
  * <p>注意：列/外键/唯一约束/表等元信息 record 仍原地保留在 {@link JdbcConnectorService}，
  * 这里以全限定名引用，避免移动 record 破坏其它调用方。
  */

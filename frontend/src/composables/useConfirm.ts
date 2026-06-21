@@ -58,9 +58,9 @@ const ensureStyle = () => {
 }
 .eic-confirm-btn-cancel:hover { background: rgba(255,255,255,0.12); }
 .eic-confirm-btn-ok {
-  background: #42b883; color: #0e1a13;
+  background: #2f86d6; color: #fff;
 }
-.eic-confirm-btn-ok:hover { background: #5cc99a; }
+.eic-confirm-btn-ok:hover { background: #5aa6ee; }
 .eic-confirm-btn-danger {
   background: #ff6b6b; color: #1a0a0a;
 }

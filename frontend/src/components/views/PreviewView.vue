@@ -133,7 +133,7 @@ onMounted(load);
   background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.65);
   font-family: 'JetBrains Mono', monospace;
 }
-.pv-badge-ok { background: rgba(66,184,131,0.16); color: #5cc99a; }
+.pv-badge-ok { background: rgba(34,221,136,0.16); color: #22dd88; }
 .pv-badge-mute { background: rgba(251,191,36,0.12); color: #fbbf24; }
 .pv-btn {
   background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);

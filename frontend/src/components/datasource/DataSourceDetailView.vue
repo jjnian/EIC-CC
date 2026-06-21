@@ -191,12 +191,12 @@ header h2 { margin: 0; font-size: 16px; }
 .kind-tag { padding: 2px 8px; background: rgba(255,255,255,.06); border-radius: 4px; font-size: 11px; color: #aaa; }
 .head-spacer { flex: 1; }
 .ddl-sample-opt { display: flex; align-items: center; gap: 6px; margin-right: 10px; font-size: 12px; color: #9aa3b2; cursor: pointer; user-select: none; }
-.ddl-sample-opt input { accent-color: #6dd4a7; width: 14px; height: 14px; }
+.ddl-sample-opt input { accent-color: var(--accent); width: 14px; height: 14px; }
 .ddl-export {
-  background: transparent; color: #6dd4a7; border: 1px solid rgba(66,184,131,.5);
+  background: transparent; color: var(--accent-soft); border: 1px solid rgba(47,134,214,.5);
   padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit;
 }
-.ddl-export:hover { background: rgba(66,184,131,.12); }
+.ddl-export:hover { background: rgba(47,134,214,.12); }
 .ddl-export:disabled { opacity: .6; cursor: default; }
 .tabs { display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid rgba(255,255,255,.06); }
 .tabs button { background: none; border: none; padding: 8px 12px; color: #aaa; cursor: pointer; font-size: 13px; border-bottom: 2px solid transparent; }

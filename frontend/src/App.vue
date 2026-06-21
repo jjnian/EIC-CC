@@ -17,6 +17,7 @@ import NodeEditDialog from './components/dialogs/NodeEditDialog.vue';
 import RelationEditDialog from './components/dialogs/RelationEditDialog.vue';
 import TemplateLibraryDialog from './components/dialogs/TemplateLibraryDialog.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
+import { type ViewId, type NavRoute, NAV_TO_VIEW } from './views';
 import './app.css';
 import { toast, mountToastRoot } from './composables/useToast';
 import { updateOntology, deleteOntology } from './api/ontology';
@@ -46,16 +47,13 @@ const { chatW, startDivider, isDragging } = useDivider(
   () => sbExp.value ? sidebarW.value : 72,
 );
 
-const view = ref<'list' | 'graph' | 'chat' | 'settings' | 'workspace-picker' | 'datasource' | 'datasource-list' | 'conv-list' | 'experience-list'>('workspace-picker');
+const view = ref<ViewId>('workspace-picker');
 
-// 左侧顶级菜单导航：把菜单 route 映射到对应的 view
+// 左侧顶级菜单导航：把菜单 route 映射到对应的 view（映射表见 views.ts）
 const onNav = (r: string) => {
-  if (r === 'welcome') goWelcome();
-  else if (r === 'graph-list') view.value = 'list';
-  else if (r === 'conv-list') view.value = 'conv-list';
-  else if (r === 'datasource') view.value = 'datasource-list';
-  else if (r === 'experience') view.value = 'experience-list';
-  else if (r === 'settings') view.value = 'settings';
+  if (r === 'welcome') { goWelcome(); return; }
+  const target = NAV_TO_VIEW[r as Exclude<NavRoute, 'welcome'>];
+  if (target) view.value = target;
 };
 const currentDataSourceId = ref<string | null>(null);
 const currentModelTitle = ref('供应链本体图');

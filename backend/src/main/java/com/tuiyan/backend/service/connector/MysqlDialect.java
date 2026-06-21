@@ -7,20 +7,64 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * MySQL schema 内省：用 information_schema 一次性拉完表/列/键/FK。
- * <p>从 {@link JdbcConnectorService} 拆出的方言专用内省逻辑，行为完全等价。
- * <p>元信息 record（ColumnInfo / TableInfo 等）仍原地保留在 {@link JdbcConnectorService}，此处以全限定名引用。
+ * MySQL 方言：information_schema 内省、反引号、LIMIT。
+ * <p>GBase 8a 走 MySQL 线协议，由 {@link GbaseDialect} 继承本类、仅覆写 kind。
  */
 @Component
-public class MysqlSchemaIntrospector {
+public class MysqlDialect extends AbstractSqlDialect {
 
-    /** MySQL schema 内省：用 information_schema 一次性拉完表/列/键/FK。 */
+    // 强制关闭本地文件加载/反序列化（防 JDBC 攻击：恶意服务器读后端文件或反序列化 RCE）
+    private static final String HARDENED =
+            "allowLoadLocalInfile=false&allowUrlInLocalInfile=false&autoDeserialize=false";
+
+    @Override
+    public String kind() {
+        return SourceKind.MYSQL;
+    }
+
+    @Override
+    public int defaultPort() {
+        return 3306;
+    }
+
+    @Override
+    public String jdbcUrl(String host, int port, String database, String params) {
+        return "jdbc:mysql://" + host + ":" + port + "/" + database + "?" + HARDENED
+                + (params == null || params.isBlank() ? "" : "&" + params);
+    }
+
+    @Override
+    public String driverClass() {
+        return "com.mysql.cj.jdbc.Driver";
+    }
+
+    @Override
+    public String quote(String name) {
+        return "`" + name.replace("`", "``") + "`";
+    }
+
+    @Override
+    public String rowLimitClause(int n) {
+        return " LIMIT " + n;
+    }
+
+    @Override
+    public boolean hasRowLimit(String upperSql) {
+        return upperSql.contains("LIMIT");
+    }
+
+    @Override
+    public String listTablesSql() {
+        return "SELECT TABLE_NAME FROM information_schema.tables " +
+               "WHERE TABLE_SCHEMA = DATABASE() ORDER BY TABLE_NAME";
+    }
+
+    @Override
     public JdbcConnectorService.DatabaseSchemaInfo introspect(Connection conn, String dbName, int tableLimit) throws SQLException {
         // 1) 表 + 视图 + 注释 + 行数估算（视图一并纳入：其定义体是血缘 ground truth）
         Map<String, TableBuilder> tables = new LinkedHashMap<>();
@@ -43,11 +87,11 @@ public class MysqlSchemaIntrospector {
             }
         }
         if (tables.isEmpty()) {
-            return new JdbcConnectorService.DatabaseSchemaInfo("mysql", dbName, List.of());
+            return build(dbName, tables);
         }
         // 后续查询都按首查拿到的表清单收敛,表很多(超出 limit)的库不再全库扫列/键
         List<String> names = new ArrayList<>(tables.keySet());
-        String in = "(" + String.join(",", java.util.Collections.nCopies(names.size(), "?")) + ")";
+        String in = inPlaceholders(names.size());
 
         // 2) 列：name, type, nullable, default, comment, ordinal
         String colsSql = """
@@ -65,15 +109,14 @@ public class MysqlSchemaIntrospector {
                     String t = rs.getString(1);
                     TableBuilder tb = tables.get(t);
                     if (tb == null) continue;
-                    JdbcConnectorService.ColumnInfo ci = new JdbcConnectorService.ColumnInfo(
+                    tb.columns.add(new JdbcConnectorService.ColumnInfo(
                             rs.getString(2),
                             rs.getString(3),
                             "YES".equalsIgnoreCase(rs.getString(4)),
                             rs.getString(5),
                             rs.getString(6),
                             "PRI".equalsIgnoreCase(rs.getString(8)),
-                            rs.getInt(7));
-                    tb.columns.add(ci);
+                            rs.getInt(7)));
                 }
             }
         }
@@ -135,31 +178,16 @@ public class MysqlSchemaIntrospector {
         try (PreparedStatement ps = conn.prepareStatement(uniqSql)) {
             bindAll(ps, names);
             try (ResultSet rs = ps.executeQuery()) {
-                // index_name -> 累积 columns
-                Map<String, List<String>> tmp = new LinkedHashMap<>();
-                Map<String, String> idxToTable = new HashMap<>();
+                UniqueKeyAccumulator acc = new UniqueKeyAccumulator();
                 while (rs.next()) {
                     String t = rs.getString(1);
                     if (!tables.containsKey(t)) continue;
-                    String idx = rs.getString(2);
-                    String key = t + "::" + idx;
-                    tmp.computeIfAbsent(key, k -> new ArrayList<>()).add(rs.getString(3));
-                    idxToTable.put(key, t);
+                    acc.add(t, rs.getString(2), rs.getString(3));
                 }
-                for (Map.Entry<String, List<String>> e : tmp.entrySet()) {
-                    String table = idxToTable.get(e.getKey());
-                    String idxName = e.getKey().substring(table.length() + 2);
-                    tables.get(table).uniqueKeys.add(new JdbcConnectorService.UniqueKeyInfo(idxName, e.getValue()));
-                }
+                acc.flushTo(tables);
             }
         }
 
-        return new JdbcConnectorService.DatabaseSchemaInfo("mysql", dbName,
-                tables.values().stream().map(TableBuilder::build).toList());
-    }
-
-    /** 按顺序把表名绑进 IN 子句的占位符。 */
-    private static void bindAll(PreparedStatement ps, List<String> names) throws SQLException {
-        for (int i = 0; i < names.size(); i++) ps.setString(i + 1, names.get(i));
+        return build(dbName, tables);
     }
 }

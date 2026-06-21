@@ -197,7 +197,7 @@ const bindRef = (el: any) => {
   width: 56px;
   height: 56px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #5fd4a3 0%, #42b883 50%, #35495e 100%);
+  background: linear-gradient(135deg, #5aa6ee 0%, #2f86d6 50%, #35495e 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -205,7 +205,7 @@ const bindRef = (el: any) => {
   font-weight: 800;
   color: #fff;
   box-shadow:
-    0 12px 30px rgba(66, 184, 131, 0.36),
+    0 12px 30px rgba(47, 134, 214, 0.36),
     0 4px 10px rgba(0, 0, 0, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.30),
     inset 0 -1px 0 rgba(0, 0, 0, 0.18);
@@ -259,9 +259,9 @@ const bindRef = (el: any) => {
   letter-spacing: 0.15px;
 }
 .cwb-ex:hover {
-  border-color: rgba(66, 184, 131, 0.45);
+  border-color: rgba(47, 134, 214, 0.45);
   color: var(--text-main);
-  background: linear-gradient(180deg, rgba(66, 184, 131, 0.10), rgba(66, 184, 131, 0.04));
+  background: linear-gradient(180deg, rgba(47, 134, 214, 0.10), rgba(47, 134, 214, 0.04));
   transform: translateY(-1px);
 }
 </style>

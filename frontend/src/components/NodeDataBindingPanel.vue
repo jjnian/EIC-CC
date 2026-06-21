@@ -203,9 +203,9 @@ const runFetch = async (b: NodeBinding) => {
 .ndb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .ndb-title { font-weight: 600; }
 .ndb-count { font-size: 11px; background: rgba(74,141,240,.18); color: #9cc4ff; padding: 0 7px; border-radius: 100px; margin-left: 4px; }
-.ndb-add { background: rgba(66,184,131,.16); color: #6dd4a7; border: 1px solid rgba(66,184,131,.4);
+.ndb-add { background: rgba(47,134,214,.16); color: var(--accent-soft); border: 1px solid rgba(47,134,214,.4);
   border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
-.ndb-add:hover { background: rgba(66,184,131,.26); }
+.ndb-add:hover { background: rgba(47,134,214,.26); }
 .ndb-desc { margin: 0 0 10px; font-size: 11.5px; color: #8a91a0; line-height: 1.5; }
 
 .ndb-form { background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08);
@@ -218,7 +218,7 @@ const runFetch = async (b: NodeBinding) => {
   color: var(--text-main, #e8eaed); font-size: 12.5px; font-family: inherit; }
 .ndb-form-actions { display: flex; gap: 8px; }
 .ndb-btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12.5px; font-family: inherit; }
-.ndb-btn.primary { background: #42b883; color: #002418; font-weight: 600; }
+.ndb-btn.primary { background: var(--accent); color: #fff; font-weight: 600; }
 .ndb-btn.primary:disabled { opacity: .5; cursor: default; }
 .ndb-btn.ghost { background: transparent; color: #aaa; border: 1px solid rgba(255,255,255,.12); }
 

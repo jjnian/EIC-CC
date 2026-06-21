@@ -15,25 +15,60 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Oracle / 达梦(DM) schema 内省：用 Oracle 兼容的数据字典视图（USER_*）拉当前登录用户（schema）
- * 下的表/视图/列/键。达梦高度兼容 Oracle 数据字典，故复用本内省器（调用方负责把结果的 kind
- * 重新标记为 "dm"）。
- * <p>从 {@link JdbcConnectorService} 委派的方言专用内省逻辑，结构与
- * {@link MysqlSchemaIntrospector} / {@link PgsqlSchemaIntrospector} 平行。
- * <p>要点：
- * <ul>
- *   <li>只看当前 schema（USER_TABLES / USER_VIEWS），不跨用户，避免误扫系统对象。</li>
- *   <li>列类型由 DATA_TYPE 拼上长度/精度还原成 {@code VARCHAR2(50)} / {@code NUMBER(10,2)} 形式；
- *       长度用 DATA_LENGTH（Oracle 与达梦都有该列，兼容性最好）。</li>
- *   <li>规避 LONG 字段坑：USER_TAB_COLUMNS.DATA_DEFAULT 与 USER_VIEWS.TEXT 均为 LONG，
- *       与其它列同查会报流错误，故默认值统一留空、视图定义体暂不取（仍登记为视图对象）。</li>
- *   <li>主键/外键/唯一键来自 USER_CONSTRAINTS（'P' / 'R' / 'U'）+ USER_CONS_COLUMNS。</li>
- * </ul>
+ * Oracle 方言：USER_* 数据字典内省、双引号、{@code FETCH FIRST n ROWS ONLY}。
+ * <p>达梦(DM)高度兼容 Oracle 数据字典，由 {@link DmDialect} 继承本类、仅覆写 kind 与连接信息。
  */
 @Component
-public class OracleSchemaIntrospector {
+public class OracleDialect extends AbstractSqlDialect {
 
-    /** Oracle / 达梦 schema 内省：USER_* 数据字典视图。 */
+    @Override
+    public String kind() {
+        return SourceKind.ORACLE;
+    }
+
+    @Override
+    public int defaultPort() {
+        return 1521;
+    }
+
+    @Override
+    public String jdbcUrl(String host, int port, String database, String params) {
+        // thin 驱动 service-name 形式：database 字段填服务名（或 SID）。thin URL 不接受 ?k=v 查询参数，故忽略 params。
+        return "jdbc:oracle:thin:@//" + host + ":" + port + "/" + database;
+    }
+
+    @Override
+    public String driverClass() {
+        return "oracle.jdbc.OracleDriver";
+    }
+
+    @Override
+    public String quote(String name) {
+        int dot = name.indexOf('.');
+        if (dot > 0) {
+            String sch = name.substring(0, dot), tbl = name.substring(dot + 1);
+            return "\"" + sch.replace("\"", "\"\"") + "\".\"" + tbl.replace("\"", "\"\"") + "\"";
+        }
+        return "\"" + name.replace("\"", "\"\"") + "\"";
+    }
+
+    @Override
+    public String rowLimitClause(int n) {
+        return " FETCH FIRST " + n + " ROWS ONLY";
+    }
+
+    @Override
+    public boolean hasRowLimit(String upperSql) {
+        return upperSql.contains("FETCH FIRST") || upperSql.contains("FETCH NEXT") || upperSql.contains("ROWNUM");
+    }
+
+    @Override
+    public String listTablesSql() {
+        // 当前登录用户(schema)下的表（Oracle / 达梦 数据字典）
+        return "SELECT table_name FROM user_tables ORDER BY table_name";
+    }
+
+    @Override
     public JdbcConnectorService.DatabaseSchemaInfo introspect(Connection conn, String dbName, int tableLimit) throws SQLException {
         Map<String, TableBuilder> tables = new LinkedHashMap<>();
 
@@ -71,11 +106,11 @@ public class OracleSchemaIntrospector {
         }
 
         if (tables.isEmpty()) {
-            return new JdbcConnectorService.DatabaseSchemaInfo("oracle", dbName, List.of());
+            return build(dbName, tables);
         }
         // 后续查询都按首查拿到的对象清单收敛
         List<String> names = new ArrayList<>(tables.keySet());
-        String in = "(" + String.join(",", java.util.Collections.nCopies(names.size(), "?")) + ")";
+        String in = inPlaceholders(names.size());
 
         // 3) 主键列（先收集，供构造 ColumnInfo 时标 primaryKey）
         Map<String, Set<String>> pkCols = new HashMap<>();
@@ -175,29 +210,16 @@ public class OracleSchemaIntrospector {
         try (PreparedStatement ps = conn.prepareStatement(uniqSql)) {
             bindAll(ps, names);
             try (ResultSet rs = ps.executeQuery()) {
-                Map<String, List<String>> tmp = new LinkedHashMap<>();
-                Map<String, String> idxToTable = new HashMap<>();
+                UniqueKeyAccumulator acc = new UniqueKeyAccumulator();
                 while (rs.next()) {
                     String t = rs.getString(1);
                     if (!tables.containsKey(t)) continue;
-                    String key = t + "::" + rs.getString(2);
-                    tmp.computeIfAbsent(key, k -> new ArrayList<>()).add(rs.getString(3));
-                    idxToTable.put(key, t);
+                    acc.add(t, rs.getString(2), rs.getString(3));
                 }
-                for (Map.Entry<String, List<String>> e : tmp.entrySet()) {
-                    String table = idxToTable.get(e.getKey());
-                    String name = e.getKey().substring(table.length() + 2);
-                    tables.get(table).uniqueKeys.add(new JdbcConnectorService.UniqueKeyInfo(name, e.getValue()));
-                }
+                acc.flushTo(tables);
             }
         }
 
-        return new JdbcConnectorService.DatabaseSchemaInfo("oracle", dbName,
-                tables.values().stream().map(TableBuilder::build).toList());
-    }
-
-    /** 按顺序把对象名绑进 IN 子句的占位符。 */
-    private static void bindAll(PreparedStatement ps, List<String> names) throws SQLException {
-        for (int i = 0; i < names.size(); i++) ps.setString(i + 1, names.get(i));
+        return build(dbName, tables);
     }
 }

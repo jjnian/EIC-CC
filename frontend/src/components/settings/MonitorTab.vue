@@ -21,7 +21,7 @@ defineEmits<{ (e: 'refresh'): void }>();
         <div style="display:flex;gap:24px;flex-wrap:wrap;width:100%">
           <div>
             <span style="color:rgba(255,255,255,0.5);font-size:12px">状态</span><br/>
-            <span :style="{ color: healthData.status === 'UP' ? '#42b883' : '#ef4444' }">{{ healthData.status }}</span>
+            <span :style="{ color: healthData.status === 'UP' ? '#22dd88' : '#ef4444' }">{{ healthData.status }}</span>
           </div>
           <div>
             <span style="color:rgba(255,255,255,0.5);font-size:12px">内存</span><br/>
@@ -29,7 +29,7 @@ defineEmits<{ (e: 'refresh'): void }>();
           </div>
           <div>
             <span style="color:rgba(255,255,255,0.5);font-size:12px">数据目录</span><br/>
-            <span :style="{ color: healthData.dataDir ? '#42b883' : '#ef4444' }">{{ healthData.dataDir ? '正常' : '异常' }}</span>
+            <span :style="{ color: healthData.dataDir ? '#22dd88' : '#ef4444' }">{{ healthData.dataDir ? '正常' : '异常' }}</span>
           </div>
         </div>
       </div>

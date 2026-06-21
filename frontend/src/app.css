@@ -8,8 +8,8 @@
 }
 .sb-resizer:hover,
 .sb-resizer.dragging {
-  background: linear-gradient(180deg, rgba(74, 144, 226, 0.0), rgba(66, 184, 131, 0.55), rgba(74, 144, 226, 0.0));
-  box-shadow: 0 0 14px rgba(66, 184, 131, 0.35);
+  background: linear-gradient(180deg, rgba(47, 134, 214, 0.0), rgba(61, 155, 255, 0.6), rgba(47, 134, 214, 0.0));
+  box-shadow: 0 0 14px rgba(61, 155, 255, 0.35);
 }
 .model-list-view {
   flex: 1;
@@ -62,7 +62,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 10% -10%, rgba(66, 184, 131, 0.10), transparent 55%);
+  background: radial-gradient(circle at 10% -10%, rgba(47, 134, 214, 0.12), transparent 55%);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.22s ease;
@@ -70,8 +70,8 @@
 .ml-card:hover {
   transform: translateY(-4px);
   background: linear-gradient(180deg, rgba(20, 30, 52, 0.62) 0%, rgba(15, 23, 42, 0.55) 100%);
-  border-color: rgba(66, 184, 131, 0.42);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(66, 184, 131, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-color: rgba(47, 134, 214, 0.42);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(47, 134, 214, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .ml-card:hover::before { opacity: 1; }
 .ml-card-head {
@@ -90,7 +90,7 @@
   height: 8px;
   background: var(--accent);
   border-radius: 50%;
-  box-shadow: 0 0 8px var(--accent), 0 0 0 3px rgba(66, 184, 131, 0.10);
+  box-shadow: 0 0 8px var(--accent), 0 0 0 3px rgba(47, 134, 214, 0.12);
 }
 .ml-del {
   background: rgba(255,255,255,0.04);
@@ -179,8 +179,8 @@
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .edit-input:focus {
-  border-color: rgba(66, 184, 131, 0.55);
-  box-shadow: 0 0 0 3px rgba(66, 184, 131, 0.10);
+  border-color: rgba(47, 134, 214, 0.6);
+  box-shadow: 0 0 0 3px rgba(47, 134, 214, 0.12);
 }
 .edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .edit-cancel {
@@ -196,9 +196,9 @@
 }
 .edit-cancel:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
 .edit-save {
-  background: linear-gradient(135deg, #5fd4a3, #42b883);
+  background: linear-gradient(135deg, var(--accent-soft), var(--accent));
   border: none;
-  color: #062a1c;
+  color: #fff;
   border-radius: 8px;
   padding: 7px 18px;
   cursor: pointer;
@@ -206,10 +206,10 @@
   font-size: 13px;
   font-weight: 600;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 6px 14px rgba(66, 184, 131, 0.30), inset 0 1px 0 rgba(255,255,255,0.32);
+  box-shadow: 0 6px 14px rgba(47, 134, 214, 0.32), inset 0 1px 0 rgba(255,255,255,0.28);
   letter-spacing: 0.2px;
 }
-.edit-save:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(66, 184, 131, 0.40), inset 0 1px 0 rgba(255,255,255,0.36); }
+.edit-save:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(47, 134, 214, 0.42), inset 0 1px 0 rgba(255,255,255,0.32); }
 .edit-delete {
   background: transparent;
   border: 1px solid rgba(239, 68, 68, 0.42);
@@ -312,7 +312,7 @@
   letter-spacing: 0.15px;
   transition: background 0.12s ease, color 0.12s ease;
 }
-.export-dropdown button:hover { background: rgba(66, 184, 131, 0.12); color: #5fd4a3; }
+.export-dropdown button:hover { background: rgba(47, 134, 214, 0.14); color: var(--accent-soft); }
 
 /* 版本下拉 (复用 export-dropdown 的浮层，但内容更密) */
 .version-dropdown {

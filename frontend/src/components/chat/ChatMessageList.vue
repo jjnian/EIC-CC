@@ -158,7 +158,7 @@ defineExpose({ scrollToBottom });
   transition: background .15s, color .15s;
 }
 .att-sm-clickable:hover {
-  background: rgba(66, 184, 131, 0.18);
+  background: rgba(47, 134, 214, 0.18);
   color: #a7f3d0;
 }
 .att-sm:disabled { cursor: default; }
@@ -246,8 +246,8 @@ defineExpose({ scrollToBottom });
   gap: 5px;
 }
 .question-option.selected .question-option-num {
-  background: rgba(66, 184, 131, 0.28);
-  color: #6dd4a7;
+  background: rgba(47, 134, 214, 0.28);
+  color: #5aa6ee;
 }
 .question-option-custom .question-option-num {
   background: rgba(125, 211, 252, 0.2);
@@ -258,9 +258,9 @@ defineExpose({ scrollToBottom });
   opacity: 0.5;
 }
 .question-option.selected {
-  background: rgba(66, 184, 131, 0.18);
-  border-color: rgba(66, 184, 131, 0.45);
-  color: #6dd4a7;
+  background: rgba(47, 134, 214, 0.18);
+  border-color: rgba(47, 134, 214, 0.45);
+  color: #5aa6ee;
   opacity: 1;
 }
 .question-option-custom {
@@ -304,8 +304,8 @@ defineExpose({ scrollToBottom });
 .question-card.answered .question-topic { color: rgba(255, 255, 255, 0.45); background: rgba(255, 255, 255, 0.06); }
 .question-multi-tag {
   font-size: 10px;
-  color: #6dd4a7;
-  background: rgba(66, 184, 131, 0.14);
+  color: #5aa6ee;
+  background: rgba(47, 134, 214, 0.14);
   border-radius: 100px;
   padding: 1px 7px;
   margin-left: 6px;
@@ -319,8 +319,8 @@ defineExpose({ scrollToBottom });
   margin-top: 2px;
 }
 .question-submit {
-  background: #42b883;
-  color: #002418;
+  background: var(--accent);
+  color: #fff;
   border: none;
   padding: 6px 16px;
   border-radius: 100px;
@@ -330,7 +330,7 @@ defineExpose({ scrollToBottom });
   font-family: inherit;
   transition: all 0.12s;
 }
-.question-submit:hover:not(:disabled) { background: #50caa3; }
+.question-submit:hover:not(:disabled) { background: #5aa6ee; }
 .question-submit:disabled { opacity: 0.45; cursor: default; }
 
 .view-graph-btn {
@@ -339,17 +339,17 @@ defineExpose({ scrollToBottom });
   gap: 5px;
   margin-top: 8px;
   padding: 5px 12px;
-  background: rgba(66, 184, 131, 0.12);
-  border: 1px solid rgba(66, 184, 131, 0.35);
+  background: rgba(47, 134, 214, 0.12);
+  border: 1px solid rgba(47, 134, 214, 0.35);
   border-radius: 6px;
-  color: #6dd4a7;
+  color: #5aa6ee;
   font-size: 12px;
   cursor: pointer;
   transition: background .15s, border-color .15s;
 }
 .view-graph-btn:hover {
-  background: rgba(66, 184, 131, 0.22);
-  border-color: rgba(66, 184, 131, 0.6);
+  background: rgba(47, 134, 214, 0.22);
+  border-color: rgba(47, 134, 214, 0.6);
 }
 
 /* prediction 消息整行宽,头像用金色 */
@@ -394,13 +394,13 @@ defineExpose({ scrollToBottom });
   display: inline-block;
   max-width: min(100%, 620px);
   margin-left: auto;
-  background: linear-gradient(135deg, #5fd4a3, #42b883);
-  border: 1px solid rgba(66, 184, 131, 0.45);
+  background: linear-gradient(135deg, var(--accent-soft), var(--accent));
+  border: 1px solid rgba(47, 134, 214, 0.45);
   border-radius: 14px;
   padding: 10px 14px;
-  color: #062a1c;
+  color: #fff;
   font-weight: 600;
-  box-shadow: 0 8px 22px rgba(66, 184, 131, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  box-shadow: 0 8px 22px rgba(47, 134, 214, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 .msg-asst .bubble {
   max-width: min(100%, 860px);

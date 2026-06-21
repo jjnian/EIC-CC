@@ -54,7 +54,7 @@ const ensureStyle = () => {
   padding: 9px 10px;
   outline: none;
 }
-.eic-prompt-input:focus { border-color: rgba(66,184,131,0.6); }
+.eic-prompt-input:focus { border-color: rgba(47,134,214,0.6); }
 .eic-prompt-foot {
   display: flex; gap: 8px; justify-content: flex-end;
 }
@@ -69,9 +69,9 @@ const ensureStyle = () => {
 }
 .eic-prompt-btn-cancel:hover { background: rgba(255,255,255,0.12); }
 .eic-prompt-btn-ok {
-  background: #42b883; color: #0e1a13;
+  background: #2f86d6; color: #fff;
 }
-.eic-prompt-btn-ok:hover { background: #5cc99a; }
+.eic-prompt-btn-ok:hover { background: #5aa6ee; }
 `;
   document.head.appendChild(style);
 };

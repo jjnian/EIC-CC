@@ -19,7 +19,7 @@ const emit = defineEmits<{
 // ── 辅助 ────────────────────────────────────────────
 const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])));
 
-const typeColor = (type: string) => (NT as any)[type]?.color || '#42b883';
+const typeColor = (type: string) => (NT as any)[type]?.color || '#2f86d6';
 const typeLabel = (type: string) => (NT as any)[type]?.label || type;
 
 const sourceBadge = (s?: string) => {

@@ -218,7 +218,7 @@ onBeforeUnmount(() => abort());
   color: #fbbf24; font-family: 'JetBrains Mono', monospace;
 }
 .ep-cached {
-  background: rgba(66, 184, 131, 0.18); color: #5cc99a;
+  background: rgba(47, 134, 214, 0.18); color: #5aa6ee;
   padding: 1px 6px; border-radius: 4px;
 }
 .ep-icon-btn {

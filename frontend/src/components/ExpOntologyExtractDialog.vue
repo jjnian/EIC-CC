@@ -295,7 +295,7 @@ const relStats = computed(() => {
 .dbo-actions { display: flex; gap: 8px; margin-top: 14px; }
 .dbo-btn { padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer;
   font-size: 13px; }
-.dbo-btn.primary { background: #42b883; color: #002418; font-weight: 600; }
+.dbo-btn.primary { background: var(--accent, #2f86d6); color: #fff; font-weight: 600; }
 .dbo-btn.primary:disabled { opacity: .45; cursor: not-allowed; }
 .dbo-btn.ghost { background: transparent; color: #aaa;
   border: 1px solid rgba(255,255,255,.12); }
@@ -308,17 +308,17 @@ const relStats = computed(() => {
   color: #c0c4cf; }
 .dbo-step-dot { width: 14px; text-align: center; font-weight: bold; }
 .dbo-step.done .dbo-step-dot { color: #22dd88; }
-.dbo-step.running .dbo-step-dot { color: #42b883; animation: blink 1s infinite; }
+.dbo-step.running .dbo-step-dot { color: var(--accent, #2f86d6); animation: blink 1s infinite; }
 .dbo-step.error .dbo-step-dot { color: tomato; }
 @keyframes blink { 50% { opacity: .35; } }
 
 .dbo-error { color: tomato; background: rgba(255,99,71,.12);
   padding: 10px 14px; border-radius: 6px; font-size: 13px; }
 
-.dbo-summary { background: rgba(66,184,131,.08); padding: 12px 14px;
+.dbo-summary { background: rgba(47,134,214,.08); padding: 12px 14px;
   border-radius: 6px; margin-bottom: 12px; }
 .dbo-summary-row { font-size: 13.5px; color: #e8eaed; margin-bottom: 6px; }
-.dbo-summary-row strong { color: #6dd4a7; font-weight: 600; }
+.dbo-summary-row strong { color: #5aa6ee; font-weight: 600; }
 .dbo-reply { font-size: 12px; color: #aaa; line-height: 1.6; }
 
 .dbo-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
@@ -329,7 +329,7 @@ const relStats = computed(() => {
 .dbo-chip-row { display: flex; flex-wrap: wrap; gap: 4px; }
 .dbo-chip { font-size: 11.5px; color: #c0c4cf; background: rgba(255,255,255,.06);
   padding: 2px 8px; border-radius: 10px; }
-.dbo-chip.rel { background: rgba(66,184,131,.15); color: #b9f0d4; }
+.dbo-chip.rel { background: rgba(47,134,214,.15); color: #cfe4fb; }
 
 .dbo-mode-pick { display: flex; gap: 18px; margin-bottom: 10px; font-size: 13px;
   color: #c0c4cf; }

@@ -235,7 +235,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onEsc));
   position: relative;
 }
 .bp-item:hover { background: rgba(255,255,255,0.06); }
-.bp-item.active { background: rgba(66, 184, 131, 0.12); }
+.bp-item.active { background: rgba(47, 134, 214, 0.12); }
 .bp-item-pred.active { background: rgba(251, 191, 36, 0.15); }
 .bp-item-back.active { background: rgba(99, 179, 237, 0.15); }
 .bp-item-icon {
@@ -262,7 +262,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onEsc));
   font-family: 'JetBrains Mono', monospace;
   margin-top: 2px;
 }
-.bp-check { color: #42b883; font-size: 14px; flex-shrink: 0; }
+.bp-check { color: #2f86d6; font-size: 14px; flex-shrink: 0; }
 .bp-item-pred .bp-check { color: #fbbf24; }
 .bp-del {
   background: none; border: none; color: rgba(255,255,255,0.3);

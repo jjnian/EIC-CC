@@ -177,7 +177,7 @@ const formatTime = (ts?: number) => {
 }
 .wp-card:hover {
   transform: translateY(-3px);
-  border-color: rgba(66, 184, 131, 0.45);
+  border-color: rgba(47, 134, 214, 0.45);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
 }
 .wp-card-head {
@@ -193,11 +193,11 @@ const formatTime = (ts?: number) => {
 }
 .wp-default {
   font-size: 11px;
-  background: rgba(66, 184, 131, 0.18);
-  color: #6dd4a7;
+  background: rgba(47, 134, 214, 0.18);
+  color: #5aa6ee;
   padding: 2px 8px;
   border-radius: 100px;
-  border: 1px solid rgba(66, 184, 131, 0.3);
+  border: 1px solid rgba(47, 134, 214, 0.3);
 }
 .wp-card-desc {
   font-size: 13px;
@@ -281,7 +281,7 @@ const formatTime = (ts?: number) => {
 }
 .wp-dialog input:focus,
 .wp-dialog textarea:focus {
-  border-color: #42b883;
+  border-color: #2f86d6;
 }
 .wp-actions {
   display: flex;
@@ -290,8 +290,8 @@ const formatTime = (ts?: number) => {
   margin-top: 4px;
 }
 .wp-btn-primary {
-  background: #42b883;
-  color: #002418;
+  background: #2f86d6;
+  color: #fff;
   border: none;
   padding: 9px 20px;
   border-radius: 8px;
@@ -300,7 +300,7 @@ const formatTime = (ts?: number) => {
   cursor: pointer;
 }
 .wp-btn-primary:hover {
-  background: #50caa3;
+  background: #5aa6ee;
 }
 .wp-btn-primary:disabled {
   opacity: 0.55;
