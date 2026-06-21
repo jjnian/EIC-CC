@@ -685,6 +685,8 @@ const kindLabel: Record<string, string> = {
   dm: '达梦',
   gbase: 'GBase',
   file_stored: '文件',
+  file: '文件',
+  url: 'URL',
   https_api: 'HTTPS',
 };
 
