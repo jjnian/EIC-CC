@@ -172,6 +172,21 @@ export function getExperienceIndexStatus(id: string) {
   );
 }
 
+/** 经验库全量补索引（embedding 配置变更/文件过多时一键补齐）。立即返回调度概况，索引后台排队进行。 */
+export function reindexAllExperiences(force = false) {
+  return request<{ configured: boolean; total: number; scheduled: number; skipped: number }>(
+    `/api/experiences/reindex-all?force=${force ? 'true' : 'false'}`,
+    { method: 'POST' },
+  );
+}
+
+/** 经验库索引状态汇总：总数 + 各 index_status 计数，用于查看补索引进度。 */
+export function getExperienceIndexSummary() {
+  return request<{ configured: boolean; total: number; byStatus: Record<string, number> }>(
+    '/api/experiences/index-summary',
+  );
+}
+
 /**
  * 一键从「当前工作空间的整个经验库」构建本体血缘图（SSE 流）。
  * 这是新数据流的主入口：本体血缘图由经验库文件构建，数据源只负责供血。

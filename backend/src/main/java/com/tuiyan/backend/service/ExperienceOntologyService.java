@@ -7,13 +7,18 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.repository.ExperienceRepository;
 import com.tuiyan.backend.service.agent.ExplorationAgentService;
 import com.tuiyan.backend.support.IdSaltRewriter;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
 
 /**
@@ -31,10 +36,14 @@ public class ExperienceOntologyService {
 
     private static final Logger log = LoggerFactory.getLogger(ExperienceOntologyService.class);
 
-    /** 单次建图最多聚合的经验数量，避免超大工作空间一次性塞爆 prompt。 */
-    private static final int MAX_EXPERIENCES = 60;
+    /** 单次建图最多聚合的经验数量：从 60 提高到 500，作为防止极端工作空间拉爆的安全上限（超出会上报并跳过）。 */
+    private static final int MAX_EXPERIENCES = 500;
     /** 单篇经验正文截断上限（字符），过长正文按头部截断，整体切片仍由下游抽取管线负责。 */
     private static final int MAX_CHARS_PER_EXPERIENCE = 40_000;
+    /** 每批聚合的正文字符上限，约对应一次 LLM 抽取调用；批与批之间并行跑、按 label 增量合并。 */
+    private static final int BATCH_CHAR_BUDGET = 30_000;
+    /** 并行批数上限，避免一次性打爆 LLM 限流。 */
+    private static final int MAX_PARALLEL_BATCHES = 4;
 
     /** 探索文档里内嵌结构化图片段的注释块:{@code <!-- EXPLORE_GRAPH {json} EXPLORE_GRAPH -->}。 */
     private static final Pattern GRAPH_BLOCK = Pattern.compile(
@@ -45,6 +54,12 @@ public class ExperienceOntologyService {
     private final ExperienceRepository repo;
     private final ExtractionLlmService extractionLlmService;
     private final ExtractionGraphMerger merger;
+    /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 predictionExecutor 造成自饿死。 */
+    private final ExecutorService batchExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_BATCHES, r -> {
+        Thread t = new Thread(r, "exp-ontology-batch");
+        t.setDaemon(true);
+        return t;
+    });
 
     public ExperienceOntologyService(ExperienceRepository repo,
                                      ExtractionLlmService extractionLlmService,
@@ -78,24 +93,24 @@ public class ExperienceOntologyService {
                                               String userHint,
                                               StepSink step) throws IOException {
         step.emit("load_start", "正在读取当前工作空间经验库…");
+        final String workspaceId = WorkspaceContext.get();
         List<Map<String, Object>> all = repo.list();
 
-        StringBuilder combined = new StringBuilder();
+        String hintPrefix = (userHint != null && !userHint.isBlank())
+                ? "【用户额外要求】" + userHint.trim() + "\n\n" : "";
+
+        List<String> proseDocs = new ArrayList<>();     // 待喂 LLM 的散文经验，逐篇成段
         int used = 0;
         int skippedByCap = 0;
         int preGraphCount = 0;
         long chars = 0;
         JsonNode preExtracted = null; // 探索文档直采的结构化图片段(免 LLM 重抽),累积后与 LLM 草稿合并
-        if (userHint != null && !userHint.isBlank()) {
-            combined.append("【用户额外要求】").append(userHint.trim()).append("\n\n");
-        }
         for (Map<String, Object> exp : all) {
             String title = String.valueOf(exp.getOrDefault("title", "未命名经验"));
             Object contentObj = exp.get("content");
             String content = contentObj == null ? "" : String.valueOf(contentObj);
             if (content.isBlank()) continue;
-            if (used >= MAX_EXPERIENCES) { skippedByCap++; continue; }
-            // #1 结构化直连:抽出探索文档内嵌的图片段并从正文剥离,改走结构化合并而非散文重抽
+            // #1 结构化直连:抽出探索文档内嵌的图片段并从正文剥离,改走结构化合并而非散文重抽（不占建图上限）
             JsonNode frag = extractGraphFragment(content);
             if (frag != null) {
                 JsonNode prefixed = merger.prefixChunkIds(frag, "ex" + preGraphCount + "_");
@@ -105,40 +120,43 @@ public class ExperienceOntologyService {
                 content = stripGraphFragment(content);
                 if (content.isBlank()) { used++; continue; } // 纯结构化文档,无散文可喂 LLM
             }
+            if (used >= MAX_EXPERIENCES) { skippedByCap++; continue; }
             if (content.length() > MAX_CHARS_PER_EXPERIENCE) {
                 content = content.substring(0, MAX_CHARS_PER_EXPERIENCE) + "\n…（正文过长已截断）";
             }
-            combined.append("# 经验：").append(title).append("\n\n")
-                    .append(content).append("\n\n");
+            proseDocs.add("# 经验：" + title + "\n\n" + content);
             used++;
             chars += content.length();
         }
 
-        if (used == 0) {
+        if (used == 0 && preExtracted == null) {
             throw new IllegalStateException(
                     "当前工作空间经验库为空（或经验均无正文），请先在经验库中创建/上传经验文件，或把数据源结构导出到经验库供血后再建图。");
         }
+
+        // 把散文按字符预算分批，每批约对应一次 LLM 抽取调用，批间并行、按 label 增量合并
+        List<String> batches = groupIntoBatches(proseDocs, hintPrefix);
         step.emit("load_done", "已聚合 " + used + " 篇经验（约 " + chars + " 字符）"
                 + (preGraphCount > 0 ? "；其中 " + preGraphCount + " 篇含探索直采的结构化图谱(直接合并)" : "")
-                + (skippedByCap > 0 ? "；超出单次建图上限，已跳过较早的 " + skippedByCap + " 篇" : ""));
+                + (batches.size() > 1 ? "；将分 " + batches.size() + " 批并行建图" : "")
+                + (skippedByCap > 0 ? "；超出单次建图上限 " + MAX_EXPERIENCES + " 篇，已跳过 " + skippedByCap + " 篇" : ""));
 
         JsonNode draft;
-        String combinedText = combined.toString();
-        if (combinedText.isBlank() && preExtracted != null) {
+        if (batches.isEmpty()) {
             // 全部为探索直采的纯结构化文档,无散文可喂 LLM:直接用结构化图谱
             step.emit("llm_call", "经验均为探索直采的结构化图谱,跳过大模型抽取,直接合并…");
             draft = emptyGraph();
         } else {
-            step.emit("llm_call", "正在调用大模型从经验库构建本体血缘图…");
-            draft = extractionLlmService.extractOntologyFromSources(
-                    combinedText, null, modelOverride, configId);
+            step.emit("llm_call", "正在并行调用大模型分 " + batches.size() + " 批从经验库构建本体血缘图…");
+            draft = extractBatchesParallel(batches, modelOverride, configId, workspaceId, step);
         }
 
         // 把探索直采的结构化图谱并入 LLM 草稿(按 label 去重合并),再统一校验
         if (preExtracted != null) {
             step.emit("normalizing", "正在合并探索直采的结构化图谱…");
-            draft = merger.sanitizeGraph(merger.mergeExtractionByLabel(draft, preExtracted));
+            draft = merger.mergeExtractionByLabel(draft, preExtracted);
         }
+        draft = merger.sanitizeGraph(draft);
 
         step.emit("normalizing", "正在整理抽取结果、消解 id 冲突…");
         String salt = Long.toString(System.currentTimeMillis(), 36);
@@ -155,6 +173,73 @@ public class ExperienceOntologyService {
 
         step.emit("done", "完成：从 " + used + " 篇经验生成 " + nodes + " 个节点 / " + edges + " 条边");
         return new ExtractResult(out, salt, used, nodes, edges);
+    }
+
+    /**
+     * 把逐篇散文经验按 {@link #BATCH_CHAR_BUDGET} 贪心分批；每批前缀用户额外要求，保证每批都遵循。
+     * 单篇超预算时自成一批（其超长部分由下游抽取管线再切片）。
+     */
+    private List<String> groupIntoBatches(List<String> docs, String hintPrefix) {
+        List<String> batches = new ArrayList<>();
+        if (docs.isEmpty()) return batches;
+        StringBuilder cur = new StringBuilder();
+        for (String doc : docs) {
+            if (cur.length() > 0 && cur.length() + doc.length() > BATCH_CHAR_BUDGET) {
+                batches.add(hintPrefix + cur);
+                cur = new StringBuilder();
+            }
+            cur.append(doc).append("\n\n");
+        }
+        if (cur.length() > 0) batches.add(hintPrefix + cur);
+        return batches;
+    }
+
+    /**
+     * 并行跑各批抽取（{@link #batchExecutor}），各批独立加前缀避免 id 冲突，按 label 增量合并；
+     * 单批失败不影响整体（记日志后跳过）。全部失败才抛错。进度在主线程按完成数上报，避免并发写 SSE。
+     */
+    private JsonNode extractBatchesParallel(List<String> batches, String modelOverride, String configId,
+                                            String workspaceId, StepSink step) {
+        int n = batches.size();
+        List<CompletableFuture<JsonNode>> futures = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            final String batchText = batches.get(i);
+            final int idx = i;
+            futures.add(CompletableFuture.supplyAsync(() -> {
+                boolean ctxSet = false;
+                try {
+                    // 后台线程没有 WorkspaceInterceptor 的 ThreadLocal，手动透传工作空间
+                    if (workspaceId != null && !workspaceId.isBlank()) {
+                        WorkspaceContext.set(workspaceId);
+                        ctxSet = true;
+                    }
+                    JsonNode part = extractionLlmService.extractOntologyFromSources(
+                            batchText, null, modelOverride, configId);
+                    // 各批内部独立命名 id，加批前缀避免跨批冲突，再交由 label 合并去重
+                    return merger.prefixChunkIds(part, "b" + idx + "_");
+                } catch (Exception e) {
+                    log.warn("[exp-ontology] 第 {}/{} 批建图失败，跳过：{}", idx + 1, n, e.toString());
+                    return null;
+                } finally {
+                    if (ctxSet) WorkspaceContext.clear();
+                }
+            }, batchExecutor));
+        }
+
+        JsonNode merged = null;
+        int done = 0;
+        for (CompletableFuture<JsonNode> f : futures) {
+            JsonNode part;
+            try { part = f.join(); } catch (Exception e) { part = null; }
+            done++;
+            step.emit("llm_batch", "本体抽取进度 " + done + "/" + n + " 批…");
+            if (part == null) continue;
+            merged = (merged == null) ? part : merger.mergeExtractionByLabel(merged, part);
+        }
+        if (merged == null) {
+            throw new IllegalStateException("大模型建图全部批次失败，请检查模型配置后重试");
+        }
+        return merged;
     }
 
     /**
