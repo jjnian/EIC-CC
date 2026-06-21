@@ -530,8 +530,15 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           <div v-else-if="selectedUpload.hasFile && selKind === 'image'" class="exp-img-wrap">
             <img class="exp-img" :src="fileUrl(selectedUpload)" :alt="selectedUpload.fileName" />
           </div>
-          <audio v-else-if="selectedUpload.hasFile && selKind === 'audio'"
-                 class="exp-audio" controls :src="fileUrl(selectedUpload)"></audio>
+          <!-- 音频：播放器 + 对应的转写文字（ASR 自动转写，存为经验正文） -->
+          <div v-else-if="selectedUpload.hasFile && selKind === 'audio'" class="exp-audio-wrap">
+            <audio class="exp-audio" controls :src="fileUrl(selectedUpload)"></audio>
+            <div class="exp-prev-note">转写文字（自动语音识别）：</div>
+            <div v-if="(selectedUpload.content || '').trim()" class="exp-md">
+              <pre class="exp-pre">{{ selectedUpload.content }}</pre>
+            </div>
+            <div v-else class="exp-prev-note">（暂无转写文字）</div>
+          </div>
 
           <!-- markdown / 文本 / 其它格式：渲染抽取的文本（其它格式浏览器无法直接预览） -->
           <template v-if="!selectedUpload.hasFile || selKind === 'markdown' || selKind === 'text' || selKind === 'other'">
@@ -1226,7 +1233,8 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-iframe { width: 100%; height: 100%; min-height: 420px; border: none; background: #fff; }
 .exp-img-wrap { display: flex; align-items: center; justify-content: center; padding: 12px; }
 .exp-img { max-width: 100%; max-height: 70vh; border-radius: 6px; }
-.exp-audio { width: 100%; margin: 16px 0; }
+.exp-audio-wrap { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.exp-audio { width: 100%; margin: 4px 0 8px; }
 .exp-pre { margin: 0; padding: 14px; white-space: pre-wrap; word-break: break-word;
   font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.6; color: var(--text-main); }
 .exp-prev-foot { display: flex; align-items: center; gap: 10px; }

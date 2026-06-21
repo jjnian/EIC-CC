@@ -40,6 +40,14 @@ const extractStream = useExtractStream({
 });
 const { loading, replyText, sources, extractedRaw, buildSteps } = extractStream;
 
+// 已展开「转写文字」的音频来源下标集合（点标题旁的按钮切换）
+const expandedSources = ref<Set<number>>(new Set());
+const toggleSourceTranscript = (i: number) => {
+  const next = new Set(expandedSources.value);
+  next.has(i) ? next.delete(i) : next.add(i);
+  expandedSources.value = next;
+};
+
 // 去重对照与勾选
 const dedup = useImportDedup({
   getRaw: () => extractedRaw.value,
@@ -235,25 +243,33 @@ const onBackdrop = (e: MouseEvent) => {
           </div>
 
           <div v-if="sources.length" class="imp-sources">
-            <div v-for="(s, i) in sources" :key="i" class="imp-source-item">
-              <span class="imp-source-icon">{{ iconForSource(s.type) }}</span>
-              <span class="imp-source-name">{{ s.title || s.name }}</span>
-              <span v-if="s.type === 'pdf'" class="imp-source-meta">
-                {{ s.pages }} 页 · {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}
-              </span>
-              <span v-else-if="s.type === 'docx'" class="imp-source-meta">
-                {{ s.paragraphs }} 段{{ s.tables ? ' · ' + s.tables + ' 表' : '' }} · {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}
-              </span>
-              <span v-else-if="s.type === 'image'" class="imp-source-meta">{{ fmtSize(s.size) }}</span>
-              <span v-else-if="s.type === 'audio'" class="imp-source-meta">
-                转写 {{ s.chars?.toLocaleString() }} 字{{ s.durationSec ? ' · ' + s.durationSec + ' 秒' : '' }}
-              </span>
-              <span v-else-if="s.type === 'url'" class="imp-source-meta">
-                {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}{{ s.usedHeadless ? ' · 浏览器渲染' : '' }}
-              </span>
-              <span v-else class="imp-source-meta imp-source-skip">{{ s.reason }}</span>
-              <span v-if="s.renderedPages" class="imp-source-rendered">📸 渲染 {{ s.renderedPages }} 页</span>
-            </div>
+            <template v-for="(s, i) in sources" :key="i">
+              <div class="imp-source-item">
+                <span class="imp-source-icon">{{ iconForSource(s.type) }}</span>
+                <span class="imp-source-name">{{ s.title || s.name }}</span>
+                <span v-if="s.type === 'pdf'" class="imp-source-meta">
+                  {{ s.pages }} 页 · {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}
+                </span>
+                <span v-else-if="s.type === 'docx'" class="imp-source-meta">
+                  {{ s.paragraphs }} 段{{ s.tables ? ' · ' + s.tables + ' 表' : '' }} · {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}
+                </span>
+                <span v-else-if="s.type === 'image'" class="imp-source-meta">{{ fmtSize(s.size) }}</span>
+                <span v-else-if="s.type === 'audio'" class="imp-source-meta">
+                  转写 {{ s.chars?.toLocaleString() }} 字{{ s.durationSec ? ' · ' + s.durationSec + ' 秒' : '' }}
+                </span>
+                <span v-else-if="s.type === 'url'" class="imp-source-meta">
+                  {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}{{ s.usedHeadless ? ' · 浏览器渲染' : '' }}
+                </span>
+                <span v-else class="imp-source-meta imp-source-skip">{{ s.reason }}</span>
+                <span v-if="s.renderedPages" class="imp-source-rendered">📸 渲染 {{ s.renderedPages }} 页</span>
+                <button v-if="s.type === 'audio' && (s.transcript || '').trim()"
+                        type="button" class="imp-source-toggle" @click="toggleSourceTranscript(i)">
+                  {{ expandedSources.has(i) ? '收起转写' : '查看转写' }}
+                </button>
+              </div>
+              <pre v-if="s.type === 'audio' && expandedSources.has(i) && (s.transcript || '').trim()"
+                   class="imp-transcript">{{ s.transcript }}</pre>
+            </template>
           </div>
 
           <div class="imp-cols">
@@ -442,6 +458,14 @@ const onBackdrop = (e: MouseEvent) => {
 .imp-source-name { color: var(--text-main); }
 .imp-source-skip { color: #ff8a8a; }
 .imp-source-rendered { color: #63b3ed; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+.imp-source-toggle { margin-left: auto; padding: 2px 8px; font-size: 10px; cursor: pointer;
+  color: var(--accent); background: rgba(47,134,214,0.08); border: 1px solid rgba(47,134,214,0.3);
+  border-radius: 4px; }
+.imp-source-toggle:hover { background: rgba(47,134,214,0.16); }
+.imp-transcript { margin: 0 0 4px 18px; padding: 8px 12px; max-height: 220px; overflow: auto;
+  white-space: pre-wrap; word-break: break-word; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; line-height: 1.6; color: var(--text-main);
+  background: rgba(0,0,0,0.25); border-radius: 6px; }
 
 .imp-dup-banner {
   background: rgba(99, 179, 237, 0.06);

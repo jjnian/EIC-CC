@@ -179,6 +179,8 @@ export interface SourceMeta {
   durationSec?: number;
   model?: string;
   reason?: string;
+  /** 音频转写正文（ASR）：随抽取结果回传，可在导入弹窗展开查看 */
+  transcript?: string;
 }
 
 // ===== 模型配置(LLM 模型管理) =====
