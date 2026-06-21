@@ -81,6 +81,25 @@ public class ExperienceIndexService {
     }
 
     /**
+     * 启动补索引：把历史未索引(index_status≠indexed)且有正文的经验全部排队重建。
+     * <p>逐条走 {@link #reindexAsync}，提交到有界线程池排队，不阻塞调用方；embedding 未配置时返回 0。
+     * 用于「配 embedding 晚于上传」的存量数据在启动后自动跟上。
+     *
+     * @return 本次调度的经验条数
+     */
+    public int backfillUnindexed() {
+        if (!isConfigured()) return 0;
+        List<String> ids = jdbc.queryForList(
+                "SELECT id FROM experience " +
+                "WHERE coalesce(index_status, '') <> 'indexed' " +
+                "AND content IS NOT NULL AND length(trim(content)) > 0",
+                String.class);
+        for (String id : ids) reindexAsync(id);
+        if (!ids.isEmpty()) log.info("[ExpIndex] 启动补索引：调度 {} 条未索引经验", ids.size());
+        return ids.size();
+    }
+
+    /**
      * 同步重建单条经验的索引：清旧块 → 分块 → 嵌入 → 落库，并更新 index_status。
      */
     public void reindex(String experienceId) {

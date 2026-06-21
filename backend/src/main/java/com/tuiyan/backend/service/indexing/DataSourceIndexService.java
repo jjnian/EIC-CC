@@ -109,6 +109,35 @@ public class DataSourceIndexService {
                 "total", all.size(), "scheduled", toIndex.size(), "skipped", skipped);
     }
 
+    /**
+     * 启动补索引：把所有工作空间下历史未索引(index_status≠indexed)的 file_stored 数据源全部排队重建。
+     * <p>提交到有界线程池(并发度 = {@code app.embedding.concurrency})后台进行，不阻塞调用方；
+     * embedding 未配置时返回 0。用于「配 embedding 晚于上传」的存量数据在启动后自动跟上。
+     *
+     * @return 本次调度的数据源条数
+     */
+    public int backfillUnindexed() {
+        if (!embeddingClient.isConfigured()) return 0;
+        List<String> ids = jdbc.queryForList(
+                "SELECT id FROM data_source " +
+                "WHERE kind = 'file_stored' AND coalesce(index_status, '') <> 'indexed'",
+                String.class);
+        if (ids.isEmpty()) return 0;
+        ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, embeddingProps.getConcurrency()));
+        for (String dsId : ids) {
+            pool.submit(() -> {
+                try {
+                    doIndex(dsId, null);   // emitter=null：批量场景不推 SSE，进度落 index_status
+                } catch (Exception e) {
+                    log.warn("[Index] 启动补索引失败 ds={}: {}", dsId, e.getMessage());
+                }
+            });
+        }
+        pool.shutdown();   // 不阻塞等待：任务跑完后线程池自动回收
+        log.info("[Index] 启动补索引：调度 {} 个未索引数据源", ids.size());
+        return ids.size();
+    }
+
     private void doIndex(String dataSourceId, SseEmitter emitter) {
         try {
             emitStep(emitter, "reading_content", "正在读取数据源内容…");
