@@ -28,6 +28,8 @@ public class EmbeddingClient {
 
     private static final Logger log = LoggerFactory.getLogger(EmbeddingClient.class);
     private static final int BATCH_SIZE = 20;
+    /** 限流/服务端错误时的最大重试次数（指数退避）。 */
+    private static final int MAX_RETRIES = 4;
 
     private final EmbeddingProperties props;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -112,18 +114,33 @@ public class EmbeddingClient {
 
         log.info("[Embedding] 请求 {} 条文本 → {}", texts.size(), url);
 
-        HttpResponse<String> response;
-        try {
-            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("Embedding 请求被中断", e);
-        }
+        // 限流(429)/服务端错误(5xx)指数退避重试；其余状态码或重试耗尽即抛出
+        HttpResponse<String> response = null;
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Embedding 请求被中断", e);
+            }
 
-        if (response.statusCode() != 200) {
-            log.error("[Embedding] 请求失败 status={} body={}", response.statusCode(),
-                    response.body().substring(0, Math.min(500, response.body().length())));
-            throw new IOException("Embedding API 调用失败 HTTP " + response.statusCode());
+            int status = response.statusCode();
+            if (status == 200) break;
+
+            boolean retryable = (status == 429 || status >= 500);
+            if (!retryable || attempt == MAX_RETRIES) {
+                log.error("[Embedding] 请求失败 status={} body={}", status,
+                        response.body().substring(0, Math.min(500, response.body().length())));
+                throw new IOException("Embedding API 调用失败 HTTP " + status);
+            }
+            long backoffMs = 1000L * (1L << attempt);   // 1s, 2s, 4s, 8s
+            log.warn("[Embedding] HTTP {} 第 {}/{} 次重试，{}ms 后重试", status, attempt + 1, MAX_RETRIES, backoffMs);
+            try {
+                Thread.sleep(backoffMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Embedding 重试等待被中断", e);
+            }
         }
 
         JsonNode responseJson = objectMapper.readTree(response.body());

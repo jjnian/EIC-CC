@@ -9,7 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * pgvector 能力探测与启用：在应用就绪后「尝试」开启 vector 扩展并为 exp_embedding 建 HNSW 索引。
+ * pgvector 能力探测与启用：在应用就绪后「尝试」开启 vector 扩展并为 exp_embedding / ds_embedding 建 HNSW 索引。
  * <p>关键约束：主 schema（init.sql）配置 {@code continue-on-error: false}，任何失败都会中断启动，
  * 所以 vector 相关 DDL 绝不能放进 init.sql。这里在 try-catch 中按需启用——
  * <ul>
@@ -46,10 +46,18 @@ public class PgVectorSupport {
         int dim = dimension();
         try {
             jdbc.execute("CREATE EXTENSION IF NOT EXISTS vector");
+
+            // 经验库：exp_embedding
             jdbc.execute("ALTER TABLE exp_embedding ADD COLUMN IF NOT EXISTS embedding_vec vector(" + dim + ")");
             // HNSW：cosine 距离算子，与检索时的 <=> 一致
             jdbc.execute("CREATE INDEX IF NOT EXISTS idx_exp_embedding_vec "
                     + "ON exp_embedding USING hnsw (embedding_vec vector_cosine_ops)");
+
+            // 数据源：ds_embedding（与经验库平行）
+            jdbc.execute("ALTER TABLE ds_embedding ADD COLUMN IF NOT EXISTS embedding_vec vector(" + dim + ")");
+            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_ds_embedding_vec "
+                    + "ON ds_embedding USING hnsw (embedding_vec vector_cosine_ops)");
+
             available = true;
             log.info("[pgvector] 已启用 ANN 检索 (HNSW, dim={})", dim);
         } catch (Exception e) {

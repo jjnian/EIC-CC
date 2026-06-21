@@ -16,7 +16,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 经验库向量索引服务：经验正文 → 分块 → 嵌入 → 存储（exp_chunk / exp_embedding），并提供相似度检索。
@@ -35,6 +36,12 @@ public class ExperienceIndexService {
     private final PgVectorSupport pgVector;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    /**
+     * 自动索引专用有界线程池：并发度 = {@code app.embedding.concurrency}（默认 3）。
+     * <p>大量文件一次性上传时，自动索引任务在此排队消化，避免瞬间打爆 embedding API 触发限流；
+     * 公共 ForkJoinPool 不限并发，不适合这种外部限流敏感的场景。
+     */
+    private final ExecutorService indexExecutor;
 
     /** 检索命中片段：正文 + 所属经验标题 + 相似度。 */
     public record ChunkResult(String content, String experienceTitle, double score) {}
@@ -49,22 +56,47 @@ public class ExperienceIndexService {
         this.embeddingProps = embeddingProps;
         this.pgVector = pgVector;
         this.jdbc = jdbc;
+        int n = Math.max(1, embeddingProps.getConcurrency());
+        this.indexExecutor = Executors.newFixedThreadPool(n, r -> {
+            Thread t = new Thread(r, "exp-index");
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     public boolean isConfigured() {
         return embeddingClient.isConfigured();
     }
 
-    /** 保存后触发的异步重建索引；未配置 embedding 时静默跳过。 */
+    /** 保存后触发的异步重建索引；未配置 embedding 时静默跳过。提交到有界线程池排队，避免大量文件同时索引打爆 embedding API。 */
     public void reindexAsync(String experienceId) {
         if (!isConfigured()) return;
-        CompletableFuture.runAsync(() -> {
+        indexExecutor.submit(() -> {
             try {
                 reindex(experienceId);
             } catch (Exception e) {
                 log.warn("[ExpIndex] 异步索引失败 exp={}: {}", experienceId, e.getMessage());
             }
         });
+    }
+
+    /**
+     * 启动补索引：把历史未索引(index_status≠indexed)且有正文的经验全部排队重建。
+     * <p>逐条走 {@link #reindexAsync}，提交到有界线程池排队，不阻塞调用方；embedding 未配置时返回 0。
+     * 用于「配 embedding 晚于上传」的存量数据在启动后自动跟上。
+     *
+     * @return 本次调度的经验条数
+     */
+    public int backfillUnindexed() {
+        if (!isConfigured()) return 0;
+        List<String> ids = jdbc.queryForList(
+                "SELECT id FROM experience " +
+                "WHERE coalesce(index_status, '') <> 'indexed' " +
+                "AND content IS NOT NULL AND length(trim(content)) > 0",
+                String.class);
+        for (String id : ids) reindexAsync(id);
+        if (!ids.isEmpty()) log.info("[ExpIndex] 启动补索引：调度 {} 条未索引经验", ids.size());
+        return ids.size();
     }
 
     /**

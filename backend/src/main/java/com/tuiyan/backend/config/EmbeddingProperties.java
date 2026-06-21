@@ -23,6 +23,10 @@ public class EmbeddingProperties {
     private int chunkSize = 500;
     /** 相邻分块重叠 token 数 */
     private int chunkOverlap = 50;
+    /** 批量索引并发度（同时索引的数据源数量）；过高会触发 embedding 服务限流 */
+    private int concurrency = 3;
+    /** 启动时是否自动补齐历史未索引内容（index_status≠indexed）。配 embedding 晚于上传的存量数据靠它跟上。 */
+    private boolean backfillOnStartup = true;
 
     public String getBaseUrl() { return baseUrl; }
     public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
@@ -36,4 +40,8 @@ public class EmbeddingProperties {
     public void setChunkSize(int chunkSize) { this.chunkSize = chunkSize; }
     public int getChunkOverlap() { return chunkOverlap; }
     public void setChunkOverlap(int chunkOverlap) { this.chunkOverlap = chunkOverlap; }
+    public int getConcurrency() { return concurrency; }
+    public void setConcurrency(int concurrency) { this.concurrency = concurrency; }
+    public boolean isBackfillOnStartup() { return backfillOnStartup; }
+    public void setBackfillOnStartup(boolean backfillOnStartup) { this.backfillOnStartup = backfillOnStartup; }
 }
