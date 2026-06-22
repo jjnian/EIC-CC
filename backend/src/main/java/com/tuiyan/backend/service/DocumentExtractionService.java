@@ -49,16 +49,19 @@ public class DocumentExtractionService {
     private final Executor urlFetchExecutor;
     private final DataSourceRepository dataSourceRepository;
     private final List<SourceFileHandler> fileHandlers;
+    private final com.tuiyan.backend.service.indexing.DataSourceIndexService dataSourceIndexService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DocumentExtractionService(ExtractionLlmService extractionLlmService,
                                      @Qualifier("predictionExecutor") ThreadPoolTaskExecutor predictionExecutor,
                                      DataSourceRepository dataSourceRepository,
-                                     List<SourceFileHandler> fileHandlers) {
+                                     List<SourceFileHandler> fileHandlers,
+                                     com.tuiyan.backend.service.indexing.DataSourceIndexService dataSourceIndexService) {
         this.extractionLlmService = extractionLlmService;
         this.urlFetchExecutor = predictionExecutor;
         this.dataSourceRepository = dataSourceRepository;
         this.fileHandlers = fileHandlers;
+        this.dataSourceIndexService = dataSourceIndexService;
     }
 
     /**
@@ -319,7 +322,19 @@ public class DocumentExtractionService {
             extra.remove("contentType");
             extra.remove("size");
             try {
-                dataSourceRepository.saveSource(kind, name, mime, size, extra.isEmpty() ? null : extra);
+                var saved = dataSourceRepository.saveSource(kind, name, mime, size, extra.isEmpty() ? null : extra);
+                // 音频来源：转写正文已落 extra_json。把它纳入当前工作空间（建引用）后自动建向量索引——
+                // 检索按「工作空间引用」过滤，没有引用则索引了也召回不到，故二者一起做。
+                if (saved != null && "audio".equals(type)) {
+                    try {
+                        dataSourceRepository.reference(java.util.List.of(saved.getId()));
+                    } catch (Exception refErr) {
+                        log.warn("reference audio data source failed for {}: {}", name, refErr.toString());
+                    }
+                    if (dataSourceIndexService.isConfigured()) {
+                        dataSourceIndexService.indexDataSource(saved.getId(), null);
+                    }
+                }
             } catch (Exception e) {
                 log.warn("persist data source failed for {}: {}", name, e.toString());
             }

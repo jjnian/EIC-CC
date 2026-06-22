@@ -21,6 +21,8 @@ export interface DataSource {
   folderId?: string;
   /** 列表接口里返回的是 maskSensitive 后的 config；编辑表单请用 detail 端点 */
   config?: Record<string, unknown>;
+  /** 音频数据源的转写正文（抽取流程 ASR 后落 extra_json，可能已按上限截断） */
+  transcript?: string;
   [key: string]: unknown;
 }
 

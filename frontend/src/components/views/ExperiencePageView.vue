@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useWorkspaces } from '../../composables/useWorkspaces';
 import { useSidebarTree } from '../../composables/useSidebarTree';
 import { confirm as uiConfirm } from '../../composables/useConfirm';
@@ -7,7 +7,8 @@ import { toast } from '../../composables/useToast';
 import { ApiError } from '../../api/http';
 import {
   createExperience, updateExperience, reindexExperience, uploadExperienceFile,
-  experienceFileUrl, listAllExperiences, listExperiences, deleteExperience, type Experience,
+  experienceFileUrl, listAllExperiences, listExperiences, deleteExperience,
+  reindexAllExperiences, getExperienceIndexSummary, type Experience,
 } from '../../api/experiences';
 import { listAllDataSources, type DataSource } from '../../api/dataSources';
 import { useWebSystemExplore } from '../../composables/useWebSystemExplore';
@@ -129,6 +130,7 @@ const reload = async (_force = false) => {
     items.value = exps;
     dataSources.value = dss;
     currentWsCount.value = refExps.length;
+    loadIndexSummary();
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载失败');
   } finally {
@@ -148,7 +150,8 @@ const {
 // 从右上角「新增」菜单进入新接入：先收起菜单再开表单
 const openExplore = () => { closeAddMenu(); openExploreDialog(); };
 
-onMounted(() => reload());
+onMounted(() => { reload(); loadIndexSummary(); });
+onBeforeUnmount(() => { if (summaryTimer) clearTimeout(summaryTimer); });
 watch(() => ws.currentId.value, () => { draft.value = null; selectedUpload.value = null; reload(); });
 
 const newDraft = () => {
@@ -302,7 +305,7 @@ const preview = (content?: string) => {
 const originMeta = (x: Experience): { icon: string; label: string; cls: string } => {
   switch (x.origin) {
     case 'upload': return { icon: '📄', label: '上传文件', cls: 'upload' };
-    case 'ddl': return { icon: '🗄️', label: '数据库抽取', cls: 'ddl' };
+    case 'ddl': return { icon: '🗄️', label: '数据源抽取', cls: 'ddl' };
     case 'websystem': return { icon: '🌐', label: 'Web 系统', cls: 'websystem' };
     case 'explore': return { icon: '🧭', label: '系统探索', cls: 'explore' };
     default: return { icon: '✎', label: '手写经验', cls: 'manual' };
@@ -369,6 +372,61 @@ const reindex = async (id: string) => {
   }
 };
 
+// ── 全量索引（文件过多时一键补齐 + 进度汇总）──────────────────
+const indexSummary = ref<{ total: number; indexed: number; indexing: number; pending: number } | null>(null);
+const fullIndexing = ref(false);
+let summaryTimer: ReturnType<typeof setTimeout> | null = null;
+
+const loadIndexSummary = async () => {
+  try {
+    const r = await getExperienceIndexSummary();
+    const by = r.byStatus || {};
+    const indexed = by['indexed'] || 0;
+    const indexing = by['indexing'] || 0;
+    indexSummary.value = {
+      total: r.total,
+      indexed,
+      indexing,
+      pending: Math.max(0, r.total - indexed - indexing),
+    };
+    // 还有进行中的就继续轮询，直到全部落定
+    if (summaryTimer) { clearTimeout(summaryTimer); summaryTimer = null; }
+    if (r.configured && indexing > 0) {
+      summaryTimer = setTimeout(loadIndexSummary, 3000);
+    }
+  } catch {
+    indexSummary.value = null;
+  }
+};
+
+// force=false 补未索引（文件过多时的常用项）；force=true 连已索引也重算（embedding 模型换过时用）。
+const runFullIndex = async (force = false) => {
+  if (fullIndexing.value) return;
+  const ok = await uiConfirm({
+    title: force ? '全部重建经验库索引' : '全量补索引经验库',
+    message: force
+      ? '将为经验库全部经验重新生成向量索引（含已索引的）。文件较多时耗时较长，后台进行。确定继续？'
+      : '将为尚未索引的经验补建向量索引（已索引的跳过）。后台排队进行，确定继续？',
+    confirmLabel: force ? '全部重建' : '补未索引',
+    danger: force,
+  });
+  if (!ok) return;
+  fullIndexing.value = true;
+  try {
+    const r = await reindexAllExperiences(force);
+    if (!r.configured) {
+      toast.warn('未配置 Embedding 模型，无法建立向量索引');
+    } else {
+      toast.success(`已调度 ${r.scheduled} 篇索引${r.skipped ? `（跳过 ${r.skipped} 篇已索引）` : ''}，后台进行中`);
+      loadIndexSummary();
+    }
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '触发失败');
+  } finally {
+    fullIndexing.value = false;
+  }
+};
+
 // ── 上传文件预览 ────────────────────────────────────────────
 type PreviewKind = 'pdf' | 'image' | 'audio' | 'markdown' | 'text' | 'other';
 const previewKind = (e: Experience): PreviewKind => {
@@ -400,6 +458,21 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         <p>公共经验库：所有工作空间共享，可查看与复用。手写支持 Markdown（实时预览），可上传 PDF / Word / TXT / MD（音频自动转写）并预览原件。</p>
       </div>
       <div class="exp-header-actions">
+        <span
+          v-if="indexSummary"
+          class="exp-idx-summary"
+          :title="`已索引 ${indexSummary.indexed} · 索引中 ${indexSummary.indexing} · 未索引 ${indexSummary.pending}（共 ${indexSummary.total}）`"
+        >
+          索引 {{ indexSummary.indexed }}/{{ indexSummary.total }}
+          <em v-if="indexSummary.indexing > 0" class="exp-idx-run">· {{ indexSummary.indexing }} 进行中</em>
+        </span>
+        <button
+          class="exp-fullidx"
+          :disabled="fullIndexing"
+          title="为经验库尚未索引的经验一键补建向量索引（文件过多时用）。右键/长按可全部重建。"
+          @click="runFullIndex(false)"
+          @contextmenu.prevent="runFullIndex(true)"
+        >{{ fullIndexing ? '调度中…' : '⚡ 全量索引' }}</button>
         <button
           class="exp-build"
           :disabled="currentWsCount === 0"
@@ -530,8 +603,15 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           <div v-else-if="selectedUpload.hasFile && selKind === 'image'" class="exp-img-wrap">
             <img class="exp-img" :src="fileUrl(selectedUpload)" :alt="selectedUpload.fileName" />
           </div>
-          <audio v-else-if="selectedUpload.hasFile && selKind === 'audio'"
-                 class="exp-audio" controls :src="fileUrl(selectedUpload)"></audio>
+          <!-- 音频：播放器 + 对应的转写文字（ASR 自动转写，存为经验正文） -->
+          <div v-else-if="selectedUpload.hasFile && selKind === 'audio'" class="exp-audio-wrap">
+            <audio class="exp-audio" controls :src="fileUrl(selectedUpload)"></audio>
+            <div class="exp-prev-note">转写文字（自动语音识别）：</div>
+            <div v-if="(selectedUpload.content || '').trim()" class="exp-md">
+              <pre class="exp-pre">{{ selectedUpload.content }}</pre>
+            </div>
+            <div v-else class="exp-prev-note">（暂无转写文字）</div>
+          </div>
 
           <!-- markdown / 文本 / 其它格式：渲染抽取的文本（其它格式浏览器无法直接预览） -->
           <template v-if="!selectedUpload.hasFile || selKind === 'markdown' || selKind === 'text' || selKind === 'other'">
@@ -845,6 +925,21 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
   color: #fff;
 }
 .exp-build:disabled { opacity: 0.45; cursor: not-allowed; }
+.exp-idx-summary {
+  font-size: 12px; color: var(--text-dim, rgba(255,255,255,0.7));
+  padding: 4px 10px; border-radius: 999px;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+  white-space: nowrap; font-family: 'JetBrains Mono', monospace;
+}
+.exp-idx-summary .exp-idx-run { color: #f0c660; font-style: normal; }
+.exp-fullidx {
+  background: rgba(255,255,255,0.06); color: var(--text-main, #e6e9ef);
+  border: 1px solid rgba(255,255,255,0.14);
+  padding: 9px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit; white-space: nowrap;
+}
+.exp-fullidx:hover:not(:disabled) { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.24); }
+.exp-fullidx:disabled { opacity: 0.5; cursor: not-allowed; }
 .exp-upload {
   background: transparent; color: var(--accent-soft); border: 1px solid rgba(47,134,214,0.5);
   padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
@@ -1226,7 +1321,8 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-iframe { width: 100%; height: 100%; min-height: 420px; border: none; background: #fff; }
 .exp-img-wrap { display: flex; align-items: center; justify-content: center; padding: 12px; }
 .exp-img { max-width: 100%; max-height: 70vh; border-radius: 6px; }
-.exp-audio { width: 100%; margin: 16px 0; }
+.exp-audio-wrap { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.exp-audio { width: 100%; margin: 4px 0 8px; }
 .exp-pre { margin: 0; padding: 14px; white-space: pre-wrap; word-break: break-word;
   font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.6; color: var(--text-main); }
 .exp-prev-foot { display: flex; align-items: center; gap: 10px; }

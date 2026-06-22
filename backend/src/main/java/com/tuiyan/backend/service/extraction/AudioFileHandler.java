@@ -22,6 +22,12 @@ public class AudioFileHandler implements SourceFileHandler {
 
     private static final Logger log = LoggerFactory.getLogger(AudioFileHandler.class);
 
+    /**
+     * 写入 data_source.extra_json 的转写正文字符上限：超长截断，避免单条记录的 JSON 列过大。
+     * <p>原始音频不归档，这段文本是其内容的唯一留存，故上限给得较宽。
+     */
+    private static final int TRANSCRIPT_CHAR_BUDGET = 100_000;
+
     private final AudioTranscriptionService transcription;
 
     public AudioFileHandler(AudioTranscriptionService transcription) {
@@ -63,6 +69,9 @@ public class AudioFileHandler implements SourceFileHandler {
             meta.put("chars", text.length());
             meta.put("model", r.model());
             if (r.durationSeconds() != null) meta.put("durationSec", Math.round(r.durationSeconds()));
+            // 持久化转写正文到 data_source.extra_json（由 DocumentExtractionService.persistDataSources 落 PgSQL）：
+            // 抽取流程不归档原始音频，这段文本即音频内容的唯一留存，便于事后回溯/复用。
+            meta.put("transcript", capTranscript(text));
             ctx.appendSection("# 音频转写 " + safeName, text);
         } catch (Exception e) {
             log.warn("[ASR] 音频 {} 转写失败: {}", safeName, e.toString());
@@ -73,5 +82,11 @@ public class AudioFileHandler implements SourceFileHandler {
     private static void markSkipped(Map<String, Object> meta, String reason) {
         meta.put("type", "skipped");
         meta.put("reason", reason);
+    }
+
+    /** 转写正文超 {@link #TRANSCRIPT_CHAR_BUDGET} 时截断并加省略标记，控制 JSON 列体积。 */
+    private static String capTranscript(String text) {
+        if (text.length() <= TRANSCRIPT_CHAR_BUDGET) return text;
+        return text.substring(0, TRANSCRIPT_CHAR_BUDGET) + "\n[…truncated…]";
     }
 }

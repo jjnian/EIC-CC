@@ -69,6 +69,12 @@ const start = () => {
   result.value = null;
   sseHandle = extractOntologyFromExperiences({ hint: hint.value.trim() || undefined }, {
     onStep: (key, label) => {
+      // 分批建图进度(llm_batch)会多次上报，原地更新同一行，避免刷出几十行
+      const last = steps.value[steps.value.length - 1];
+      if (key === 'llm_batch' && last && last.key === 'llm_batch') {
+        last.label = label;
+        return;
+      }
       markRunningAs('done');
       steps.value.push({ key, label, status: 'running' });
     },

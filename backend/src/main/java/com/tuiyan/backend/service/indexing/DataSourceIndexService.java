@@ -1,5 +1,6 @@
 package com.tuiyan.backend.service.indexing;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.config.EmbeddingProperties;
 import com.tuiyan.backend.entity.DataSourcePO;
@@ -76,7 +77,7 @@ public class DataSourceIndexService {
         List<DataSourcePO> all = dsRepo.list(workspaceId).stream()
                 .map(m -> dsRepo.findById((String) m.get("id")))
                 .filter(Objects::nonNull)
-                .filter(po -> "file_stored".equals(po.getKind()))
+                .filter(po -> "file_stored".equals(po.getKind()) || readTranscript(po) != null)
                 .toList();
 
         List<String> toIndex = new ArrayList<>();
@@ -118,9 +119,11 @@ public class DataSourceIndexService {
      */
     public int backfillUnindexed() {
         if (!embeddingClient.isConfigured()) return 0;
+        // 落桶文件(file_stored) + 带转写正文的来源(如抽取流程的音频,extra_json 含 transcript)
         List<String> ids = jdbc.queryForList(
                 "SELECT id FROM data_source " +
-                "WHERE kind = 'file_stored' AND coalesce(index_status, '') <> 'indexed'",
+                "WHERE coalesce(index_status, '') <> 'indexed' " +
+                "AND (kind = 'file_stored' OR extra_json LIKE '%\"transcript\"%')",
                 String.class);
         if (ids.isEmpty()) return 0;
         ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, embeddingProps.getConcurrency()));
@@ -138,6 +141,18 @@ public class DataSourceIndexService {
         return ids.size();
     }
 
+    /** 从 data_source.extra_json 取音频转写正文（无则返回 null）。 */
+    private String readTranscript(DataSourcePO po) {
+        String extra = po.getExtraJson();
+        if (extra == null || extra.isBlank()) return null;
+        try {
+            JsonNode t = objectMapper.readTree(extra).get("transcript");
+            return (t != null && t.isTextual() && !t.asText().isBlank()) ? t.asText() : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private void doIndex(String dataSourceId, SseEmitter emitter) {
         try {
             emitStep(emitter, "reading_content", "正在读取数据源内容…");
@@ -148,16 +163,25 @@ public class DataSourceIndexService {
                 return;
             }
 
-            if (!"file_stored".equals(po.getKind())) {
-                emitStep(emitter, "skip", "数据库/API 类型暂不支持向量索引");
+            // 音频等来源把转写正文存在 extra_json.transcript（无落桶文件），直接用它做索引；
+            // file_stored 仍走读文件抽取。两者都没有则该类型不支持索引。
+            String transcript = readTranscript(po);
+            boolean hasTranscript = transcript != null && !transcript.isBlank();
+            if (!hasTranscript && !"file_stored".equals(po.getKind())) {
+                emitStep(emitter, "skip", "该数据源类型暂不支持向量索引");
                 if (emitter != null) emitter.complete();
                 return;
             }
 
             markIndexStatus(dataSourceId, "indexing");
 
-            Map<String, Object> cfg = dsRepo.readConfig(po);
-            String content = fileService.readText(cfg, 0, 200_000);
+            String content;
+            if (hasTranscript) {
+                content = transcript;
+            } else {
+                Map<String, Object> cfg = dsRepo.readConfig(po);
+                content = fileService.readText(cfg, 0, 200_000);
+            }
             if (content == null || content.isBlank()) {
                 emitStep(emitter, "skip", "数据源无可索引的文本内容");
                 markIndexStatus(dataSourceId, "none");

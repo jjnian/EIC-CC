@@ -375,11 +375,11 @@ const ctxDsKind = computed(() => {
   if (!c || c.kind !== 'datasource') return null;
   return tree.getDataSources(wsId.value).find(d => d.id === c.id)?.kind ?? null;
 });
-// 只有「当前工作空间」下的库类数据源(mysql/pgsql)能抽取结构:from-ddl 走当前工作空间内省,跨空间会 403。
-const canExtractDdl = computed(() =>
-  props.isCurrent && ['mysql', 'pgsql', 'oracle', 'dm', 'gbase'].includes(ctxDsKind.value ?? ''));
+// 「当前工作空间」下的任意数据源都能抽取成经验库文件(库类导 DDL,HTTP 接口导配置+响应样例)。
+// 仍限当前工作空间:from-ddl 走当前工作空间内省/自动引用,跨空间会 403。
+const canExtractToExp = computed(() => props.isCurrent && !!ctxDsKind.value);
 
-// 右键数据源 →「抽取到经验库」:把库结构(DDL)沉淀成一条经验库文件,再刷新经验树。
+// 右键数据源 →「抽取到经验库」:把数据源(库结构/接口)沉淀成一条经验库文件,再刷新经验树。
 const extractToExperienceAct = async () => {
   const current = ctxMenu.value;
   if (!current || current.kind !== 'datasource') return;
@@ -685,6 +685,8 @@ const kindLabel: Record<string, string> = {
   dm: '达梦',
   gbase: 'GBase',
   file_stored: '文件',
+  file: '文件',
+  url: 'URL',
   https_api: 'HTTPS',
 };
 
@@ -1021,10 +1023,10 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 
       <!-- 数据源条目 -->
       <template v-else-if="ctxMenu.kind === 'datasource'">
-        <button v-if="canExtractDdl" class="ctx-item" @click="extractToExperienceAct">
+        <button v-if="canExtractToExp" class="ctx-item" @click="extractToExperienceAct">
           <span class="ctx-icon">⤓</span>
           <span>抽取到经验库</span>
-          <span class="ctx-hint">DDL</span>
+          <span class="ctx-hint">{{ ctxDsKind && ['mysql','pgsql','oracle','dm','gbase'].includes(ctxDsKind) ? 'DDL' : '接口' }}</span>
         </button>
         <button class="ctx-item" @click="openMoveMenu">
           <span class="ctx-icon">⇄</span>

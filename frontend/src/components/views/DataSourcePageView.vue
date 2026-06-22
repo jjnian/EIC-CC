@@ -106,6 +106,11 @@ const previewRows = computed<{ label: string; value: string }[]>(() => {
   if (typeof d.size === 'number' && d.size > 0) rows.push({ label: '大小', value: `${(d.size / 1024).toFixed(1)} KB` });
   if (d.pages != null) rows.push({ label: '页数', value: String(d.pages) });
   if (d.chars != null) rows.push({ label: '字数', value: String(d.chars) });
+  // 音频转写正文(ASR 落库):预览只展示前若干字符,避免撑爆弹窗
+  if (typeof d.transcript === 'string' && d.transcript.trim()) {
+    const t = d.transcript.trim();
+    rows.push({ label: '转写正文', value: t.length > 500 ? t.slice(0, 500) + '…' : t });
+  }
   // 连接/接口类:展开 config 里的标量字段(密码等已被后端脱敏)
   const cfg = d.config && typeof d.config === 'object' ? d.config as Record<string, unknown> : null;
   if (cfg) {
