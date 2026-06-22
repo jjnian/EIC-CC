@@ -322,10 +322,15 @@ public class DocumentExtractionService {
             extra.remove("contentType");
             extra.remove("size");
             try {
-                var saved = dataSourceRepository.saveSource(kind, name, mime, size, extra.isEmpty() ? null : extra);
+                // 音频来源按 (工作空间,名称) upsert 去重，避免重复上传同一音频堆出多条可检索数据源；
+                // 其余来源沿用新增(作为每次抽取的溯源记录)。
+                boolean isAudio = "audio".equals(type);
+                var saved = isAudio
+                        ? dataSourceRepository.upsertSource(kind, name, mime, size, extra.isEmpty() ? null : extra)
+                        : dataSourceRepository.saveSource(kind, name, mime, size, extra.isEmpty() ? null : extra);
                 // 音频来源：转写正文已落 extra_json。把它纳入当前工作空间（建引用）后自动建向量索引——
                 // 检索按「工作空间引用」过滤，没有引用则索引了也召回不到，故二者一起做。
-                if (saved != null && "audio".equals(type)) {
+                if (saved != null && isAudio) {
                     try {
                         dataSourceRepository.reference(java.util.List.of(saved.getId()));
                     } catch (Exception refErr) {

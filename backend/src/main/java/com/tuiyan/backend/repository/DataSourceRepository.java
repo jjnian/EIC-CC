@@ -118,6 +118,32 @@ public class DataSourceRepository {
         return po;
     }
 
+    /**
+     * 按 (当前工作空间, kind, name) upsert 数据源：已存在则更新元信息/extra 并标记需重建索引，
+     * 否则新建。用于抽取流程里同名来源（如重复上传同一音频）去重，避免堆出重复的可检索数据源。
+     */
+    @Transactional
+    public DataSourcePO upsertSource(String kind, String name, String mime, Long sizeBytes,
+                                     Map<String, Object> extra) {
+        String ws = WorkspaceContext.required();
+        DataSourcePO existing = mapper.selectList(new LambdaQueryWrapper<DataSourcePO>()
+                        .eq(DataSourcePO::getWorkspaceId, ws)
+                        .eq(DataSourcePO::getKind, kind)
+                        .eq(DataSourcePO::getName, name)
+                        .orderByDesc(DataSourcePO::getCreatedAt))
+                .stream().findFirst().orElse(null);
+        if (existing == null) {
+            return saveSource(kind, name, mime, sizeBytes, extra);
+        }
+        existing.setMime(mime);
+        existing.setSizeBytes(sizeBytes);
+        existing.setExtraJson(extra != null && !extra.isEmpty() ? codec.toJson(extra) : null);
+        existing.setIndexStatus("none");   // 内容已刷新，旧索引作废，交由调用方重新触发
+        existing.setUpdatedAt(System.currentTimeMillis());
+        mapper.updateById(existing);
+        return existing;
+    }
+
     @Transactional
     public boolean delete(String id) {
         // 数据源为全局公共资源：任意工作空间均可删除；删除本体时清理其全部工作空间引用。
