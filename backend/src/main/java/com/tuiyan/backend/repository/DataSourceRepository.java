@@ -19,6 +19,9 @@ import java.util.Map;
 @Repository
 public class DataSourceRepository {
 
+    /** 列表/详情里 transcript 字段的预览字符上限（全文仍存库，仅限制传输体积）。 */
+    private static final int LIST_TRANSCRIPT_PREVIEW = 800;
+
     private final DataSourceMapper mapper;
     private final DataSourceRefRepository refRepo;
     private final JsonCodec codec;
@@ -229,7 +232,15 @@ public class DataSourceRepository {
             if (extra instanceof Map<?, ?> mp) {
                 for (Map.Entry<?, ?> e : mp.entrySet()) {
                     String k = String.valueOf(e.getKey());
-                    if (!out.containsKey(k)) out.put(k, e.getValue());
+                    if (out.containsKey(k)) continue;
+                    Object v = e.getValue();
+                    // transcript 可能很大(上限 100k)，列表/详情只回传预览，避免每次拉取数据源都拖大 payload；
+                    // 全文仍存于 extra_json，供 RAG 索引与「抽取到经验库」直接读库使用。
+                    if ("transcript".equals(k) && v instanceof String s && s.length() > LIST_TRANSCRIPT_PREVIEW) {
+                        out.put(k, s.substring(0, LIST_TRANSCRIPT_PREVIEW) + "…");
+                    } else {
+                        out.put(k, v);
+                    }
                 }
             }
         }
