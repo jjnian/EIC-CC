@@ -455,7 +455,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
     <div class="exp-header">
       <div>
         <h2>经验库 <span class="exp-public-tag">公共</span></h2>
-        <p>公共经验库：所有工作空间共享，可查看与复用。手写支持 Markdown（实时预览），可上传 PDF / Word / TXT / MD（音频自动转写）并预览原件。</p>
+        <p>公共经验库：所有工作空间共享，可查看与复用。手写支持 Markdown（实时预览），可上传 PDF / Word / TXT / MD（音频自动转写、图片视觉识别）并预览原件。</p>
       </div>
       <div class="exp-header-actions">
         <span
@@ -491,7 +491,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             </button>
             <button class="exp-add-item c-upload" :disabled="uploading" @click="triggerUpload">
               <span class="exp-add-ico">⤓</span>
-              <span><strong>{{ uploading ? '解析中…' : '上传文件' }}</strong><em>PDF / Word / TXT / MD / 音频</em></span>
+              <span><strong>{{ uploading ? '解析中…' : '上传文件' }}</strong><em>PDF / Word / TXT / MD / 音频 / 图片</em></span>
               <span class="exp-add-go">→</span>
             </button>
             <button class="exp-add-item c-web" @click="openExplore">
@@ -506,7 +506,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         ref="fileInput"
         type="file"
         class="exp-file-input"
-        accept=".pdf,.docx,.txt,.md,.mp3,.wav,.m4a,.flac,.aac,.ogg,.opus,.wma,.amr,audio/*"
+        accept=".pdf,.docx,.txt,.md,.mp3,.wav,.m4a,.flac,.aac,.ogg,.opus,.wma,.amr,audio/*,.png,.jpg,.jpeg,.gif,.webp,.bmp,image/*"
         @change="onUploadPick"
       />
     </div>
@@ -600,8 +600,14 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         <div class="exp-prev-body">
           <iframe v-if="selectedUpload.hasFile && selKind === 'pdf'"
                   class="exp-iframe" :src="fileUrl(selectedUpload)"></iframe>
+          <!-- 图片：原图 + 视觉识别文字（OCR + 关键信息，存为经验正文） -->
           <div v-else-if="selectedUpload.hasFile && selKind === 'image'" class="exp-img-wrap">
             <img class="exp-img" :src="fileUrl(selectedUpload)" :alt="selectedUpload.fileName" />
+            <div class="exp-prev-note">识别文字（图片视觉识别）：</div>
+            <div v-if="(selectedUpload.content || '').trim()" class="exp-md">
+              <pre class="exp-pre">{{ selectedUpload.content }}</pre>
+            </div>
+            <div v-else class="exp-prev-note">（暂无识别文字）</div>
           </div>
           <!-- 音频：播放器 + 对应的转写文字（ASR 自动转写，存为经验正文） -->
           <div v-else-if="selectedUpload.hasFile && selKind === 'audio'" class="exp-audio-wrap">

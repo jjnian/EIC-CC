@@ -4,6 +4,7 @@ import com.tuiyan.backend.repository.ExperienceRepository;
 import com.tuiyan.backend.service.connector.FileStoredService;
 import com.tuiyan.backend.service.connector.file.StoredFileHandler;
 import com.tuiyan.backend.service.extraction.AudioTranscriptionService;
+import com.tuiyan.backend.service.extraction.ImageRecognitionService;
 import com.tuiyan.backend.service.storage.ObjectStorage;
 import com.tuiyan.backend.support.FileSniffer;
 import org.slf4j.Logger;
@@ -31,24 +32,27 @@ public class ExperienceFileService {
     private final ExperienceRepository repo;
     private final FileStoredService fileStoredService;
     private final AudioTranscriptionService audioTranscriptionService;
+    private final ImageRecognitionService imageRecognitionService;
     private final ObjectStorage storage;
     private final DataSourceService dataSourceService;
 
     public ExperienceFileService(ExperienceRepository repo,
                                  FileStoredService fileStoredService,
                                  AudioTranscriptionService audioTranscriptionService,
+                                 ImageRecognitionService imageRecognitionService,
                                  ObjectStorage storage,
                                  DataSourceService dataSourceService) {
         this.repo = repo;
         this.fileStoredService = fileStoredService;
         this.audioTranscriptionService = audioTranscriptionService;
+        this.imageRecognitionService = imageRecognitionService;
         this.storage = storage;
         this.dataSourceService = dataSourceService;
     }
 
     /**
      * 上传文件建经验：抽取文件纯文本作正文，文件名（去扩展名）作标题，归档原件。
-     * <p>PDF / Word / TXT / MD 走文本抽取；音频走 ASR 转写（转写文本作正文）。
+     * <p>PDF / Word / TXT / MD 走文本抽取；音频走 ASR 转写；图片走视觉识别（OCR + 关键信息），均以识别文本作正文。
      */
     public Map<String, Object> createFromUpload(MultipartFile file, String title) throws IOException {
         if (file == null || file.isEmpty()) {
@@ -68,6 +72,16 @@ public class ExperienceFileService {
                 content = tr.text() == null ? "" : tr.text();
             } catch (Exception e) {
                 throw new IllegalArgumentException("音频转写失败：" + e.getMessage());
+            }
+        }
+
+        // 图片：归档 handler 不抽文本（meta.image=true），改走视觉识别（OCR + 关键信息）得到正文
+        if (content.isBlank() && Boolean.TRUE.equals(extracted.meta().get("image"))) {
+            try {
+                content = imageRecognitionService.recognize(
+                        file.getBytes(), file.getOriginalFilename(), file.getContentType());
+            } catch (Exception e) {
+                throw new IllegalArgumentException("图片识别失败：" + e.getMessage());
             }
         }
 
