@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { executeSql } from '../../api/dataSources';
 import { ApiError } from '../../api/http';
+import { Button } from '@/components/ui/button';
 import type { SqlExecuteResult } from '../../api/dataSources';
 
 const props = defineProps<{ dsId: string }>();
@@ -27,7 +28,7 @@ const run = async () => {
       <textarea v-model="sql" rows="4" placeholder="仅允许 SELECT / SHOW / DESC / EXPLAIN" />
       <div class="row">
         <label>LIMIT <input type="number" v-model.number="limit" min="1" max="1000" /></label>
-        <button class="primary" :disabled="running" @click="run">{{ running ? '执行中…' : '执行' }}</button>
+        <Button class="primary" :disabled="running" @click="run">{{ running ? '执行中…' : '执行' }}</Button>
       </div>
     </div>
     <div class="output">

@@ -6,6 +6,7 @@ import BaseInput from '../form/BaseInput.vue';
 import BaseSelect from '../form/BaseSelect.vue';
 import BaseTextarea from '../form/BaseTextarea.vue';
 import BaseSwitch from '../form/BaseSwitch.vue';
+import { Button } from '@/components/ui/button';
 import { useFormValidation, rules } from '../../composables/useFormValidation';
 
 const props = defineProps<{
@@ -158,9 +159,9 @@ watch([isValid, () => props.kind], () => emit('validity', isValid.value), { imme
           <div v-for="(h, i) in headerList" :key="i" class="kv">
             <BaseInput v-model="h.k" placeholder="Header" @update:modelValue="syncHeaders" />
             <BaseInput v-model="h.v" placeholder="Value" @update:modelValue="syncHeaders" />
-            <button type="button" class="kv-del" @click="removeHeader(i)">×</button>
+            <Button variant="ghost" size="icon-sm" type="button" class="kv-del" @click="removeHeader(i)">×</Button>
           </div>
-          <button type="button" class="kv-add" @click="addHeader">+ 添加 Header</button>
+          <Button variant="ghost" size="sm" type="button" class="kv-add" @click="addHeader">+ 添加 Header</Button>
         </div>
       </FormField>
       <FormField v-if="cfg.method === 'POST' || cfg.method === 'PUT'" label="Body">

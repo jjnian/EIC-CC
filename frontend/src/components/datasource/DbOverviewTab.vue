@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import type { DataSource } from '../../api/dataSources';
 import { testDataSource } from '../../api/dataSources';
+import { Button } from '@/components/ui/button';
 import { toast } from '../../composables/useToast';
 
 const props = defineProps<{ ds: DataSource }>();
@@ -38,9 +39,9 @@ const runTest = async () => {
       <dt v-if="ds.lastError">最后错误</dt>
       <dd v-if="ds.lastError" class="err">{{ ds.lastError }}</dd>
     </dl>
-    <button class="primary" :disabled="testing" @click="runTest">
+    <Button class="primary" :disabled="testing" @click="runTest">
       {{ testing ? '测试中…' : '测试连接' }}
-    </button>
+    </Button>
   </div>
 </template>
 

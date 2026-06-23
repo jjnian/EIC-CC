@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue';
 import { updateSchedule } from '../../api/dataSources';
 import { ApiError } from '../../api/http';
+import { Button } from '@/components/ui/button';
 import { toast } from '../../composables/useToast';
 import type { DataSource } from '../../api/dataSources';
 
@@ -48,7 +49,7 @@ const save = async () => {
       <span>下次执行</span>
       <span>{{ nextRun }}</span>
     </div>
-    <button class="primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+    <Button class="primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</Button>
   </div>
 </template>
 

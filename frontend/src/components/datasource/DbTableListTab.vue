@@ -2,6 +2,7 @@
 import { ref, watch, onMounted } from 'vue';
 import { listTables, previewTable } from '../../api/dataSources';
 import { createExperienceFromDdl } from '../../api/experiences';
+import { Button } from '@/components/ui/button';
 import { ApiError } from '../../api/http';
 import { toast } from '../../composables/useToast';
 import type { TablePreview } from '../../api/dataSources';
@@ -57,15 +58,17 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
     <aside class="tlist">
       <div class="head">
         <span>表 ({{ tables.length }})</span>
-        <button @click="load">↻</button>
+        <Button variant="ghost" size="icon-sm" @click="load">↻</Button>
       </div>
       <div class="extract-action">
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           class="extract-btn"
           :disabled="loading || depositing || tables.length === 0"
           :title="tables.length === 0 ? '请先确保数据库连接成功' : '把库结构(DDL)沉淀到经验库，供经验库构建本体血缘图'"
           @click="depositToExperience"
-        >{{ depositing ? '导出中…' : '⤓ 导出结构到经验库供血' }}</button>
+        >{{ depositing ? '导出中…' : '⤓ 导出结构到经验库供血' }}</Button>
         <label class="sample-opt" title="为每张表附带前 N 行真实数据作样例（密码/手机/邮箱/证件/卡号等敏感字段已自动脱敏）">
           <input type="checkbox" v-model="withSamples" :disabled="depositing" />
           <span>附带样例数据</span>
