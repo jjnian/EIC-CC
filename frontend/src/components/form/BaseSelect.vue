@@ -17,13 +17,15 @@ interface Option { value: string | number; label: string; }
 // 空值哨兵：把 ''/null/undefined 统一映射成该值在 reka-ui 内部流转。
 const EMPTY = '__none__';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: string | number | null | undefined;
   options?: (string | Option)[];
   placeholder?: string;
   disabled?: boolean;
   invalid?: boolean;
-}>();
+  /** 触发器尺寸，紧凑表格场景用 'sm'。 */
+  size?: 'default' | 'sm';
+}>(), { size: 'default' });
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: string): void;
@@ -61,6 +63,7 @@ const itemKey = (v: string | number) => (v === '' ? EMPTY : String(v));
     <SelectTrigger
       class="f-select-sh"
       :class="{ 'f-invalid': invalid }"
+      :size="size"
       :aria-invalid="invalid || undefined"
     >
       <SelectValue :placeholder="placeholder || '请选择'" />

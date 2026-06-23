@@ -10,6 +10,8 @@
  */
 import { ref, computed } from 'vue';
 import type { OntologyNode, OntologyEdge, OntologyAttribute, OntologyConstraint } from '../types';
+import { Button } from '@/components/ui/button';
+import BaseSelect from './form/BaseSelect.vue';
 
 const props = defineProps<{
   open: boolean;
@@ -108,6 +110,8 @@ const kindLabel = (k?: string) => ({
   custom:      '自定义',
 } as Record<string, string>)[k || 'custom'] || k || '自定义';
 
+const kindOptions = computed(() => CONSTRAINT_KINDS.map((k) => ({ value: k, label: kindLabel(k) })));
+
 const sourceBadge = (s?: string) => {
   if (s === 'inferred') return { text: 'AI推理', color: '#bb77ff', bg: 'rgba(187,119,255,0.12)' };
   if (s === 'derived')  return { text: '文本提取', color: '#22dd88', bg: 'rgba(34,221,136,0.12)' };
@@ -123,7 +127,7 @@ const sourceBadge = (s?: string) => {
         <span class="sp-title-mark">⎔</span>
         <span>Schema · 静态本体</span>
       </div>
-      <button class="sp-close" @click="emit('close')" title="关闭">×</button>
+      <Button variant="ghost" size="icon-sm" @click="emit('close')" title="关闭">×</Button>
     </div>
 
     <div class="sp-tabs">
@@ -158,20 +162,18 @@ const sourceBadge = (s?: string) => {
             <span class="sp-colon">:</span>
             <input class="sp-in sp-in-val" :value="a.valueSpace || ''" @input="updateAttribute(n, i, { valueSpace: ($event.target as HTMLInputElement).value })" placeholder="取值范围 (如 number / 0..1 / string)"/>
             <span class="sp-src" :style="{color: sourceBadge(a.source).color, background: sourceBadge(a.source).bg}">{{ sourceBadge(a.source).text }}</span>
-            <button class="sp-del" @click="removeAttribute(n, i)" title="删除">×</button>
+            <Button variant="ghost" size="icon-sm" class="text-destructive" @click="removeAttribute(n, i)" title="删除">×</Button>
           </div>
-          <button class="sp-add" @click="addAttribute(n)">+ 添加属性</button>
+          <Button variant="outline" size="sm" @click="addAttribute(n)">+ 添加属性</Button>
 
           <div class="sp-sub">约束 ({{ (n.constraints || []).length }})</div>
           <div v-for="(c, i) in (n.constraints || [])" :key="'c'+i" class="sp-row">
-            <select class="sp-in sp-in-kind" :value="c.kind || 'custom'" @change="updateNodeConstraint(n, i, { kind: ($event.target as HTMLSelectElement).value as any })">
-              <option v-for="k in CONSTRAINT_KINDS" :key="k" :value="k">{{ kindLabel(k) }}</option>
-            </select>
+            <div class="sp-in-kind"><BaseSelect size="sm" :model-value="c.kind || 'custom'" :options="kindOptions" @update:model-value="updateNodeConstraint(n, i, { kind: $event as any })" /></div>
             <input class="sp-in sp-in-note" :value="c.note" @input="updateNodeConstraint(n, i, { note: ($event.target as HTMLInputElement).value })" placeholder="约束说明"/>
             <span class="sp-src" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
-            <button class="sp-del" @click="removeNodeConstraint(n, i)" title="删除">×</button>
+            <Button variant="ghost" size="icon-sm" class="text-destructive" @click="removeNodeConstraint(n, i)" title="删除">×</Button>
           </div>
-          <button class="sp-add" @click="addNodeConstraint(n)">+ 添加约束</button>
+          <Button variant="outline" size="sm" @click="addNodeConstraint(n)">+ 添加约束</Button>
         </div>
       </div>
 
@@ -191,14 +193,12 @@ const sourceBadge = (s?: string) => {
 
           <div class="sp-sub">约束 ({{ (e.constraints || []).length }})</div>
           <div v-for="(c, i) in (e.constraints || [])" :key="'ec'+i" class="sp-row">
-            <select class="sp-in sp-in-kind" :value="c.kind || 'custom'" @change="updateEdgeConstraint(e, i, { kind: ($event.target as HTMLSelectElement).value as any })">
-              <option v-for="k in CONSTRAINT_KINDS" :key="k" :value="k">{{ kindLabel(k) }}</option>
-            </select>
+            <div class="sp-in-kind"><BaseSelect size="sm" :model-value="c.kind || 'custom'" :options="kindOptions" @update:model-value="updateEdgeConstraint(e, i, { kind: $event as any })" /></div>
             <input class="sp-in sp-in-note" :value="c.note" @input="updateEdgeConstraint(e, i, { note: ($event.target as HTMLInputElement).value })" placeholder="约束说明"/>
             <span class="sp-src" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
-            <button class="sp-del" @click="removeEdgeConstraint(e, i)" title="删除">×</button>
+            <Button variant="ghost" size="icon-sm" class="text-destructive" @click="removeEdgeConstraint(e, i)" title="删除">×</Button>
           </div>
-          <button class="sp-add" @click="addEdgeConstraint(e)">+ 添加约束</button>
+          <Button variant="outline" size="sm" @click="addEdgeConstraint(e)">+ 添加约束</Button>
         </div>
       </div>
 
@@ -325,7 +325,7 @@ const sourceBadge = (s?: string) => {
 .sp-in:focus { border-color: #3d9bff; }
 .sp-in-name { width: 80px; }
 .sp-in-val { flex: 1; min-width: 0; }
-.sp-in-kind { width: 72px; }
+.sp-in-kind { width: 96px; flex-shrink: 0; }
 .sp-in-note { flex: 1; min-width: 0; }
 .sp-colon { color: rgba(255,255,255,0.4); }
 .sp-del {
