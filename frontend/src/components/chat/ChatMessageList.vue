@@ -3,6 +3,7 @@ import { ref, nextTick, type PropType } from 'vue';
 import type { ChatMsg, ChatMsgAttachment } from '../../composables/useConversations';
 import PredictionMessage from './PredictionMessage.vue';
 import BuildSteps from './BuildSteps.vue';
+import { Button } from '@/components/ui/button';
 
 defineProps({
   messages: { type: Array as PropType<ChatMsg[]>, required: true },
@@ -82,10 +83,10 @@ defineExpose({ scrollToBottom });
             {{ m.text }}<span v-if="loading && m.role === 'a' && i === messages.length - 1" class="cursor" />
           </div>
           <!-- 分析完成后"查看图谱"快捷入口 -->
-          <button v-if="m.role === 'a' && m.graphModelId" type="button" class="view-graph-btn" @click="emit('view-graph', m.graphModelId!)">
+          <Button v-if="m.role === 'a' && m.graphModelId" variant="outline" size="sm" type="button" class="view-graph-btn" @click="emit('view-graph', m.graphModelId!)">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
             查看图谱
-          </button>
+          </Button>
           <!-- LLM 返回的澄清问题组(支持一次多个、单题多选) -->
           <div v-if="m.role === 'a' && m.questions && m.questions.length" class="question-card" :class="{ answered: !!m.questionsDone }">
             <div class="question-head">
@@ -104,17 +105,19 @@ defineExpose({ scrollToBottom });
                 <span v-if="q.multiSelect" class="question-multi-tag">可多选</span>
               </div>
               <div class="question-options">
-                <button v-for="(opt, oi) in q.options" :key="oi"
+                <Button v-for="(opt, oi) in q.options" :key="oi"
                         type="button"
+                        variant="outline"
                         class="question-option"
                         :class="{ selected: (q.selected || []).includes(opt.label) }"
                         :disabled="!!m.questionsDone"
                         @click="emit('pick-option', i, qi, opt)">
                   <span class="question-option-num">{{ oi + 1 }}</span>
                   <span class="question-option-label">{{ opt.label }}</span>
-                </button>
+                </Button>
                 <!-- 手动填写:每个问题最后一行,点了去下方输入框自己写答案 -->
-                <button type="button"
+                <Button type="button"
+                        variant="outline"
                         class="question-option question-option-custom"
                         :class="{ selected: customUsed(m) }"
                         :disabled="!!m.questionsDone"
@@ -125,17 +128,18 @@ defineExpose({ scrollToBottom });
                     <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                     手动填写其它答案…
                   </span>
-                </button>
+                </Button>
               </div>
             </div>
 
             <div v-if="showSubmit(m)" class="question-actions">
-              <button type="button"
+              <Button type="button"
+                      size="sm"
                       class="question-submit"
                       :disabled="!!m.questionsDone || !allAnswered(m)"
                       @click="emit('submit-answers', i)">
                 {{ m.questionsDone ? '已提交' : '提交回答' }}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

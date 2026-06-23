@@ -2,6 +2,7 @@
 import { computed, ref, type PropType } from 'vue';
 import type { PredictionMsg } from '../../composables/useConversations';
 import RawPromptDialog from '../RawPromptDialog.vue';
+import { Button } from '@/components/ui/button';
 
 const props = defineProps({
   prediction: { type: Object as PropType<PredictionMsg>, required: true },
@@ -49,15 +50,19 @@ const canShowRawPrompt = computed(() =>
       <span class="pmsg-icon">⚡</span>
       <span class="pmsg-title">{{ intentLabel }}</span>
       <span class="pmsg-status">{{ statusLabel }}</span>
-      <button
+      <Button
         v-if="canShowRawPrompt"
+        variant="ghost"
+        size="sm"
         class="pmsg-rawprompt"
         type="button"
         @click="rawPromptOpen = true"
         title="查看本次推演的原始 prompt"
-      >📜 prompt</button>
-      <button
+      >📜 prompt</Button>
+      <Button
         v-if="prediction.status === 'running'"
+        variant="ghost"
+        size="sm"
         class="pmsg-stop"
         type="button"
         @click="emit('abort')"
@@ -65,7 +70,7 @@ const canShowRawPrompt = computed(() =>
       >
         <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
         停止
-      </button>
+      </Button>
     </div>
 
     <div v-if="prediction.seeds.length" class="pmsg-meta">

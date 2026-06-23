@@ -5,6 +5,7 @@ import NodeInfo from '../NodeInfo.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from '../../types';
 import { getOntology } from '../../api/ontology';
 import { useGraphActions } from '../../composables/useGraphActions';
+import { Button } from '@/components/ui/button';
 
 const params = new URLSearchParams(window.location.search);
 const modelId = params.get('preview') || '';
@@ -70,9 +71,9 @@ onMounted(load);
         <span class="pv-badge pv-badge-ok">● {{ nodes.length }} 节点</span>
         <span class="pv-badge">{{ edges.length }} 关系</span>
         <span class="pv-badge pv-badge-mute">只读预览</span>
-        <button class="pv-btn" @click="graphRef?.fitView?.()" title="适应屏幕">⤢ 适应</button>
-        <button class="pv-btn" @click="showSchema = !showSchema">Schema</button>
-        <button class="pv-btn" @click="exportGraph" title="下载 JSON">⤓ 导出</button>
+        <Button variant="outline" size="sm" class="pv-btn" @click="graphRef?.fitView?.()" title="适应屏幕">⤢ 适应</Button>
+        <Button variant="outline" size="sm" class="pv-btn" @click="showSchema = !showSchema">Schema</Button>
+        <Button variant="outline" size="sm" class="pv-btn" @click="exportGraph" title="下载 JSON">⤓ 导出</Button>
       </div>
     </div>
 

@@ -8,6 +8,7 @@ import ExplanationPanel from '../ExplanationPanel.vue';
 import SchemaPanel from '../SchemaPanel.vue';
 import GraphAnalysisPanel from '../GraphAnalysisPanel.vue';
 import { toast } from '../../composables/useToast';
+import { Button } from '@/components/ui/button';
 import type { OntologyNode, OntologyEdge, ChainStep, GraphMutation } from '../../types';
 
 const props = defineProps({
@@ -192,7 +193,7 @@ const analysisOpen = ref(false);
       <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
         <span class="bb-icon">⚡</span>
         <span>当前查看推演分支 · 可右键节点从此再次分叉</span>
-        <button class="bb-back" @click="emit('switch-branch', 'trunk')">返回主分支</button>
+        <Button variant="outline" size="sm" class="bb-back" @click="emit('switch-branch', 'trunk')">返回主分支</Button>
       </div>
       <NodeInfo
         :node="selNode"
@@ -230,11 +231,13 @@ const analysisOpen = ref(false);
         @highlight-diff="(d) => emit('highlight-diff', d)"
       />
       <!-- 图分析按钮（悬浮在画布右上角） -->
-      <button
+      <Button
+        variant="outline"
+        size="sm"
         :class="['analysis-btn', { on: analysisOpen }]"
         @click="analysisOpen = !analysisOpen"
         title="图谱分析：节点/关系精确统计与路径查询"
-      >📊 分析</button>
+      >📊 分析</Button>
     </div>
     <SchemaPanel
       :open="schemaOpen"
