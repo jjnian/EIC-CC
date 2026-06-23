@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { toast } from '../composables/useToast';
 import { useHypothesisTemplates } from '../composables/useHypothesisTemplates';
 import { useConstraintConflicts } from '../composables/useConstraintConflicts';
@@ -189,15 +191,14 @@ watch(intent, (newVal, oldVal) => {
 </script>
 
 <template>
-  <div v-if="open" class="predict-backdrop" @mousedown="onBackdrop">
-    <div class="predict-dialog">
-      <div class="pd-head">
-        <div class="pd-title">
+  <Dialog :open="open" @update:open="(v: boolean) => { if (!v) emit('close'); }">
+    <DialogContent class="flex max-h-[90vh] flex-col gap-0 overflow-hidden border-amber-400/25 p-0 sm:max-w-[520px]">
+      <DialogHeader class="border-b border-border px-5 py-4">
+        <DialogTitle class="flex items-center gap-2">
           <span class="pd-icon">⚡</span>
           <span>场景推演</span>
-        </div>
-        <button class="pd-close" type="button" @click="emit('close')">×</button>
-      </div>
+        </DialogTitle>
+      </DialogHeader>
 
       <div class="pd-body">
         <div class="pd-section pd-template-section">
@@ -360,14 +361,19 @@ watch(intent, (newVal, oldVal) => {
         </div>
       </div>
 
-      <div class="pd-foot">
-        <button class="pd-btn pd-btn-cancel" type="button" @click="emit('close')">取消</button>
-        <button class="pd-btn pd-btn-go" type="button" :disabled="!seedIds.length" @click="submit">
+      <DialogFooter class="border-t border-border px-5 py-3">
+        <Button variant="secondary" size="sm" @click="emit('close')">取消</Button>
+        <Button
+          size="sm"
+          class="bg-amber-400 text-black hover:bg-amber-300"
+          :disabled="!seedIds.length"
+          @click="submit"
+        >
           <span>⚡</span> {{ submitLabel }}
-        </button>
-      </div>
-    </div>
-  </div>
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <style scoped>

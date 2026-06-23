@@ -4,6 +4,7 @@ import type { OntologyNode } from '../types';
 import { useImportFiles } from '../composables/useImportFiles';
 import { useExtractStream, type ExtractedNode, type ExtractedEdge } from '../composables/useExtractStream';
 import { useImportDedup } from '../composables/useImportDedup';
+import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
   open: boolean;
@@ -311,23 +312,21 @@ const onBackdrop = (e: MouseEvent) => {
       </div>
 
       <div class="imp-foot">
-        <button class="imp-btn imp-btn-cancel" type="button" @click="emit('close')">取消</button>
-        <button
+        <Button variant="secondary" size="sm" @click="emit('close')">取消</Button>
+        <Button
           v-if="!extractedRaw"
-          class="imp-btn imp-btn-primary"
-          type="button"
+          size="sm"
           :disabled="(!files.length && !parsedUrls.length) || urlOverLimit || loading"
           @click="extract"
         >
           <span v-if="loading" class="imp-spin" /> {{ loading ? '抽取中…' : '开始抽取' }}
-        </button>
-        <button
+        </Button>
+        <Button
           v-else
-          class="imp-btn imp-btn-primary"
-          type="button"
+          size="sm"
           :disabled="!canCommit"
           @click="commit"
-        >{{ mode === 'merge' ? '合并到当前图' : '另存为新模型' }}</button>
+        >{{ mode === 'merge' ? '合并到当前图' : '另存为新模型' }}</Button>
       </div>
     </div>
   </div>

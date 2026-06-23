@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import type { Scenario, ChainStep } from '../types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const props = defineProps<{
   open: boolean;
@@ -81,12 +82,13 @@ const onBackdrop = (e: MouseEvent) => {
 </script>
 
 <template>
-  <div v-if="open" class="bc-backdrop" @mousedown="onBackdrop">
-    <div class="bc-dialog">
-      <div class="bc-head">
-        <div class="bc-title"><span class="bc-icon">⚖</span><span>分支对比</span></div>
-        <button class="bc-close" type="button" @click="emit('close')">×</button>
-      </div>
+  <Dialog :open="open" @update:open="(v: boolean) => { if (!v) emit('close'); }">
+    <DialogContent class="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[760px]">
+      <DialogHeader class="border-b border-border px-5 py-4">
+        <DialogTitle class="flex items-center gap-2">
+          <span class="bc-icon">⚖</span><span>分支对比</span>
+        </DialogTitle>
+      </DialogHeader>
 
       <div class="bc-selectors">
         <div class="bc-sel-col">
@@ -166,8 +168,8 @@ const onBackdrop = (e: MouseEvent) => {
           </div>
         </template>
       </div>
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <style scoped>
