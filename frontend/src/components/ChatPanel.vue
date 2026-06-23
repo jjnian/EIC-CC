@@ -396,7 +396,7 @@ watch(() => ws.currentId.value, (wsId) => {
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
         <span>正在回答上方问题,或继续提问</span>
-        <Button variant="ghost" size="sm" class="answering-dismiss" type="button" title="忽略这个问题" @click="dismissPendingQuestion">跳过</Button>
+        <Button variant="ghost" size="sm" type="button" title="忽略这个问题" @click="dismissPendingQuestion">跳过</Button>
       </div>
       <div class="input-box">
         <!-- @ mention dropdown -->
@@ -435,14 +435,14 @@ watch(() => ws.currentId.value, (wsId) => {
         <textarea ref="inputRef" class="ch-input" v-model="input" placeholder="描述本体关系，输入 @ 可引用节点/关系，可粘贴图片或附加 DOCX/文件…" @keydown="onInputKeydown" @input="onInputEvent" @click="onInputClick" @paste="onInputPaste" rows="2" />
         <div class="input-footer">
           <div class="file-tools">
-            <Button variant="ghost" size="icon-sm" class="file-icon-btn attach-btn" type="button" title="上传文件 (图片/DOCX/MD/TXT/JSON 等),也可在输入框直接粘贴图片" @click="() => { if (fileRef) fileRef.click(); }">
+            <Button variant="ghost" size="icon" type="button" title="上传文件 (图片/DOCX/MD/TXT/JSON 等),也可在输入框直接粘贴图片" @click="() => { if (fileRef) fileRef.click(); }">
               <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
             </Button>
             <input ref="fileRef" type="file" multiple accept="image/*,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.json,.csv,.tsv,.log,.xml,.yaml,.yml,.html,.htm,.js,.ts,.py,.java,.sql,.toml,.ini,.env,.vue,.css,text/*" style="display:none" @change="(e: any) => { Array.from(e.target.files || []).forEach((f: any) => addFile(f)); e.target.value = ''; }" />
           </div>
           <Button
-            class="send-btn"
-            :class="{ 'send-btn-stop': loading }"
+            size="icon"
+            :variant="loading ? 'secondary' : 'default'"
             type="button"
             :title="loading ? '停止生成' : '发送'"
             @click="loading ? abortChat() : onSend()"

@@ -104,7 +104,7 @@ const togglePath = (i: number) => {
         <div class="gap-ctl-fixed">
           <BaseSelect :model-value="String(pathMaxLen)" :options="depthOptions" @update:model-value="pathMaxLen = Number($event)" />
         </div>
-        <Button class="gap-btn-primary" @click="findPaths" :disabled="pathLoading">
+        <Button size="sm" class="gap-btn-primary" @click="findPaths" :disabled="pathLoading">
           {{ pathLoading ? '查询中…' : '查询' }}
         </Button>
       </div>

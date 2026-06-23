@@ -94,7 +94,7 @@ const formatTime = (ts?: number) => {
 
       <div class="wp-empty" v-else-if="!ws.loading.value">
         <p>还没有工作空间</p>
-        <Button class="wp-btn-primary" @click="openCreate">新建工作空间</Button>
+        <Button @click="openCreate">新建工作空间</Button>
       </div>
 
       <div class="wp-loading" v-else>加载中…</div>
@@ -120,10 +120,10 @@ const formatTime = (ts?: number) => {
           />
         </label>
         <div class="wp-actions">
-          <Button variant="secondary" size="sm" class="wp-btn-cancel" @click="showCreate = false">取消</Button>
+          <Button variant="secondary" size="sm" @click="showCreate = false">取消</Button>
           <Button
             size="sm"
-            class="wp-btn-primary"
+           
             :disabled="!newName.trim() || creating"
             @click="submitCreate"
           >{{ creating ? '创建中…' : '创建并进入' }}</Button>

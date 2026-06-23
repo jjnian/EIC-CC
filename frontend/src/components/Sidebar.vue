@@ -147,8 +147,8 @@ const submitCreate = async () => {
           @enter="submitCreate"
         />
         <div class="sb-dialog-actions">
-          <Button variant="secondary" size="sm" class="sb-btn-cancel" @click="showCreate = false">取消</Button>
-          <Button size="sm" class="sb-btn-primary" :disabled="!newName.trim() || creating" @click="submitCreate">
+          <Button variant="secondary" size="sm" @click="showCreate = false">取消</Button>
+          <Button size="sm" :disabled="!newName.trim() || creating" @click="submitCreate">
             {{ creating ? '创建中…' : '创建并进入' }}
           </Button>
         </div>

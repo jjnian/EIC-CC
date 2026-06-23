@@ -225,7 +225,7 @@ watch(intent, (newVal, oldVal) => {
             </div>
             <div v-else class="pd-empty pd-empty-inline">暂无保存的模板</div>
             <div class="pd-template-save">
-              <BaseInput class="pd-search" v-model="templateName" placeholder="输入模板名称…" @enter="saveAsTemplate" />
+              <BaseInput v-model="templateName" placeholder="输入模板名称…" @enter="saveAsTemplate" />
               <Button size="sm" type="button" @click="saveAsTemplate" :disabled="!templateName.trim()">保存当前配置</Button>
             </div>
           </div>
@@ -270,7 +270,7 @@ watch(intent, (newVal, oldVal) => {
             </span>
             <span v-if="!seedIds.length" class="pd-empty">至少需要 1 个起点</span>
           </div>
-          <BaseInput class="pd-search" v-model="search" placeholder="搜索节点添加更多起点…" />
+          <BaseInput v-model="search" placeholder="搜索节点添加更多起点…" />
           <div v-if="search.trim()" class="pd-candidates">
             <div v-for="n in filteredCandidates" :key="n.id" class="pd-cand" @click="addSeed(n.id)">
               <span class="pd-cand-label">{{ n.label }}</span>
@@ -290,7 +290,7 @@ watch(intent, (newVal, oldVal) => {
 
         <div class="pd-section">
           <label class="pd-label">场景描述（可选）</label>
-          <BaseTextarea class="pd-prompt" v-model="prompt" :placeholder="promptHint" :rows="2" />
+          <BaseTextarea v-model="prompt" :placeholder="promptHint" :rows="2" />
         </div>
 
         <div class="pd-section">
@@ -336,7 +336,7 @@ watch(intent, (newVal, oldVal) => {
                 <button class="pd-constraint-x" @click="removeConstraint(c.nodeId)" type="button">×</button>
               </div>
             </div>
-            <BaseInput class="pd-search" v-model="cSearch" placeholder="搜索节点添加约束…" />
+            <BaseInput v-model="cSearch" placeholder="搜索节点添加约束…" />
             <div v-if="cSearch.trim()" class="pd-candidates">
               <div v-for="n in constraintCandidates" :key="n.id" class="pd-cand">
                 <span class="pd-cand-label">{{ n.label }}</span>
@@ -359,7 +359,7 @@ watch(intent, (newVal, oldVal) => {
 
         <div class="pd-section">
           <label class="pd-label">分支命名（留空自动生成）</label>
-          <BaseInput class="pd-input" v-model="name" placeholder="如：供应商A断货推演" />
+          <BaseInput v-model="name" placeholder="如：供应商A断货推演" />
         </div>
       </div>
 

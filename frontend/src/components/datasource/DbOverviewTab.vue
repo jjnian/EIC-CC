@@ -39,7 +39,7 @@ const runTest = async () => {
       <dt v-if="ds.lastError">最后错误</dt>
       <dd v-if="ds.lastError" class="err">{{ ds.lastError }}</dd>
     </dl>
-    <Button class="primary" :disabled="testing" @click="runTest">
+    <Button :disabled="testing" @click="runTest">
       {{ testing ? '测试中…' : '测试连接' }}
     </Button>
   </div>

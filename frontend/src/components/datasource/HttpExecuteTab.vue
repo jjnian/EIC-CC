@@ -39,7 +39,7 @@ const prettyBody = (s?: string) => {
         <dt v-if="(ds.config as any)?.body">Body</dt>
         <dd v-if="(ds.config as any)?.body"><pre>{{ (ds.config as any).body }}</pre></dd>
       </dl>
-      <Button class="primary" :disabled="running" @click="run">{{ running ? '执行中…' : '立即执行' }}</Button>
+      <Button :disabled="running" @click="run">{{ running ? '执行中…' : '立即执行' }}</Button>
     </div>
     <div class="right">
       <h4>响应</h4>

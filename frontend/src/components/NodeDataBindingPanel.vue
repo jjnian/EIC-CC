@@ -130,7 +130,7 @@ const runFetch = async (b: NodeBinding) => {
     <template v-else>
       <div class="ndb-head">
         <span class="ndb-title">数据供血绑定 <span class="ndb-count">{{ bindings.length }}</span></span>
-        <Button v-if="!adding" variant="ghost" size="sm" class="ndb-add" @click="startAdd">＋ 绑定数据源</Button>
+        <Button v-if="!adding" variant="outline" size="sm" @click="startAdd">＋ 绑定数据源</Button>
       </div>
       <p class="ndb-desc">把节点「{{ nodeLabel || nodeId }}」绑定到数据源的表，运行时按绑定取数为该节点供血。</p>
 
@@ -172,10 +172,10 @@ const runFetch = async (b: NodeBinding) => {
           <span class="ndb-item-table">· {{ b.tableName || '(未指定表)' }}</span>
           <span v-if="b.filterSql" class="ndb-item-filter">WHERE {{ b.filterSql }}</span>
           <span class="ndb-spacer" />
-          <Button variant="outline" size="sm" class="ndb-mini" :disabled="fetching === b.id" @click="runFetch(b)">
+          <Button variant="outline" size="sm" :disabled="fetching === b.id" @click="runFetch(b)">
             {{ fetching === b.id ? '取数中…' : '取数预览' }}
           </Button>
-          <Button variant="ghost" size="icon-sm" class="ndb-mini del" title="删除绑定" @click="removeBinding(b)">✕</Button>
+          <Button variant="ghost" size="icon-sm" class="text-destructive" title="删除绑定" @click="removeBinding(b)">✕</Button>
         </div>
 
         <div v-if="fetchResults[b.id]" class="ndb-result">

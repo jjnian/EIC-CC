@@ -127,7 +127,6 @@ watch(() => props.dsId, load);
           v-if="isDb"
           variant="secondary"
           size="sm"
-          class="ddl-export"
           :disabled="exportingDdl"
           :title="ddlWithSamples ? '把库表结构（DDL）+ 每表前 10 行样例数据导出为一条经验' : '把库表结构（DDL）导出为一条经验，供对话建模召回'"
           @click="exportDdlToExperience"
@@ -181,7 +180,7 @@ watch(() => props.dsId, load);
             <span>名称</span>
             <BaseInput v-model="editName" />
           </label>
-          <Button class="primary" :disabled="saving" @click="saveEdit">{{ saving ? '保存中…' : '保存' }}</Button>
+          <Button :disabled="saving" @click="saveEdit">{{ saving ? '保存中…' : '保存' }}</Button>
         </div>
       </section>
     </template>

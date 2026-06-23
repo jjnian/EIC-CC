@@ -159,9 +159,9 @@ watch([isValid, () => props.kind], () => emit('validity', isValid.value), { imme
           <div v-for="(h, i) in headerList" :key="i" class="kv">
             <BaseInput v-model="h.k" placeholder="Header" @update:modelValue="syncHeaders" />
             <BaseInput v-model="h.v" placeholder="Value" @update:modelValue="syncHeaders" />
-            <Button variant="ghost" size="icon-sm" type="button" class="kv-del" @click="removeHeader(i)">×</Button>
+            <Button variant="ghost" size="icon-sm" type="button" @click="removeHeader(i)">×</Button>
           </div>
-          <Button variant="ghost" size="sm" type="button" class="kv-add" @click="addHeader">+ 添加 Header</Button>
+          <Button variant="ghost" size="sm" type="button" @click="addHeader">+ 添加 Header</Button>
         </div>
       </FormField>
       <FormField v-if="cfg.method === 'POST' || cfg.method === 'PUT'" label="Body">

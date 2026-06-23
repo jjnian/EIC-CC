@@ -28,7 +28,7 @@ const run = async () => {
       <textarea v-model="sql" rows="4" placeholder="仅允许 SELECT / SHOW / DESC / EXPLAIN" />
       <div class="row">
         <label>LIMIT <input type="number" v-model.number="limit" min="1" max="1000" /></label>
-        <Button class="primary" :disabled="running" @click="run">{{ running ? '执行中…' : '执行' }}</Button>
+        <Button :disabled="running" @click="run">{{ running ? '执行中…' : '执行' }}</Button>
       </div>
     </div>
     <div class="output">

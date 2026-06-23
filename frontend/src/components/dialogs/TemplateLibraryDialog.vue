@@ -31,7 +31,7 @@ const emit = defineEmits<{
               {{ t.desc ? ' · ' + t.desc : '' }}
             </div>
           </div>
-          <Button variant="ghost" size="icon-sm" class="ml-del" @click.stop="emit('remove', t.id)" title="删除模板">×</Button>
+          <Button variant="ghost" size="icon-sm" @click.stop="emit('remove', t.id)" title="删除模板">×</Button>
         </div>
       </div>
     </DialogContent>

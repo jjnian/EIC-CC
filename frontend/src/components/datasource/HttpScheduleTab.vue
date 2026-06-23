@@ -49,7 +49,7 @@ const save = async () => {
       <span>下次执行</span>
       <span>{{ nextRun }}</span>
     </div>
-    <Button class="primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</Button>
+    <Button :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</Button>
   </div>
 </template>
 

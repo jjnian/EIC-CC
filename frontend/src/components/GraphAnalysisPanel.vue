@@ -35,7 +35,7 @@ watch(() => props.selectedId, (id) => {
         <button :class="['gap-tab', { on: tab === 1 }]" @click="tab = 1">节点分析</button>
         <button :class="['gap-tab', { on: tab === 2 }]" @click="tab = 2">路径查询</button>
       </div>
-      <Button variant="ghost" size="icon-sm" class="gap-close" @click="emit('close')">×</Button>
+      <Button variant="ghost" size="icon-sm" @click="emit('close')">×</Button>
     </div>
 
     <div class="gap-body">

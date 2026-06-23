@@ -235,7 +235,7 @@ const submit = async () => {
     <div class="ds-header">
       <h2>数据源</h2>
       <span class="ds-total">共 {{ items.length }} 个 · 跨全部工作空间</span>
-      <Button class="btn-primary" @click="openAdd">＋ 添加数据源</Button>
+      <Button @click="openAdd">＋ 添加数据源</Button>
     </div>
 
     <!-- 工作空间筛选条 -->
@@ -252,7 +252,7 @@ const submit = async () => {
     <div v-if="showForm" class="add-panel">
       <div class="add-panel-head">
         <span>添加数据源 · 归入当前工作空间「{{ wsName(ws.currentId.value) }}」</span>
-        <Button variant="ghost" size="icon-sm" class="close-btn" @click="showForm = false">×</Button>
+        <Button variant="ghost" size="icon-sm" @click="showForm = false">×</Button>
       </div>
 
       <div v-if="step === 'pick'" class="picker">
@@ -272,16 +272,16 @@ const submit = async () => {
         />
         <div v-if="testMsg" class="test-msg">{{ testMsg }}</div>
         <div class="form-actions">
-          <Button variant="ghost" size="sm" type="button" class="btn-ghost" @click="step = 'pick'">‹ 返回</Button>
+          <Button variant="ghost" size="sm" type="button" @click="step = 'pick'">‹ 返回</Button>
           <span style="flex:1" />
           <Button
             v-if="kind"
-            variant="ghost"
+            variant="outline"
             size="sm"
             type="button"
-            class="btn-ghost" :disabled="testing" @click="runTest"
+            :disabled="testing" @click="runTest"
           >{{ testing ? '测试中…' : '测试连接' }}</Button>
-          <Button size="sm" type="button" class="btn-primary" :disabled="submitting" @click="submit">
+          <Button size="sm" type="button" :disabled="submitting" @click="submit">
             {{ submitting ? '提交中…' : '保存' }}
           </Button>
         </div>
@@ -330,7 +330,7 @@ const submit = async () => {
         </span>
         <span class="row-actions">
           <Button variant="ghost" size="sm" title="预览" @click.stop="openPreview(d)">预览</Button>
-          <Button variant="ghost" size="sm" title="删除" class="danger" @click.stop="doDelete(d)">删除</Button>
+          <Button variant="ghost" size="sm" title="删除" class="text-destructive" @click.stop="doDelete(d)">删除</Button>
         </span>
       </div>
     </div>
@@ -353,11 +353,10 @@ const submit = async () => {
         <div class="preview-foot">
           <span class="preview-hint">公共数据源 · 所有工作空间均可查看与使用</span>
           <span style="flex:1" />
-          <Button variant="ghost" size="sm" class="btn-ghost" @click="closePreview">关闭</Button>
+          <Button variant="ghost" size="sm" @click="closePreview">关闭</Button>
           <Button
             v-if="canOpen(previewItem)"
             size="sm"
-            class="btn-primary"
             @click="openFullDetail"
           >打开完整详情</Button>
         </div>

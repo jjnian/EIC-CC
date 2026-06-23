@@ -137,15 +137,15 @@ onBeforeUnmount(() => abort());
           <span v-if="cached && status === 'done'" class="ep-cached" title="来自缓存">缓存</span>
         </span>
       </div>
-      <Button variant="ghost" size="icon-sm" class="ep-icon-btn" @click="collapsed = !collapsed" :title="collapsed ? '展开' : '折叠'" type="button">
+      <Button variant="ghost" size="icon-sm" @click="collapsed = !collapsed" :title="collapsed ? '展开' : '折叠'" type="button">
         {{ collapsed ? '▽' : '△' }}
       </Button>
-      <Button variant="ghost" size="icon-sm" class="ep-icon-btn" @click="close" title="关闭" type="button">×</Button>
+      <Button variant="ghost" size="icon-sm" @click="close" title="关闭" type="button">×</Button>
     </div>
     <div v-if="!collapsed" class="ep-body">
       <div v-if="status === 'error'" class="ep-error">
         生成失败：{{ errMsg }}
-        <Button variant="outline" size="sm" class="ep-retry" @click="start(true)" type="button">点击重试</Button>
+        <Button variant="outline" size="sm" @click="start(true)" type="button">点击重试</Button>
       </div>
       <template v-else>
         <div class="ep-section">
@@ -170,7 +170,6 @@ onBeforeUnmount(() => abort());
           <Button
             variant="secondary"
             size="sm"
-            class="ep-btn"
             :disabled="status === 'loading'"
             @click="start(true)"
             type="button"

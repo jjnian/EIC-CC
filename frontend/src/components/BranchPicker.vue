@@ -162,7 +162,7 @@ const onDelete = async (id: string, e: Event) => {
       <div v-else class="bp-empty">暂无推演分支<br/>右键节点 → 「从此推演」生成</div>
 
       <div v-if="hasLegacy" class="bp-footer">
-        <Button variant="ghost" size="sm" class="bp-migrate" @click="emit('migrate'); open = false" title="把 v0.5/0.6 老分支升级为 v0.9 delta 格式">
+        <Button variant="ghost" size="sm" @click="emit('migrate'); open = false" title="把 v0.5/0.6 老分支升级为 v0.9 delta 格式">
           ⚙ 升级旧分支到 v0.9
         </Button>
       </div>

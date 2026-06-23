@@ -44,14 +44,14 @@ const fmtTime = (t: number) => {
         <h2>历史对话</h2>
         <p>选择一条对话还原它的完整历史，或开始一段新对话。</p>
       </div>
-      <Button class="cl-new" @click="emit('new')">＋ 新对话</Button>
+      <Button @click="emit('new')">＋ 新对话</Button>
     </div>
 
     <div v-if="loading" class="cl-state">加载中…</div>
     <div v-else-if="conversations.length === 0" class="cl-empty">
       <div class="cl-empty-icon">💬</div>
       <p>还没有对话。用一句话描述实体与关系，就能生成本体图谱。</p>
-      <Button class="cl-new" @click="emit('new')">开始新对话</Button>
+      <Button @click="emit('new')">开始新对话</Button>
     </div>
     <div v-else class="cl-grid">
       <button v-for="c in conversations" :key="c.id" class="cl-card" @click="emit('open', c.id)">

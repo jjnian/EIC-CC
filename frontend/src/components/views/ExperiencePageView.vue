@@ -488,7 +488,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           @click="extractDialogOpen = true"
         >🧬 构建本体血缘图</Button>
         <div class="exp-add">
-          <Button size="sm" class="exp-new" @click.stop="toggleAddMenu">＋ 新增 <span class="exp-add-caret" :class="{ open: addMenuOpen }">▾</span></Button>
+          <Button size="sm" @click.stop="toggleAddMenu">＋ 新增 <span class="exp-add-caret" :class="{ open: addMenuOpen }">▾</span></Button>
           <div v-if="addMenuOpen" class="exp-add-backdrop" @click="closeAddMenu"></div>
           <div v-if="addMenuOpen" class="exp-add-menu">
             <div class="exp-add-kicker">添加经验来源</div>
@@ -536,7 +536,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         <div v-else-if="visibleExperiences.length === 0" class="exp-empty">
           <div class="exp-empty-icon">📚</div>
           <p>{{ filterWs ? '该工作空间还没有经验文件' : '公共经验库还没有经验文件' }}</p>
-          <Button size="sm" class="exp-new" @click="newDraft">新建第一条经验</Button>
+          <Button size="sm" @click="newDraft">新建第一条经验</Button>
         </div>
         <template v-else>
           <button
@@ -598,7 +598,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         <div class="exp-editor-head">
           <span class="exp-prev-title">{{ selectedUpload.fileName || selectedUpload.title }}</span>
           <a class="exp-download" :href="fileUrl(selectedUpload, true)" target="_blank" rel="noopener">⤓ 下载原件</a>
-          <Button variant="ghost" size="icon-sm" class="exp-x" title="关闭" @click="selectedUpload = null">×</Button>
+          <Button variant="ghost" size="icon-sm" title="关闭" @click="selectedUpload = null">×</Button>
         </div>
 
         <div v-if="!selectedUpload.hasFile" class="exp-prev-note">
@@ -639,7 +639,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 
         <div class="exp-prev-foot">
           <span :class="['exp-idx', idxMeta(selectedUpload.indexStatus).cls]">{{ idxMeta(selectedUpload.indexStatus).label }}</span>
-          <Button variant="secondary" size="sm" class="exp-reindex" :disabled="reindexing" @click="reindex(selectedUpload.id)">
+          <Button variant="secondary" size="sm" :disabled="reindexing" @click="reindex(selectedUpload.id)">
             {{ reindexing ? '索引中…' : '重新索引' }}
           </Button>
         </div>
@@ -649,7 +649,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
     <!-- 新建 / 编辑经验：整页填写（覆盖列表，不再挤在右侧） -->
     <div v-if="draft" class="exp-fullpage">
       <div class="exp-fullpage-bar">
-        <Button variant="ghost" size="sm" class="exp-fullpage-back" title="返回列表" @click="cancelEdit">← 返回</Button>
+        <Button variant="ghost" size="sm" title="返回列表" @click="cancelEdit">← 返回</Button>
         <span class="exp-fullpage-title">{{ draft.id ? '编辑经验' : '新建经验' }}</span>
         <div class="exp-editor-tabs">
           <button :class="{ active: editorMode === 'edit' }" @click="editorMode = 'edit'">编辑</button>
@@ -661,27 +661,27 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           v-if="draft.id"
           variant="secondary"
           size="sm"
-          class="exp-reindex"
+         
           :disabled="reindexing"
           title="重新生成向量索引"
           @click="reindex(draft.id)"
         >{{ reindexing ? '索引中…' : '重新索引' }}</Button>
-        <Button variant="secondary" size="sm" class="exp-cancel" @click="cancelEdit">取消</Button>
-        <Button size="sm" class="exp-save" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</Button>
+        <Button variant="secondary" size="sm" @click="cancelEdit">取消</Button>
+        <Button size="sm" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</Button>
       </div>
       <div class="exp-fullpage-body">
         <label class="exp-field">
           <span class="exp-label">标题</span>
-          <BaseInput v-model="draft.title" class="exp-input" placeholder="给这条经验起个标题" />
+          <BaseInput v-model="draft.title" placeholder="给这条经验起个标题" />
         </label>
         <label class="exp-field">
           <span class="exp-label">标签<span class="exp-hint">（逗号分隔，可空）</span></span>
-          <BaseInput v-model="draft.tags" class="exp-input" placeholder="如：供应链, 风控, 复盘" />
+          <BaseInput v-model="draft.tags" placeholder="如：供应链, 风控, 复盘" />
         </label>
         <div class="exp-field exp-field-grow">
           <span class="exp-label">
             正文<span class="exp-hint">（支持 Markdown · 实时预览）</span>
-            <Button v-if="editorMode !== 'preview'" variant="ghost" size="sm" class="exp-tpl" title="插入 Markdown 模板" @click="insertTemplate">插入模板</Button>
+            <Button v-if="editorMode !== 'preview'" variant="ghost" size="sm" title="插入 Markdown 模板" @click="insertTemplate">插入模板</Button>
           </span>
           <div class="exp-edit-area" :class="editorMode">
             <textarea
@@ -719,7 +719,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             <div class="exp-modal-kicker">{{ isEditingWs ? 'WEB SYSTEM · EDIT' : 'WEB SYSTEM · CONNECT' }}</div>
             <span class="exp-modal-title">🌐 {{ isEditingWs ? '编辑接入的 Web 系统' : '接入 Web 系统' }}</span>
           </div>
-          <Button variant="ghost" size="icon-sm" class="exp-modal-x" @click="closeExplore">×</Button>
+          <Button variant="ghost" size="icon-sm" @click="closeExplore">×</Button>
         </div>
         <div class="exp-modal-body">
           <div class="exp-modal-note">
@@ -754,7 +754,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
               <span>最多探索步数</span>
               <BaseInput v-model="exploreMaxSteps" type="number" numeric :min="3" :max="40" :disabled="exploreRunning" />
             </label>
-            <BaseCheckbox v-model="exploreReadOnly" class="exp-check" label="只读模式(拦截删除/提交/支付等写操作)" :disabled="exploreRunning" />
+            <BaseCheckbox v-model="exploreReadOnly" label="只读模式(拦截删除/提交/支付等写操作)" :disabled="exploreRunning" />
           </div>
           <details class="exp-adv">
             <summary>高级:预登录 storageState(可选)<span v-if="exploreHasStorageState" class="exp-ss-set">· 已配置</span></summary>
@@ -767,11 +767,11 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           </div>
         </div>
         <div class="exp-modal-foot">
-          <Button variant="secondary" size="sm" class="exp-modal-cancel" @click="closeExplore">{{ exploreRunning ? '在后台继续' : '关闭' }}</Button>
-          <Button variant="secondary" size="sm" class="exp-modal-save" :disabled="exploreRunning || wsSaving || !exploreUrl.trim()" @click="onSaveWebSystem">
+          <Button variant="secondary" size="sm" @click="closeExplore">{{ exploreRunning ? '在后台继续' : '关闭' }}</Button>
+          <Button variant="secondary" size="sm" :disabled="exploreRunning || wsSaving || !exploreUrl.trim()" @click="onSaveWebSystem">
             {{ wsSaving ? '保存中…' : '保存接入' }}
           </Button>
-          <Button size="sm" class="exp-modal-go" :disabled="exploreRunning || wsSaving || !exploreUrl.trim()" @click="onSaveAndExplore">
+          <Button size="sm" :disabled="exploreRunning || wsSaving || !exploreUrl.trim()" @click="onSaveAndExplore">
             {{ exploreRunning ? '探索中…' : '保存并探索' }}
           </Button>
         </div>

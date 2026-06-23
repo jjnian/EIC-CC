@@ -77,7 +77,7 @@ const bindRef = (el: any) => {
         <p class="cwb-sub">用自然语言描述实体与关系，或上传图片 / Markdown / TXT / JSON / 代码文件，自动提取本体图谱</p>
         <div class="cwb-examples">
           <span class="cwb-ex-label">试试这些：</span>
-          <Button variant="outline" size="sm" class="cwb-ex" v-for="(t, i) in examples" :key="i" @click="useExample(t)">{{ t }}</Button>
+          <Button variant="outline" size="sm" v-for="(t, i) in examples" :key="i" @click="useExample(t)">{{ t }}</Button>
         </div>
       </div>
       <ChatPanel

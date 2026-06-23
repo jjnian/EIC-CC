@@ -71,9 +71,9 @@ onMounted(load);
         <span class="pv-badge pv-badge-ok">● {{ nodes.length }} 节点</span>
         <span class="pv-badge">{{ edges.length }} 关系</span>
         <span class="pv-badge pv-badge-mute">只读预览</span>
-        <Button variant="outline" size="sm" class="pv-btn" @click="graphRef?.fitView?.()" title="适应屏幕">⤢ 适应</Button>
-        <Button variant="outline" size="sm" class="pv-btn" @click="showSchema = !showSchema">Schema</Button>
-        <Button variant="outline" size="sm" class="pv-btn" @click="exportGraph" title="下载 JSON">⤓ 导出</Button>
+        <Button variant="outline" size="sm" @click="graphRef?.fitView?.()" title="适应屏幕">⤢ 适应</Button>
+        <Button variant="outline" size="sm" @click="showSchema = !showSchema">Schema</Button>
+        <Button variant="outline" size="sm" @click="exportGraph" title="下载 JSON">⤓ 导出</Button>
       </div>
     </div>
 

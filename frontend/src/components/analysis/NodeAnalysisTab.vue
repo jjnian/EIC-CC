@@ -137,11 +137,10 @@ const clearLineage = () => emit('highlight-diff', null);
         </div>
       </div>
       <div class="gap-lineage-actions">
-        <Button class="gap-btn gap-btn-primary"
-                size="sm"
+        <Button size="sm"
                 :disabled="!upstreamNodes.length && !downstreamNodes.length"
                 @click="highlightLineage">🩸 在图上高亮血缘</Button>
-        <Button variant="secondary" size="sm" class="gap-btn" @click="clearLineage">清除</Button>
+        <Button variant="secondary" size="sm" @click="clearLineage">清除</Button>
       </div>
       <div class="gap-lineage-legend">
         <span><i class="lg-dot" style="background:#3b82f6"></i>上游来源</span>
