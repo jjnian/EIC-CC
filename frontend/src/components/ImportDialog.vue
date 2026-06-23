@@ -253,7 +253,9 @@ const onBackdrop = (e: MouseEvent) => {
                 <span v-else-if="s.type === 'docx'" class="imp-source-meta">
                   {{ s.paragraphs }} 段{{ s.tables ? ' · ' + s.tables + ' 表' : '' }} · {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}
                 </span>
-                <span v-else-if="s.type === 'image'" class="imp-source-meta">{{ fmtSize(s.size) }}</span>
+                <span v-else-if="s.type === 'image'" class="imp-source-meta">
+                  {{ (s.transcript || '').trim() ? '识别 ' + (s.chars?.toLocaleString() ?? '') + ' 字' : fmtSize(s.size) }}
+                </span>
                 <span v-else-if="s.type === 'audio'" class="imp-source-meta">
                   转写 {{ s.chars?.toLocaleString() }} 字{{ s.durationSec ? ' · ' + s.durationSec + ' 秒' : '' }}
                 </span>
@@ -262,12 +264,12 @@ const onBackdrop = (e: MouseEvent) => {
                 </span>
                 <span v-else class="imp-source-meta imp-source-skip">{{ s.reason }}</span>
                 <span v-if="s.renderedPages" class="imp-source-rendered">📸 渲染 {{ s.renderedPages }} 页</span>
-                <button v-if="s.type === 'audio' && (s.transcript || '').trim()"
+                <button v-if="(s.type === 'audio' || s.type === 'image') && (s.transcript || '').trim()"
                         type="button" class="imp-source-toggle" @click="toggleSourceTranscript(i)">
-                  {{ expandedSources.has(i) ? '收起转写' : '查看转写' }}
+                  {{ expandedSources.has(i) ? '收起文字' : (s.type === 'image' ? '查看识别' : '查看转写') }}
                 </button>
               </div>
-              <pre v-if="s.type === 'audio' && expandedSources.has(i) && (s.transcript || '').trim()"
+              <pre v-if="(s.type === 'audio' || s.type === 'image') && expandedSources.has(i) && (s.transcript || '').trim()"
                    class="imp-transcript">{{ s.transcript }}</pre>
             </template>
           </div>
