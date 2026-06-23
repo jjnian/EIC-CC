@@ -3,6 +3,8 @@ import { ref, computed, watch } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import BaseInput from './form/BaseInput.vue';
+import BaseTextarea from './form/BaseTextarea.vue';
 import { toast } from '../composables/useToast';
 import { useHypothesisTemplates } from '../composables/useHypothesisTemplates';
 import { useConstraintConflicts } from '../composables/useConstraintConflicts';
@@ -223,7 +225,7 @@ watch(intent, (newVal, oldVal) => {
             </div>
             <div v-else class="pd-empty pd-empty-inline">暂无保存的模板</div>
             <div class="pd-template-save">
-              <input class="pd-search" v-model="templateName" placeholder="输入模板名称…" @keydown.enter="saveAsTemplate" />
+              <BaseInput class="pd-search" v-model="templateName" placeholder="输入模板名称…" @enter="saveAsTemplate" />
               <Button size="sm" type="button" @click="saveAsTemplate" :disabled="!templateName.trim()">保存当前配置</Button>
             </div>
           </div>
@@ -268,7 +270,7 @@ watch(intent, (newVal, oldVal) => {
             </span>
             <span v-if="!seedIds.length" class="pd-empty">至少需要 1 个起点</span>
           </div>
-          <input class="pd-search" v-model="search" placeholder="搜索节点添加更多起点…" />
+          <BaseInput class="pd-search" v-model="search" placeholder="搜索节点添加更多起点…" />
           <div v-if="search.trim()" class="pd-candidates">
             <div v-for="n in filteredCandidates" :key="n.id" class="pd-cand" @click="addSeed(n.id)">
               <span class="pd-cand-label">{{ n.label }}</span>
@@ -288,7 +290,7 @@ watch(intent, (newVal, oldVal) => {
 
         <div class="pd-section">
           <label class="pd-label">场景描述（可选）</label>
-          <textarea class="pd-prompt" v-model="prompt" :placeholder="promptHint" rows="2" />
+          <BaseTextarea class="pd-prompt" v-model="prompt" :placeholder="promptHint" :rows="2" />
         </div>
 
         <div class="pd-section">
@@ -334,7 +336,7 @@ watch(intent, (newVal, oldVal) => {
                 <button class="pd-constraint-x" @click="removeConstraint(c.nodeId)" type="button">×</button>
               </div>
             </div>
-            <input class="pd-search" v-model="cSearch" placeholder="搜索节点添加约束…" />
+            <BaseInput class="pd-search" v-model="cSearch" placeholder="搜索节点添加约束…" />
             <div v-if="cSearch.trim()" class="pd-candidates">
               <div v-for="n in constraintCandidates" :key="n.id" class="pd-cand">
                 <span class="pd-cand-label">{{ n.label }}</span>
@@ -357,7 +359,7 @@ watch(intent, (newVal, oldVal) => {
 
         <div class="pd-section">
           <label class="pd-label">分支命名（留空自动生成）</label>
-          <input class="pd-input" v-model="name" placeholder="如：供应商A断货推演" />
+          <BaseInput class="pd-input" v-model="name" placeholder="如：供应商A断货推演" />
         </div>
       </div>
 
