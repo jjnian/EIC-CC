@@ -50,8 +50,10 @@ defineEmits<{
             </div>
           </div>
           <div class="model-actions">
-            <button
+            <Button
               v-if="m.enabled"
+              variant="outline"
+              size="sm"
               class="test-btn"
               :class="testResults[m.id]?.status || 'idle'"
               :disabled="testResults[m.id]?.status === 'testing'"
@@ -61,7 +63,7 @@ defineEmits<{
               <span v-else-if="testResults[m.id].status === 'testing'" class="test-spin">⟳</span>
               <span v-else-if="testResults[m.id].status === 'ok'" class="test-ok">✓ {{ testResults[m.id].latencyMs }}ms</span>
               <span v-else class="test-err" :title="testResults[m.id].error">✕ 失败</span>
-            </button>
+            </Button>
             <span class="status-badge" :class="m.enabled ? 'enabled' : 'disabled'">
               {{ m.enabled ? '已启用' : '已禁用' }}
             </span>
