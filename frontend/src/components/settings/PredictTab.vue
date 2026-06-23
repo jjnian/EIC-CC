@@ -1,11 +1,18 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { ModelConfig } from '../../types';
 import BaseSelect from '../form/BaseSelect.vue';
 
-defineProps<{
+const props = defineProps<{
   prefs: any;
   models: ModelConfig[];
 }>();
+
+// 选项：系统默认（空值）+ 已启用模型。空值由 BaseSelect 内部哨兵承载。
+const modelOptions = computed(() => [
+  { value: '', label: '— 使用系统默认 —' },
+  ...props.models.filter((x) => x.enabled).map((m) => ({ value: m.id, label: m.name })),
+]);
 
 const emit = defineEmits<{
   (e: 'save'): void;
@@ -61,10 +68,7 @@ const emit = defineEmits<{
           <div class="pref-desc">不指定时使用此模型驱动推演与聊天</div>
         </div>
         <div class="pref-control">
-          <BaseSelect :modelValue="prefs.defaultModelConfigId" @update:modelValue="prefs.defaultModelConfigId = $event; emit('save')">
-            <option value="">— 使用系统默认 —</option>
-            <option v-for="m in models.filter(x => x.enabled)" :key="m.id" :value="m.id">{{ m.name }}</option>
-          </BaseSelect>
+          <BaseSelect :modelValue="prefs.defaultModelConfigId" :options="modelOptions" @update:modelValue="prefs.defaultModelConfigId = $event; emit('save')" />
         </div>
       </div>
     </div>

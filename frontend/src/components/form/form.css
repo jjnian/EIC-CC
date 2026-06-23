@@ -133,6 +133,7 @@
 
 /* ── shadcn-vue 适配：让库组件填满字段宽度并与原密码眼睛按钮共存 ── */
 .f-input-sh { width: 100%; }
+.f-select-sh { width: 100%; }
 .f-input-wrap .f-input-sh { padding-right: 38px; }
 .f-textarea-sh { width: 100%; min-height: 88px; }
 .f-switch-wrap,

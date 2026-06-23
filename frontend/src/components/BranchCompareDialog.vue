@@ -2,6 +2,8 @@
 import { ref, computed, watch } from 'vue';
 import type { Scenario, ChainStep } from '../types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import BaseSelect from './form/BaseSelect.vue';
 
 const props = defineProps<{
   open: boolean;
@@ -45,6 +47,8 @@ watch(() => props.branches.length, (n) => {
 
 const branchA = computed(() => props.branches.find(b => b.id === aId.value));
 const branchB = computed(() => props.branches.find(b => b.id === bId.value));
+
+const branchOptions = computed(() => props.branches.map(b => ({ value: b.id, label: b.name })));
 
 const stepsOf = (b: Scenario | undefined): ChainStep[] => b?.dag?.chain || b?.chain || [];
 const norm = (s: string) => (s || '').trim().toLowerCase();
@@ -93,9 +97,7 @@ const onBackdrop = (e: MouseEvent) => {
       <div class="bc-selectors">
         <div class="bc-sel-col">
           <label class="bc-sel-label">分支 A</label>
-          <select v-model="aId" class="bc-sel">
-            <option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}</option>
-          </select>
+          <BaseSelect v-model="aId" :options="branchOptions" />
           <div v-if="branchA" class="bc-meta">
             <span>{{ intentLabel(branchA) }} · {{ diff.aSteps.length }} 步</span>
             <span v-if="constraintsCount(branchA)" class="bc-meta-tag">含 {{ constraintsCount(branchA) }} 约束</span>
@@ -104,9 +106,7 @@ const onBackdrop = (e: MouseEvent) => {
         <div class="bc-vs">vs</div>
         <div class="bc-sel-col">
           <label class="bc-sel-label">分支 B</label>
-          <select v-model="bId" class="bc-sel">
-            <option v-for="b in branches" :key="b.id" :value="b.id">{{ b.name }}</option>
-          </select>
+          <BaseSelect v-model="bId" :options="branchOptions" />
           <div v-if="branchB" class="bc-meta">
             <span>{{ intentLabel(branchB) }} · {{ diff.bSteps.length }} 步</span>
             <span v-if="constraintsCount(branchB)" class="bc-meta-tag">含 {{ constraintsCount(branchB) }} 约束</span>
@@ -114,11 +114,12 @@ const onBackdrop = (e: MouseEvent) => {
         </div>
       </div>
 
-      <button v-if="aId !== bId && (diff.shared.length || diff.uniqueA.length || diff.uniqueB.length)"
+      <Button v-if="aId !== bId && (diff.shared.length || diff.uniqueA.length || diff.uniqueB.length)"
+              variant="secondary"
               class="bc-highlight-btn"
               @click="emitHighlight">
         🎨 在画布上高亮差异
-      </button>
+      </Button>
 
       <div class="bc-body">
         <div v-if="aId === bId" class="bc-empty">请选择两个不同的分支</div>

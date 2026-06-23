@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../../types';
+import { Button } from '@/components/ui/button';
+import BaseSelect from '../form/BaseSelect.vue';
 
 const props = defineProps<{
   nodes: OntologyNode[];
@@ -13,6 +15,8 @@ const emit = defineEmits<{
 
 // ── 辅助 ────────────────────────────────────────────
 const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])));
+const nodeOptions = computed(() => props.nodes.map(n => ({ value: n.id, label: n.label })));
+const depthOptions = [2, 3, 4, 5, 6, 7, 8].map(d => ({ value: String(d), label: String(d) }));
 
 // ── 路径查询 ──────────────────────────────────────────
 const pathFrom = ref('');
@@ -89,26 +93,20 @@ const togglePath = (i: number) => {
     <div class="gap-path-form">
       <div class="gap-path-row">
         <span class="gap-path-lbl">起点</span>
-        <select class="gap-select" v-model="pathFrom">
-          <option value="">— 选择起点节点 —</option>
-          <option v-for="n in nodes" :key="n.id" :value="n.id">{{ n.label }}</option>
-        </select>
+        <div class="gap-ctl"><BaseSelect v-model="pathFrom" :options="nodeOptions" placeholder="— 选择起点节点 —" /></div>
       </div>
       <div class="gap-path-row">
         <span class="gap-path-lbl">终点</span>
-        <select class="gap-select" v-model="pathTo">
-          <option value="">— 选择终点节点 —</option>
-          <option v-for="n in nodes" :key="n.id" :value="n.id">{{ n.label }}</option>
-        </select>
+        <div class="gap-ctl"><BaseSelect v-model="pathTo" :options="nodeOptions" placeholder="— 选择终点节点 —" /></div>
       </div>
       <div class="gap-path-row">
         <span class="gap-path-lbl">最大深度</span>
-        <select class="gap-select" v-model="pathMaxLen" style="width:80px">
-          <option v-for="d in [2,3,4,5,6,7,8]" :key="d" :value="d">{{ d }}</option>
-        </select>
-        <button class="gap-btn-primary" @click="findPaths" :disabled="pathLoading">
+        <div class="gap-ctl-fixed">
+          <BaseSelect :model-value="String(pathMaxLen)" :options="depthOptions" @update:model-value="pathMaxLen = Number($event)" />
+        </div>
+        <Button class="gap-btn-primary" @click="findPaths" :disabled="pathLoading">
           {{ pathLoading ? '查询中…' : '查询' }}
-        </button>
+        </Button>
       </div>
     </div>
     <div v-if="pathError" class="gap-error">{{ pathError }}</div>
@@ -144,17 +142,9 @@ const togglePath = (i: number) => {
 .gap-path-form { display: flex; flex-direction: column; gap: 8px; }
 .gap-path-row { display: flex; align-items: center; gap: 8px; }
 .gap-path-lbl { min-width: 56px; font-size: 12px; color: #888; }
-.gap-select {
-  flex: 1; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
-  border-radius: 6px; padding: 5px 8px; color: #e8eaed; font-size: 12px;
-  font-family: inherit;
-}
-.gap-btn-primary {
-  background: #4a8df0; border: none; color: #fff;
-  padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;
-  flex-shrink: 0;
-}
-.gap-btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.gap-ctl { flex: 1; min-width: 0; }
+.gap-ctl-fixed { width: 80px; flex-shrink: 0; }
+.gap-btn-primary { flex-shrink: 0; }
 
 .gap-path-item {
   background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07);
