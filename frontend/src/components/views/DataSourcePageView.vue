@@ -11,6 +11,7 @@ import { confirm as uiConfirm } from '../../composables/useConfirm';
 import { useSidebarTree } from '../../composables/useSidebarTree';
 import { useWorkspaces } from '../../composables/useWorkspaces';
 import DataSourceConfigForm from '../datasource/DataSourceConfigForm.vue';
+import { Button } from '@/components/ui/button';
 
 const tree = useSidebarTree();
 const ws = useWorkspaces();
@@ -234,7 +235,7 @@ const submit = async () => {
     <div class="ds-header">
       <h2>数据源</h2>
       <span class="ds-total">共 {{ items.length }} 个 · 跨全部工作空间</span>
-      <button class="btn-primary" @click="openAdd">＋ 添加数据源</button>
+      <Button class="btn-primary" @click="openAdd">＋ 添加数据源</Button>
     </div>
 
     <!-- 工作空间筛选条 -->
@@ -251,7 +252,7 @@ const submit = async () => {
     <div v-if="showForm" class="add-panel">
       <div class="add-panel-head">
         <span>添加数据源 · 归入当前工作空间「{{ wsName(ws.currentId.value) }}」</span>
-        <button class="close-btn" @click="showForm = false">×</button>
+        <Button variant="ghost" size="icon-sm" class="close-btn" @click="showForm = false">×</Button>
       </div>
 
       <div v-if="step === 'pick'" class="picker">
@@ -271,16 +272,18 @@ const submit = async () => {
         />
         <div v-if="testMsg" class="test-msg">{{ testMsg }}</div>
         <div class="form-actions">
-          <button type="button" class="btn-ghost" @click="step = 'pick'">‹ 返回</button>
+          <Button variant="ghost" size="sm" type="button" class="btn-ghost" @click="step = 'pick'">‹ 返回</Button>
           <span style="flex:1" />
-          <button
+          <Button
             v-if="kind"
+            variant="ghost"
+            size="sm"
             type="button"
             class="btn-ghost" :disabled="testing" @click="runTest"
-          >{{ testing ? '测试中…' : '测试连接' }}</button>
-          <button type="button" class="btn-primary" :disabled="submitting" @click="submit">
+          >{{ testing ? '测试中…' : '测试连接' }}</Button>
+          <Button size="sm" type="button" class="btn-primary" :disabled="submitting" @click="submit">
             {{ submitting ? '提交中…' : '保存' }}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -326,8 +329,8 @@ const submit = async () => {
           ● {{ statusLabel[d.status ?? 'idle'] ?? d.status }}
         </span>
         <span class="row-actions">
-          <button title="预览" @click.stop="openPreview(d)">预览</button>
-          <button title="删除" class="danger" @click.stop="doDelete(d)">删除</button>
+          <Button variant="ghost" size="sm" title="预览" @click.stop="openPreview(d)">预览</Button>
+          <Button variant="ghost" size="sm" title="删除" class="danger" @click.stop="doDelete(d)">删除</Button>
         </span>
       </div>
     </div>
@@ -339,7 +342,7 @@ const submit = async () => {
           <span class="row-ic">{{ kindIcon[previewItem.kind] ?? '📦' }}</span>
           <span class="preview-title">{{ previewItem.name }}</span>
           <span class="ws-badge"><span class="ws-badge-ic">◆</span>{{ wsName(previewItem.workspaceId) }}</span>
-          <button class="close-btn" @click="closePreview">×</button>
+          <Button variant="ghost" size="icon-sm" class="close-btn" @click="closePreview">×</Button>
         </div>
         <div class="preview-body">
           <div v-for="r in previewRows" :key="r.label" class="preview-row">
@@ -350,12 +353,13 @@ const submit = async () => {
         <div class="preview-foot">
           <span class="preview-hint">公共数据源 · 所有工作空间均可查看与使用</span>
           <span style="flex:1" />
-          <button class="btn-ghost" @click="closePreview">关闭</button>
-          <button
+          <Button variant="ghost" size="sm" class="btn-ghost" @click="closePreview">关闭</Button>
+          <Button
             v-if="canOpen(previewItem)"
+            size="sm"
             class="btn-primary"
             @click="openFullDetail"
-          >打开完整详情</button>
+          >打开完整详情</Button>
         </div>
       </div>
     </div>
