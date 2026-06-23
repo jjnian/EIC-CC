@@ -5,6 +5,7 @@ import type { DataSourceKind } from '../api/dataSources';
 import { ApiError } from '../api/http';
 import { toast } from '../composables/useToast';
 import DataSourceConfigForm from './datasource/DataSourceConfigForm.vue';
+import { Button } from '@/components/ui/button';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -135,16 +136,15 @@ const submit = async () => {
       </div>
 
       <div class="dlg-foot">
-        <button v-if="step === 'form'" type="button" class="ghost" @click="step = 'pick'">‹ 返回</button>
+        <Button v-if="step === 'form'" variant="ghost" size="sm" @click="step = 'pick'">‹ 返回</Button>
         <span class="spacer" />
-        <button
+        <Button
           v-if="step === 'form' && kind"
-          type="button"
-          class="ghost" :disabled="testing || !formValid" @click="runTest"
-        >{{ testing ? '测试中…' : '⚡ 测试连接' }}</button>
-        <button type="button" class="primary" :disabled="step === 'pick' || submitting || !formValid || !name.trim()" @click="submit">
+          variant="secondary" size="sm" :disabled="testing || !formValid" @click="runTest"
+        >{{ testing ? '测试中…' : '⚡ 测试连接' }}</Button>
+        <Button size="sm" :disabled="step === 'pick' || submitting || !formValid || !name.trim()" @click="submit">
           {{ submitting ? '提交中…' : '保存连接' }}
-        </button>
+        </Button>
       </div>
     </div>
   </div>

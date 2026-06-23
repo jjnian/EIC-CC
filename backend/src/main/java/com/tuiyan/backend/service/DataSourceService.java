@@ -231,8 +231,11 @@ public class DataSourceService {
         if (SourceKind.HTTPS_API.equals(kind)) {
             return exportHttpDoc(po);
         }
-        // 文件类数据源（含历史 file_stored）：用已抽取/归档的纯文本作正文
+        // 文件类数据源（含历史 file_stored、抽取流程产生的音频）：用已抽取/归档的纯文本或转写正文作正文
         String text = fileStored.readText(repo.readConfig(po), 0, 200_000);
+        if (text == null || text.isBlank()) {
+            text = readExtraTranscript(po);   // 音频等：转写正文落在 extra_json.transcript（非落桶）
+        }
         if (text != null && !text.isBlank()) {
             String title = "「" + po.getName() + "」文件";
             String content = "# " + title + "\n\n> 由文件数据源抽取的文本自动生成\n\n" + text;
@@ -276,6 +279,18 @@ public class DataSourceService {
             sb.append("- 调用失败: ").append(err == null || err.isBlank() ? "未知错误" : err).append("\n");
         }
         return new SourceDocExport(po.getName(), title, sb.toString(), "http,api");
+    }
+
+    /** 从 data_source.extra_json 读取音频转写正文（无则 null）。 */
+    private String readExtraTranscript(DataSourcePO po) {
+        String extra = po.getExtraJson();
+        if (extra == null || extra.isBlank()) return null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode t = objectMapper.readTree(extra).get("transcript");
+            return (t != null && t.isTextual() && !t.asText().isBlank()) ? t.asText() : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String toPrettyJson(Object v) {

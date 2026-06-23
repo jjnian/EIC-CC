@@ -1,8 +1,9 @@
 <script setup lang="ts">
-// 统一开关。
+// 统一开关。内部改用 shadcn-vue <Switch>，对外 props/emit 不变。
+import { Switch } from '@/components/ui/switch';
 import './form.css';
 
-const props = defineProps<{
+defineProps<{
   modelValue: boolean;
   label?: string;
   disabled?: boolean;
@@ -11,25 +12,15 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:modelValue', v: boolean): void;
 }>();
-
-const toggle = () => {
-  if (props.disabled) return;
-  emit('update:modelValue', !props.modelValue);
-};
 </script>
 
 <template>
-  <span
-    class="f-switch"
-    :class="{ on: modelValue, disabled }"
-    role="switch"
-    :aria-checked="modelValue"
-    tabindex="0"
-    @click="toggle"
-    @keydown.enter.prevent="toggle"
-    @keydown.space.prevent="toggle"
-  >
-    <span class="f-switch-track"><span class="f-switch-thumb" /></span>
-    <span v-if="label">{{ label }}</span>
-  </span>
+  <label class="f-switch-wrap" :class="{ disabled }">
+    <Switch
+      :model-value="modelValue"
+      :disabled="disabled"
+      @update:model-value="(v: boolean) => emit('update:modelValue', v)"
+    />
+    <span v-if="label" class="f-switch-label">{{ label }}</span>
+  </label>
 </template>

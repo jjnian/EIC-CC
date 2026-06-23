@@ -99,6 +99,20 @@ app:
         enabled: ${ASR_ENABLED:false}     # 默认关闭，填好 api-key 后再设为 true
         capabilities:
           - asr
+      # 图片识别(视觉)模型：在 capabilities 中声明 `vision` 即被识别为「图片识别」专用模型。
+      # 经验库上传图片 / 文档抽取里的图片会优先发给它做 OCR + 关键信息识别。
+      # 留空则回退默认(首个)模型——仅当其支持视觉输入时有效(DeepSeek 纯文本模型会失败)。
+      # 示例为 OpenAI gpt-4o，可替换为通义千问 qwen-vl / Claude 等多模态模型。
+      - id: vision-default
+        name: GPT-4o (图片识别)
+        provider: openai
+        base-url: ${VISION_BASE_URL:https://api.openai.com/v1}
+        model-name: ${VISION_MODEL:gpt-4o}
+        api-key: ${VISION_API_KEY:sk-8fc96b5d37f5431b8392988afd9181f2}
+        protocol: openai
+        enabled: ${VISION_ENABLED:false}  # 默认关闭，填好 api-key 后再设为 true
+        capabilities:
+          - vision
 
   # 旧的 ASR 兼容配置：仅当 app.llm.models 中没有 capability=asr 的模型时才会被使用。
   # 推荐通过上方 llm.models 配置音频模型；这里保留是为了向后兼容旧部署。

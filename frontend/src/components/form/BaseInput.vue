@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // 统一文本/数字/密码输入。密码类型自动带显隐切换。
+// 内部改用 shadcn-vue <Input>，对外 props/emit 完全不变。
 import { computed, ref } from 'vue';
+import { Input } from '@/components/ui/input';
 import './form.css';
 
 const props = withDefaults(defineProps<{
@@ -27,10 +29,9 @@ const reveal = ref(false);
 const isPassword = computed(() => props.type === 'password');
 const inputType = computed(() => (isPassword.value && reveal.value ? 'text' : props.type));
 
-const onInput = (e: Event) => {
-  const raw = (e.target as HTMLInputElement).value;
+const onVal = (raw: string | number) => {
   if (props.numeric || props.type === 'number') {
-    emit('update:modelValue', raw === '' ? '' as any : Number(raw));
+    emit('update:modelValue', raw === '' ? ('' as any) : Number(raw));
   } else {
     emit('update:modelValue', raw);
   }
@@ -39,16 +40,17 @@ const onInput = (e: Event) => {
 
 <template>
   <div class="f-input-wrap">
-    <input
-      class="f-input"
+    <Input
+      class="f-input-sh"
       :class="{ 'f-invalid': invalid }"
       :type="inputType"
-      :value="modelValue ?? ''"
+      :model-value="modelValue ?? ''"
       :placeholder="placeholder"
       :disabled="disabled"
       :min="min"
       :max="max"
-      @input="onInput"
+      :aria-invalid="invalid || undefined"
+      @update:model-value="onVal"
       @blur="emit('blur')"
       @keydown.enter="emit('enter')"
     />

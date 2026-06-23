@@ -3,6 +3,8 @@ import { ref, computed, onBeforeUnmount, watch } from 'vue';
 import { extractOntologyFromExperiences } from '../api/experiences';
 import type { SseHandle } from '../api/http';
 import type { OntologyNode, OntologyEdge } from '../types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
   open: boolean;
@@ -163,14 +165,15 @@ const relStats = computed(() => {
 </script>
 
 <template>
-  <div v-if="open" class="dbo-backdrop" @mousedown="onBackdrop">
-    <div class="dbo-dialog">
-      <div class="dbo-head">
-        <span class="dbo-icon">🧬</span>
-        <span class="dbo-title">从经验库构建本体血缘图</span>
-        <span class="dbo-source">「{{ workspaceName || '当前工作空间' }}」</span>
-        <button class="dbo-close" @click="emit('close')">×</button>
-      </div>
+  <Dialog :open="open" @update:open="(v: boolean) => { if (!v) emit('close'); }">
+    <DialogContent class="flex max-h-[86vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[720px]">
+      <DialogHeader class="border-b border-border px-5 py-4">
+        <DialogTitle class="flex items-center gap-2">
+          <span class="dbo-icon">🧬</span>
+          <span>从经验库构建本体血缘图</span>
+          <span class="dbo-source">「{{ workspaceName || '当前工作空间' }}」</span>
+        </DialogTitle>
+      </DialogHeader>
 
       <div class="dbo-body">
         <!-- 启动阶段 -->
@@ -186,8 +189,8 @@ const relStats = computed(() => {
             <input v-model="hint" placeholder="例如：重点关注审批链路；忽略历史复盘类经验" />
           </label>
           <div class="dbo-actions">
-            <button class="dbo-btn primary" @click="start">开始构建</button>
-            <button class="dbo-btn ghost" @click="emit('close')">取消</button>
+            <Button size="sm" @click="start">开始构建</Button>
+            <Button variant="secondary" size="sm" @click="emit('close')">取消</Button>
           </div>
         </div>
 
@@ -207,8 +210,8 @@ const relStats = computed(() => {
         <div v-if="phase === 'error'" class="dbo-section">
           <div class="dbo-error">{{ errMsg }}</div>
           <div class="dbo-actions">
-            <button class="dbo-btn primary" @click="start">重试</button>
-            <button class="dbo-btn ghost" @click="emit('close')">关闭</button>
+            <Button size="sm" @click="start">重试</Button>
+            <Button variant="secondary" size="sm" @click="emit('close')">关闭</Button>
           </div>
         </div>
 
@@ -259,15 +262,15 @@ const relStats = computed(() => {
           </label>
 
           <div class="dbo-actions">
-            <button class="dbo-btn primary" :disabled="!canCommit" @click="commit">
+            <Button size="sm" :disabled="!canCommit" @click="commit">
               确认并{{ mode === 'merge' ? '合并到当前' : '另存为新' }}模型
-            </button>
-            <button class="dbo-btn ghost" @click="emit('close')">取消</button>
+            </Button>
+            <Button variant="secondary" size="sm" @click="emit('close')">取消</Button>
           </div>
         </div>
       </div>
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <style scoped>

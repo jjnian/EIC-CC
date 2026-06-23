@@ -32,6 +32,7 @@
 .sv-layout { display: grid; grid-template-columns: 200px 1fr; gap: 24px; flex: 1; min-height: 0; }
 .sv-tabs {
   display: flex; flex-direction: column; gap: 4px;
+  align-items: stretch; width: 100%;
   background: rgba(14, 25, 41, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 12px;
@@ -40,8 +41,10 @@
 }
 .sv-tab {
   display: flex; align-items: center; gap: 10px;
+  /* 覆盖 shadcn TabsTrigger 的 flex-1 / justify-center / 固定高度，保持纵向侧栏排布 */
+  flex: 0 0 auto; justify-content: flex-start; width: 100%; height: auto;
   padding: 9px 14px;
-  background: none; border: none;
+  background: none; border: 1px solid transparent;
   color: var(--text-dim);
   border-radius: 8px;
   font-size: 13px;
@@ -51,10 +54,12 @@
   transition: all 0.12s;
 }
 .sv-tab:hover { background: rgba(255, 255, 255, 0.04); color: var(--text-main); }
-.sv-tab.active {
+.sv-tab.active,
+.sv-tab[data-state="active"] {
   background: rgba(47, 134, 214, 0.15);
   color: var(--accent-soft);
   border: 1px solid rgba(47, 134, 214, 0.3);
+  box-shadow: none;
 }
 .sv-tab-icon { font-size: 14px; flex-shrink: 0; }
 

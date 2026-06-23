@@ -142,13 +142,20 @@ public class ExperienceOntologyService {
                 + (skippedByCap > 0 ? "；超出单次建图上限 " + MAX_EXPERIENCES + " 篇，已跳过 " + skippedByCap + " 篇" : ""));
 
         JsonNode draft;
+        int failedBatches = 0;
         if (batches.isEmpty()) {
             // 全部为探索直采的纯结构化文档,无散文可喂 LLM:直接用结构化图谱
             step.emit("llm_call", "经验均为探索直采的结构化图谱,跳过大模型抽取,直接合并…");
             draft = emptyGraph();
         } else {
             step.emit("llm_call", "正在并行调用大模型分 " + batches.size() + " 批从经验库构建本体血缘图…");
-            draft = extractBatchesParallel(batches, modelOverride, configId, workspaceId, step);
+            BatchOutcome outcome = extractBatchesParallel(batches, modelOverride, configId, workspaceId, step);
+            draft = outcome.graph();
+            failedBatches = outcome.failed();
+            if (failedBatches > 0) {
+                step.emit("partial", failedBatches + "/" + outcome.total()
+                        + " 批建图失败，已用成功批次合并，结果可能不完整，可重试");
+            }
         }
 
         // 把探索直采的结构化图谱并入 LLM 草稿(按 label 去重合并),再统一校验
@@ -169,9 +176,10 @@ public class ExperienceOntologyService {
 
         int nodes = out.path("nodes").isArray() ? out.path("nodes").size() : 0;
         int edges = out.path("edges").isArray() ? out.path("edges").size() : 0;
-        out.put("reply", buildReplyText(used, nodes, edges));
+        out.put("reply", buildReplyText(used, nodes, edges, failedBatches));
 
-        step.emit("done", "完成：从 " + used + " 篇经验生成 " + nodes + " 个节点 / " + edges + " 条边");
+        step.emit("done", "完成：从 " + used + " 篇经验生成 " + nodes + " 个节点 / " + edges + " 条边"
+                + (failedBatches > 0 ? "（" + failedBatches + " 批失败，结果可能不完整）" : ""));
         return new ExtractResult(out, salt, used, nodes, edges);
     }
 
@@ -198,8 +206,11 @@ public class ExperienceOntologyService {
      * 并行跑各批抽取（{@link #batchExecutor}），各批独立加前缀避免 id 冲突，按 label 增量合并；
      * 单批失败不影响整体（记日志后跳过）。全部失败才抛错。进度在主线程按完成数上报，避免并发写 SSE。
      */
-    private JsonNode extractBatchesParallel(List<String> batches, String modelOverride, String configId,
-                                            String workspaceId, StepSink step) {
+    /** 并行建图结果：合并后的图 + 总批数 + 失败批数（部分失败时图可能不完整）。 */
+    private record BatchOutcome(JsonNode graph, int total, int failed) {}
+
+    private BatchOutcome extractBatchesParallel(List<String> batches, String modelOverride, String configId,
+                                                String workspaceId, StepSink step) {
         int n = batches.size();
         List<CompletableFuture<JsonNode>> futures = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
@@ -228,18 +239,21 @@ public class ExperienceOntologyService {
 
         JsonNode merged = null;
         int done = 0;
+        int failed = 0;
         for (CompletableFuture<JsonNode> f : futures) {
             JsonNode part;
             try { part = f.join(); } catch (Exception e) { part = null; }
             done++;
-            step.emit("llm_batch", "本体抽取进度 " + done + "/" + n + " 批…");
+            if (part == null) failed++;
+            step.emit("llm_batch", "本体抽取进度 " + done + "/" + n + " 批"
+                    + (failed > 0 ? "（" + failed + " 批失败）" : "") + "…");
             if (part == null) continue;
             merged = (merged == null) ? part : merger.mergeExtractionByLabel(merged, part);
         }
         if (merged == null) {
             throw new IllegalStateException("大模型建图全部批次失败，请检查模型配置后重试");
         }
-        return merged;
+        return new BatchOutcome(merged, n, failed);
     }
 
     /**
@@ -283,11 +297,15 @@ public class ExperienceOntologyService {
         }
     }
 
-    private static String buildReplyText(int sourceCount, int nodeCount, int edgeCount) {
-        return String.format(
+    private static String buildReplyText(int sourceCount, int nodeCount, int edgeCount, int failedBatches) {
+        String base = String.format(
                 "已基于当前工作空间经验库的 %d 篇经验文件构建本体血缘图：%d 个节点 / %d 条关系。\n\n"
                         + "本图由经验库文件构建；数据源不再直接出图，而是先把结构（DDL/schema）沉淀到经验库参与建图，"
                         + "再为建好的图节点绑定真实数据来源供血。",
                 sourceCount, nodeCount, edgeCount);
+        if (failedBatches > 0) {
+            base += String.format("\n\n⚠️ 有 %d 批经验抽取失败（已跳过），本图可能不完整，可稍后重试以补全。", failedBatches);
+        }
+        return base;
     }
 }

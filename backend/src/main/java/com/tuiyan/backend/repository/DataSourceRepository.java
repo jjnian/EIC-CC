@@ -19,6 +19,9 @@ import java.util.Map;
 @Repository
 public class DataSourceRepository {
 
+    /** 列表/详情里 transcript 字段的预览字符上限（全文仍存库，仅限制传输体积）。 */
+    private static final int LIST_TRANSCRIPT_PREVIEW = 800;
+
     private final DataSourceMapper mapper;
     private final DataSourceRefRepository refRepo;
     private final JsonCodec codec;
@@ -113,6 +116,32 @@ public class DataSourceRepository {
         po.setCreatedAt(System.currentTimeMillis());
         mapper.insert(po);
         return po;
+    }
+
+    /**
+     * 按 (当前工作空间, kind, name) upsert 数据源：已存在则更新元信息/extra 并标记需重建索引，
+     * 否则新建。用于抽取流程里同名来源（如重复上传同一音频）去重，避免堆出重复的可检索数据源。
+     */
+    @Transactional
+    public DataSourcePO upsertSource(String kind, String name, String mime, Long sizeBytes,
+                                     Map<String, Object> extra) {
+        String ws = WorkspaceContext.required();
+        DataSourcePO existing = mapper.selectList(new LambdaQueryWrapper<DataSourcePO>()
+                        .eq(DataSourcePO::getWorkspaceId, ws)
+                        .eq(DataSourcePO::getKind, kind)
+                        .eq(DataSourcePO::getName, name)
+                        .orderByDesc(DataSourcePO::getCreatedAt))
+                .stream().findFirst().orElse(null);
+        if (existing == null) {
+            return saveSource(kind, name, mime, sizeBytes, extra);
+        }
+        existing.setMime(mime);
+        existing.setSizeBytes(sizeBytes);
+        existing.setExtraJson(extra != null && !extra.isEmpty() ? codec.toJson(extra) : null);
+        existing.setIndexStatus("none");   // 内容已刷新，旧索引作废，交由调用方重新触发
+        existing.setUpdatedAt(System.currentTimeMillis());
+        mapper.updateById(existing);
+        return existing;
     }
 
     @Transactional
@@ -229,7 +258,15 @@ public class DataSourceRepository {
             if (extra instanceof Map<?, ?> mp) {
                 for (Map.Entry<?, ?> e : mp.entrySet()) {
                     String k = String.valueOf(e.getKey());
-                    if (!out.containsKey(k)) out.put(k, e.getValue());
+                    if (out.containsKey(k)) continue;
+                    Object v = e.getValue();
+                    // transcript 可能很大(上限 100k)，列表/详情只回传预览，避免每次拉取数据源都拖大 payload；
+                    // 全文仍存于 extra_json，供 RAG 索引与「抽取到经验库」直接读库使用。
+                    if ("transcript".equals(k) && v instanceof String s && s.length() > LIST_TRANSCRIPT_PREVIEW) {
+                        out.put(k, s.substring(0, LIST_TRANSCRIPT_PREVIEW) + "…");
+                    } else {
+                        out.put(k, v);
+                    }
                 }
             }
         }
