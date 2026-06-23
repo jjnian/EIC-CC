@@ -4,6 +4,8 @@ import { NT } from '../../constants';
 import FormField from '../form/FormField.vue';
 import BaseInput from '../form/BaseInput.vue';
 import BaseCheckbox from '../form/BaseCheckbox.vue';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 interface EditingRelation {
   label: string;
@@ -26,9 +28,11 @@ const emit = defineEmits<{
 }>();
 </script>
 <template>
-  <div class="modal-mask" @click.self="emit('cancel')">
-    <div class="add-node-dialog" @click.stop>
-      <h3>编辑关系</h3>
+  <Dialog :open="true" @update:open="(v: boolean) => { if (!v) emit('cancel'); }">
+    <DialogContent class="max-h-[86vh] overflow-y-auto sm:max-w-[520px]">
+      <DialogHeader>
+        <DialogTitle>编辑关系</DialogTitle>
+      </DialogHeader>
       <FormField label="关系名称" required>
         <BaseInput v-model="editingRelation.label" placeholder="输入关系名称…" />
       </FormField>
@@ -62,13 +66,15 @@ const emit = defineEmits<{
           </div>
         </div>
       </div>
-      <div class="edit-actions">
-        <button class="edit-delete" @click="emit('delete')">删除关系</button>
-        <button class="edit-cancel" @click="emit('cancel')">取消</button>
-        <button class="edit-save" @click="emit('save')" :disabled="editingRelation.inputs.length === 0 || editingRelation.outputs.length === 0">保存</button>
-      </div>
-    </div>
-  </div>
+      <DialogFooter class="sm:justify-between">
+        <Button variant="destructive" size="sm" @click="emit('delete')">删除关系</Button>
+        <div class="flex gap-2">
+          <Button variant="secondary" size="sm" @click="emit('cancel')">取消</Button>
+          <Button size="sm" :disabled="editingRelation.inputs.length === 0 || editingRelation.outputs.length === 0" @click="emit('save')">保存</Button>
+        </div>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <style scoped>

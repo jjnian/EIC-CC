@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// UI 改用 shadcn-vue Dialog；props/emit/逻辑不变（父组件 v-if 挂载，故恒 open）。
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+
 defineProps<{
   templates: any[];
   templatesLoading: boolean;
@@ -11,12 +14,11 @@ const emit = defineEmits<{
 }>();
 </script>
 <template>
-  <div class="modal-mask" @click.self="emit('close')">
-    <div class="version-panel">
-      <div class="vp-header">
-        <h3>模板库</h3>
-        <button class="vp-close" @click="emit('close')">&#10005;</button>
-      </div>
+  <Dialog :open="true" @update:open="(v: boolean) => { if (!v) emit('close'); }">
+    <DialogContent class="max-h-[86vh] overflow-y-auto sm:max-w-[560px]">
+      <DialogHeader>
+        <DialogTitle>模板库</DialogTitle>
+      </DialogHeader>
       <div v-if="templatesLoading" class="vp-loading">加载中…</div>
       <div v-else-if="templates.length === 0" class="vp-empty">暂无模板，可在图谱视图中点击「存为模板」保存当前模型为模板</div>
       <div v-else class="vp-list">
@@ -31,6 +33,6 @@ const emit = defineEmits<{
           <button class="ml-del" @click.stop="emit('remove', t.id)" title="删除模板">×</button>
         </div>
       </div>
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
 </template>

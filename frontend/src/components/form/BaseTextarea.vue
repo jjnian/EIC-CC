@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 统一多行文本输入。
+// 统一多行文本输入。内部改用 shadcn-vue <Textarea>，对外 props/emit 不变。
+import { Textarea } from '@/components/ui/textarea';
 import './form.css';
 
 withDefaults(defineProps<{
@@ -17,18 +18,19 @@ const emit = defineEmits<{
   (e: 'blur'): void;
 }>();
 
-const onInput = (e: Event) => emit('update:modelValue', (e.target as HTMLTextAreaElement).value);
+const onVal = (v: string | number) => emit('update:modelValue', String(v));
 </script>
 
 <template>
-  <textarea
-    class="f-textarea"
+  <Textarea
+    class="f-textarea-sh"
     :class="{ 'f-invalid': invalid }"
-    :value="modelValue ?? ''"
+    :model-value="modelValue ?? ''"
     :placeholder="placeholder"
     :disabled="disabled"
     :rows="rows"
-    @input="onInput"
+    :aria-invalid="invalid || undefined"
+    @update:model-value="onVal"
     @blur="emit('blur')"
-  ></textarea>
+  />
 </template>

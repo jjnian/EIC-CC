@@ -5,6 +5,8 @@ import FormField from '../form/FormField.vue';
 import BaseInput from '../form/BaseInput.vue';
 import BaseSelect from '../form/BaseSelect.vue';
 import BaseCheckbox from '../form/BaseCheckbox.vue';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 defineProps<{
   editingNode: OntologyNode;
@@ -25,9 +27,11 @@ const emit = defineEmits<{
 const typeOptions = Object.entries(NT).map(([k, t]) => ({ value: k, label: (t as any).label }));
 </script>
 <template>
-  <div class="modal-mask" @click.self="emit('cancel')">
-    <div class="add-node-dialog">
-      <h3>编辑节点</h3>
+  <Dialog :open="true" @update:open="(v: boolean) => { if (!v) emit('cancel'); }">
+    <DialogContent class="max-h-[86vh] overflow-y-auto sm:max-w-[520px]">
+      <DialogHeader>
+        <DialogTitle>编辑节点</DialogTitle>
+      </DialogHeader>
       <FormField label="名称" required>
         <BaseInput v-model="editingNode.label" @enter="emit('save')" />
       </FormField>
@@ -66,12 +70,12 @@ const typeOptions = Object.entries(NT).map(([k, t]) => ({ value: k, label: (t as
           </div>
         </div>
       </div>
-      <div class="edit-actions">
-        <button class="edit-cancel" @click="emit('cancel')">取消</button>
-        <button class="edit-save" @click="emit('save')">保存</button>
-      </div>
-    </div>
-  </div>
+      <DialogFooter>
+        <Button variant="secondary" size="sm" @click="emit('cancel')">取消</Button>
+        <Button size="sm" @click="emit('save')">保存</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>
 
 <style scoped>

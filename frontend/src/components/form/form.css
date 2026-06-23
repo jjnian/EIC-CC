@@ -131,6 +131,21 @@
 }
 .f-eye:hover { color: var(--text-main); background: rgba(255, 255, 255, 0.06); }
 
+/* ── shadcn-vue 适配：让库组件填满字段宽度并与原密码眼睛按钮共存 ── */
+.f-input-sh { width: 100%; }
+.f-input-wrap .f-input-sh { padding-right: 38px; }
+.f-textarea-sh { width: 100%; min-height: 88px; }
+.f-switch-wrap,
+.f-check-wrap {
+  display: inline-flex; align-items: center; gap: 8px;
+  cursor: pointer; user-select: none;
+  font-size: 13px; color: var(--text-main);
+}
+.f-switch-wrap.disabled,
+.f-check-wrap.disabled { opacity: 0.5; cursor: not-allowed; }
+.f-switch-label,
+.f-check-label { line-height: 1; }
+
 /* ── 开关 Switch ── */
 .f-switch {
   display: inline-flex;
