@@ -11,6 +11,7 @@ import DataTab from './settings/DataTab.vue';
 import MonitorTab from './settings/MonitorTab.vue';
 import AboutTab from './settings/AboutTab.vue';
 import WorkspacesTab from './settings/WorkspacesTab.vue';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const emit = defineEmits<{
   (e: 'switch-workspace', id: string): void;
@@ -61,15 +62,13 @@ watch(activeTab, (tab) => {
       <span v-if="sp.prefsSaved.value" class="prefs-saved">已自动保存</span>
     </div>
 
-    <div class="sv-layout">
-      <nav class="sv-tabs">
-        <button v-for="t in TABS" :key="t.id"
-                :class="['sv-tab', { active: activeTab === t.id }]"
-                @click="activeTab = t.id">
+    <Tabs v-model="activeTab" orientation="vertical" class="sv-layout">
+      <TabsList class="sv-tabs">
+        <TabsTrigger v-for="t in TABS" :key="t.id" :value="t.id" class="sv-tab">
           <span class="sv-tab-icon">{{ t.icon }}</span>
           <span>{{ t.label }}</span>
-        </button>
-      </nav>
+        </TabsTrigger>
+      </TabsList>
 
       <div class="sv-pane">
         <WorkspacesTab v-if="activeTab === 'workspaces'"
@@ -102,7 +101,7 @@ watch(activeTab, (tab) => {
 
         <AboutTab v-else-if="activeTab === 'about'" :version="APP_VERSION" />
       </div>
-    </div>
+    </Tabs>
 
     <div v-if="localToast" class="sv-toast" :class="'sv-toast-' + localToast.kind">
       <span class="sv-toast-icon">{{ localToast.kind === 'success' ? '✓' : '✗' }}</span>

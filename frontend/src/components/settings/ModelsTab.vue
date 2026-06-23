@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CAPABILITY_LABELS, fmtTokens } from '../../composables/useModelConfigs';
 import type { ModelConfig } from '../../types';
+import { Button } from '@/components/ui/button';
 
 interface TestResult { status: 'idle' | 'testing' | 'ok' | 'error'; latencyMs?: number; error?: string; }
 
@@ -23,7 +24,7 @@ defineEmits<{
         <h3>大模型管理</h3>
         <p>模型配置来自 application.yml，修改后重启生效。</p>
       </div>
-      <button class="test-all-btn" @click="$emit('test-all')">🔌 全部测试</button>
+      <Button variant="secondary" size="sm" @click="$emit('test-all')">🔌 全部测试</Button>
     </div>
     <div class="model-list" v-if="!loading">
       <div v-for="m in models" :key="m.id" class="model-card" :class="{ disabled: !m.enabled }">

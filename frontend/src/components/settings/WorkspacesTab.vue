@@ -8,6 +8,8 @@ import type { Workspace } from '../../api/workspaces';
 import FormField from '../form/FormField.vue';
 import BaseInput from '../form/BaseInput.vue';
 import BaseTextarea from '../form/BaseTextarea.vue';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 const emit = defineEmits<{
   (e: 'switch', id: string): void;
@@ -118,7 +120,7 @@ const formatTime = (ts?: number) => ts ? new Date(ts).toLocaleString() : '';
         <h3>工作空间</h3>
         <p>每个工作空间相互隔离；删除会一并清空其下的本体图、推演与对话。</p>
       </div>
-      <button class="add-btn" @click="openCreate">＋新建</button>
+      <Button size="sm" @click="openCreate">＋新建</Button>
     </div>
 
     <div class="pref-card">
@@ -140,68 +142,62 @@ const formatTime = (ts?: number) => ts ? new Date(ts).toLocaleString() : '';
           </div>
         </div>
         <div class="pref-control">
-          <button
-            class="action-btn"
+          <Button
+            variant="secondary" size="sm"
             :disabled="w.id === ws.currentId.value"
             @click="switchTo(w)"
-          >切换</button>
-          <button class="action-btn edit" @click="openEdit(w)">编辑</button>
-          <button
-            class="action-btn delete"
+          >切换</Button>
+          <Button variant="secondary" size="sm" @click="openEdit(w)">编辑</Button>
+          <Button
+            variant="destructive" size="sm"
             :disabled="!!w.isDefault"
             @click="remove(w)"
-          >删除</button>
+          >删除</Button>
         </div>
       </div>
     </div>
 
     <!-- 新建对话框 -->
-    <div v-if="showCreate" class="modal-overlay" @click.self="showCreate = false">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>新建工作空间</h3>
-          <button class="modal-close" @click="showCreate = false">×</button>
-        </div>
-        <div class="modal-body">
-          <FormField label="名称" required>
-            <BaseInput v-model="newName" placeholder="例如：风控项目" @enter="submitCreate" />
-          </FormField>
-          <FormField label="描述" hint="可选">
-            <BaseTextarea v-model="newDesc" :rows="3" placeholder="记录该工作空间的用途…" />
-          </FormField>
-        </div>
-        <div class="modal-footer">
-          <button class="modal-btn cancel" @click="showCreate = false">取消</button>
-          <button
-            class="modal-btn save"
+    <Dialog :open="showCreate" @update:open="(v: boolean) => { if (!v) showCreate = false; }">
+      <DialogContent class="sm:max-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>新建工作空间</DialogTitle>
+        </DialogHeader>
+        <FormField label="名称" required>
+          <BaseInput v-model="newName" placeholder="例如：风控项目" @enter="submitCreate" />
+        </FormField>
+        <FormField label="描述" hint="可选">
+          <BaseTextarea v-model="newDesc" :rows="3" placeholder="记录该工作空间的用途…" />
+        </FormField>
+        <DialogFooter>
+          <Button variant="secondary" size="sm" @click="showCreate = false">取消</Button>
+          <Button
+            size="sm"
             :disabled="!newName.trim() || creating"
             @click="submitCreate"
-          >{{ creating ? '创建中…' : '创建' }}</button>
-        </div>
-      </div>
-    </div>
+          >{{ creating ? '创建中…' : '创建' }}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <!-- 编辑对话框 -->
-    <div v-if="editing" class="modal-overlay" @click.self="editing = null">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>编辑工作空间</h3>
-          <button class="modal-close" @click="editing = null">×</button>
-        </div>
-        <div class="modal-body">
-          <FormField label="名称" required>
-            <BaseInput v-model="editName" @enter="submitEdit" />
-          </FormField>
-          <FormField label="描述">
-            <BaseTextarea v-model="editDesc" :rows="3" />
-          </FormField>
-        </div>
-        <div class="modal-footer">
-          <button class="modal-btn cancel" @click="editing = null">取消</button>
-          <button class="modal-btn save" :disabled="!editName.trim()" @click="submitEdit">保存</button>
-        </div>
-      </div>
-    </div>
+    <Dialog :open="!!editing" @update:open="(v: boolean) => { if (!v) editing = null; }">
+      <DialogContent class="sm:max-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>编辑工作空间</DialogTitle>
+        </DialogHeader>
+        <FormField label="名称" required>
+          <BaseInput v-model="editName" @enter="submitEdit" />
+        </FormField>
+        <FormField label="描述">
+          <BaseTextarea v-model="editDesc" :rows="3" />
+        </FormField>
+        <DialogFooter>
+          <Button variant="secondary" size="sm" @click="editing = null">取消</Button>
+          <Button size="sm" :disabled="!editName.trim()" @click="submitEdit">保存</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </section>
 </template>
 

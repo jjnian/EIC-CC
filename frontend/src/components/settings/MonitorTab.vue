@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { Button } from '@/components/ui/button';
+
 defineProps<{
   healthData: any;
   metricsData: any;
@@ -13,7 +15,7 @@ defineEmits<{ (e: 'refresh'): void }>();
         <h3>系统监控</h3>
         <p>实时查看系统健康状态和 LLM 调用统计。</p>
       </div>
-      <button class="test-all-btn" @click="$emit('refresh')">🔄 刷新</button>
+      <Button variant="secondary" size="sm" @click="$emit('refresh')">🔄 刷新</Button>
     </div>
 
     <div v-if="healthData" class="pref-card" style="margin-bottom:16px">

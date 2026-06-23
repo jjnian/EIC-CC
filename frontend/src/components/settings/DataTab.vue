@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { Button } from '@/components/ui/button';
+
 defineProps<{ prefs: any }>();
 defineEmits<{ (e: 'clear-scenarios'): void }>();
 
@@ -26,7 +28,7 @@ const exportPrefs = (prefs: any) => {
           <div class="pref-name">清空所有推演分支</div>
           <div class="pref-desc">删除 backend/src/main/resources/scenarios/ 下所有快照文件。仅影响推演结果，不影响原始本体模型。</div>
         </div>
-        <button class="danger-btn" @click="$emit('clear-scenarios')">清空</button>
+        <Button variant="destructive" size="sm" @click="$emit('clear-scenarios')">清空</Button>
       </div>
 
       <div class="pref-row">
@@ -34,7 +36,7 @@ const exportPrefs = (prefs: any) => {
           <div class="pref-name">导出全部偏好设置</div>
           <div class="pref-desc">把当前偏好（含推演参数、外观）下载为 JSON 文件</div>
         </div>
-        <button class="action-btn" @click="exportPrefs(prefs)">下载 JSON</button>
+        <Button variant="secondary" size="sm" @click="exportPrefs(prefs)">下载 JSON</Button>
       </div>
     </div>
   </section>
