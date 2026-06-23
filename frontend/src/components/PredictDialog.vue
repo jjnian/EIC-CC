@@ -224,7 +224,7 @@ watch(intent, (newVal, oldVal) => {
             <div v-else class="pd-empty pd-empty-inline">暂无保存的模板</div>
             <div class="pd-template-save">
               <input class="pd-search" v-model="templateName" placeholder="输入模板名称…" @keydown.enter="saveAsTemplate" />
-              <button class="pd-btn pd-btn-save" type="button" @click="saveAsTemplate" :disabled="!templateName.trim()">保存当前配置</button>
+              <Button size="sm" type="button" @click="saveAsTemplate" :disabled="!templateName.trim()">保存当前配置</Button>
             </div>
           </div>
         </div>
