@@ -67,7 +67,14 @@ public class ImageRecognitionService {
      */
     public String recognize(byte[] image, String filename, String contentType) throws IOException {
         String visionId = findVisionModelId();
-        LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(null, visionId); // visionId=null 时回退默认首个模型
+        if (visionId == null) {
+            // 不静默回退到默认模型：纯文本模型收到图片往往返回「看不到图片」之类文本，
+            // 会产出误导性正文。改为明确报错，提示去配置视觉模型。
+            throw new IllegalStateException(
+                    "未配置图片识别(视觉)模型：请在 app.llm.models 中添加一条 capabilities:[vision] 的模型"
+                    + "（或设置 VISION_API_KEY / VISION_MODEL 并将其 enabled 设为 true）");
+        }
+        LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(null, visionId);
         boolean anthropic = http.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
         String b64 = Base64.getEncoder().encodeToString(image);
