@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed } from 'vue';
 import type { Scenario } from '../types';
 import { confirm } from '../composables/useConfirm';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '@/components/ui/dropdown-menu';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 
 const props = defineProps<{
   branches: Scenario[];
@@ -102,31 +104,23 @@ const onDelete = async (id: string, e: Event) => {
   if (!ok) return;
   emit('delete', id);
 };
-
-const onEsc = (e: KeyboardEvent) => {
-  if (e.key === 'Escape' && open.value) {
-    open.value = false;
-  }
-};
-onMounted(() => document.addEventListener('keydown', onEsc));
-onBeforeUnmount(() => document.removeEventListener('keydown', onEsc));
 </script>
 
 <template>
-  <div class="bp-wrap">
-    <button class="bp-btn" :class="{ 'bp-btn-pred': activeBranchId !== 'trunk' }" @click="open = !open">
-      <span class="bp-icon">{{ activeBranchId === 'trunk' ? '◈' : '⚡' }}</span>
-      <span class="bp-name">{{
-        activeBranchId === 'trunk' ? '主分支' :
-          (branches.find(b => b.id === activeBranchId)?.name || '推演分支')
-      }}</span>
-      <span class="bp-count" v-if="branches.length > 0">{{ branches.length }}</span>
-      <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
-    </button>
+  <DropdownMenu v-model:open="open">
+    <DropdownMenuTrigger as-child>
+      <button class="bp-btn" :class="{ 'bp-btn-pred': activeBranchId !== 'trunk' }">
+        <span class="bp-icon">{{ activeBranchId === 'trunk' ? '◈' : '⚡' }}</span>
+        <span class="bp-name">{{
+          activeBranchId === 'trunk' ? '主分支' :
+            (branches.find(b => b.id === activeBranchId)?.name || '推演分支')
+        }}</span>
+        <span class="bp-count" v-if="branches.length > 0">{{ branches.length }}</span>
+        <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+    </DropdownMenuTrigger>
 
-    <div v-if="open" class="bp-overlay" @click="open = false" />
-
-    <div v-if="open" class="bp-dropdown">
+    <DropdownMenuContent align="start" class="min-w-[280px] max-w-[360px] max-h-[400px] overflow-y-auto p-1.5">
       <div class="bp-section-label">分支</div>
       <div class="bp-item" :class="{ active: activeBranchId === 'trunk' }" @click="emit('switch', 'trunk'); open = false">
         <span class="bp-item-icon">◈</span>
@@ -154,7 +148,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onEsc));
               {{ branchStepsCount(item.branch) }} 步
             </div>
           </div>
-          <button class="bp-del" @click="onDelete(item.branch.id, $event)" title="删除">×</button>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <button class="bp-del" @click="onDelete(item.branch.id, $event)">×</button>
+            </TooltipTrigger>
+            <TooltipContent>删除分支</TooltipContent>
+          </Tooltip>
           <span v-if="activeBranchId === item.branch.id" class="bp-check">✓</span>
         </div>
       </template>
@@ -166,8 +165,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onEsc));
           ⚙ 升级旧分支到 v0.9
         </button>
       </div>
-    </div>
-  </div>
+    </DropdownMenuContent>
+  </DropdownMenu>
 </template>
 
 <style scoped>

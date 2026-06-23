@@ -18,6 +18,7 @@ import RelationEditDialog from './components/dialogs/RelationEditDialog.vue';
 import TemplateLibraryDialog from './components/dialogs/TemplateLibraryDialog.vue';
 import type { OntologyNode, OntologyEdge, OntologyModel } from './types';
 import { type ViewId, type NavRoute, NAV_TO_VIEW } from './views';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import './app.css';
 import { toast, mountToastRoot } from './composables/useToast';
 import { updateOntology, deleteOntology } from './api/ontology';
@@ -627,6 +628,7 @@ const formatFileSize = (bytes: number) => {
 };
 </script>
 <template>
+  <TooltipProvider :delay-duration="300">
   <div class="app">
     <Sidebar
       :class="{ dragging: sbDragging }"
@@ -929,5 +931,6 @@ const formatFileSize = (bytes: number) => {
       />
     </div>
   </div>
+  </TooltipProvider>
 </template>
 
