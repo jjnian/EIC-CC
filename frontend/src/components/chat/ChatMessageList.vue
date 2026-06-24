@@ -105,19 +105,17 @@ defineExpose({ scrollToBottom });
                 <span v-if="q.multiSelect" class="question-multi-tag">可多选</span>
               </div>
               <div class="question-options">
-                <Button v-for="(opt, oi) in q.options" :key="oi"
+                <button v-for="(opt, oi) in q.options" :key="oi"
                         type="button"
-                        variant="outline"
                         class="question-option"
                         :class="{ selected: (q.selected || []).includes(opt.label) }"
                         :disabled="!!m.questionsDone"
                         @click="emit('pick-option', i, qi, opt)">
                   <span class="question-option-num">{{ oi + 1 }}</span>
                   <span class="question-option-label">{{ opt.label }}</span>
-                </Button>
+                </button>
                 <!-- 手动填写:每个问题最后一行,点了去下方输入框自己写答案 -->
-                <Button type="button"
-                        variant="outline"
+                <button type="button"
                         class="question-option question-option-custom"
                         :class="{ selected: customUsed(m) }"
                         :disabled="!!m.questionsDone"
@@ -128,7 +126,7 @@ defineExpose({ scrollToBottom });
                     <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                     手动填写其它答案…
                   </span>
-                </Button>
+                </button>
               </div>
             </div>
 
