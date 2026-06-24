@@ -2,26 +2,26 @@
 
 :root {
   --glass-bg: rgba(255, 255, 255, 0.15);
-  --glass-border: rgba(255, 255, 255, 0.14);
-  --glass-border-strong: rgba(255, 255, 255, 0.22);
-  --text-main: #d4e3f2;
-  --text-dim: rgba(197, 216, 235, 0.62);
-  --text-muted: rgba(197, 216, 235, 0.42);
-  --accent: #2f86d6; /* Foundry Blue */
-  --accent-soft: #5aa6ee;
+  --glass-border: rgba(255, 255, 255, 0.18);
+  --glass-border-strong: rgba(255, 255, 255, 0.30);
+  --text-main: #e3edf9;
+  --text-dim: rgba(201, 219, 238, 0.78);
+  --text-muted: rgba(201, 219, 238, 0.56);
+  --accent: #3a90df; /* Foundry Blue (略提亮) */
+  --accent-soft: #62acf2;
   --accent-deep: #1a5fcc;
-  --accent-glow: rgba(47, 134, 214, 0.35);
-  --accent-tint: rgba(47, 134, 214, 0.14);
+  --accent-glow: rgba(47, 134, 214, 0.40);
+  --accent-tint: rgba(47, 134, 214, 0.16);
   /* 科技感第二强调色：亮蓝，用于氛围光、HUD 线、聚焦光晕 */
   --accent-2: #3d9bff;            /* bright blue */
   --accent-2-glow: rgba(61, 155, 255, 0.35);
   --accent-3: #6f8cff;            /* indigo */
   --grid-line: rgba(120, 160, 220, 0.05);
-  --bg-base: #07090e;
-  --bg-panel: rgba(15, 23, 42, 0.6);
-  --bg-panel-strong: rgba(15, 23, 42, 0.86);
-  --bg-elev: rgba(255, 255, 255, 0.04);
-  --bg-elev-hi: rgba(255, 255, 255, 0.08);
+  --bg-base: #090c13;
+  --bg-panel: rgba(24, 33, 56, 0.55);
+  --bg-panel-strong: rgba(24, 34, 58, 0.92);
+  --bg-elev: rgba(255, 255, 255, 0.055);
+  --bg-elev-hi: rgba(255, 255, 255, 0.11);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.28);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
