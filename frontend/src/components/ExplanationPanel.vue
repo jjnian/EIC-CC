@@ -5,6 +5,7 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue';
 import { explainStream } from '../api/explanations';
 import type { SseHandle } from '../api/http';
 import type { NodeExplanation } from '../types';
+import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
   scenarioId: string;
@@ -136,15 +137,15 @@ onBeforeUnmount(() => abort());
           <span v-if="cached && status === 'done'" class="ep-cached" title="来自缓存">缓存</span>
         </span>
       </div>
-      <button class="ep-icon-btn" @click="collapsed = !collapsed" :title="collapsed ? '展开' : '折叠'" type="button">
+      <Button variant="ghost" size="icon-sm" @click="collapsed = !collapsed" :title="collapsed ? '展开' : '折叠'" type="button">
         {{ collapsed ? '▽' : '△' }}
-      </button>
-      <button class="ep-icon-btn" @click="close" title="关闭" type="button">×</button>
+      </Button>
+      <Button variant="ghost" size="icon-sm" @click="close" title="关闭" type="button">×</Button>
     </div>
     <div v-if="!collapsed" class="ep-body">
       <div v-if="status === 'error'" class="ep-error">
         生成失败：{{ errMsg }}
-        <button class="ep-retry" @click="start(true)" type="button">点击重试</button>
+        <Button variant="outline" size="sm" @click="start(true)" type="button">点击重试</Button>
       </div>
       <template v-else>
         <div class="ep-section">
@@ -166,13 +167,14 @@ onBeforeUnmount(() => abort());
           </div>
         </div>
         <div class="ep-foot">
-          <button
-            class="ep-btn"
+          <Button
+            variant="secondary"
+            size="sm"
             :disabled="status === 'loading'"
             @click="start(true)"
             type="button"
             title="忽略缓存重新生成"
-          >🔄 重新生成</button>
+          >🔄 重新生成</Button>
         </div>
       </template>
     </div>

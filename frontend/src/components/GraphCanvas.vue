@@ -362,6 +362,7 @@ defineExpose({ fitView, focusNode });
     </div>
 
     <!-- Right-click context menu -->
+    <Teleport to="body">
     <div v-if="ctxMenu" class="node-ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @click.stop>
       <button class="ctx-item" @click="triggerPredict">
         <span class="ctx-icon">⚡</span>
@@ -389,8 +390,10 @@ defineExpose({ fitView, focusNode });
         <span>删除节点</span>
       </button>
     </div>
+    </Teleport>
 
     <!-- 添加对象/关系表单 (画布空白处右键) -->
+    <Teleport to="body">
     <div v-if="addNodeForm" class="modal-mask" @click.self="addNodeForm = null">
       <div class="add-node-dialog" @click.stop>
         <!-- 模式切换 -->
@@ -481,6 +484,7 @@ defineExpose({ fitView, focusNode });
         </template>
       </div>
     </div>
+    </Teleport>
 
     <div class="hud-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">
       <div class="search-bar" v-if="!readonly" style="pointer-events: auto;">

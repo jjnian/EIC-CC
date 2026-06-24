@@ -899,6 +899,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
       </div>
     </div>
 
+    <Teleport to="body">
     <div
       v-if="ctxMenu"
       class="node-ctx-menu"
@@ -1054,8 +1055,10 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
         </button>
       </template>
     </div>
+    </Teleport>
 
     <!-- 移动到文件夹:二级菜单 -->
+    <Teleport to="body">
     <div
       v-if="moveMenu"
       class="node-ctx-menu move-menu"
@@ -1079,8 +1082,10 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
         <span class="ctx-move-label">{{ t.name }}</span>
       </button>
     </div>
+    </Teleport>
 
     <!-- 引用公共库选择器：从公共经验/数据源勾选，引用进本工作空间 -->
+    <Teleport to="body">
     <div v-if="refPicker" class="ref-mask" @click.self="closeRefPicker">
       <div class="ref-dialog">
         <div class="ref-head">
@@ -1118,6 +1123,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 

@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { NT } from '../../constants';
 import type { OntologyNode, OntologyEdge } from '../../types';
 import { traceLineage } from '../../composables/useLineageTrace';
+import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
   nodes: OntologyNode[];
@@ -136,10 +137,10 @@ const clearLineage = () => emit('highlight-diff', null);
         </div>
       </div>
       <div class="gap-lineage-actions">
-        <button class="gap-btn gap-btn-primary"
+        <Button size="sm"
                 :disabled="!upstreamNodes.length && !downstreamNodes.length"
-                @click="highlightLineage">🩸 在图上高亮血缘</button>
-        <button class="gap-btn" @click="clearLineage">清除</button>
+                @click="highlightLineage">🩸 在图上高亮血缘</Button>
+        <Button variant="secondary" size="sm" @click="clearLineage">清除</Button>
       </div>
       <div class="gap-lineage-legend">
         <span><i class="lg-dot" style="background:#3b82f6"></i>上游来源</span>

@@ -4,6 +4,28 @@ import { NT } from '../constants';
 import type { AttrSourceMethod } from '../types';
 import NodeDataBindingPanel from './NodeDataBindingPanel.vue';
 import { useNodeEditDraft } from '../composables/useNodeEditDraft';
+import { Button } from '@/components/ui/button';
+import BaseSelect from './form/BaseSelect.vue';
+
+const typeOptions = Object.entries(NT).map(([key, meta]) => ({ value: key, label: (meta as any).label }));
+const sourceOptions = [
+  { value: 'manual', label: '手动' },
+  { value: 'derived', label: '文本提取' },
+  { value: 'inferred', label: 'AI推理' },
+  { value: 'preset', label: '预置' },
+];
+const methodOptions = [
+  { value: 'db', label: '数据库提取' },
+  { value: 'file', label: '文件提取' },
+  { value: 'custom', label: '自定义' },
+];
+const constraintKindOptions = [
+  { value: 'cardinality', label: '基数' },
+  { value: 'exclusive', label: '互斥' },
+  { value: 'symmetric', label: '对称' },
+  { value: 'transitive', label: '传递' },
+  { value: 'custom', label: '自定义' },
+];
 
 const props = defineProps<{
   node: any | null;
@@ -211,12 +233,12 @@ const startResize = (e: MouseEvent) => {
               <!-- 编辑模式按钮组：仅在选中节点时显示 -->
               <template v-if="node">
                 <template v-if="isEditing">
-                  <button class="ni-edit-btn ni-edit-btn--cancel" @click="cancelEdit" title="放弃修改">取消</button>
-                  <button class="ni-edit-btn ni-edit-btn--save" @click="saveEdit" title="保存修改">保存</button>
+                  <Button variant="ghost" size="sm" @click="cancelEdit" title="放弃修改">取消</Button>
+                  <Button size="sm" @click="saveEdit" title="保存修改">保存</Button>
                 </template>
-                <button v-else class="ni-edit-btn" @click="startEdit" title="进入编辑模式">✎ 编辑</button>
+                <Button v-else variant="outline" size="sm" @click="startEdit" title="进入编辑模式">✎ 编辑</Button>
               </template>
-              <button class="ni-list-close" @click="emit('close')" title="关闭">×</button>
+              <Button variant="ghost" size="icon-sm" @click="emit('close')" title="关闭">×</Button>
             </div>
           </div>
 
@@ -240,21 +262,14 @@ const startResize = (e: MouseEvent) => {
                       <tr>
                         <td class="ni-kv-k">类型</td>
                         <td class="ni-kv-v">
-                          <select v-if="isEditing" class="ni-inline-select" v-model="draft.type">
-                            <option v-for="(meta, key) in NT" :key="key" :value="key">{{ meta.label }}</option>
-                          </select>
+                          <BaseSelect v-if="isEditing" size="sm" v-model="draft.type" :options="typeOptions" />
                           <span v-else class="ni-chip">{{ t?.label || '—' }}</span>
                         </td>
                       </tr>
                       <tr>
                         <td class="ni-kv-k">来源</td>
                         <td class="ni-kv-v">
-                          <select v-if="isEditing" class="ni-inline-select" v-model="draft.source">
-                            <option value="manual">手动</option>
-                            <option value="derived">文本提取</option>
-                            <option value="inferred">AI推理</option>
-                            <option value="preset">预置</option>
-                          </select>
+                          <BaseSelect v-if="isEditing" size="sm" v-model="draft.source" :options="sourceOptions" />
                           <span v-else class="ni-badge" :style="{color: sourceBadge(node.source).color, background: sourceBadge(node.source).bg}">{{ sourceBadge(node.source).text }}</span>
                         </td>
                       </tr>
@@ -305,9 +320,9 @@ const startResize = (e: MouseEvent) => {
                             <div class="ni-table-list">
                               <div v-for="(tb, i) in draft.derived_tables" :key="'dt-edit'+i" class="ni-table-row">
                                 <input class="ni-inline-input mono" :value="tb" placeholder="表名" @input="(ev: any) => dUpdateTable(i, ev.target.value)" />
-                                <button class="ni-prop-del" @click="dRemoveTable(i)" title="删除">✕</button>
+                                <Button variant="ghost" size="icon-sm" class="text-destructive" @click="dRemoveTable(i)" title="删除">✕</Button>
                               </div>
-                              <button class="ni-prop-add ni-prop-add--head" @click="dAddTable">+ 新增表名</button>
+                              <Button variant="outline" size="sm" @click="dAddTable">+ 新增表名</Button>
                             </div>
                           </template>
                           <template v-else>
@@ -327,7 +342,7 @@ const startResize = (e: MouseEvent) => {
                 <div class="ni-card ni-card-full">
                   <div class="ni-card-head">
                     <div class="ni-card-title">本体属性 <span class="ni-card-count">{{ isEditing ? (draft.attributes || []).length : (node.attributes || []).length }}</span></div>
-                    <button v-if="isEditing" class="ni-prop-add ni-prop-add--head" @click="dAddAttribute">+ 新增属性</button>
+                    <Button v-if="isEditing" variant="outline" size="sm" @click="dAddAttribute">+ 新增属性</Button>
                   </div>
                   <!-- 编辑模式 -->
                   <template v-if="isEditing">
@@ -348,11 +363,7 @@ const startResize = (e: MouseEvent) => {
                           <input class="ni-inline-input mono" :value="a.valueSpace" placeholder="类型" @input="(e: any) => dUpdateAttribute(i, 'valueSpace', e.target.value)" />
                         </div>
                         <div class="ni-attr-cell ni-col-method">
-                          <select class="ni-inline-select" :value="sourceMethodOf(a)" @change="(e: any) => dUpdateAttribute(i, 'sourceMethod', e.target.value)">
-                            <option value="db">数据库提取</option>
-                            <option value="file">文件提取</option>
-                            <option value="custom">自定义</option>
-                          </select>
+                          <BaseSelect size="sm" :model-value="sourceMethodOf(a)" :options="methodOptions" @update:model-value="dUpdateAttribute(i, 'sourceMethod', $event)" />
                         </div>
                         <div class="ni-attr-cell ni-col-ptable">
                           <input class="ni-inline-input mono" :value="displayTable(a, node)" placeholder="物理表" @input="(e: any) => dUpdateAttribute(i, 'table', e.target.value)" />
@@ -361,7 +372,7 @@ const startResize = (e: MouseEvent) => {
                           <input class="ni-inline-input mono" :value="a.column" placeholder="物理字段" @input="(e: any) => dUpdateAttribute(i, 'column', e.target.value)" />
                         </div>
                         <div class="ni-attr-cell ni-col-act">
-                          <button class="ni-prop-del" @click="dRemoveAttribute(i)" title="删除">✕</button>
+                          <Button variant="ghost" size="icon-sm" class="text-destructive" @click="dRemoveAttribute(i)" title="删除">✕</Button>
                         </div>
                       </div>
                     </div>
@@ -427,8 +438,8 @@ const startResize = (e: MouseEvent) => {
                           </td>
                           <td class="ni-td">{{ nmap[e.to].label }}</td>
                           <td class="ni-td ni-td-actions">
-                            <button class="ni-edge-edit" @click="emit('edit-edge-relation', e.id)" title="编辑关系">✎</button>
-                            <button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button>
+                            <Button variant="ghost" size="icon-sm" @click="emit('edit-edge-relation', e.id)" title="编辑关系">✎</Button>
+                            <Button variant="ghost" size="icon-sm" class="text-destructive" @click="emit('delete-edge', e.id)" title="删除关系">✕</Button>
                           </td>
                         </tr>
                       </template>
@@ -450,8 +461,8 @@ const startResize = (e: MouseEvent) => {
                           </td>
                           <td class="ni-td">{{ nmap[e.from].label }}</td>
                           <td class="ni-td ni-td-actions">
-                            <button class="ni-edge-edit" @click="emit('edit-edge-relation', e.id)" title="编辑关系">✎</button>
-                            <button class="ni-edge-del" @click="emit('delete-edge', e.id)" title="删除关系">✕</button>
+                            <Button variant="ghost" size="icon-sm" @click="emit('edit-edge-relation', e.id)" title="编辑关系">✎</Button>
+                            <Button variant="ghost" size="icon-sm" class="text-destructive" @click="emit('delete-edge', e.id)" title="删除关系">✕</Button>
                           </td>
                         </tr>
                       </template>
@@ -467,22 +478,16 @@ const startResize = (e: MouseEvent) => {
                 <div class="ni-card ni-card-full">
                   <div class="ni-card-head">
                     <div class="ni-card-title">节点约束 <span class="ni-card-count">{{ isEditing ? (draft.constraints || []).length : (node.constraints || []).length }}</span></div>
-                    <button v-if="isEditing" class="ni-prop-add ni-prop-add--head" @click="dAddConstraint">+ 新增约束</button>
+                    <Button v-if="isEditing" variant="outline" size="sm" @click="dAddConstraint">+ 新增约束</Button>
                   </div>
                   <!-- 编辑模式 -->
                   <template v-if="isEditing">
                     <div v-if="(draft.constraints || []).length" class="ni-cons-list">
                       <div v-for="(c, i) in draft.constraints" :key="'c-edit'+i" class="ni-cons-item">
                         <div class="ni-cons-head">
-                          <select class="ni-inline-select" :value="c.kind || 'custom'" @change="(e: any) => dUpdateConstraint(i, 'kind', e.target.value)">
-                            <option value="cardinality">基数</option>
-                            <option value="exclusive">互斥</option>
-                            <option value="symmetric">对称</option>
-                            <option value="transitive">传递</option>
-                            <option value="custom">自定义</option>
-                          </select>
+                          <div class="ni-kind-sel"><BaseSelect size="sm" :model-value="c.kind || 'custom'" :options="constraintKindOptions" @update:model-value="dUpdateConstraint(i, 'kind', $event)" /></div>
                           <span class="ni-badge" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
-                          <button class="ni-prop-del" @click="dRemoveConstraint(i)" title="删除">✕</button>
+                          <Button variant="ghost" size="icon-sm" class="text-destructive" @click="dRemoveConstraint(i)" title="删除">✕</Button>
                         </div>
                         <input class="ni-inline-input" :value="c.note" placeholder="约束说明" @input="(e: any) => dUpdateConstraint(i, 'note', e.target.value)" />
                       </div>
@@ -512,7 +517,7 @@ const startResize = (e: MouseEvent) => {
                         <span class="ni-cons-kind">{{ kindLabel(row.c.kind) }}</span>
                         <span class="ni-badge" :style="{color: sourceBadge(row.c.source).color, background: sourceBadge(row.c.source).bg}">{{ sourceBadge(row.c.source).text }}</span>
                         <span class="ni-cons-rel">{{ row.relLabel }}</span>
-                        <button class="ni-prop-del" style="margin-left:auto" @click="removeRelatedEdgeConstraintLive(row.edgeId, row.index)" title="删除该约束">✕</button>
+                        <Button variant="ghost" size="icon-sm" class="text-destructive" style="margin-left:auto" @click="removeRelatedEdgeConstraintLive(row.edgeId, row.index)" title="删除该约束">✕</Button>
                       </div>
                       <div class="ni-cons-note">{{ row.c.note }}</div>
                     </div>
@@ -736,6 +741,8 @@ const startResize = (e: MouseEvent) => {
 .ni-col-act { justify-content: flex-end; }
 /* 单元格内的输入/下拉占满列宽 */
 .ni-col-method .ni-inline-select { width: 100%; }
+.ni-kind-sel { width: 104px; flex-shrink: 0; }
+.ni-cons-head { display: flex; align-items: center; gap: 8px; }
 
 /* 分区标题栏：标题在左，操作按钮（新增/保存）靠右上 */
 .ni-card-head {

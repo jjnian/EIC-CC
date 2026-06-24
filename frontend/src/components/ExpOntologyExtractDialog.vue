@@ -5,6 +5,7 @@ import type { SseHandle } from '../api/http';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import BaseInput from './form/BaseInput.vue';
 
 const props = defineProps<{
   open: boolean;
@@ -186,7 +187,7 @@ const relStats = computed(() => {
           </div>
           <label class="dbo-row">
             <span>额外提示（可选）</span>
-            <input v-model="hint" placeholder="例如：重点关注审批链路；忽略历史复盘类经验" />
+            <BaseInput v-model="hint" placeholder="例如：重点关注审批链路；忽略历史复盘类经验" />
           </label>
           <div class="dbo-actions">
             <Button size="sm" @click="start">开始构建</Button>
@@ -258,7 +259,7 @@ const relStats = computed(() => {
           </div>
           <label v-if="mode === 'new'" class="dbo-row">
             <span>模型名称</span>
-            <input v-model="newName" />
+            <BaseInput v-model="newName" />
           </label>
 
           <div class="dbo-actions">

@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { executeHttp } from '../../api/dataSources';
 import { ApiError } from '../../api/http';
+import { Button } from '@/components/ui/button';
 import type { DataSource, HttpExecuteResult } from '../../api/dataSources';
 
 const props = defineProps<{ ds: DataSource }>();
@@ -38,7 +39,7 @@ const prettyBody = (s?: string) => {
         <dt v-if="(ds.config as any)?.body">Body</dt>
         <dd v-if="(ds.config as any)?.body"><pre>{{ (ds.config as any).body }}</pre></dd>
       </dl>
-      <button class="primary" :disabled="running" @click="run">{{ running ? '执行中…' : '立即执行' }}</button>
+      <Button :disabled="running" @click="run">{{ running ? '执行中…' : '立即执行' }}</Button>
     </div>
     <div class="right">
       <h4>响应</h4>

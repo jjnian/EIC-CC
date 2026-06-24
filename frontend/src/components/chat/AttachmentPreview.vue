@@ -3,6 +3,7 @@ import { computed, ref, watch, type PropType } from 'vue';
 import type { ChatMsgAttachment } from '../../composables/useConversations';
 import { toast } from '../../composables/useToast';
 import { renderMarkdown } from '../../utils/markdown';
+import { Button } from '@/components/ui/button';
 
 const props = defineProps({
   attachment: { type: Object as PropType<ChatMsgAttachment | null>, default: null },
@@ -66,6 +67,7 @@ const copyText = async () => {
 </script>
 
 <template>
+  <Teleport to="body">
   <div v-if="a" class="ap-backdrop" @mousedown="onBackdrop">
     <div class="ap-dialog">
       <div class="ap-head">
@@ -76,7 +78,7 @@ const copyText = async () => {
           <span v-if="a.truncated" class="ap-tag">原文已截断</span>
           <span v-if="a.storedTruncated" class="ap-tag ap-tag-warn">未持久化</span>
         </div>
-        <button class="ap-close" @click="emit('close')" title="关闭">×</button>
+        <Button variant="ghost" size="icon-sm" @click="emit('close')" title="关闭">×</Button>
       </div>
 
       <div class="ap-body">
@@ -108,15 +110,16 @@ const copyText = async () => {
       </div>
 
       <div class="ap-foot">
-        <button v-if="isMarkdown" class="ap-btn" @click="showSource = !showSource">
+        <Button v-if="isMarkdown" variant="outline" size="sm" @click="showSource = !showSource">
           {{ showSource ? '阅读视图' : '查看源码' }}
-        </button>
+        </Button>
         <span class="ap-foot-spacer"></span>
-        <button v-if="a.content && a.kind === 'text'" class="ap-btn" @click="copyText">复制文本</button>
-        <button v-if="a.content" class="ap-btn ap-btn-hi" @click="download">下载</button>
+        <Button v-if="a.content && a.kind === 'text'" variant="outline" size="sm" @click="copyText">复制文本</Button>
+        <Button v-if="a.content" size="sm" @click="download">下载</Button>
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

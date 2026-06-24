@@ -14,6 +14,8 @@ import HttpExecuteTab from './HttpExecuteTab.vue';
 import HttpHistoryTab from './HttpHistoryTab.vue';
 import HttpScheduleTab from './HttpScheduleTab.vue';
 import DataSourceConfigForm from './DataSourceConfigForm.vue';
+import { Button } from '@/components/ui/button';
+import BaseInput from '../form/BaseInput.vue';
 
 const props = defineProps<{ dsId: string; hasCurrentModel?: boolean }>();
 const tree = useSidebarTree();
@@ -121,13 +123,14 @@ watch(() => props.dsId, load);
           <input type="checkbox" v-model="ddlWithSamples" :disabled="exportingDdl" />
           <span>附带样例数据（10 行/表）</span>
         </label>
-        <button
+        <Button
           v-if="isDb"
-          class="ddl-export"
+          variant="secondary"
+          size="sm"
           :disabled="exportingDdl"
           :title="ddlWithSamples ? '把库表结构（DDL）+ 每表前 10 行样例数据导出为一条经验' : '把库表结构（DDL）导出为一条经验，供对话建模召回'"
           @click="exportDdlToExperience"
-        >{{ exportingDdl ? '导出中…' : '⤴ 导出 DDL 到经验库' }}</button>
+        >{{ exportingDdl ? '导出中…' : '⤴ 导出 DDL 到经验库' }}</Button>
       </header>
       <nav class="tabs">
         <button v-for="t in tabs" :key="t.id" :class="{ active: tab === t.id }" @click="tab = t.id">{{ t.label }}</button>
@@ -175,9 +178,9 @@ watch(() => props.dsId, load);
           />
           <label v-else class="row">
             <span>名称</span>
-            <input v-model="editName" />
+            <BaseInput v-model="editName" />
           </label>
-          <button class="primary" :disabled="saving" @click="saveEdit">{{ saving ? '保存中…' : '保存' }}</button>
+          <Button :disabled="saving" @click="saveEdit">{{ saving ? '保存中…' : '保存' }}</Button>
         </div>
       </section>
     </template>

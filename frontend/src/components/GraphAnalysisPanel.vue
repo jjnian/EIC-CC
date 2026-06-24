@@ -4,6 +4,7 @@ import type { OntologyNode, OntologyEdge } from '../types';
 import GraphStatsTab from './analysis/GraphStatsTab.vue';
 import NodeAnalysisTab from './analysis/NodeAnalysisTab.vue';
 import PathQueryTab from './analysis/PathQueryTab.vue';
+import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
   nodes: OntologyNode[];
@@ -34,7 +35,7 @@ watch(() => props.selectedId, (id) => {
         <button :class="['gap-tab', { on: tab === 1 }]" @click="tab = 1">节点分析</button>
         <button :class="['gap-tab', { on: tab === 2 }]" @click="tab = 2">路径查询</button>
       </div>
-      <button class="gap-close" @click="emit('close')">×</button>
+      <Button variant="ghost" size="icon-sm" @click="emit('close')">×</Button>
     </div>
 
     <div class="gap-body">

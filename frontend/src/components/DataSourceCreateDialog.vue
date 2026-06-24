@@ -83,6 +83,7 @@ const submit = async () => {
 </script>
 
 <template>
+  <Teleport to="body">
   <div class="dlg-mask" @click.self="emit('close')">
     <div class="dlg" :style="{ '--c': accentOf(kind) }">
       <span class="dlg-corner tl" /><span class="dlg-corner tr" />
@@ -93,7 +94,7 @@ const submit = async () => {
           <div class="dlg-kicker">{{ step === 'pick' ? 'NEW · DATA SOURCE' : 'CONFIGURE · ' + (kind || '').toUpperCase() }}</div>
           <h3>{{ step === 'pick' ? '添加数据源' : labelOf(kind) + ' 连接' }}</h3>
         </div>
-        <button class="dlg-x" @click="emit('close')">×</button>
+        <Button variant="ghost" size="icon-sm" @click="emit('close')">×</Button>
       </div>
 
       <!-- 步骤指示 -->
@@ -148,6 +149,7 @@ const submit = async () => {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

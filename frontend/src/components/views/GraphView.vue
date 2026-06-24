@@ -8,6 +8,7 @@ import ExplanationPanel from '../ExplanationPanel.vue';
 import SchemaPanel from '../SchemaPanel.vue';
 import GraphAnalysisPanel from '../GraphAnalysisPanel.vue';
 import { toast } from '../../composables/useToast';
+import { Button } from '@/components/ui/button';
 import type { OntologyNode, OntologyEdge, ChainStep, GraphMutation } from '../../types';
 
 const props = defineProps({
@@ -192,7 +193,7 @@ const analysisOpen = ref(false);
       <div v-if="activeBranchId !== 'trunk' && !liveActive" class="branch-banner">
         <span class="bb-icon">⚡</span>
         <span>当前查看推演分支 · 可右键节点从此再次分叉</span>
-        <button class="bb-back" @click="emit('switch-branch', 'trunk')">返回主分支</button>
+        <Button variant="outline" size="sm" @click="emit('switch-branch', 'trunk')">返回主分支</Button>
       </div>
       <NodeInfo
         :node="selNode"
@@ -230,11 +231,13 @@ const analysisOpen = ref(false);
         @highlight-diff="(d) => emit('highlight-diff', d)"
       />
       <!-- 图分析按钮（悬浮在画布右上角） -->
-      <button
-        :class="['analysis-btn', { on: analysisOpen }]"
+      <Button
+        :variant="analysisOpen ? 'default' : 'outline'"
+        size="sm"
+        class="analysis-btn"
         @click="analysisOpen = !analysisOpen"
         title="图谱分析：节点/关系精确统计与路径查询"
-      >📊 分析</button>
+      >📊 分析</Button>
     </div>
     <SchemaPanel
       :open="schemaOpen"
@@ -324,18 +327,7 @@ const analysisOpen = ref(false);
 .analysis-btn {
   position: absolute;
   top: 12px; right: 12px;
-  background: rgba(22, 24, 32, 0.88);
-  border: 1px solid rgba(255,255,255,.15);
-  color: #c0c4cf;
-  padding: 5px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-  font-family: inherit;
   z-index: 15;
   backdrop-filter: blur(8px);
-  transition: background-color .15s, color .15s;
 }
-.analysis-btn:hover { background: rgba(74,141,240,.15); color: #4a8df0; border-color: rgba(74,141,240,.4); }
-.analysis-btn.on { background: rgba(74,141,240,.2); color: #4a8df0; border-color: rgba(74,141,240,.5); }
 </style>

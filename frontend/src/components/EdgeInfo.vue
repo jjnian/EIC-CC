@@ -2,6 +2,16 @@
 import { ref, computed, watch } from 'vue';
 import { NT } from '../constants';
 import type { OntologyNode, OntologyEdge } from '../types';
+import { Button } from '@/components/ui/button';
+import BaseSelect from './form/BaseSelect.vue';
+
+const CONSTRAINT_KIND_OPTIONS = [
+  { value: 'cardinality', label: '基数' },
+  { value: 'exclusive', label: '互斥' },
+  { value: 'symmetric', label: '对称' },
+  { value: 'transitive', label: '传递' },
+  { value: 'custom', label: '自定义' },
+];
 
 const props = defineProps<{
   edge: OntologyEdge | null;
@@ -184,9 +194,9 @@ const startResize = (e: MouseEvent) => {
                 <span class="ni-current-dot" style="background:#fbbf24" />
                 <span class="ni-current-lb">{{ edge.label || '(未命名关系)' }}</span>
               </span>
-              <button class="ni-prop-add ei-edit-btn" @click="emit('edit-relation', edge.id)" title="编辑输入/输出">编辑输入输出</button>
-              <button class="ei-del-btn" @click="emit('delete-relation', edge.id)" title="删除整组关系">删除关系</button>
-              <button class="ni-list-close" @click="emit('close')" title="关闭">×</button>
+              <Button variant="outline" size="sm" @click="emit('edit-relation', edge.id)" title="编辑输入/输出">编辑输入输出</Button>
+              <Button variant="ghost" size="sm" class="text-destructive" @click="emit('delete-relation', edge.id)" title="删除整组关系">删除关系</Button>
+              <Button variant="ghost" size="icon-sm" @click="emit('close')" title="关闭">×</Button>
             </div>
           </div>
 
@@ -379,20 +389,14 @@ const startResize = (e: MouseEvent) => {
               <div class="ni-card">
                 <div class="ni-card-head">
                   <div class="ni-card-title">关系约束 <span class="ni-card-count">{{ (edge.constraints || []).length }}</span></div>
-                  <button class="ni-prop-add ni-prop-add--head" @click="addEdgeConstraint">+ 新增约束</button>
+                  <Button variant="outline" size="sm" @click="addEdgeConstraint">+ 新增约束</Button>
                 </div>
                 <div v-if="(edge.constraints?.length || 0) > 0" class="ni-cons-list">
                   <div v-for="(c, i) in (edge.constraints || [])" :key="'ec'+i" class="ni-cons-item">
                     <div class="ni-cons-head">
-                      <select class="ni-inline-select" :value="c.kind || 'custom'" @change="(ev: any) => updateEdgeConstraint(i, 'kind', ev.target.value)">
-                        <option value="cardinality">基数</option>
-                        <option value="exclusive">互斥</option>
-                        <option value="symmetric">对称</option>
-                        <option value="transitive">传递</option>
-                        <option value="custom">自定义</option>
-                      </select>
+                      <div class="ei-kind-sel"><BaseSelect size="sm" :model-value="c.kind || 'custom'" :options="CONSTRAINT_KIND_OPTIONS" @update:model-value="updateEdgeConstraint(i, 'kind', $event)" /></div>
                       <span class="ni-badge" :style="{color: sourceBadge(c.source).color, background: sourceBadge(c.source).bg}">{{ sourceBadge(c.source).text }}</span>
-                      <button class="ni-prop-del" @click="removeEdgeConstraint(i)" title="删除">✕</button>
+                      <Button variant="ghost" size="icon-sm" class="text-destructive" @click="removeEdgeConstraint(i)" title="删除">✕</Button>
                     </div>
                     <input class="ni-inline-input" :value="c.note" placeholder="约束说明" @change="(ev: any) => updateEdgeConstraint(i, 'note', ev.target.value)" />
                   </div>
@@ -467,4 +471,5 @@ const startResize = (e: MouseEvent) => {
   border-radius: 4px;
 }
 .ei-evidence-icon { color: #22dd88; font-weight: 700; font-style: normal; flex-shrink: 0; }
+.ei-kind-sel { width: 110px; flex-shrink: 0; }
 </style>

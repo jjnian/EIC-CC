@@ -7,6 +7,9 @@ import {
 } from '../api/nodeBindings';
 import { ApiError } from '../api/http';
 import { toast } from '../composables/useToast';
+import { Button } from '@/components/ui/button';
+import BaseInput from './form/BaseInput.vue';
+import BaseSelect from './form/BaseSelect.vue';
 
 const props = defineProps<{
   modelId?: string;
@@ -33,6 +36,7 @@ const fetching = ref<string | null>(null);
 
 const dbSources = computed(() =>
   dataSources.value.filter(d => ['mysql', 'pgsql', 'oracle', 'dm', 'gbase'].includes(d.kind)));
+const dsOptions = computed(() => dbSources.value.map(d => ({ value: d.id, label: `${d.name}（${d.kind}）` })));
 const dsName = (id: string) => dataSources.value.find(d => d.id === id)?.name || id;
 
 const loadBindings = async () => {
@@ -126,7 +130,7 @@ const runFetch = async (b: NodeBinding) => {
     <template v-else>
       <div class="ndb-head">
         <span class="ndb-title">数据供血绑定 <span class="ndb-count">{{ bindings.length }}</span></span>
-        <button v-if="!adding" class="ndb-add" @click="startAdd">＋ 绑定数据源</button>
+        <Button v-if="!adding" variant="outline" size="sm" @click="startAdd">＋ 绑定数据源</Button>
       </div>
       <p class="ndb-desc">把节点「{{ nodeLabel || nodeId }}」绑定到数据源的表，运行时按绑定取数为该节点供血。</p>
 
@@ -138,25 +142,22 @@ const runFetch = async (b: NodeBinding) => {
         <template v-else>
           <label class="ndb-row">
             <span>数据源</span>
-            <select v-model="formDsId">
-              <option v-for="d in dbSources" :key="d.id" :value="d.id">{{ d.name }}（{{ d.kind }}）</option>
-            </select>
+            <div class="ndb-ctl"><BaseSelect v-model="formDsId" :options="dsOptions" placeholder="请选择数据源" /></div>
           </label>
           <label class="ndb-row">
             <span>表名</span>
-            <select v-if="tableOptions.length" v-model="formTable">
-              <option value="">{{ tablesLoading ? '加载中…' : '请选择表' }}</option>
-              <option v-for="t in tableOptions" :key="t" :value="t">{{ t }}</option>
-            </select>
-            <input v-else v-model="formTable" :placeholder="tablesLoading ? '加载表…' : '输入表名'" />
+            <div class="ndb-ctl">
+              <BaseSelect v-if="tableOptions.length" v-model="formTable" :options="tableOptions" :placeholder="tablesLoading ? '加载中…' : '请选择表'" />
+              <BaseInput v-else v-model="formTable" :placeholder="tablesLoading ? '加载表…' : '输入表名'" />
+            </div>
           </label>
           <label class="ndb-row">
             <span>过滤条件</span>
-            <input v-model="formFilter" placeholder="可选 WHERE 片段，如 status = 1（只读）" />
+            <div class="ndb-ctl"><BaseInput v-model="formFilter" placeholder="可选 WHERE 片段，如 status = 1（只读）" /></div>
           </label>
           <div class="ndb-form-actions">
-            <button class="ndb-btn primary" :disabled="saving" @click="saveBinding">{{ saving ? '保存中…' : '保存绑定' }}</button>
-            <button class="ndb-btn ghost" @click="cancelAdd">取消</button>
+            <Button size="sm" :disabled="saving" @click="saveBinding">{{ saving ? '保存中…' : '保存绑定' }}</Button>
+            <Button variant="ghost" size="sm" @click="cancelAdd">取消</Button>
           </div>
         </template>
       </div>
@@ -171,10 +172,10 @@ const runFetch = async (b: NodeBinding) => {
           <span class="ndb-item-table">· {{ b.tableName || '(未指定表)' }}</span>
           <span v-if="b.filterSql" class="ndb-item-filter">WHERE {{ b.filterSql }}</span>
           <span class="ndb-spacer" />
-          <button class="ndb-mini" :disabled="fetching === b.id" @click="runFetch(b)">
+          <Button variant="outline" size="sm" :disabled="fetching === b.id" @click="runFetch(b)">
             {{ fetching === b.id ? '取数中…' : '取数预览' }}
-          </button>
-          <button class="ndb-mini del" title="删除绑定" @click="removeBinding(b)">✕</button>
+          </Button>
+          <Button variant="ghost" size="icon-sm" class="text-destructive" title="删除绑定" @click="removeBinding(b)">✕</Button>
         </div>
 
         <div v-if="fetchResults[b.id]" class="ndb-result">
@@ -213,9 +214,7 @@ const runFetch = async (b: NodeBinding) => {
 .ndb-empty-ds { color: #f0c660; font-size: 12px; }
 .ndb-row { display: flex; align-items: center; gap: 10px; }
 .ndb-row > span { min-width: 56px; color: #8a91a0; font-size: 12px; }
-.ndb-row select, .ndb-row input { flex: 1; background: rgba(0,0,0,.25);
-  border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 6px 8px;
-  color: var(--text-main, #e8eaed); font-size: 12.5px; font-family: inherit; }
+.ndb-ctl { flex: 1; min-width: 0; }
 .ndb-form-actions { display: flex; gap: 8px; }
 .ndb-btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12.5px; font-family: inherit; }
 .ndb-btn.primary { background: var(--accent); color: #fff; font-weight: 600; }

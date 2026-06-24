@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue';
 import { listFetchLogs } from '../../api/dataSources';
 import type { FetchLog } from '../../api/dataSources';
+import { Button } from '@/components/ui/button';
 
 const props = defineProps<{ dsId: string }>();
 const logs = ref<FetchLog[]>([]);
@@ -23,7 +24,7 @@ watch(() => props.dsId, load);
   <div class="tab">
     <div class="bar">
       <span>最近 {{ logs.length }} 条</span>
-      <button @click="load">↻</button>
+      <Button variant="ghost" size="icon-sm" @click="load">↻</Button>
     </div>
     <div class="list">
       <div v-if="loading" class="msg">加载中…</div>

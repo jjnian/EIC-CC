@@ -4,6 +4,9 @@ import { useWorkspaces } from '../composables/useWorkspaces';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
 import type { Workspace } from '../api/workspaces';
+import { Button } from '@/components/ui/button';
+import BaseInput from './form/BaseInput.vue';
+import BaseTextarea from './form/BaseTextarea.vue';
 
 const emit = defineEmits<{
   (e: 'enter', ws: Workspace): void;
@@ -91,42 +94,44 @@ const formatTime = (ts?: number) => {
 
       <div class="wp-empty" v-else-if="!ws.loading.value">
         <p>还没有工作空间</p>
-        <button class="wp-btn-primary" @click="openCreate">新建工作空间</button>
+        <Button @click="openCreate">新建工作空间</Button>
       </div>
 
       <div class="wp-loading" v-else>加载中…</div>
     </div>
 
+    <Teleport to="body">
     <div v-if="showCreate" class="wp-mask" @click.self="showCreate = false">
       <div class="wp-dialog">
         <h3>新建工作空间</h3>
         <label>
           名称
-          <input
+          <BaseInput
             v-model="newName"
             placeholder="例如：供应链项目"
-            maxlength="120"
-            @keydown.enter="submitCreate"
+            @enter="submitCreate"
           />
         </label>
         <label>
           描述（可选）
-          <textarea
+          <BaseTextarea
             v-model="newDesc"
-            rows="3"
+            :rows="3"
             placeholder="记录该工作空间的用途…"
           />
         </label>
         <div class="wp-actions">
-          <button class="wp-btn-cancel" @click="showCreate = false">取消</button>
-          <button
-            class="wp-btn-primary"
+          <Button variant="secondary" size="sm" @click="showCreate = false">取消</Button>
+          <Button
+            size="sm"
+           
             :disabled="!newName.trim() || creating"
             @click="submitCreate"
-          >{{ creating ? '创建中…' : '创建并进入' }}</button>
+          >{{ creating ? '创建中…' : '创建并进入' }}</Button>
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 

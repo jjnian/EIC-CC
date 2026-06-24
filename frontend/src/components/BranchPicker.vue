@@ -4,6 +4,7 @@ import type { Scenario } from '../types';
 import { confirm } from '../composables/useConfirm';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
   branches: Scenario[];
@@ -161,9 +162,9 @@ const onDelete = async (id: string, e: Event) => {
       <div v-else class="bp-empty">暂无推演分支<br/>右键节点 → 「从此推演」生成</div>
 
       <div v-if="hasLegacy" class="bp-footer">
-        <button class="bp-migrate" @click="emit('migrate'); open = false" title="把 v0.5/0.6 老分支升级为 v0.9 delta 格式">
+        <Button variant="ghost" size="sm" @click="emit('migrate'); open = false" title="把 v0.5/0.6 老分支升级为 v0.9 delta 格式">
           ⚙ 升级旧分支到 v0.9
-        </button>
+        </Button>
       </div>
     </DropdownMenuContent>
   </DropdownMenu>

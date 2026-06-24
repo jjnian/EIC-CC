@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // UI 改用 shadcn-vue Dialog；props/emit/逻辑不变（父组件 v-if 挂载，故恒 open）。
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 defineProps<{
   templates: any[];
@@ -30,7 +31,7 @@ const emit = defineEmits<{
               {{ t.desc ? ' · ' + t.desc : '' }}
             </div>
           </div>
-          <button class="ml-del" @click.stop="emit('remove', t.id)" title="删除模板">×</button>
+          <Button variant="ghost" size="icon-sm" @click.stop="emit('remove', t.id)" title="删除模板">×</Button>
         </div>
       </div>
     </DialogContent>

@@ -5,6 +5,8 @@ import { useImportFiles } from '../composables/useImportFiles';
 import { useExtractStream, type ExtractedNode, type ExtractedEdge } from '../composables/useExtractStream';
 import { useImportDedup } from '../composables/useImportDedup';
 import { Button } from '@/components/ui/button';
+import BaseInput from './form/BaseInput.vue';
+import BaseTextarea from './form/BaseTextarea.vue';
 
 const props = defineProps<{
   open: boolean;
@@ -118,11 +120,12 @@ const onBackdrop = (e: MouseEvent) => {
 </script>
 
 <template>
+  <Teleport to="body">
   <div v-if="open" class="imp-backdrop" @mousedown="onBackdrop">
     <div class="imp-dialog">
       <div class="imp-head">
         <div class="imp-title"><span class="imp-icon">📥</span><span>从文档 / 网页抽取本体</span></div>
-        <button class="imp-close" @click="emit('close')">×</button>
+        <Button variant="ghost" size="icon-sm" @click="emit('close')">×</Button>
       </div>
 
       <div class="imp-body">
@@ -154,17 +157,16 @@ const onBackdrop = (e: MouseEvent) => {
               <span class="imp-file-icon">{{ f.type.startsWith('image/') ? '🖼' : f.type.startsWith('audio/') ? '🎵' : '📄' }}</span>
               <span class="imp-file-name">{{ f.name }}</span>
               <span class="imp-file-size">{{ fmtSize(f.size) }}</span>
-              <button class="imp-file-x" @click="removeFile(i)" type="button">×</button>
+              <Button variant="ghost" size="icon-sm" @click="removeFile(i)" type="button">×</Button>
             </div>
           </div>
 
           <label class="imp-label" style="margin-top: 4px;">或粘贴网址（每行一个，最多 {{ URL_LIMIT }} 个）</label>
-          <textarea
+          <BaseTextarea
             v-model="urlInput"
-            class="imp-url-area"
-            placeholder="https://example.com/article&#10;https://another.site/page"
-            rows="3"
-            spellcheck="false"
+            placeholder="https://example.com/article
+https://another.site/page"
+            :rows="3"
           />
           <div v-if="parsedUrls.length" class="imp-url-meta">
             已识别 {{ parsedUrls.length }} 个网址
@@ -196,10 +198,9 @@ const onBackdrop = (e: MouseEvent) => {
               <span class="imp-tab-sub">独立创建一份本体</span>
             </button>
           </div>
-          <input
+          <BaseInput
             v-if="mode === 'new'"
             v-model="newName"
-            class="imp-input"
             placeholder="新模型名称…"
             style="margin-top: 10px;"
           />
@@ -265,10 +266,11 @@ const onBackdrop = (e: MouseEvent) => {
                 </span>
                 <span v-else class="imp-source-meta imp-source-skip">{{ s.reason }}</span>
                 <span v-if="s.renderedPages" class="imp-source-rendered">📸 渲染 {{ s.renderedPages }} 页</span>
-                <button v-if="(s.type === 'audio' || s.type === 'image') && (s.transcript || '').trim()"
-                        type="button" class="imp-source-toggle" @click="toggleSourceTranscript(i)">
+                <Button v-if="(s.type === 'audio' || s.type === 'image') && (s.transcript || '').trim()"
+                        variant="ghost" size="sm"
+                        type="button" @click="toggleSourceTranscript(i)">
                   {{ expandedSources.has(i) ? '收起文字' : (s.type === 'image' ? '查看识别' : '查看转写') }}
-                </button>
+                </Button>
               </div>
               <pre v-if="(s.type === 'audio' || s.type === 'image') && expandedSources.has(i) && (s.transcript || '').trim()"
                    class="imp-transcript">{{ s.transcript }}</pre>
@@ -279,7 +281,7 @@ const onBackdrop = (e: MouseEvent) => {
             <div class="imp-col">
               <div class="imp-col-head">
                 <span>节点 ({{ selectedNodeIds.size }} / {{ displayedNodes.length }})</span>
-                <button class="imp-link" @click="toggleAllNodes" type="button">全选 / 反选</button>
+                <Button variant="link" size="sm" @click="toggleAllNodes" type="button">全选 / 反选</Button>
               </div>
               <div class="imp-list">
                 <label v-for="n in displayedNodes" :key="n.id" class="imp-list-row">
@@ -293,7 +295,7 @@ const onBackdrop = (e: MouseEvent) => {
             <div class="imp-col">
               <div class="imp-col-head">
                 <span>关系 ({{ selectedEdgeIds.size }} / {{ displayedEdges.length }})</span>
-                <button class="imp-link" @click="toggleAllEdges" type="button">全选 / 反选</button>
+                <Button variant="link" size="sm" @click="toggleAllEdges" type="button">全选 / 反选</Button>
               </div>
               <div class="imp-list">
                 <label v-for="e in displayedEdges" :key="e.id" class="imp-list-row">
@@ -330,6 +332,7 @@ const onBackdrop = (e: MouseEvent) => {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

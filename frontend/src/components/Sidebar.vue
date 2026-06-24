@@ -5,6 +5,8 @@ import WorkspaceNode from './WorkspaceNode.vue';
 import { toast } from '../composables/useToast';
 import { ApiError } from '../api/http';
 import { isNavActive, type NavRoute, type ViewId } from '../views';
+import { Button } from '@/components/ui/button';
+import BaseInput from './form/BaseInput.vue';
 
 const props = defineProps<{
   expanded: boolean;
@@ -136,25 +138,24 @@ const submitCreate = async () => {
     </button>
 
     <!-- 新建工作空间弹层 -->
+    <Teleport to="body">
     <div v-if="showCreate" class="sb-mask" @click.self="showCreate = false">
       <div class="sb-dialog">
         <h3>新建工作空间</h3>
-        <input
+        <BaseInput
           v-model="newName"
           placeholder="工作空间名称"
-          maxlength="120"
-          autofocus
-          @keydown.enter="submitCreate"
-          @keydown.escape="showCreate = false"
+          @enter="submitCreate"
         />
         <div class="sb-dialog-actions">
-          <button class="sb-btn-cancel" @click="showCreate = false">取消</button>
-          <button class="sb-btn-primary" :disabled="!newName.trim() || creating" @click="submitCreate">
+          <Button variant="secondary" size="sm" @click="showCreate = false">取消</Button>
+          <Button size="sm" :disabled="!newName.trim() || creating" @click="submitCreate">
             {{ creating ? '创建中…' : '创建并进入' }}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
