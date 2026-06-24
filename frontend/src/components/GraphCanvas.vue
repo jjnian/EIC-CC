@@ -362,6 +362,7 @@ defineExpose({ fitView, focusNode });
     </div>
 
     <!-- Right-click context menu -->
+    <Teleport to="body">
     <div v-if="ctxMenu" class="node-ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @click.stop>
       <button class="ctx-item" @click="triggerPredict">
         <span class="ctx-icon">⚡</span>
@@ -389,6 +390,7 @@ defineExpose({ fitView, focusNode });
         <span>删除节点</span>
       </button>
     </div>
+    </Teleport>
 
     <!-- 添加对象/关系表单 (画布空白处右键) -->
     <Teleport to="body">
