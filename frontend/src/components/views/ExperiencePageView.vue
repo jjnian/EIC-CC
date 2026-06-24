@@ -710,6 +710,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
     />
 
     <!-- 接入 Web 系统：保存连接 → 探索生成业务文档 -->
+    <Teleport to="body">
     <div v-if="exploreOpen" class="exp-modal-mask" @click.self="closeExplore">
       <div class="exp-modal" :style="{ '--c': 'var(--accent-3)' }">
         <span class="exp-modal-corner tl" /><span class="exp-modal-corner tr" />
@@ -777,6 +778,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 

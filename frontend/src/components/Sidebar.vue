@@ -138,6 +138,7 @@ const submitCreate = async () => {
     </button>
 
     <!-- 新建工作空间弹层 -->
+    <Teleport to="body">
     <div v-if="showCreate" class="sb-mask" @click.self="showCreate = false">
       <div class="sb-dialog">
         <h3>新建工作空间</h3>
@@ -154,6 +155,7 @@ const submitCreate = async () => {
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 

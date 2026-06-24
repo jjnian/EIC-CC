@@ -67,6 +67,7 @@ const copyText = async () => {
 </script>
 
 <template>
+  <Teleport to="body">
   <div v-if="a" class="ap-backdrop" @mousedown="onBackdrop">
     <div class="ap-dialog">
       <div class="ap-head">
@@ -118,6 +119,7 @@ const copyText = async () => {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

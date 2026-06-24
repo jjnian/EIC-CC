@@ -391,6 +391,7 @@ defineExpose({ fitView, focusNode });
     </div>
 
     <!-- 添加对象/关系表单 (画布空白处右键) -->
+    <Teleport to="body">
     <div v-if="addNodeForm" class="modal-mask" @click.self="addNodeForm = null">
       <div class="add-node-dialog" @click.stop>
         <!-- 模式切换 -->
@@ -481,6 +482,7 @@ defineExpose({ fitView, focusNode });
         </template>
       </div>
     </div>
+    </Teleport>
 
     <div class="hud-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">
       <div class="search-bar" v-if="!readonly" style="pointer-events: auto;">

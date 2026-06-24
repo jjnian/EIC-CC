@@ -83,6 +83,7 @@ const submit = async () => {
 </script>
 
 <template>
+  <Teleport to="body">
   <div class="dlg-mask" @click.self="emit('close')">
     <div class="dlg" :style="{ '--c': accentOf(kind) }">
       <span class="dlg-corner tl" /><span class="dlg-corner tr" />
@@ -148,6 +149,7 @@ const submit = async () => {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

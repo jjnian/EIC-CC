@@ -120,6 +120,7 @@ const onBackdrop = (e: MouseEvent) => {
 </script>
 
 <template>
+  <Teleport to="body">
   <div v-if="open" class="imp-backdrop" @mousedown="onBackdrop">
     <div class="imp-dialog">
       <div class="imp-head">
@@ -331,6 +332,7 @@ https://another.site/page"
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

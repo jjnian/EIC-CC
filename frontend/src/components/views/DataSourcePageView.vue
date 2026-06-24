@@ -336,6 +336,7 @@ const submit = async () => {
     </div>
 
     <!-- 只读预览(不切换工作空间) -->
+    <Teleport to="body">
     <div v-if="previewItem" class="preview-overlay" @click.self="closePreview">
       <div class="preview-panel">
         <div class="preview-head">
@@ -362,6 +363,7 @@ const submit = async () => {
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 

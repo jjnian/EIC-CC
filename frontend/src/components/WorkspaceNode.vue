@@ -1081,6 +1081,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
     </div>
 
     <!-- 引用公共库选择器：从公共经验/数据源勾选，引用进本工作空间 -->
+    <Teleport to="body">
     <div v-if="refPicker" class="ref-mask" @click.self="closeRefPicker">
       <div class="ref-dialog">
         <div class="ref-head">
@@ -1118,6 +1119,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 

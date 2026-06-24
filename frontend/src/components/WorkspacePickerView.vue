@@ -100,6 +100,7 @@ const formatTime = (ts?: number) => {
       <div class="wp-loading" v-else>加载中…</div>
     </div>
 
+    <Teleport to="body">
     <div v-if="showCreate" class="wp-mask" @click.self="showCreate = false">
       <div class="wp-dialog">
         <h3>新建工作空间</h3>
@@ -130,6 +131,7 @@ const formatTime = (ts?: number) => {
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
