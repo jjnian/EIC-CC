@@ -292,12 +292,29 @@ public class BrowserAgentDriver {
         return a != null && a.equalsIgnoreCase(b);
     }
 
-    /** 取可注册域(末两段域名);单段主机(localhost)/无点直接返回原值。 */
+    /**
+     * 常见的「二级公共后缀」：这些 TLD 的可注册域要取末三段（如 a.example.com.cn）。
+     * <p>不引入完整 Public Suffix List，仅覆盖最常见的中/英/日/澳等 ccTLD，足以避免把
+     * {@code a.com.cn} 与 {@code b.com.cn} 误判为同站。无匹配时退化为「末两段」。
+     */
+    private static final Set<String> TWO_LABEL_SUFFIXES = Set.of(
+            "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "ac.cn",
+            "co.uk", "org.uk", "gov.uk", "ac.uk", "me.uk",
+            "co.jp", "or.jp", "ne.jp", "co.kr", "or.kr",
+            "com.hk", "com.tw", "com.au", "net.au", "org.au",
+            "com.sg", "com.br", "com.mx");
+
+    /** 取可注册域;单段主机(localhost)/无点直接返回原值;识别常见二级公共后缀取末三段。 */
     private static String registrableDomain(String host) {
         if (host == null) return null;
-        String[] p = host.split("\\.");
-        if (p.length < 2) return host;
-        return p[p.length - 2] + "." + p[p.length - 1];
+        String h = host.toLowerCase();
+        String[] p = h.split("\\.");
+        if (p.length < 2) return h;
+        String lastTwo = p[p.length - 2] + "." + p[p.length - 1];
+        if (p.length >= 3 && TWO_LABEL_SUFFIXES.contains(lastTwo)) {
+            return p[p.length - 3] + "." + lastTwo;
+        }
+        return lastTwo;
     }
 
     /**
