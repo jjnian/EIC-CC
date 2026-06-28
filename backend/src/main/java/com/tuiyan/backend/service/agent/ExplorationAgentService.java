@@ -19,9 +19,10 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDate;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -81,10 +82,11 @@ public class ExplorationAgentService {
         List<PageRecord> pages = new ArrayList<>();
         List<String> trail = new ArrayList<>();
         LinkedHashSet<String> visited = new LinkedHashSet<>();
-        // 全局 frontier：跨页面累积的「同站、未访问」链接。LLM 在某页判断 done/卡住时，
-        // 只要 frontier 里还有没去过的页面，就直接导航过去继续铺开功能树（广度优先），
-        // 而不是过早结束——这是把"贪心局部 + 早停"改成"系统化覆盖"的关键。
-        LinkedHashSet<String> frontier = new LinkedHashSet<>();
+        // 全局 frontier：跨页面累积的待探索任务。两种任务:
+        //   ① URL 直达(有同站 href 的页面)——直接导航;
+        //   ② 点击型(无 href、纯 JS 路由的菜单/标签项)——回到它所在页面再按名字点它。
+        // LLM 在某页判断 done/卡住时,只要 frontier 还有没做过的任务就继续,把整棵功能树铺全。
+        Deque<Task> frontier = new ArrayDeque<>();
         Set<String> queued = new HashSet<>();
         String loginNote = null;
         boolean loggedIn = false;
@@ -131,8 +133,8 @@ public class ExplorationAgentService {
 
                 boolean isNew = visited.add(norm);
                 stuck = isNew ? 0 : stuck + 1;
-                // 收集本页的「同站、未访问」链接进全局 frontier，供后续系统化补全覆盖
-                harvestFrontier(snap, url, frontier, queued, visited);
+                // 收集本页的导航元素(同站链接 + 无 href 的菜单/标签项)进全局 frontier
+                harvestFrontier(snap, url, norm, frontier, queued, visited);
 
                 step.emit("perceive", "第 " + i + " 步 · 读取页面:" + title);
                 JsonNode decision = decide(cfg, anthropic, buildUserPrompt(snap, visited, i, budget));
@@ -142,28 +144,28 @@ public class ExplorationAgentService {
                 if (!summary.isBlank()) step.emit("think", "第 " + i + " 步 · " + summary);
 
                 if (stuck >= STUCK_LIMIT) {
-                    if (goToNextFrontier(session, frontier, visited, step)) { stuck = 0; continue; }
+                    if (goToNextFrontier(session, frontier, visited, step, norm)) { stuck = 0; continue; }
                     step.emit("end", "已无新页面可探索,结束。"); break;
                 }
 
                 JsonNode action = decision.path("action");
                 String type = action.path("type").asText("done");
                 if ("done".equals(type)) {
-                    // LLM 认为本页/本支已了解;若全局还有没去过的同站页面,转过去继续,而不是早停
-                    if (goToNextFrontier(session, frontier, visited, step)) continue;
+                    // LLM 认为本页/本支已了解;若全局还有没做过的导航任务,转过去继续,而不是早停
+                    if (goToNextFrontier(session, frontier, visited, step, norm)) continue;
                     step.emit("end", "智能体判断主要功能已覆盖,结束探索。"); break;
                 }
                 if ("back".equals(type)) {
                     try { session.back(); step.emit("act", "← 返回上一页"); }
                     catch (RuntimeException e) {
-                        if (goToNextFrontier(session, frontier, visited, step)) continue;
+                        if (goToNextFrontier(session, frontier, visited, step, norm)) continue;
                         step.emit("end", "无法继续后退,结束。"); break;
                     }
                     continue;
                 }
                 int ref = action.path("ref").asInt(-1);
                 if (ref < 0) {
-                    if (goToNextFrontier(session, frontier, visited, step)) continue;
+                    if (goToNextFrontier(session, frontier, visited, step, norm)) continue;
                     step.emit("end", "没有可执行的下一步,结束。"); break;
                 }
                 try {
@@ -479,47 +481,79 @@ public class ExplorationAgentService {
     private static String shorten(String s) { s = s == null ? "" : s; return s.length() > 120 ? s.substring(0, 120) + "…" : s; }
 
     /** URL 归一化:去掉 query/hash,把数字路径段换成 :id,用于把同类详情页折叠成一个页面。 */
+    /** frontier 任务:name==null → 直达 url 的 URL 任务;否则 → 回到 url 这页再按 name 点的点击任务。 */
+    private record Task(String url, String name) {}
+
+    /** 导航语义角色:这些元素即便没有 href 也值得作为「点击任务」逐个探索;普通 button 不收(多为动作/筛选,噪声大)。 */
+    private static boolean isNavRole(String role) {
+        return "link".equals(role) || "menuitem".equals(role) || "tab".equals(role);
+    }
+
     /**
-     * 把当前页快照里的「同主机、未访问、非危险」链接收进全局 frontier。
-     * <p>只收同主机(保守安全,避免跑偏;子域差异主要出现在登录阶段,已由护栏处理),
-     * 跳过 danger 元素(只读不点写操作);用 normalize 去重(忽略 query、折叠数字 id 段)。
+     * 把当前页的导航元素收进全局 frontier:
+     * <ul>
+     *   <li>有同站 href 的 → URL 直达任务(navigate);</li>
+     *   <li>无 href 但是导航语义(link/menuitem/tab)的菜单/标签项 → 点击任务(回到本页再点);</li>
+     * </ul>
+     * 跳过 danger(只读不点写操作);URL 任务按 normalize 去重,点击任务按「页面+名字」去重。仅同主机。
      */
-    private static void harvestFrontier(JsonNode snap, String pageUrl,
-                                        LinkedHashSet<String> frontier, Set<String> queued, Set<String> visited) {
+    private static void harvestFrontier(JsonNode snap, String pageUrl, String pageNorm,
+                                        Deque<Task> frontier, Set<String> queued, Set<String> visited) {
         String host = hostOf(pageUrl);
         if (host == null || host.isBlank()) return;
         for (JsonNode el : snap.path("elements")) {
-            if (frontier.size() >= 300) break;
+            if (frontier.size() >= 400) break;
             if (el.path("danger").asBoolean(false)) continue;
             String href = el.path("href").asText("");
-            if (href.isBlank() || !href.regionMatches(true, 0, "http", 0, 4)) continue;
-            String h = hostOf(href);
-            if (h == null || !h.equalsIgnoreCase(host)) continue; // 仅同主机
-            String n = normalize(href);
-            if (visited.contains(n) || queued.contains(n)) continue;
-            frontier.add(href);
-            queued.add(n);
+            String name = el.path("name").asText("");
+            String role = el.path("role").asText("");
+            if (!href.isBlank() && href.regionMatches(true, 0, "http", 0, 4)) {
+                String h = hostOf(href);
+                if (h == null || !h.equalsIgnoreCase(host)) continue;     // 仅同主机
+                String n = normalize(href);
+                String key = "U:" + n;
+                if (visited.contains(n) || queued.contains(key)) continue;
+                frontier.add(new Task(href, null));
+                queued.add(key);
+            } else if (isNavRole(role) && !name.isBlank()) {
+                // 无可直达 href 的纯 JS 路由菜单/标签:登记为「在本页点这个名字」的点击任务
+                String key = "C:" + pageNorm + "|" + name;
+                if (queued.contains(key)) continue;
+                frontier.add(new Task(pageUrl, name));
+                queued.add(key);
+            }
         }
     }
 
     /**
-     * 从 frontier 取下一个还没访问过的同站 URL 直接导航过去;打不开就试下一个。
-     * @return 成功导航返回 true(调用方应 continue 进入下一轮快照);frontier 耗尽返回 false。
+     * 取下一个还没做过的 frontier 任务并执行:URL 任务直接导航;点击任务先回到其页面(必要时)再按名字点。
+     * 失败(404/跨站被拦/找不到元素)就丢弃试下一个。
+     * @param currentNorm 当前页 normalize 后的 key,用于点击任务时判断是否需要重新导航回去
+     * @return 成功推进返回 true(调用方 continue 进入下一轮快照);frontier 耗尽返回 false。
      */
-    private boolean goToNextFrontier(Session session, LinkedHashSet<String> frontier,
-                                     Set<String> visited, StepSink step) {
-        Iterator<String> it = frontier.iterator();
-        while (it.hasNext()) {
-            String url = it.next();
-            it.remove();
-            if (visited.contains(normalize(url))) continue;
+    private boolean goToNextFrontier(Session session, Deque<Task> frontier,
+                                     Set<String> visited, StepSink step, String currentNorm) {
+        while (!frontier.isEmpty()) {
+            Task t = frontier.poll();
             try {
-                session.navigateTo(url);
-                step.emit("act", "↪ 转向未探索页面继续铺开功能树");
-                return true;
+                if (t.name() == null) {                          // URL 直达任务
+                    if (visited.contains(normalize(t.url()))) continue;
+                    session.navigateTo(t.url());
+                    step.emit("act", "↪ 转向未探索页面继续铺开功能树");
+                    return true;
+                }
+                // 点击任务:确保在目标页(不在则导航回去并展开菜单),再按名字点
+                if (currentNorm == null || !currentNorm.equals(normalize(t.url()))) {
+                    session.navigateTo(t.url());
+                    session.expandMenus();
+                }
+                if (session.clickByName(t.name())) {
+                    step.emit("act", "↪ 点击菜单「" + t.name() + "」探索其页面");
+                    return true;
+                }
+                // 没点中(名字变了/被遮挡),丢弃试下一个
             } catch (RuntimeException e) {
-                // 这个 frontier 打不开(404/跨站被护栏拦/超时),试下一个
-                log.debug("[explore-agent] frontier 导航失败,跳过 {}: {}", url, e.getMessage());
+                log.debug("[explore-agent] frontier 任务失败,跳过: {}", e.getMessage());
             }
         }
         return false;

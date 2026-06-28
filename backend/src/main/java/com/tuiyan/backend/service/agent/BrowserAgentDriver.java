@@ -263,6 +263,24 @@ public class BrowserAgentDriver {
         }
 
         /**
+         * 按可见文字点击一个「导航语义」元素（link/menuitem/tab），用于回放 frontier 里无 href 的菜单/标签点击任务。
+         * <p>只在导航元素范围内按文字匹配，不碰普通 button（多为动作/写操作）；命中登出元素或点不中都返回 false（不致命）。
+         */
+        public boolean clickByName(String name) {
+            if (name == null || name.isBlank()) return false;
+            if (LOGOUT.matcher(name).find()) return false;
+            try {
+                Locator loc = page.locator("a,[role=link],[role=menuitem],[role=tab]")
+                        .filter(new Locator.FilterOptions().setHasText(name)).first();
+                loc.click(new Locator.ClickOptions().setTimeout(CLICK_TIMEOUT_MS));
+                settle();
+                return true;
+            } catch (RuntimeException e) {
+                return false;
+            }
+        }
+
+        /**
          * 快照前先展开折叠的菜单 / 手风琴（点 aria-expanded=false 的展开器），把嵌套导航露出来，
          * 否则隐藏在二级菜单里的功能页永远进不了快照、也进不了 frontier，覆盖会漏一大片。
          * <p>纯 UI 展开操作（不改数据；写操作展开器按文案跳过，且 arm 后网络层也会拦非幂等请求）。
