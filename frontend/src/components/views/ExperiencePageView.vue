@@ -753,7 +753,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           <div class="exp-field-row">
             <label class="exp-field">
               <span>最多探索步数</span>
-              <BaseInput v-model="exploreMaxSteps" type="number" numeric :min="3" :max="40" :disabled="exploreRunning" />
+              <BaseInput v-model="exploreMaxSteps" type="number" numeric :min="3" :max="60" :disabled="exploreRunning" />
             </label>
             <BaseCheckbox v-model="exploreReadOnly" label="只读模式(拦截删除/提交/支付等写操作)" :disabled="exploreRunning" />
           </div>

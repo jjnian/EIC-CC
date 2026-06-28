@@ -40,7 +40,7 @@ import java.util.function.Consumer;
 public class ExplorationAgentService {
 
     private static final Logger log = LoggerFactory.getLogger(ExplorationAgentService.class);
-    private static final int MAX_STEPS_CAP = 40;     // 步数硬上限,防失控
+    private static final int MAX_STEPS_CAP = 60;     // 步数硬上限,防失控(frontier 系统化覆盖后放宽,容纳更大系统)
     private static final int STUCK_LIMIT = 6;        // 连续无新页面则结束
     /** 探索文档里嵌入「结构化图片段」的隐藏注释标记;建图侧据此解析并直接合并。 */
     public static final String GRAPH_MARKER = "EXPLORE_GRAPH";
@@ -117,6 +117,7 @@ public class ExplorationAgentService {
 
             for (int i = 1; i <= budget; i++) {
                 if (isCancelled.getAsBoolean()) throw new ExplorationCancelledException();
+                session.expandMenus();      // 先展开折叠的二级菜单，露出隐藏导航再快照
                 JsonNode snap = session.snapshot();
                 String url = snap.path("url").asText(session.currentUrl());
                 String norm = normalize(url);

@@ -263,6 +263,30 @@ public class BrowserAgentDriver {
         }
 
         /**
+         * 快照前先展开折叠的菜单 / 手风琴（点 aria-expanded=false 的展开器），把嵌套导航露出来，
+         * 否则隐藏在二级菜单里的功能页永远进不了快照、也进不了 frontier，覆盖会漏一大片。
+         * <p>纯 UI 展开操作（不改数据；写操作展开器按文案跳过，且 arm 后网络层也会拦非幂等请求）。
+         * 失败/无可展开元素都不致命。
+         */
+        public void expandMenus() {
+            try {
+                page.evaluate("""
+                    () => {
+                      const DANGER = /(删除|提交|支付|新建|新增|创建|保存|delete|submit|pay|confirm|create|save)/i;
+                      let n = 0;
+                      for (const e of document.querySelectorAll('[aria-expanded="false"]')) {
+                        if (n >= 60) break;
+                        const t = (e.getAttribute('aria-label') || e.innerText || '');
+                        if (DANGER.test(t)) continue;
+                        try { e.click(); n++; } catch (_) {}
+                      }
+                    }
+                    """);
+                page.waitForTimeout(350); // 等二级菜单渲染/展开动画
+            } catch (RuntimeException ignore) { /* 展开失败不致命，照常快照 */ }
+        }
+
+        /**
          * 点击 / 导航后等待页面稳定:优先等"网络空闲"(覆盖 SPA 局部刷新/异步加载,无 load 事件的情形),
          * 超时则退回 load 事件。两者都失败也不致命。
          */
@@ -344,7 +368,7 @@ public class BrowserAgentDriver {
           const elements = [];
           let ref = 0;
           for (const el of document.querySelectorAll(sel)) {
-            if (ref >= 80) break;
+            if (ref >= 120) break;
             if (!vis(el)) continue;
             const name = txt(el);
             const href = el.getAttribute('href') || '';
