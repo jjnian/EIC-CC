@@ -254,6 +254,15 @@ public class BrowserAgentDriver {
         }
 
         /**
+         * 直接导航到一个 URL：供探索循环按全局 frontier 系统化补全覆盖（广度优先）。
+         * 同站护栏仍由 route 层兜底（arm 后跨站主导航会被 abort，导致这里抛错，由上层换下一个）。
+         */
+        public void navigateTo(String url) {
+            page.navigate(url, new Page.NavigateOptions().setTimeout(NAV_TIMEOUT_MS));
+            settle();
+        }
+
+        /**
          * 点击 / 导航后等待页面稳定:优先等"网络空闲"(覆盖 SPA 局部刷新/异步加载,无 load 事件的情形),
          * 超时则退回 load 事件。两者都失败也不致命。
          */

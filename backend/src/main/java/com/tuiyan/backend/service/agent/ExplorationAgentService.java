@@ -21,6 +21,7 @@ import java.net.http.HttpResponse;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -72,7 +73,7 @@ public class ExplorationAgentService {
                                        String modelOverride, String configId, StepSink step,
                                        BooleanSupplier cancelled, Consumer<String> onStorageState) {
         BooleanSupplier isCancelled = cancelled != null ? cancelled : () -> false;
-        int budget = Math.max(1, Math.min(maxSteps <= 0 ? 15 : maxSteps, MAX_STEPS_CAP));
+        int budget = Math.max(1, Math.min(maxSteps <= 0 ? 24 : maxSteps, MAX_STEPS_CAP));
         LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(modelOverride, configId);
         boolean anthropic = http.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
@@ -80,6 +81,11 @@ public class ExplorationAgentService {
         List<PageRecord> pages = new ArrayList<>();
         List<String> trail = new ArrayList<>();
         LinkedHashSet<String> visited = new LinkedHashSet<>();
+        // 全局 frontier：跨页面累积的「同站、未访问」链接。LLM 在某页判断 done/卡住时，
+        // 只要 frontier 里还有没去过的页面，就直接导航过去继续铺开功能树（广度优先），
+        // 而不是过早结束——这是把"贪心局部 + 早停"改成"系统化覆盖"的关键。
+        LinkedHashSet<String> frontier = new LinkedHashSet<>();
+        Set<String> queued = new HashSet<>();
         String loginNote = null;
         boolean loggedIn = false;
         int stuck = 0;
@@ -124,6 +130,8 @@ public class ExplorationAgentService {
 
                 boolean isNew = visited.add(norm);
                 stuck = isNew ? 0 : stuck + 1;
+                // 收集本页的「同站、未访问」链接进全局 frontier，供后续系统化补全覆盖
+                harvestFrontier(snap, url, frontier, queued, visited);
 
                 step.emit("perceive", "第 " + i + " 步 · 读取页面:" + title);
                 JsonNode decision = decide(cfg, anthropic, buildUserPrompt(snap, visited, i, budget));
@@ -132,18 +140,31 @@ public class ExplorationAgentService {
                 String summary = decision.path("page_summary").asText("");
                 if (!summary.isBlank()) step.emit("think", "第 " + i + " 步 · " + summary);
 
-                if (stuck >= STUCK_LIMIT) { step.emit("end", "已无新页面可探索,结束。"); break; }
+                if (stuck >= STUCK_LIMIT) {
+                    if (goToNextFrontier(session, frontier, visited, step)) { stuck = 0; continue; }
+                    step.emit("end", "已无新页面可探索,结束。"); break;
+                }
 
                 JsonNode action = decision.path("action");
                 String type = action.path("type").asText("done");
-                if ("done".equals(type)) { step.emit("end", "智能体判断主要功能已覆盖,结束探索。"); break; }
+                if ("done".equals(type)) {
+                    // LLM 认为本页/本支已了解;若全局还有没去过的同站页面,转过去继续,而不是早停
+                    if (goToNextFrontier(session, frontier, visited, step)) continue;
+                    step.emit("end", "智能体判断主要功能已覆盖,结束探索。"); break;
+                }
                 if ("back".equals(type)) {
                     try { session.back(); step.emit("act", "← 返回上一页"); }
-                    catch (RuntimeException e) { step.emit("end", "无法继续后退,结束。"); break; }
+                    catch (RuntimeException e) {
+                        if (goToNextFrontier(session, frontier, visited, step)) continue;
+                        step.emit("end", "无法继续后退,结束。"); break;
+                    }
                     continue;
                 }
                 int ref = action.path("ref").asInt(-1);
-                if (ref < 0) { step.emit("end", "没有可执行的下一步,结束。"); break; }
+                if (ref < 0) {
+                    if (goToNextFrontier(session, frontier, visited, step)) continue;
+                    step.emit("end", "没有可执行的下一步,结束。"); break;
+                }
                 try {
                     String name = session.clickRef(ref, readOnly);
                     trail.add(title + "  ──点击「" + name + "」──▶");
@@ -457,6 +478,52 @@ public class ExplorationAgentService {
     private static String shorten(String s) { s = s == null ? "" : s; return s.length() > 120 ? s.substring(0, 120) + "…" : s; }
 
     /** URL 归一化:去掉 query/hash,把数字路径段换成 :id,用于把同类详情页折叠成一个页面。 */
+    /**
+     * 把当前页快照里的「同主机、未访问、非危险」链接收进全局 frontier。
+     * <p>只收同主机(保守安全,避免跑偏;子域差异主要出现在登录阶段,已由护栏处理),
+     * 跳过 danger 元素(只读不点写操作);用 normalize 去重(忽略 query、折叠数字 id 段)。
+     */
+    private static void harvestFrontier(JsonNode snap, String pageUrl,
+                                        LinkedHashSet<String> frontier, Set<String> queued, Set<String> visited) {
+        String host = hostOf(pageUrl);
+        if (host == null || host.isBlank()) return;
+        for (JsonNode el : snap.path("elements")) {
+            if (frontier.size() >= 300) break;
+            if (el.path("danger").asBoolean(false)) continue;
+            String href = el.path("href").asText("");
+            if (href.isBlank() || !href.regionMatches(true, 0, "http", 0, 4)) continue;
+            String h = hostOf(href);
+            if (h == null || !h.equalsIgnoreCase(host)) continue; // 仅同主机
+            String n = normalize(href);
+            if (visited.contains(n) || queued.contains(n)) continue;
+            frontier.add(href);
+            queued.add(n);
+        }
+    }
+
+    /**
+     * 从 frontier 取下一个还没访问过的同站 URL 直接导航过去;打不开就试下一个。
+     * @return 成功导航返回 true(调用方应 continue 进入下一轮快照);frontier 耗尽返回 false。
+     */
+    private boolean goToNextFrontier(Session session, LinkedHashSet<String> frontier,
+                                     Set<String> visited, StepSink step) {
+        Iterator<String> it = frontier.iterator();
+        while (it.hasNext()) {
+            String url = it.next();
+            it.remove();
+            if (visited.contains(normalize(url))) continue;
+            try {
+                session.navigateTo(url);
+                step.emit("act", "↪ 转向未探索页面继续铺开功能树");
+                return true;
+            } catch (RuntimeException e) {
+                // 这个 frontier 打不开(404/跨站被护栏拦/超时),试下一个
+                log.debug("[explore-agent] frontier 导航失败,跳过 {}: {}", url, e.getMessage());
+            }
+        }
+        return false;
+    }
+
     private static String normalize(String url) {
         try {
             URI u = URI.create(url);
