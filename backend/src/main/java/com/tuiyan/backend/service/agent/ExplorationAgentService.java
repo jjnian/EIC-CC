@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 /**
  * 自动探索智能体:像人一样"用"一个 web 系统(只读导航),摸清功能、反推业务,
@@ -40,7 +41,7 @@ public class ExplorationAgentService {
 
     private static final Logger log = LoggerFactory.getLogger(ExplorationAgentService.class);
     private static final int MAX_STEPS_CAP = 40;     // 步数硬上限,防失控
-    private static final int STUCK_LIMIT = 6;        // 连续无新页面则结束
+    private static final int STUCK_LIMIT = 8;        // 连续无新页面则结束(含 back 回到父页的正常折返,留些余量)
     /** 探索文档里嵌入「结构化图片段」的隐藏注释标记;建图侧据此解析并直接合并。 */
     public static final String GRAPH_MARKER = "EXPLORE_GRAPH";
 
@@ -456,18 +457,43 @@ public class ExplorationAgentService {
     private static String firstNonBlank(String a, String b) { return (a != null && !a.isBlank()) ? a : b; }
     private static String shorten(String s) { s = s == null ? "" : s; return s.length() > 120 ? s.substring(0, 120) + "…" : s; }
 
-    /** URL 归一化:去掉 query/hash,把数字路径段换成 :id,用于把同类详情页折叠成一个页面。 */
+    /**
+     * URL 归一化:得到一个"逻辑页面"去重键。
+     * <p>关键:很多后台系统是 <b>hash 路由 SPA</b>(http://host/#/order)或 <b>query 路由</b>
+     * (http://host/?menu=order)——它们的 path 永远是 "/",若只取 host+path,所有子页都会折叠成同一页,
+     * 导致探索第 2 步起就把每个链接判成"已访问"、几步内误判"无新页面"提前收场(探索不到位的根因)。
+     * 因此这里把 hash 与 query 都纳入键;同时把数字段/数字值折成 :id、剔除时间戳等易变参数,
+     * 避免详情页 id 或缓存戳让"同一逻辑页"被当成无数新页、把步数预算白白烧光。
+     */
     private static String normalize(String url) {
         try {
             URI u = URI.create(url);
-            String path = u.getPath() == null ? "/" : u.getPath();
-            path = path.replaceAll("/\\d+", "/:id");
             String host = u.getHost() == null ? "" : u.getHost();
-            return host + path;
+            String path = foldIds(u.getPath() == null ? "/" : u.getPath());
+            String query = u.getQuery();
+            String frag = u.getFragment();   // '#' 之后:hash 路由的逻辑页(如 /order/list)
+            String q = (query == null || query.isBlank()) ? "" : "?" + foldIds(stripVolatile(query));
+            String h = (frag == null || frag.isBlank()) ? "" : "#" + foldIds(stripVolatile(frag));
+            return host + path + q + h;
         } catch (RuntimeException e) {
-            int q = url.indexOf('?');
-            return q >= 0 ? url.substring(0, q) : url;
+            return url;  // 解析失败时保留原串(含 query/hash),宁可少折叠也别误判成同一页
         }
+    }
+
+    /** 把 URL 里的数字段/数字值折成 :id(/123→/:id、=123→=:id),让同类详情页折叠成一个逻辑页。 */
+    private static String foldIds(String s) {
+        if (s == null || s.isEmpty()) return s == null ? "" : s;
+        return s.replaceAll("/\\d+", "/:id").replaceAll("=\\d+", "=:id");
+    }
+
+    /** 剔除 query/hash 里的易变参数(时间戳、随机数、缓存戳),否则每次访问都像新页、烧光步数预算。 */
+    private static final Pattern VOLATILE_PARAM = Pattern.compile(
+            "(?:^|&)(?:_|t|ts|_t|_dc|v|r|rnd|rand|random|time|timestamp|nocache|cache)=[^&]*",
+            Pattern.CASE_INSENSITIVE);
+    private static String stripVolatile(String qs) {
+        if (qs == null || qs.indexOf('=') < 0) return qs;   // 非 key=value 形态(如 hash 路由路径)原样返回
+        String out = VOLATILE_PARAM.matcher(qs).replaceAll("");
+        return out.startsWith("&") ? out.substring(1) : out;
     }
     private static String hostOf(String url) {
         try { return URI.create(url).getHost(); } catch (RuntimeException e) { return url; }
