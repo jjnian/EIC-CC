@@ -752,8 +752,8 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           <p class="exp-modal-hint">填写后智能体会先用该账号密码自动登录系统，再开始探索；留空则以未登录状态探索。</p>
           <div class="exp-field-row">
             <label class="exp-field">
-              <span>最多探索步数</span>
-              <BaseInput v-model="exploreMaxSteps" type="number" numeric :min="3" :max="40" :disabled="exploreRunning" />
+              <span>最多探索页面数</span>
+              <BaseInput v-model="exploreMaxSteps" type="number" numeric :min="3" :max="120" :disabled="exploreRunning" />
             </label>
             <BaseCheckbox v-model="exploreReadOnly" label="只读模式(拦截删除/提交/支付等写操作)" :disabled="exploreRunning" />
           </div>

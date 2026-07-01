@@ -25,7 +25,7 @@ export function useWebSystemExplore(deps: {
   const exploreUrl = ref('');
   const exploreUsername = ref('');
   const explorePassword = ref('');
-  const exploreMaxSteps = ref(15);
+  const exploreMaxSteps = ref(30);
   const exploreReadOnly = ref(true);
   const exploreStorageState = ref('');
   const exploreHasStorageState = ref(false);      // 编辑时该系统是否已配置过 storageState
@@ -46,7 +46,7 @@ export function useWebSystemExplore(deps: {
     exploreUrl.value = '';
     exploreUsername.value = '';
     explorePassword.value = '';
-    exploreMaxSteps.value = 15;
+    exploreMaxSteps.value = 30;
     exploreReadOnly.value = true;
     exploreStorageState.value = '';
     exploreHasStorageState.value = false;
@@ -65,7 +65,7 @@ export function useWebSystemExplore(deps: {
     if (c) {
       exploreUrl.value = c.baseUrl || '';
       exploreUsername.value = c.username || '';
-      exploreMaxSteps.value = c.maxSteps ?? 15;
+      exploreMaxSteps.value = c.maxSteps ?? 30;
       exploreReadOnly.value = c.readOnly ?? true;
       exploreHasStorageState.value = !!c.hasStorageState;
     }

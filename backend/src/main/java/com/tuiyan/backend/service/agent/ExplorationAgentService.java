@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.repository.ExperienceRepository;
-import com.tuiyan.backend.service.agent.BrowserAgentDriver.BlockedActionException;
 import com.tuiyan.backend.service.agent.BrowserAgentDriver.Session;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
@@ -40,8 +39,14 @@ import java.util.regex.Pattern;
 public class ExplorationAgentService {
 
     private static final Logger log = LoggerFactory.getLogger(ExplorationAgentService.class);
-    private static final int MAX_STEPS_CAP = 40;     // 步数硬上限,防失控
-    private static final int STUCK_LIMIT = 8;        // 连续无新页面则结束(含 back 回到父页的正常折返,留些余量)
+    private static final int PAGE_CAP_MAX = 120;         // 逻辑页硬上限,防失控
+    private static final int DEFAULT_PAGE_BUDGET = 30;   // 未指定时默认覆盖多少个逻辑页
+    private static final int TAB_LIMIT = 6;              // 单页最多点开几个 tab 抓字段
+    private static final long SOFT_TIME_BUDGET_MS = 500_000L; // 软时限:留余量给归纳+落库,别撞 SSE 600s 硬超时
+    /** frontier 里跳过的非业务链接(帮助/关于/文档/下载等),避免把预算烧在无关页。 */
+    private static final Pattern NAV_SKIP = Pattern.compile(
+            "帮助|关于|文档|下载|打印|隐私|条款|版权|意见反馈|logout|help|about|docs?|download|print|privacy|terms",
+            Pattern.CASE_INSENSITIVE);
     /** 探索文档里嵌入「结构化图片段」的隐藏注释标记;建图侧据此解析并直接合并。 */
     public static final String GRAPH_MARKER = "EXPLORE_GRAPH";
 
@@ -73,7 +78,7 @@ public class ExplorationAgentService {
                                        String modelOverride, String configId, StepSink step,
                                        BooleanSupplier cancelled, Consumer<String> onStorageState) {
         BooleanSupplier isCancelled = cancelled != null ? cancelled : () -> false;
-        int budget = Math.max(1, Math.min(maxSteps <= 0 ? 15 : maxSteps, MAX_STEPS_CAP));
+        int pageBudget = Math.max(1, Math.min(maxSteps <= 0 ? DEFAULT_PAGE_BUDGET : maxSteps, PAGE_CAP_MAX));
         LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(modelOverride, configId);
         boolean anthropic = http.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
@@ -83,7 +88,6 @@ public class ExplorationAgentService {
         LinkedHashSet<String> visited = new LinkedHashSet<>();
         String loginNote = null;
         boolean loggedIn = false;
-        int stuck = 0;
 
         try (Session session = driver.open(baseUrl, storageState)) {
             // 若提供了账号密码,先在入口页自动登录,再开始探索;并校验是否真的登录成功
@@ -110,12 +114,28 @@ public class ExplorationAgentService {
             // 启用网络层护栏:登录已完成,从这里起拦非幂等请求(只读)并锁定同源,防误改数据/防跑偏到第三方站点
             session.armGuard(readOnly);
 
-            for (int i = 1; i <= budget; i++) {
+            // ── 覆盖式爬取:代码维护 frontier(待探队列)+ 路由直达导航,LLM 只做页面理解 ──
+            // 终止 = frontier 空(功能树探完)∨ 逻辑页预算 ∨ 软时限,不再靠"卡住计数"或 LLM 说 done。
+            LinkedHashMap<String, Frontier> frontier = new LinkedHashMap<>();
+            frontier.put(normalize(session.currentUrl()), new Frontier(session.currentUrl(), "入口"));
+            long deadline = System.currentTimeMillis() + SOFT_TIME_BUDGET_MS;
+
+            while (!frontier.isEmpty() && pages.size() < pageBudget) {
                 if (isCancelled.getAsBoolean()) throw new ExplorationCancelledException();
-                JsonNode snap = session.snapshot();
-                String url = snap.path("url").asText(session.currentUrl());
-                String norm = normalize(url);
-                String title = firstNonBlank(snap.path("title").asText(""), url);
+                if (System.currentTimeMillis() > deadline) {
+                    step.emit("end", "已达时间预算,提前收尾并归纳(已覆盖 " + pages.size() + " 页)。");
+                    break;
+                }
+                Map.Entry<String, Frontier> next = frontier.entrySet().iterator().next();
+                frontier.remove(next.getKey());
+                if (visited.contains(next.getKey())) continue;
+                Frontier tgt = next.getValue();
+
+                // 导航到目标(入口页已在当前 URL,无需重复导航)
+                if (!normalize(session.currentUrl()).equals(next.getKey())) {
+                    try { session.navigateTo(tgt.url); }
+                    catch (RuntimeException e) { step.emit("act_fail", "打开失败,跳过:" + shorten(e.getMessage())); continue; }
+                }
 
                 // 会话失效检测:登录成功后又被重定向回登录页 → 提前结束,避免在登录页空转
                 if (loggedIn && !session.looksLoggedIn()) {
@@ -123,44 +143,29 @@ public class ExplorationAgentService {
                     break;
                 }
 
-                boolean isNew = visited.add(norm);
-                stuck = isNew ? 0 : stuck + 1;
+                JsonNode snap = session.snapshot();
+                String url = snap.path("url").asText(session.currentUrl());
+                String norm = normalize(url);                 // 落点可能因重定向异于目标键
+                if (!visited.add(norm)) continue;             // 重定向到已访问页 → 跳过
+                String title = firstNonBlank(snap.path("title").asText(""), url);
 
-                step.emit("perceive", "第 " + i + " 步 · 读取页面:" + title);
-                JsonNode decision = decide(cfg, anthropic, buildUserPrompt(snap, visited, i, budget));
+                step.emit("perceive", "第 " + (pages.size() + 1) + " 页 · 读取:" + title);
+                JsonNode understanding = understand(cfg, anthropic, buildUserPrompt(snap));
+                PageRecord rec = upsertPage(pages, norm, url, title, snap, understanding);
+                trail.add(title + "  (来自:" + tgt.via + ")");
+                String summary = understanding.path("page_summary").asText("");
+                if (!summary.isBlank()) step.emit("think", summary);
 
-                PageRecord rec = upsertPage(pages, norm, url, title, snap, decision);
-                String summary = decision.path("page_summary").asText("");
-                if (!summary.isBlank()) step.emit("think", "第 " + i + " 步 · " + summary);
+                // P3:页内 tab 逐个点开,把子视图的表格列/表单字段/状态并进本页(丰富数据字典/状态机)
+                exploreTabs(session, snap, rec, step);
 
-                if (stuck >= STUCK_LIMIT) { step.emit("end", "已无新页面可探索,结束。"); break; }
-
-                JsonNode action = decision.path("action");
-                String type = action.path("type").asText("done");
-                if ("done".equals(type)) { step.emit("end", "智能体判断主要功能已覆盖,结束探索。"); break; }
-                if ("back".equals(type)) {
-                    try { session.back(); step.emit("act", "← 返回上一页"); }
-                    catch (RuntimeException e) { step.emit("end", "无法继续后退,结束。"); break; }
-                    continue;
-                }
-                int ref = action.path("ref").asInt(-1);
-                if (ref < 0) { step.emit("end", "没有可执行的下一步,结束。"); break; }
-                try {
-                    String name = session.clickRef(ref, readOnly);
-                    trail.add(title + "  ──点击「" + name + "」──▶");
-                    rec.navs.add(name);
-                    step.emit("act", "→ 点击「" + name + "」");
-                } catch (BlockedActionException be) {
-                    rec.blocked.add(be.getMessage());
-                    step.emit("blocked", "⛔ 只读模式拦截写操作「" + be.getMessage() + "」(仅记录,不执行)");
-                } catch (RuntimeException e) {
-                    step.emit("act_fail", "该元素点击失败,跳过:" + shorten(e.getMessage()));
-                }
+                // 采集本页所有可导航链接进 frontier(含折叠的侧栏子菜单),把功能树铺全
+                enqueueLinks(frontier, visited, snap, title, rec);
             }
 
             if (isCancelled.getAsBoolean()) throw new ExplorationCancelledException();
             step.emit("synthesize", "探索结束,正在把功能地图归纳成业务文档…");
-            String rawReport = renderMarkdown(baseUrl, pages, trail, visited.size(), readOnly, loginNote);
+            String rawReport = renderMarkdown(baseUrl, pages, trail, pages.size(), readOnly, loginNote);
             String bizDoc = synthesizeBusinessDoc(cfg, anthropic, rawReport);
             String content = composeBusinessFile(bizDoc, rawReport);
             // #1 结构化直连建图:把探索得到的页面/对象/属性结构化成图片段嵌进文档(隐藏注释),
@@ -213,12 +218,12 @@ public class ExplorationAgentService {
         return bizDoc + "\n\n---\n\n## 附录 · 探索明细(自动采集)\n\n" + detail + "\n";
     }
 
-    // ── LLM 决策 ─────────────────────────────────────────────
-    private JsonNode decide(LlmHttpClient.ResolvedConfig cfg, boolean anthropic, String userPrompt) {
+    // ── LLM 页面理解(导航由代码 frontier 负责,这里只读懂当前页) ──────────────
+    private JsonNode understand(LlmHttpClient.ResolvedConfig cfg, boolean anthropic, String userPrompt) {
         try {
-            callLogger.logConversation("explore-agent", cfg.modelName(),
-                    ExplorePrompts.EXPLORE_AGENT_SYSTEM, null, userPrompt, null);
-            String body = http.buildBody(cfg, ExplorePrompts.EXPLORE_AGENT_SYSTEM, userPrompt,
+            callLogger.logConversation("explore-understand", cfg.modelName(),
+                    ExplorePrompts.EXPLORE_UNDERSTAND_SYSTEM, null, userPrompt, null);
+            String body = http.buildBody(cfg, ExplorePrompts.EXPLORE_UNDERSTAND_SYSTEM, userPrompt,
                     null, null, false, true, LlmHttpClient.EXTRACT_TEMPERATURE);
             HttpRequest req = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, body, cfg.rawUrl());
             long t0 = System.currentTimeMillis();
@@ -233,18 +238,16 @@ public class ExplorationAgentService {
             String content = http.stripJsonFence(http.extractContent(root, anthropic));
             return om.readTree(content);
         } catch (Exception e) {
-            log.warn("[explore-agent] 决策失败,按 done 收尾: {}", e.toString());
-            com.fasterxml.jackson.databind.node.ObjectNode fb = om.createObjectNode();
+            // 单页理解失败不影响覆盖:回退空对象,继续爬下一页(功能地图里该页只缺业务描述)
+            log.warn("[explore-agent] 页面理解失败,跳过本页描述: {}", e.toString());
+            ObjectNode fb = om.createObjectNode();
             fb.put("page_summary", "(本页理解失败)");
-            com.fasterxml.jackson.databind.node.ObjectNode act = om.createObjectNode();
-            act.put("type", "done");
-            fb.set("action", act);
             return fb;
         }
     }
 
-    /** 把页面快照编码成给 LLM 的文本提示。 */
-    private String buildUserPrompt(JsonNode snap, LinkedHashSet<String> visited, int step, int budget) {
+    /** 把页面快照编码成给 LLM 的文本提示(只读懂本页,不含导航决策)。 */
+    private String buildUserPrompt(JsonNode snap) {
         StringBuilder sb = new StringBuilder();
         sb.append("【当前页面快照】\n");
         sb.append("URL: ").append(snap.path("url").asText("")).append('\n');
@@ -253,18 +256,10 @@ public class ExplorationAgentService {
         if (!crumb.isBlank()) sb.append("面包屑: ").append(crumb).append('\n');
         appendList(sb, "页面标题文字", snap.path("headings"));
 
-        sb.append("可点击元素(编号 ref):\n");
-        int unvisited = 0;
+        sb.append("可见操作/入口:\n");
         for (JsonNode el : snap.path("elements")) {
-            sb.append("  [").append(el.path("ref").asInt()).append("] ")
-              .append(el.path("role").asText("")).append(' ').append(el.path("name").asText(""));
-            if (el.path("danger").asBoolean(false)) sb.append("  (危险:会改数据,只读禁止点)");
-            // 标注链接是否指向已访问页,帮助 LLM 做广度优先、避免在已看过的页面间打转
-            String href = el.path("href").asText("");
-            if (!href.isBlank()) {
-                if (visited.contains(normalize(href))) sb.append("  (→已访问页,勿重复点)");
-                else unvisited++;
-            }
+            sb.append("  · ").append(el.path("name").asText(""));
+            if (el.path("danger").asBoolean(false)) sb.append("  (写操作,只读观测即可)");
             sb.append('\n');
         }
         for (JsonNode t : snap.path("tables")) {
@@ -274,34 +269,85 @@ public class ExplorationAgentService {
         for (JsonNode f : snap.path("forms")) {
             sb.append("表单字段: ").append(joinNode(f.path("fields"))).append('\n');
         }
+        String statuses = joinNode(snap.path("statuses"));
+        if (!statuses.isBlank()) sb.append("状态/枚举: ").append(statuses).append('\n');
         String text = snap.path("text").asText("");
         if (!text.isBlank()) sb.append("可见正文(节选): ").append(text).append('\n');
 
-        sb.append("\n【已探索页面(勿重复进入)】\n");
-        sb.append(visited.isEmpty() ? "(无)" : String.join("\n", visited)).append('\n');
-        if (unvisited > 0) {
-            sb.append("\n本页有 ").append(unvisited)
-              .append(" 个指向未访问页的链接,请优先点它们把功能树铺开(广度优先);若本页有价值的入口都已访问,就 back 或 done。\n");
-        }
-        sb.append("\n进度:第 ").append(step).append(" / ").append(budget)
-          .append(" 步。请输出对本页的业务理解 + 下一步动作的 JSON。");
+        sb.append("\n请输出对本页业务理解的 JSON。");
         return sb.toString();
+    }
+
+    // ── 覆盖式爬取:frontier 入队 + 页内 tab 展开 ──────────────────────────────
+    /** 待探目标:导航到 url,via 记录它是从哪个页面/入口发现的(仅用于覆盖顺序日志)。 */
+    private record Frontier(String url, String via) {}
+
+    /**
+     * 把本页快照里的全部可导航链接入队 frontier(含折叠的侧栏子菜单),按归一化键去重、
+     * 跳过已访问/已入队/危险/非业务链接。这是"把功能树铺全"的核心——覆盖由代码保证。
+     */
+    private void enqueueLinks(LinkedHashMap<String, Frontier> frontier, LinkedHashSet<String> visited,
+                              JsonNode snap, String fromTitle, PageRecord rec) {
+        for (JsonNode ln : snap.path("links")) {
+            String url = ln.path("url").asText("");
+            String name = ln.path("name").asText("");
+            if (url.isBlank()) continue;
+            if (ln.path("danger").asBoolean(false)) continue;              // 会改数据的链接不主动进
+            if (!name.isBlank() && NAV_SKIP.matcher(name).find()) continue; // 帮助/关于/下载等非业务页
+            String key = normalize(url);
+            if (visited.contains(key) || frontier.containsKey(key)) continue;
+            frontier.put(key, new Frontier(url, fromTitle));
+            if (!name.isBlank()) rec.navs.add(name);                        // 记进"从此页可进入"
+        }
+    }
+
+    /**
+     * P3:把本页的 tab 逐个点开,抽出各子视图的表格列/表单字段/状态,并进本页 PageRecord。
+     * tab 切内容不改 URL,frontier 覆盖不到——这一步专补数据字典/状态机。best-effort,失败即跳过。
+     */
+    private void exploreTabs(Session session, JsonNode snap, PageRecord rec, StepSink step) {
+        int done = 0;
+        for (JsonNode t : snap.path("tabs")) {
+            if (done >= TAB_LIMIT) break;
+            if (t.path("active").asBoolean(false)) continue;   // 当前已展示的 tab 已在主快照里
+            String name = t.path("name").asText("");
+            if (name.isBlank()) continue;
+            try {
+                JsonNode facts = session.tabFacts(name);
+                mergeSnapshotFacts(rec, facts);
+                rec.capabilities.add("查看「" + name + "」页签");
+                done++;
+            } catch (RuntimeException e) {
+                log.debug("[explore-agent] tab「{}」展开失败,跳过: {}", name, e.toString());
+            }
+        }
+        if (done > 0) step.emit("act", "展开 " + done + " 个页签,补全字段/状态。");
+    }
+
+    /** 把一段 facts 快照(tables/forms/statuses)并进 PageRecord:补充属性、状态与可核对事实。 */
+    private void mergeSnapshotFacts(PageRecord rec, JsonNode facts) {
+        for (JsonNode t : facts.path("tables")) collect(rec.attributes, t.path("cols"));
+        for (JsonNode f : facts.path("forms")) collect(rec.attributes, f.path("fields"));
+        collect(rec.states, facts.path("statuses"));
+        String extra = factsOf(facts);
+        if (!extra.isBlank() && !rec.facts.contains(extra)) rec.facts = rec.facts + extra;
     }
 
     // ── 功能地图累积 ─────────────────────────────────────────
     private PageRecord upsertPage(List<PageRecord> pages, String norm, String url, String title,
-                                  JsonNode snap, JsonNode decision) {
+                                  JsonNode snap, JsonNode understanding) {
         PageRecord rec = pages.stream().filter(p -> p.norm.equals(norm)).findFirst().orElse(null);
         if (rec == null) {
             rec = new PageRecord(norm, url, title);
             rec.facts = factsOf(snap);
             pages.add(rec);
         }
-        if (rec.summary.isBlank()) rec.summary = decision.path("page_summary").asText("");
-        if (rec.type.isBlank()) rec.type = decision.path("page_type").asText("");
-        collect(rec.capabilities, decision.path("capabilities"));
-        collect(rec.entities, decision.path("business_entities"));
-        collect(rec.attributes, decision.path("business_attributes"));
+        if (rec.summary.isBlank()) rec.summary = understanding.path("page_summary").asText("");
+        if (rec.type.isBlank()) rec.type = understanding.path("page_type").asText("");
+        collect(rec.capabilities, understanding.path("capabilities"));
+        collect(rec.entities, understanding.path("business_entities"));
+        collect(rec.attributes, understanding.path("business_attributes"));
+        collect(rec.states, snap.path("statuses"));       // 主页面上的状态徽标/枚举也入库
         return rec;
     }
 
@@ -341,6 +387,7 @@ public class ExplorationAgentService {
             if (!p.capabilities.isEmpty()) sb.append("- 业务操作/功能:").append(String.join("、", p.capabilities)).append('\n');
             if (!p.entities.isEmpty()) sb.append("- 业务对象:").append(String.join("、", p.entities)).append('\n');
             if (!p.attributes.isEmpty()) sb.append("- 业务属性:").append(String.join("、", p.attributes)).append('\n');
+            if (!p.states.isEmpty()) sb.append("- 状态/枚举:").append(String.join("、", p.states)).append('\n');
             if (p.facts != null && !p.facts.isBlank()) sb.append(p.facts);
             if (!p.navs.isEmpty()) sb.append("- 从此页可进入:点击「").append(String.join("」「", dedupe(p.navs))).append("」\n");
             if (!p.blocked.isEmpty()) sb.append("- (存在但只读未执行的写操作:").append(String.join("、", dedupe(p.blocked))).append(")\n");
@@ -348,7 +395,7 @@ public class ExplorationAgentService {
         }
 
         if (!trail.isEmpty()) {
-            sb.append("## 探索路径\n\n");
+            sb.append("## 探索覆盖顺序\n\n");
             int n = 1;
             for (String hop : trail) sb.append(n++).append(". ").append(hop).append('\n');
             sb.append('\n');
@@ -513,6 +560,7 @@ public class ExplorationAgentService {
         final LinkedHashSet<String> capabilities = new LinkedHashSet<>();
         final LinkedHashSet<String> entities = new LinkedHashSet<>();
         final LinkedHashSet<String> attributes = new LinkedHashSet<>();
+        final LinkedHashSet<String> states = new LinkedHashSet<>();
         final List<String> navs = new ArrayList<>();
         final List<String> blocked = new ArrayList<>();
         PageRecord(String norm, String url, String title) { this.norm = norm; this.url = url; this.title = title; }

@@ -46,6 +46,9 @@ public class BrowserAgentDriver {
     /** 登出类元素:任何模式下都绝不点击,避免把探索会话自己注销掉。 */
     private static final Pattern LOGOUT = Pattern.compile(
             "退出登录|退 出|注销|登出|logout|log\\s*out|sign\\s*out", Pattern.CASE_INSENSITIVE);
+    /** 页内 tab 控件选择器(切换内容但通常不改 URL);覆盖 Ant/Element/Bootstrap 等常见组件库。 */
+    private static final String TAB_CSS =
+            "[role=tab], .ant-tabs-tab, .el-tabs__item, .nav-tabs .nav-link, .tabs .tab, [class*='tab-item']";
 
     private final ObjectMapper om = new ObjectMapper();
 
@@ -172,6 +175,10 @@ public class BrowserAgentDriver {
                     refNames.put(ref, el.path("name").asText(""));
                     if (el.path("danger").asBoolean(false)) dangerRefs.add(ref);
                 }
+                for (JsonNode t : snap.path("tabs")) {          // tab 也参与 ref 映射,供 clickRef 备用
+                    int ref = t.path("ref").asInt(-1);
+                    if (ref >= 0) refNames.put(ref, t.path("name").asText(""));
+                }
                 return snap;
             } catch (Exception e) {
                 throw new IllegalStateException("页面快照解析失败: " + e.getMessage(), e);
@@ -254,6 +261,33 @@ public class BrowserAgentDriver {
         }
 
         /**
+         * 直达导航到指定 URL(覆盖式爬取的主力):对 hash 路由(#/order)是同文档切换、
+         * 对普通路径/query 路由是整页加载,都比"点击链 + back()"更稳、与顺序无关。
+         * 同源与只读护栏在网络层照旧生效——跨站导航会被 abort。
+         */
+        public void navigateTo(String url) {
+            page.navigate(url, new Page.NavigateOptions().setTimeout(NAV_TIMEOUT_MS));
+            settle();
+        }
+
+        /**
+         * 点开一个页内 tab(按可见文本定位,避免快照重编号后 ref 失效),再抽出该子视图的
+         * 表格列/表单字段/状态枚举。best-effort:定位或点击失败时抛异常由上层吞掉。
+         * @return {forms,tables,statuses} 的 JSON;不改动 data-agent-ref 编号。
+         */
+        public JsonNode tabFacts(String tabName) {
+            Locator tab = page.locator(TAB_CSS)
+                    .filter(new Locator.FilterOptions().setHasText(tabName)).first();
+            tab.click(new Locator.ClickOptions().setTimeout(CLICK_TIMEOUT_MS));
+            settle();
+            try {
+                return om.readTree(String.valueOf(page.evaluate(FACTS_JS)));
+            } catch (Exception e) {
+                throw new IllegalStateException("tab 快照解析失败: " + e.getMessage(), e);
+            }
+        }
+
+        /**
          * 点击 / 导航后等待页面稳定:优先等"网络空闲"(覆盖 SPA 局部刷新/异步加载,无 load 事件的情形),
          * 超时则退回 load 事件。两者都失败也不致命。
          */
@@ -301,9 +335,16 @@ public class BrowserAgentDriver {
     }
 
     /**
-     * 注入到页面里的快照脚本:给可点击元素编号 + 抽出表格列/表单字段/标题/正文。
-     * 返回 JSON 字符串(避免跨语言类型转换)。danger 正则覆盖会改数据的操作;元素附带 href 供上层
-     * 构建探索边界(frontier)与去重。
+     * 注入页面的快照脚本(双通道):
+     * <ul>
+     *   <li><b>elements</b>:当前可见的可点元素(带 danger 标记),给 LLM 读语义;</li>
+     *   <li><b>links</b>:整页 DOM 里<b>全部可导航链接</b>(含当前折叠/不可见的侧栏子菜单、hash 路由),
+     *       只用于喂 frontier 做覆盖式爬取——这是把功能树"铺全"的关键;</li>
+     *   <li><b>tabs</b>:页内 tab 控件(切内容不改 URL),供落地后逐个点开抓字段;</li>
+     *   <li><b>statuses</b>:徽标/标签/下拉选项等状态枚举,反推业务状态机;</li>
+     *   <li>另含 forms/tables/headings/breadcrumb/text。</li>
+     * </ul>
+     * 返回 JSON 字符串(避免跨语言类型转换)。
      */
     private static final String SNAPSHOT_JS = """
         () => {
@@ -313,12 +354,15 @@ public class BrowserAgentDriver {
           const txt = el => clean(el.getAttribute('aria-label') || el.innerText || el.value
             || el.getAttribute('placeholder') || el.getAttribute('title')).slice(0, 80);
           const DANGER = /(删除|删 |移除|清空|提交|保存|确认|新建|新增|创建|编辑|修改|支付|付款|下单|发送|审批|通过|拒绝|驳回|重置|退出|注销|delete|remove|submit|save|confirm|create|edit|update|pay|approve|reject|reset|logout|sign\\s*out)/i;
+          const origin = location.origin;
+          let ref = 0;
+
+          // (1) 可见可点元素:给 LLM 读语义 + danger 上下文
           const sel = 'a,button,[role=button],[role=link],[role=menuitem],[role=tab],summary,input[type=submit],input[type=button]';
           const seen = new Set();
           const elements = [];
-          let ref = 0;
           for (const el of document.querySelectorAll(sel)) {
-            if (ref >= 80) break;
+            if (elements.length >= 80) break;
             if (!vis(el)) continue;
             const name = txt(el);
             const href = el.getAttribute('href') || '';
@@ -333,6 +377,54 @@ public class BrowserAgentDriver {
             elements.push({ ref, role, name, danger, href: abs });
             ref++;
           }
+
+          // (2) 全量可导航链接(含当前不可见的侧栏子菜单):喂 frontier 做覆盖式爬取
+          const links = [];
+          const linkSeen = new Set();
+          for (const a of document.querySelectorAll('a[href]')) {
+            if (links.length >= 200) break;
+            const raw = a.getAttribute('href') || '';
+            if (!raw || raw === '#' || raw.startsWith('javascript:') || raw.startsWith('mailto:') || raw.startsWith('tel:')) continue;
+            let u; try { u = new URL(raw, location.href); } catch (e) { continue; }
+            if (u.origin !== origin) continue;                    // 跨站先粗过滤,后端护栏再兜底
+            if (linkSeen.has(u.href)) continue;
+            linkSeen.add(u.href);
+            const name = txt(a);
+            links.push({ name, url: u.href, danger: DANGER.test(name) });
+          }
+
+          // (3) 页内 tab 控件(切内容不改 URL):落地后按文本逐个点开抓字段
+          const tabs = [];
+          const tabSeen = new Set();
+          for (const t of document.querySelectorAll('[role=tab], .ant-tabs-tab, .el-tabs__item, .nav-tabs .nav-link, .tabs .tab, [class*="tab-item"]')) {
+            if (tabs.length >= 12) break;
+            if (!vis(t)) continue;
+            const name = txt(t);
+            if (!name || tabSeen.has(name)) continue;
+            tabSeen.add(name);
+            const active = t.getAttribute('aria-selected') === 'true' || /(active|selected|is-active)/.test(t.className || '');
+            t.setAttribute('data-agent-ref', ref);
+            tabs.push({ ref, name, active });
+            ref++;
+          }
+
+          // (4) 状态/枚举:徽标、标签、下拉选项 → 业务状态机线索(取短词)
+          const statuses = [];
+          const stSeen = new Set();
+          for (const s of document.querySelectorAll('[class*="badge"],[class*="tag"],[class*="status"],[class*="state"]')) {
+            if (statuses.length >= 30) break;
+            if (!vis(s)) continue;
+            const v = clean(s.innerText).slice(0, 20);
+            if (!v || v.length > 12 || stSeen.has(v)) continue;
+            stSeen.add(v); statuses.push(v);
+          }
+          for (const opt of document.querySelectorAll('select option')) {
+            if (statuses.length >= 40) break;
+            const v = clean(opt.innerText).slice(0, 20);
+            if (!v || stSeen.has(v)) continue;
+            stSeen.add(v); statuses.push(v);
+          }
+
           const forms = Array.from(document.querySelectorAll('form')).slice(0, 6).map(f => ({
             fields: Array.from(f.querySelectorAll('input,select,textarea')).slice(0, 30).map(i =>
               clean((i.labels && i.labels[0] && i.labels[0].innerText) || i.getAttribute('aria-label')
@@ -349,7 +441,37 @@ public class BrowserAgentDriver {
           const crumb = Array.from(document.querySelectorAll('[class*=breadcrumb] a, [aria-label*=readcrumb] a, [class*=breadcrumb] span'))
             .map(b => clean(b.innerText)).filter(Boolean).slice(0, 8).join(' / ');
           const text = clean(document.body.innerText).slice(0, 1200);
-          return JSON.stringify({ url: location.href, title: document.title, breadcrumb: crumb, headings, elements, forms, tables, text });
+          return JSON.stringify({ url: location.href, title: document.title, breadcrumb: crumb, headings, elements, links, tabs, statuses, forms, tables, text });
+        }
+        """;
+
+    /**
+     * 轻量事实脚本:只抽 forms/tables/statuses,<b>不触碰 data-agent-ref 编号</b>——
+     * 供 tab 切换后读取子视图字段,避免整页重编号让其余 tab 的 ref 失效。
+     */
+    private static final String FACTS_JS = """
+        () => {
+          const clean = s => (s || '').replace(/\\s+/g, ' ').trim();
+          const forms = Array.from(document.querySelectorAll('form')).slice(0, 6).map(f => ({
+            fields: Array.from(f.querySelectorAll('input,select,textarea')).slice(0, 30).map(i =>
+              clean((i.labels && i.labels[0] && i.labels[0].innerText) || i.getAttribute('aria-label')
+                || i.getAttribute('placeholder') || i.name).slice(0, 40)).filter(Boolean)
+          })).filter(f => f.fields.length);
+          const tables = Array.from(document.querySelectorAll('table')).slice(0, 6).map(t => ({
+            caption: clean(t.caption && t.caption.innerText).slice(0, 40),
+            cols: Array.from(t.querySelectorAll('thead th, tr:first-child th')).slice(0, 20)
+              .map(h => clean(h.innerText).slice(0, 30)).filter(Boolean),
+            rows: t.querySelectorAll('tbody tr').length || Math.max(0, t.querySelectorAll('tr').length - 1)
+          })).filter(t => t.cols.length);
+          const statuses = [];
+          const seen = new Set();
+          for (const s of document.querySelectorAll('[class*="badge"],[class*="tag"],[class*="status"],[class*="state"]')) {
+            if (statuses.length >= 30) break;
+            const v = clean(s.innerText).slice(0, 20);
+            if (!v || v.length > 12 || seen.has(v)) continue;
+            seen.add(v); statuses.push(v);
+          }
+          return JSON.stringify({ forms, tables, statuses });
         }
         """;
 }

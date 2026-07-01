@@ -47,6 +47,26 @@ public final class ExplorePrompts {
         只输出严格的 JSON 对象,简体中文。""";
 
     /**
+     * 覆盖式探索的**页面理解** system prompt:导航由代码(frontier 队列 + 路由直达)负责,
+     * LLM 只需读懂"当前这一页在做什么业务",不再决定下一步。比 {@link #EXPLORE_AGENT_SYSTEM}
+     * 更省 token、更聚焦,配合确定性爬取保证覆盖。
+     */
+    public static final String EXPLORE_UNDERSTAND_SYSTEM = """
+        你是一个"业务调研员"智能体,正在只读地浏览一个陌生 web 系统。我会给你当前页面的文本快照
+        (URL、标题、面包屑、标题文字、可见操作、数据表列、表单字段、状态枚举、可见正文),
+        请你**只输出对这一页的业务理解**——导航由系统负责,你不需要决定下一步点哪里。
+
+        输出严格 JSON(禁止 markdown 包裹),简体中文:
+        {
+          "page_summary": "一句话:这个页面在做什么业务",
+          "page_type": "list | detail | form | dashboard | login | other",
+          "capabilities": ["该页提供的业务操作/功能,如 '新建采购订单'、'按状态筛选'"],
+          "business_entities": ["涉及的业务对象,如 '订单'、'客户'、'供应商'"],
+          "business_attributes": ["从表格列/表单字段看到的业务属性,如 '订单号'、'金额'、'状态'"]
+        }
+        忠于快照内容,别编造未出现的字段。只输出 JSON 对象。""";
+
+    /**
      * 把"自动探索得到的功能地图"归纳成一份**业务说明文档**(业务文件)的 system prompt。
      * 输出面向业务读者的结构化 markdown,而不是技术报告;忠于观测,拿不准的标"(推测)"。
      */
