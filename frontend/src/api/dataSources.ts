@@ -110,6 +110,32 @@ function wsHeader(workspaceId?: string): RequestInit {
   return workspaceId ? { headers: { 'X-Workspace-Id': workspaceId } } : {};
 }
 
+/** 血缘值包含检验结果。verdict: confirmed(≥99.5%) / likely(≥90%) / rejected / empty。 */
+export interface ContainmentCheckResult {
+  childTable: string;
+  childColumn: string;
+  parentTable: string;
+  parentColumn: string;
+  checkedRows: number;
+  orphanRows: number;
+  matchRate: number;
+  sampled: boolean;
+  verdict: 'confirmed' | 'likely' | 'rejected' | 'empty';
+  durationMs: number;
+}
+
+/** 血缘值包含检验：验证 child.col 的值是否都能在 parent.col 中找到（推断血缘边的数据证据）。 */
+export function verifyContainment(id: string, body: {
+  childTable: string; childColumn: string;
+  parentTable: string; parentColumn: string;
+  sampleLimit?: number;
+}) {
+  return request<ContainmentCheckResult>(`/api/data-sources/${encodeURIComponent(id)}/verify-containment`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 export function getDataSource(id: string) {
   return request<DataSource>(`/api/data-sources/${encodeURIComponent(id)}`);
 }

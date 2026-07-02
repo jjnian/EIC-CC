@@ -4,6 +4,10 @@ import { NT } from '../constants';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { Button } from '@/components/ui/button';
 import BaseSelect from './form/BaseSelect.vue';
+import { verifyContainment, type ContainmentCheckResult } from '../api/dataSources';
+import { useWorkspaces } from '../composables/useWorkspaces';
+import { useSidebarTree } from '../composables/useSidebarTree';
+import { toast } from '../composables/useToast';
 
 const CONSTRAINT_KIND_OPTIONS = [
   { value: 'cardinality', label: '基数' },
@@ -131,11 +135,120 @@ const kindLabel = (k?: string) => ({
   custom:      '自定义',
 } as Record<string, string>)[k || 'custom'] || k || '约束';
 
+// ===== 血缘数据验证（值包含检验）=====
+// 对「按命名推断 / 有来源表」的血缘边，用真实数据验证 child.col ⊆ parent.col 是否成立，
+// 把推断边升级为"数据证实"（写回置信度+证据）或提示应否掉。
+const DB_KINDS = new Set(['mysql', 'pgsql', 'oracle', 'dm', 'gbase']);
+const ws = useWorkspaces();
+const tree = useSidebarTree();
+const dbSources = computed(() => {
+  const wsId = ws.currentId.value;
+  return wsId ? (tree.getDataSources(wsId) || []).filter(d => DB_KINDS.has(d.kind)) : [];
+});
+const verifyOpen = ref(false);
+const vfDsId = ref('');
+const vfChildTable = ref('');
+const vfChildColumn = ref('');
+const vfParentTable = ref('');
+const vfParentColumn = ref('');
+const vfRunning = ref(false);
+const vfResult = ref<ContainmentCheckResult | null>(null);
+const vfError = ref('');
+
+/** 该边是否值得做数据验证：推断边 / 血缘型 / 带来源表的边。 */
+const verifiable = computed(() => {
+  const e = props.edge;
+  if (!e) return false;
+  return e.source === 'inferred' || e.rel_type === 'derived_from'
+      || (e.derived_tables || []).length > 0;
+});
+
+/** 从边的 label/evidence/derived_tables 尽力预填 表.列（Rule 3/4 的产出格式都能解析）。 */
+const prefillVerify = () => {
+  const e = props.edge;
+  vfResult.value = null;
+  vfError.value = '';
+  vfChildTable.value = ''; vfChildColumn.value = '';
+  vfParentTable.value = ''; vfParentColumn.value = '';
+  if (!e) return;
+  // "order_items.order_id → orders.id" / "a.col ≈ b.col (按命名推断…)"
+  const m = (e.label || '').match(/([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)\s*[→≈~-]+\s*([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)/)
+    || (e.evidence || '').match(/([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)\s*[→≈↔~-]+\s*([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)/);
+  if (m) {
+    vfChildTable.value = m[1]; vfChildColumn.value = m[2];
+    vfParentTable.value = m[3]; vfParentColumn.value = m[4];
+  } else {
+    // "naming:<col>↔<parent>.<pk>" + derived_tables[0] 兜底
+    const nm = (e.evidence || '').match(/naming:([A-Za-z_][\w]*)\s*↔\s*([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)/);
+    const tables = e.derived_tables || [];
+    if (nm) {
+      vfChildColumn.value = nm[1];
+      vfParentTable.value = nm[2];
+      vfParentColumn.value = nm[3];
+      vfChildTable.value = tables[0] || '';
+    } else {
+      vfChildTable.value = tables[0] || '';
+      vfParentTable.value = tables[1] || '';
+    }
+  }
+  // 数据源预选：优先按边上的 derived_source 名称匹配，否则唯一库时直接选它
+  const byName = dbSources.value.find(d => d.name === e.derived_source);
+  vfDsId.value = byName?.id || (dbSources.value.length === 1 ? dbSources.value[0].id : vfDsId.value);
+};
+
+const vfReady = computed(() =>
+  !!vfDsId.value && !!vfChildTable.value.trim() && !!vfChildColumn.value.trim()
+  && !!vfParentTable.value.trim() && !!vfParentColumn.value.trim() && !vfRunning.value);
+
+const runVerify = async () => {
+  if (!vfReady.value) return;
+  vfRunning.value = true;
+  vfResult.value = null;
+  vfError.value = '';
+  try {
+    vfResult.value = await verifyContainment(vfDsId.value, {
+      childTable: vfChildTable.value.trim(),
+      childColumn: vfChildColumn.value.trim(),
+      parentTable: vfParentTable.value.trim(),
+      parentColumn: vfParentColumn.value.trim(),
+    });
+  } catch (err: any) {
+    vfError.value = err?.message || '验证失败';
+  } finally {
+    vfRunning.value = false;
+  }
+};
+
+watch(verifyOpen, (open) => {
+  const wsId = ws.currentId.value;
+  if (open && wsId) tree.loadDataSources(wsId);
+});
+
+const verdictView = (v: ContainmentCheckResult['verdict']) => ({
+  confirmed: { text: '✓ 数据证实', color: '#22dd88' },
+  likely:    { text: '≈ 大概率成立', color: '#ffcc44' },
+  rejected:  { text: '✗ 数据不支持', color: '#ff7755' },
+  empty:     { text: '— 子表无数据', color: '#999' },
+}[v]);
+
+/** 采信验证结果：把匹配率写回边的置信度与证据，供后续复核追溯。 */
+const applyVerifyResult = () => {
+  const e = props.edge;
+  const r = vfResult.value;
+  if (!e || !r || r.verdict === 'empty') return;
+  const conf = r.verdict === 'confirmed' ? 0.95 : r.verdict === 'likely' ? 0.8 : 0.2;
+  const evidence = `数据验证:匹配率${(r.matchRate * 100).toFixed(1)}% (${r.checkedRows - r.orphanRows}/${r.checkedRows}${r.sampled ? ',采样' : ''}) ${r.childTable}.${r.childColumn}→${r.parentTable}.${r.parentColumn}`;
+  emit('update-edge-schema', e.id, { confidence: conf, evidence });
+  toast.success(r.verdict === 'rejected' ? '已写回：数据不支持该血缘，建议删除此边' : '已写回验证结果');
+};
+
 // 切换边时回到概览页
 watch(() => props.edge?.id, () => {
   tab.value = 0;
   addingInput.value = false;
   addingOutput.value = false;
+  verifyOpen.value = false;
+  prefillVerify();
 });
 
 const addEdgeConstraint = () => {
@@ -264,6 +377,49 @@ const startResize = (e: MouseEvent) => {
                     </tr>
                   </tbody>
                 </table>
+              </div>
+
+              <div v-if="verifiable" class="ni-card ni-card-full">
+                <div class="ni-card-title">
+                  🔬 数据验证
+                  <button class="ei-vf-toggle" @click="verifyOpen = !verifyOpen">{{ verifyOpen ? '收起' : '展开' }}</button>
+                </div>
+                <div v-if="!verifyOpen" class="ei-vf-hint">
+                  用真实数据检验该血缘是否成立：子表列的值应都能在父表列中找到（值包含检验，只读、自动采样）。
+                </div>
+                <template v-else>
+                  <div class="ei-vf-row">
+                    <span class="ei-vf-k">数据源</span>
+                    <select v-model="vfDsId" class="ei-vf-select">
+                      <option value="" disabled>选择数据库数据源</option>
+                      <option v-for="d in dbSources" :key="d.id" :value="d.id">{{ d.name }}（{{ d.kind }}）</option>
+                    </select>
+                  </div>
+                  <div class="ei-vf-row">
+                    <span class="ei-vf-k">子表.列</span>
+                    <input v-model="vfChildTable" class="ei-vf-input" placeholder="child_table" />
+                    <span class="ei-vf-dot">.</span>
+                    <input v-model="vfChildColumn" class="ei-vf-input" placeholder="child_col" />
+                    <span class="ei-vf-arrow">⊆</span>
+                    <input v-model="vfParentTable" class="ei-vf-input" placeholder="parent_table" />
+                    <span class="ei-vf-dot">.</span>
+                    <input v-model="vfParentColumn" class="ei-vf-input" placeholder="parent_col" />
+                  </div>
+                  <div class="ei-vf-actions">
+                    <Button size="sm" :disabled="!vfReady" @click="runVerify">{{ vfRunning ? '验证中…' : '开始验证' }}</Button>
+                    <template v-if="vfResult">
+                      <span class="ei-vf-verdict" :style="{ color: verdictView(vfResult.verdict).color }">
+                        {{ verdictView(vfResult.verdict).text }}
+                      </span>
+                      <span class="ei-vf-detail">
+                        匹配率 {{ (vfResult.matchRate * 100).toFixed(1) }}%
+                        （{{ vfResult.checkedRows - vfResult.orphanRows }}/{{ vfResult.checkedRows }}{{ vfResult.sampled ? '，采样' : '' }}，{{ vfResult.durationMs }}ms）
+                      </span>
+                      <Button v-if="vfResult.verdict !== 'empty'" variant="outline" size="sm" @click="applyVerifyResult" title="把匹配率写回该边的置信度与证据">采信写回</Button>
+                    </template>
+                  </div>
+                  <div v-if="vfError" class="ei-vf-error">{{ vfError }}</div>
+                </template>
               </div>
 
               <div class="ni-card ni-card-full">
@@ -471,4 +627,22 @@ const startResize = (e: MouseEvent) => {
 }
 .ei-evidence-icon { color: #22dd88; font-weight: 700; font-style: normal; flex-shrink: 0; }
 .ei-kind-sel { width: 110px; flex-shrink: 0; }
+
+/* ── 数据验证卡片 ── */
+.ei-vf-toggle { float: right; background: none; border: none; color: #7ab8f0;
+  font-size: 11.5px; cursor: pointer; }
+.ei-vf-hint { font-size: 12px; color: #8a93a5; line-height: 1.6; }
+.ei-vf-row { display: flex; align-items: center; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
+.ei-vf-k { font-size: 12px; color: #8a93a5; min-width: 52px; }
+.ei-vf-select { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.14);
+  border-radius: 6px; padding: 4px 8px; color: #e8eaed; font-size: 12.5px; max-width: 280px; }
+.ei-vf-input { width: 118px; background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.14); border-radius: 6px; padding: 4px 8px;
+  color: #e8eaed; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+.ei-vf-dot { color: #666; }
+.ei-vf-arrow { color: #7ab8f0; font-weight: 600; padding: 0 4px; }
+.ei-vf-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.ei-vf-verdict { font-size: 12.5px; font-weight: 600; }
+.ei-vf-detail { font-size: 11.5px; color: #8a93a5; }
+.ei-vf-error { margin-top: 6px; color: tomato; font-size: 12px; }
 </style>

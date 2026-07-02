@@ -162,6 +162,19 @@ public class DataSourceService {
     }
 
     /**
+     * 血缘值包含检验：验证 child.col 的值是否都能在 parent.col 中找到（推断血缘边的「数据证据」）。
+     * 只读、采样、超时受限；仅数据库类数据源可用。
+     */
+    public JdbcConnectorService.ContainmentCheckResponse verifyContainment(
+            String id, String childTable, String childColumn,
+            String parentTable, String parentColumn, int sampleLimit) {
+        DataSourcePO po = ensureOwnership(id);
+        requireJdbc(po);
+        return jdbc.verifyContainment(po.getKind(), repo.readConfig(po),
+                childTable, childColumn, parentTable, parentColumn, sampleLimit);
+    }
+
+    /**
      * 内省 schema：返回 {kind, database, tables:[{name, comment, columns, foreignKeys, uniqueKeys, estimatedRows}]}。
      * <p>给前端"schema 预览"或"提取本体"按钮决策用，也是一键提取本体的可视化输入。
      */

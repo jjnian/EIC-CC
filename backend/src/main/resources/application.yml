@@ -122,6 +122,8 @@ app:
     api-key: ${ASR_API_KEY:}
     model: ${ASR_MODEL:whisper-1}
     language: ${ASR_LANGUAGE:}
+    # 术语热词（Whisper prompt）：行业术语/系统名/表名等专有词汇，降低访谈录音的转写错误
+    prompt: ${ASR_PROMPT:}
     timestamps: ${ASR_TIMESTAMPS:false}
 
 

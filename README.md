@@ -885,6 +885,9 @@ backend/src/main/java/com/tuiyan/backend/
 > 对应建图 SSE 接口 `POST /api/experiences/extract-ontology`
 > （事件序列：`step`* → `complete{nodes,edges,reply,salt,sourceCount}`）。
 >
+> **推断血缘的数据验证**：对无 FK、按命名推断的血缘边，边详情面板「🔬 数据验证」可做值包含检验
+> （`POST /api/data-sources/{id}/verify-containment`，只读+采样+超时受限），把匹配率写回边的置信度与证据。
+>
 > **第二阶段·数据供血绑定**：图建好后，在节点详情面板「供血」页把节点绑定到数据源的表（可选 WHERE 过滤），
 > 运行时按绑定取数为节点供血。对应 `node_data_binding` 表与 `/api/node-bindings` 端点（含 `/{id}/fetch` 取数）。
 

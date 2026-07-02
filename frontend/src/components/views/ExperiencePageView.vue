@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import BaseInput from '../form/BaseInput.vue';
 import BaseTextarea from '../form/BaseTextarea.vue';
 import BaseCheckbox from '../form/BaseCheckbox.vue';
-import { renderMarkdown, MD_TEMPLATE } from '../../utils/markdown';
+import { renderMarkdown, MD_TEMPLATE, INTERVIEW_TEMPLATE } from '../../utils/markdown';
 import type { OntologyNode, OntologyEdge } from '../../types';
 
 const props = defineProps<{
@@ -232,6 +232,12 @@ const insertTemplate = () => {
   if (!draft.value) return;
   if (draft.value.content.trim() && !confirmOverwrite()) return;
   draft.value.content = MD_TEMPLATE;
+};
+const insertInterviewTemplate = () => {
+  if (!draft.value) return;
+  if (draft.value.content.trim() && !confirmOverwrite()) return;
+  draft.value.content = INTERVIEW_TEMPLATE;
+  if (!draft.value.title.trim()) draft.value.title = '业务访谈：';
 };
 const confirmOverwrite = () => window.confirm('正文已有内容，插入模板会覆盖，确定吗？');
 
@@ -682,6 +688,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           <span class="exp-label">
             正文<span class="exp-hint">（支持 Markdown · 实时预览）</span>
             <Button v-if="editorMode !== 'preview'" variant="ghost" size="sm" title="插入 Markdown 模板" @click="insertTemplate">插入模板</Button>
+            <Button v-if="editorMode !== 'preview'" variant="ghost" size="sm" title="插入业务访谈提纲（按 对象→流程→规则→数据流向 四段引导访谈，转写/笔记按此沉淀建图质量更高）" @click="insertInterviewTemplate">访谈提纲</Button>
           </span>
           <div class="exp-edit-area" :class="editorMode">
             <textarea

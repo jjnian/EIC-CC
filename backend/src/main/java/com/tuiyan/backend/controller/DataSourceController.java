@@ -146,6 +146,27 @@ public class DataSourceController {
         return ResponseEntity.ok(service.executeSql(id, req));
     }
 
+    /**
+     * 血缘值包含检验：验证 childTable.childColumn 的值是否都能在 parentTable.parentColumn 中找到。
+     * 体：{childTable, childColumn, parentTable, parentColumn, sampleLimit?}。
+     * 用途：把「按命名推断」的血缘边升级为「数据证实」（confirmed/likely）或否掉（rejected）。
+     */
+    @PostMapping("/{id}/verify-containment")
+    public ResponseEntity<com.tuiyan.backend.service.connector.JdbcConnectorService.ContainmentCheckResponse>
+    verifyContainment(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        int sampleLimit = 0;
+        Object sl = body.get("sampleLimit");
+        if (sl instanceof Number n) sampleLimit = n.intValue();
+        return ResponseEntity.ok(service.verifyContainment(id,
+                str(body, "childTable"), str(body, "childColumn"),
+                str(body, "parentTable"), str(body, "parentColumn"), sampleLimit));
+    }
+
+    private static String str(Map<String, Object> m, String k) {
+        Object v = m.get(k);
+        return v == null ? null : String.valueOf(v).trim();
+    }
+
     /** 数据库 schema 内省：返回表 + 列 + 外键 + 唯一键。前端 UI 直接展示用。 */
     @GetMapping("/{id}/schema")
     public ResponseEntity<Map<String, Object>> schema(@PathVariable String id) {
