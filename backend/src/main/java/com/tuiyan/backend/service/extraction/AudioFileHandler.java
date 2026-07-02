@@ -72,7 +72,7 @@ public class AudioFileHandler implements SourceFileHandler {
             // 持久化转写正文到 data_source.extra_json（由 DocumentExtractionService.persistDataSources 落 PgSQL）：
             // 抽取流程不归档原始音频，这段文本即音频内容的唯一留存，便于事后回溯/复用。
             meta.put("transcript", capTranscript(text));
-            ctx.appendSection("# 音频转写 " + safeName, text);
+            ctx.appendSection(safeName, "# 音频转写 " + safeName, text);
         } catch (Exception e) {
             log.warn("[ASR] 音频 {} 转写失败: {}", safeName, e.toString());
             markSkipped(meta, "音频转写失败：" + e.getMessage());

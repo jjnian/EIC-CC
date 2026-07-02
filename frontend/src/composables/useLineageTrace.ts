@@ -5,6 +5,7 @@ import type { OntologyEdge } from '../types';
  * 其余类型（produces / flows_to / triggers / transforms / governs / associated_with…）
  * 一律视为 from=来源、to=结果，顺箭头即下游。
  * 归一化后，统一按 source→result 的"流向"做可达性遍历，避免逐类型猜方向出错。
+ * 注意：必须与后端 EdgeSemantics.REVERSED 保持一致（供 /lineage 上下游遍历），改一处要同步另一处。
  */
 const REVERSE_RELS = new Set(['derived_from', 'depends_on', 'consumes', 'composed_of']);
 

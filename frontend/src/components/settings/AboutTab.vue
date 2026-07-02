@@ -16,7 +16,7 @@ defineProps<{ version: string }>();
       <div class="about-info">
         <h4>推演平台</h4>
         <div class="about-version">v{{ version }}</div>
-        <p>本体抽取 + 因果链前向推演工具。支持 Claude / GPT / DeepSeek / 通义千问 / Kimi / GLM 等主流大模型。</p>
+        <p>业务血缘图构建工具：本体抽取 + 数据供血。支持 Claude / GPT / DeepSeek / 通义千问 / Kimi / GLM 等主流大模型。</p>
         <div class="about-stack">
           <span class="stack-chip">Vue 3</span>
           <span class="stack-chip">Spring Boot</span>

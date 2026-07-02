@@ -20,11 +20,7 @@ public class OntologyVersionNodePO {
     private String constraintsJson;
     private Double x;
     private Double y;
-    private Integer predictedStep;
-    private String predictedIntent;
     private Double confidence;
-    private Double effectiveProbability;
-    private String explanation;
     private String evidence;
 
     public Long getVersionId() { return versionId; }
@@ -51,16 +47,8 @@ public class OntologyVersionNodePO {
     public void setX(Double x) { this.x = x; }
     public Double getY() { return y; }
     public void setY(Double y) { this.y = y; }
-    public Integer getPredictedStep() { return predictedStep; }
-    public void setPredictedStep(Integer predictedStep) { this.predictedStep = predictedStep; }
-    public String getPredictedIntent() { return predictedIntent; }
-    public void setPredictedIntent(String predictedIntent) { this.predictedIntent = predictedIntent; }
     public Double getConfidence() { return confidence; }
     public void setConfidence(Double confidence) { this.confidence = confidence; }
-    public Double getEffectiveProbability() { return effectiveProbability; }
-    public void setEffectiveProbability(Double effectiveProbability) { this.effectiveProbability = effectiveProbability; }
-    public String getExplanation() { return explanation; }
-    public void setExplanation(String explanation) { this.explanation = explanation; }
     public String getEvidence() { return evidence; }
     public void setEvidence(String evidence) { this.evidence = evidence; }
 }

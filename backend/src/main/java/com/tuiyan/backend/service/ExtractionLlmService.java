@@ -51,6 +51,21 @@ public class ExtractionLlmService {
                                                List<Map<String, Object>> imageAttachments,
                                                String modelOverride,
                                                String configId) throws IOException {
+        return extractOntologyFromSources(combinedText, imageAttachments, modelOverride, configId, null);
+    }
+
+    /**
+     * 抽取入口（可指定 system prompt）：{@code systemPrompt} 为 null 时用通用文档抽取
+     * {@link ExtractPrompts#EXTRACT_SYSTEM}；DDL/schema 类结构化输入可传
+     * {@link ExtractPrompts#SCHEMA_TO_ONTOLOGY_SYSTEM}，其映射规则确定、反幻觉约束更严。
+     */
+    public JsonNode extractOntologyFromSources(String combinedText,
+                                               List<Map<String, Object>> imageAttachments,
+                                               String modelOverride,
+                                               String configId,
+                                               String systemPrompt) throws IOException {
+        String system = (systemPrompt == null || systemPrompt.isBlank())
+                ? ExtractPrompts.EXTRACT_SYSTEM : systemPrompt;
         LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(modelOverride, configId);
         boolean anthropic = http.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
@@ -75,7 +90,7 @@ public class ExtractionLlmService {
             // 跨片连边：把前面段落已识别的实体（含其稳定 id）回灌给本段，
             // 这样本段产生的关系才能直接连到“别的段落里”的实体，避免血缘链在段边界断裂。
             preface += merger.knownEntitiesPreface(merged);
-            JsonNode part = callExtractOnce(preface + chunks.get(i), imgs, cfg, anthropic);
+            JsonNode part = callExtractOnce(preface + chunks.get(i), imgs, cfg, anthropic, system);
             if (chunks.size() > 1) part = merger.prefixChunkIds(part, "c" + i + "_");
             merged = (merged == null) ? part : merger.mergeExtractionByLabel(merged, part);
         }
@@ -86,7 +101,8 @@ public class ExtractionLlmService {
     private JsonNode callExtractOnce(String userText,
                                      List<Map<String, Object>> imageAttachments,
                                      LlmHttpClient.ResolvedConfig cfg,
-                                     boolean anthropic) throws IOException {
+                                     boolean anthropic,
+                                     String systemPrompt) throws IOException {
         boolean hasImages = imageAttachments != null && !imageAttachments.isEmpty();
         StringBuilder userPrompt = new StringBuilder();
         if (userText != null && !userText.isBlank()) {
@@ -101,10 +117,10 @@ public class ExtractionLlmService {
         }
         userPrompt.append("请抽取所有可识别的本体节点（含规则）与关系，按 SCHEMA 输出 JSON。");
 
-        callLogger.logConversation("LLM-extract", cfg.modelName(), ExtractPrompts.EXTRACT_SYSTEM,
+        callLogger.logConversation("LLM-extract", cfg.modelName(), systemPrompt,
                 null, userPrompt.toString(), imageAttachments);
 
-        String requestBody = http.buildBody(cfg, ExtractPrompts.EXTRACT_SYSTEM, userPrompt.toString(),
+        String requestBody = http.buildBody(cfg, systemPrompt, userPrompt.toString(),
                 null, imageAttachments, false, true, LlmHttpClient.EXTRACT_TEMPERATURE);
 
         HttpRequest httpReq = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());

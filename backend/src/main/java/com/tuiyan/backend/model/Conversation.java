@@ -9,7 +9,7 @@ import java.util.Map;
 /**
  * 一段对话会话（左侧对话列表的一项）。
  * <p>每个 Conversation 是独立的 JSON 文件，落盘到 {@code ~/.tuiyan/conversations/<id>.json}。
- * msgs 用 {@code Map<String,Object>} 保持灵活：可容纳工具调用、推演消息等非典型 role/content 形式。
+ * msgs 用 {@code Map<String,Object>} 保持灵活：可容纳工具调用等非典型 role/content 形式。
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class Conversation {

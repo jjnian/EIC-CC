@@ -142,14 +142,14 @@ const onBackdrop = (e: MouseEvent) => {
               ref="fileInput"
               type="file"
               multiple
-              accept=".pdf,.docx,image/*,audio/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.amr,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              accept=".pdf,.docx,.xlsx,.xls,.xlsm,.txt,.md,.csv,.tsv,.json,.sql,.log,image/*,audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.opus,.amr,.mp4,.m4v,.mov,.mkv,.avi,.mpg,.mpeg,.wmv,.flv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               style="display:none"
               @change="onPick"
             />
             <div class="imp-drop-msg">
               <div style="font-size: 28px;">📎</div>
               <div>点击或拖拽文件到此处 · 最多 8 个</div>
-              <div class="imp-drop-hint">PDF / DOCX 走文本抽取 · 图片走多模态视觉 · 音频先转写成文本</div>
+              <div class="imp-drop-hint">PDF / DOCX / Excel / 文本走抽取 · 图片走多模态视觉 · 音频/视频先转写成文本</div>
             </div>
           </div>
           <div v-if="files.length" class="imp-files">

@@ -10,7 +10,7 @@ import java.util.stream.Collectors;
 /**
  * LLM 调用统计服务：进程内累计调用次数、错误数、总耗时，以及按模型名分组的统计。
  * <p>全部存于内存，进程重启即清零；通过 {@code /api/system/llm-metrics} 暴露给前端。
- * 使用 {@link AtomicLong} + {@link ConcurrentHashMap} 是因为可能从多个推演线程并发记账。
+ * 使用 {@link AtomicLong} + {@link ConcurrentHashMap} 是因为可能从多个异步任务线程并发记账。
  */
 @Service
 public class LlmMetricsService {

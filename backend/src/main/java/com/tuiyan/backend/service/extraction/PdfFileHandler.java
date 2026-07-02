@@ -59,8 +59,12 @@ public class PdfFileHandler implements SourceFileHandler {
             boolean textBare = pageCount > 0 && rawLen < pageCount * MIN_TEXT_PER_PAGE;
             if (textBare) {
                 ctx.step().emit("rendering_pdf", safeName + " 文字稀疏，正在将页面渲染为图片识别…");
-                int rendered = PdfTextExtractor.renderPages(doc, ctx.imageAttachments(),
+                java.util.List<java.util.Map<String, Object>> rendered0 = new java.util.ArrayList<>(ctx.imageAttachments());
+                int before = rendered0.size();
+                int rendered = PdfTextExtractor.renderPages(doc, rendered0,
                         RENDER_MAX_PAGES, RENDER_DPI, IMAGE_BYTE_LIMIT, ExtractionContext.TOTAL_IMAGE_BUDGET);
+                // renderPages 以"全局已有图片数"控预算，这里只把新渲染的页归到本文件来源下
+                for (int ri = before; ri < rendered0.size(); ri++) ctx.addImage(safeName, rendered0.get(ri));
                 meta.put("renderedPages", rendered);
                 if (text != null && text.length() > BARE_TEXT_KEEP) {
                     text = text.substring(0, BARE_TEXT_KEEP);
@@ -74,6 +78,6 @@ public class PdfFileHandler implements SourceFileHandler {
         }
         meta.put("type", "pdf");
         meta.put("chars", rawChars);
-        ctx.appendSection("# 文件 " + safeName, text);
+        ctx.appendSection(safeName, "# 文件 " + safeName, text);
     }
 }

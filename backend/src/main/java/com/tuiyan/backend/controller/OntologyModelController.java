@@ -4,7 +4,9 @@ import com.tuiyan.backend.model.OntologyModel;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.service.DocumentExtractionService;
 import com.tuiyan.backend.service.LineageTraversalService;
+import com.tuiyan.backend.repository.ModelBuildSourceRepository;
 import com.tuiyan.backend.service.OntologyModelService;
+import com.tuiyan.backend.service.SchemaDriftService;
 import com.tuiyan.backend.service.extraction.UploadedFile;
 import com.tuiyan.backend.support.SsePushUtils;
 import com.tuiyan.backend.support.WorkspaceContext;
@@ -25,13 +27,19 @@ public class OntologyModelController {
     private final OntologyModelService svc;
     private final DocumentExtractionService extractionService;
     private final LineageTraversalService lineageService;
+    private final ModelBuildSourceRepository buildSourceRepo;
+    private final SchemaDriftService schemaDriftService;
 
     public OntologyModelController(OntologyModelService svc,
                                    DocumentExtractionService extractionService,
-                                   LineageTraversalService lineageService) {
+                                   LineageTraversalService lineageService,
+                                   ModelBuildSourceRepository buildSourceRepo,
+                                   SchemaDriftService schemaDriftService) {
         this.svc = svc;
         this.extractionService = extractionService;
         this.lineageService = lineageService;
+        this.buildSourceRepo = buildSourceRepo;
+        this.schemaDriftService = schemaDriftService;
     }
 
     @GetMapping
@@ -72,10 +80,51 @@ public class OntologyModelController {
                                                        @RequestParam String node,
                                                        @RequestParam(defaultValue = "downstream") String direction,
                                                        @RequestParam(defaultValue = "0") int depth) {
+        if (svc.get(id) == null) return ResponseEntity.notFound().build(); // 归属校验：非本工作空间模型不可读
         LineageTraversalService.Direction dir = "upstream".equalsIgnoreCase(direction)
                 ? LineageTraversalService.Direction.UPSTREAM
                 : LineageTraversalService.Direction.DOWNSTREAM;
         return ResponseEntity.ok(lineageService.traverse(id, node, dir, depth));
+    }
+
+    /**
+     * Schema 漂移检测：重新内省数据源最新 schema，比对图上 derived_tables / 属性 column 引用，
+     * 报告已失效的表/列与受影响的节点/边。体：{dataSourceId}。只读。
+     */
+    @PostMapping("/{id}/schema-drift")
+    public ResponseEntity<Map<String, Object>> schemaDrift(@PathVariable String id,
+                                                           @RequestBody Map<String, Object> body) throws IOException {
+        if (svc.get(id) == null) return ResponseEntity.notFound().build();
+        Object ds = body == null ? null : body.get("dataSourceId");
+        if (ds == null || String.valueOf(ds).isBlank()) {
+            throw new IllegalArgumentException("缺少 dataSourceId");
+        }
+        return ResponseEntity.ok(schemaDriftService.detect(id, String.valueOf(ds)));
+    }
+
+    /**
+     * 回写建图来源记录：前端把经验库建图结果合并进模型后调用，记录「本模型由哪些经验的哪个
+     * 内容版本构建」。下次增量建图据此跳过未变更经验。体：{sources:[{experienceId, contentHash}]}。
+     */
+    @PostMapping("/{id}/build-sources")
+    public ResponseEntity<Map<String, Object>> recordBuildSources(@PathVariable String id,
+                                                                  @RequestBody Map<String, Object> body) throws IOException {
+        if (svc.get(id) == null) return ResponseEntity.notFound().build(); // 归属校验：不可写别的工作空间的模型记录
+        Map<String, String> entries = new java.util.LinkedHashMap<>();
+        Object src = body == null ? null : body.get("sources");
+        if (src instanceof List<?> list) {
+            for (Object o : list) {
+                if (o instanceof Map<?, ?> m) {
+                    Object eid = m.get("experienceId");
+                    Object hash = m.get("contentHash");
+                    if (eid != null && hash != null) {
+                        entries.put(String.valueOf(eid), String.valueOf(hash));
+                    }
+                }
+            }
+        }
+        buildSourceRepo.upsertAll(id, entries);
+        return ResponseEntity.ok(Map.of("recorded", entries.size()));
     }
 
     @GetMapping("/{id}/versions")

@@ -1,8 +1,6 @@
 package com.tuiyan.backend.service.llm;
 
-import com.tuiyan.backend.model.Constraint;
 import com.tuiyan.backend.model.MentionRef;
-import com.tuiyan.backend.model.PredictRequest;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
@@ -12,29 +10,25 @@ import java.util.Map;
 
 /**
  * 图谱 → LLM Prompt 的瘦门面：本身不持有拼接逻辑，只把请求委派给职责单一的协作组件。
- * <p>保留对外的全部 public 方法签名与公共嵌套 record，外部依赖（ChatLlmService /
- * PredictLlmService 等）无需改动。实际逻辑分散在：
+ * <p>保留对外的全部 public 方法签名与公共嵌套 record，外部依赖（ChatLlmService 等）无需改动。
+ * 实际逻辑分散在：
  * <ul>
  *   <li>{@link ChatPromptBuilder} — chat user prompt 拼接；</li>
- *   <li>{@link PredictPromptBuilder} — 推演 prompt 拼接；</li>
  *   <li>{@link SchemaPromptRenderer} — DB schema 序列化 + extract prompt；</li>
- *   <li>{@link GraphSummarizer} — 图摘要 / 上下文截断（被上面几个共享）。</li>
+ *   <li>{@link GraphSummarizer} — 图摘要 / 上下文截断。</li>
  * </ul>
  */
 @Component
 public class GraphPromptBuilder {
 
     private final ChatPromptBuilder chatPromptBuilder;
-    private final PredictPromptBuilder predictPromptBuilder;
     private final SchemaPromptRenderer schemaPromptRenderer;
     private final GraphSummarizer graphSummarizer;
 
     public GraphPromptBuilder(ChatPromptBuilder chatPromptBuilder,
-                              PredictPromptBuilder predictPromptBuilder,
                               SchemaPromptRenderer schemaPromptRenderer,
                               GraphSummarizer graphSummarizer) {
         this.chatPromptBuilder = chatPromptBuilder;
-        this.predictPromptBuilder = predictPromptBuilder;
         this.schemaPromptRenderer = schemaPromptRenderer;
         this.graphSummarizer = graphSummarizer;
     }
@@ -44,10 +38,6 @@ public class GraphPromptBuilder {
                                  List<Map<String, Object>> edges,
                                  int droppedNodes,
                                  int droppedEdges) {}
-
-    /** 推演 prompt 的结构化产物，供 orchestrator 写入 Scenario.rawPrompt 与 LLM 调用复用。 */
-    public record PredictPromptArtifact(String system, String user,
-                                        boolean truncated, int droppedNodes, int droppedEdges) {}
 
     /** RAG 检索结果片段 */
     public record RagChunk(String content, String sourceName, double score) {}
@@ -109,36 +99,6 @@ public class GraphPromptBuilder {
     }
 
     // ============================================================
-    // predict prompt（委派 PredictPromptBuilder）
-    // ============================================================
-
-    /**
-     * 构造推演用的完整 prompt（system + user）。
-     * <p>纯函数，不发起网络调用；orchestrator 把 user 部分原样写入 Scenario.rawPrompt 供前端展示。
-     */
-    public PredictPromptArtifact buildPredictPrompt(PredictRequest req) {
-        return predictPromptBuilder.buildPredictPrompt(req);
-    }
-
-    /** 提取规则节点（type=rule）的可读摘要，单独列出方便 LLM 在推演时优先用规则。 */
-    public String summarizeRules(List<Map<String, Object>> nodes) {
-        return predictPromptBuilder.summarizeRules(nodes);
-    }
-
-    /**
-     * 把 what-if 约束转成中文 prompt 文本：block / probability / force 三种模式各对应一段说明。
-     * <p>probability 模式提示 LLM 把先验作为初值做贝叶斯更新。
-     */
-    public String summarizeConstraints(List<Constraint> cs, List<Map<String, Object>> nodes) {
-        return predictPromptBuilder.summarizeConstraints(cs, nodes);
-    }
-
-    /** 把 seeds 列成 "id (label)" 格式，让 LLM 在 prompt 中直接看到种子的人类可读名称。 */
-    public String summarizeSeeds(List<String> seeds, List<Map<String, Object>> nodes) {
-        return predictPromptBuilder.summarizeSeeds(seeds, nodes);
-    }
-
-    // ============================================================
     // 图摘要 / 上下文截断（委派 GraphSummarizer）
     // ============================================================
 
@@ -148,13 +108,12 @@ public class GraphPromptBuilder {
     }
 
     /**
-     * 根据预算把大图谱裁剪成"以 seeds / rules / constraints 为中心的 N-hop 邻域"。
+     * 根据预算把大图谱裁剪成"以 seeds / rules 为中心的 N-hop 邻域"。
      */
     public TruncatedGraph truncateGraphForContext(List<Map<String, Object>> nodes,
                                                   List<Map<String, Object>> edges,
-                                                  List<String> seeds,
-                                                  List<Constraint> constraints) {
-        return graphSummarizer.truncateGraphForContext(nodes, edges, seeds, constraints);
+                                                  List<String> seeds) {
+        return graphSummarizer.truncateGraphForContext(nodes, edges, seeds);
     }
 
     // ============================================================

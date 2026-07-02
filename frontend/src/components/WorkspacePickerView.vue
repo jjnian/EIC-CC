@@ -66,7 +66,7 @@ const formatTime = (ts?: number) => {
     <div class="wp-inner">
       <div class="wp-head">
         <h1>选择工作空间</h1>
-        <p>不同工作空间之间的本体图、推演分支、对话与模板互相隔离。</p>
+        <p>不同工作空间之间的本体血缘图、对话与模板互相隔离。</p>
       </div>
 
       <div class="wp-grid" v-if="!ws.loading.value && ws.workspaces.value.length">

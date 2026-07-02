@@ -1,6 +1,7 @@
 package com.tuiyan.backend.service.extraction;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -8,6 +9,8 @@ import java.util.Map;
  * 单次抽取的累加上下文：把"待喂给 LLM 的文本 / 图片 / 数据源元信息 / 进度回调"
  * 收拢到一个对象里，替代在各方法间传递多个累加器参数，降低签名耦合。
  * <p>正文追加是线程安全的（URL 抓取并行写入），其余累加器在编排层按文件顺序单线程写入。
+ * <p>文本与图片均按「来源名」分组记录：多来源时编排层可以按来源分路并行抽取，
+ * 并把每个节点/边的 derived_source 精确标到具体文件/URL 上。
  */
 public final class ExtractionContext {
 
@@ -16,6 +19,12 @@ public final class ExtractionContext {
 
     private final StringBuilder combinedText = new StringBuilder();
     private final List<Map<String, Object>> imageAttachments = new ArrayList<>();
+    /** 来源名 → 该来源贡献的正文段（保持加入顺序）。与 combinedText 同步写入。 */
+    private final Map<String, StringBuilder> sourceTexts = new LinkedHashMap<>();
+    /** 来源名 → 该来源贡献的图片附件。与 imageAttachments 同步写入。 */
+    private final Map<String, List<Map<String, Object>>> sourceImages = new LinkedHashMap<>();
+    /** 来源名 → 该来源解析出的确定性图片段（{add_nodes,add_edges} 形状，如 SQL 血缘），不经 LLM 直接合并。 */
+    private final Map<String, List<com.fasterxml.jackson.databind.JsonNode>> graphFragments = new LinkedHashMap<>();
     private final List<Map<String, Object>> sourcesMeta = new ArrayList<>();
     private final StepSink step;
 
@@ -34,7 +43,13 @@ public final class ExtractionContext {
     /** 是否已用尽全局图片预算。 */
     public boolean imageBudgetReached() { return imageAttachments.size() >= TOTAL_IMAGE_BUDGET; }
 
-    public void addImage(Map<String, Object> attachment) { imageAttachments.add(attachment); }
+    /** 记录一张图片附件并归到其来源名下。 */
+    public void addImage(String source, Map<String, Object> attachment) {
+        synchronized (combinedText) {
+            imageAttachments.add(attachment);
+            sourceImages.computeIfAbsent(nz(source), k -> new ArrayList<>()).add(attachment);
+        }
+    }
 
     public void addSource(Map<String, Object> meta) { sourcesMeta.add(meta); }
 
@@ -46,11 +61,67 @@ public final class ExtractionContext {
         synchronized (combinedText) { return combinedText.toString(); }
     }
 
-    /** 以 "# header\n\n text\n\n" 形式线程安全地追加正文；text 为空则忽略。 */
-    public void appendSection(String header, String text) {
+    /** 以 "# header\n\n text\n\n" 形式线程安全地追加正文，并归到来源名下；text 为空则忽略。 */
+    public void appendSection(String source, String header, String text) {
         if (text == null || text.isBlank()) return;
+        String section = header + "\n\n" + text + "\n\n";
         synchronized (combinedText) {
-            combinedText.append(header).append("\n\n").append(text).append("\n\n");
+            combinedText.append(section);
+            sourceTexts.computeIfAbsent(nz(source), k -> new StringBuilder()).append(section);
         }
+    }
+
+    /** 记录一个确定性图片段（{add_nodes,add_edges}）并归到其来源名下。 */
+    public void addGraphFragment(String source, com.fasterxml.jackson.databind.JsonNode fragment) {
+        if (fragment == null) return;
+        synchronized (combinedText) {
+            graphFragments.computeIfAbsent(nz(source), k -> new ArrayList<>()).add(fragment);
+        }
+    }
+
+    public boolean hasGraphFragments() {
+        synchronized (combinedText) { return !graphFragments.isEmpty(); }
+    }
+
+    /** 来源名 → 确定性图片段列表（快照副本，按首次贡献顺序）。 */
+    public Map<String, List<com.fasterxml.jackson.databind.JsonNode>> graphFragments() {
+        synchronized (combinedText) {
+            Map<String, List<com.fasterxml.jackson.databind.JsonNode>> out = new LinkedHashMap<>();
+            for (Map.Entry<String, List<com.fasterxml.jackson.databind.JsonNode>> en : graphFragments.entrySet()) {
+                out.put(en.getKey(), List.copyOf(en.getValue()));
+            }
+            return out;
+        }
+    }
+
+    /** 有正文或图片贡献的来源名列表（按首次贡献顺序）。 */
+    public List<String> contributingSources() {
+        synchronized (combinedText) {
+            List<String> out = new ArrayList<>(sourceTexts.keySet());
+            for (String s : sourceImages.keySet()) {
+                if (!out.contains(s)) out.add(s);
+            }
+            return out;
+        }
+    }
+
+    /** 某来源贡献的正文（无则空串）。 */
+    public String sourceText(String source) {
+        synchronized (combinedText) {
+            StringBuilder sb = sourceTexts.get(nz(source));
+            return sb == null ? "" : sb.toString();
+        }
+    }
+
+    /** 某来源贡献的图片附件（无则空列表）。 */
+    public List<Map<String, Object>> sourceImages(String source) {
+        synchronized (combinedText) {
+            List<Map<String, Object>> list = sourceImages.get(nz(source));
+            return list == null ? List.of() : List.copyOf(list);
+        }
+    }
+
+    private static String nz(String source) {
+        return source == null || source.isBlank() ? "(unknown)" : source;
     }
 }

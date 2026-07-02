@@ -7,6 +7,7 @@ import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.repository.ExperienceRepository;
 import com.tuiyan.backend.service.ExperienceFileService;
 import com.tuiyan.backend.service.ExperienceOntologyService;
+import com.tuiyan.backend.service.WebResearchService;
 import com.tuiyan.backend.service.WebSystemConfigAssembler;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
 import com.tuiyan.backend.entity.ExperiencePO;
@@ -45,6 +46,7 @@ public class ExperienceController {
     private final ExperienceIndexService indexService;
     private final ExperienceFileService fileService;
     private final ExperienceOntologyService experienceOntology;
+    private final WebResearchService webResearchService;
     private final ObjectStorage storage;
     private final AsyncTaskExecutor taskExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -56,14 +58,62 @@ public class ExperienceController {
                                 ExperienceIndexService indexService,
                                 ExperienceFileService fileService,
                                 ExperienceOntologyService experienceOntology,
+                                WebResearchService webResearchService,
                                 ObjectStorage storage,
-                                @Qualifier("predictionExecutor") AsyncTaskExecutor taskExecutor) {
+                                @Qualifier("appTaskExecutor") AsyncTaskExecutor taskExecutor) {
         this.repo = repo;
         this.indexService = indexService;
         this.fileService = fileService;
         this.experienceOntology = experienceOntology;
+        this.webResearchService = webResearchService;
         this.storage = storage;
         this.taskExecutor = taskExecutor;
+    }
+
+    /**
+     * 联网调研业务知识（SSE 流式）：搜索主题 → 抓取命中网页 → LLM 归纳成《业务知识文档》
+     * → 存为经验（origin=websearch，自动引用进当前工作空间 + 建索引）。
+     * 体：{topic, maxPages?, modelOverride?, configId?}。事件：step* → complete{experience} / error。
+     */
+    @PostMapping(value = "/web-research", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter webResearch(@RequestBody Map<String, Object> body) {
+        String topic = body == null ? null : (String) body.get("topic");
+        String modelOverride = body == null ? null : (String) body.get("modelOverride");
+        String configId = body == null ? null : (String) body.get("configId");
+        int maxPages = 0;
+        Object mp = body == null ? null : body.get("maxPages");
+        if (mp instanceof Number n) maxPages = n.intValue();
+        final int pages = maxPages;
+        String workspaceId = WorkspaceContext.get();
+
+        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(300_000L,
+                "联网调研超时 (>300s)，请稍后重试或减少抓取页数");
+        SseEmitter emitter = ce.emitter();
+        taskExecutor.execute(() -> {
+            if (workspaceId != null) WorkspaceContext.set(workspaceId);
+            try {
+                ExperienceOntologyService.StepSink step = (key, label) -> {
+                    try {
+                        String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
+                        SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
+                    } catch (Exception ignore) {}
+                };
+                Map<String, Object> exp = webResearchService.research(topic, pages, modelOverride, configId, step);
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
+                        objectMapper.writeValueAsString(Map.of("experience", exp)));
+                emitter.complete();
+            } catch (Exception e) {
+                log.warn("[web-research] 调研失败: {}", e.toString());
+                try {
+                    SsePushUtils.safeSend(emitter, ce.cancelled(), "error",
+                            e.getMessage() == null ? "调研失败" : e.getMessage());
+                } catch (Exception ignore) {}
+                emitter.complete();
+            } finally {
+                if (workspaceId != null) WorkspaceContext.clear();
+            }
+        });
+        return emitter;
     }
 
     /**
@@ -76,6 +126,15 @@ public class ExperienceController {
         String modelOverride = body == null ? null : (String) body.get("modelOverride");
         String configId = body == null ? null : (String) body.get("configId");
         String userHint = body == null ? null : (String) body.get("hint");
+        // 可选建图范围：experienceIds 非空时只聚合这些经验，缺省聚合本空间全部
+        List<String> experienceIds = null;
+        Object idsObj = body == null ? null : body.get("experienceIds");
+        if (idsObj instanceof List<?> rawIds && !rawIds.isEmpty()) {
+            experienceIds = rawIds.stream().map(String::valueOf).filter(v -> !v.isBlank()).toList();
+        }
+        final List<String> scopeIds = experienceIds;
+        // 增量建图：传入目标模型 id 时按其构建记录跳过未变更经验
+        final String incrementalModelId = body == null ? null : (String) body.get("incrementalModelId");
         String workspaceId = WorkspaceContext.get();
 
         SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(300_000L,
@@ -92,13 +151,17 @@ public class ExperienceController {
                     } catch (Exception ignore) {}
                 };
                 ExperienceOntologyService.ExtractResult r =
-                        experienceOntology.extractFromWorkspace(modelOverride, configId, userHint, step);
+                        experienceOntology.extractFromWorkspace(modelOverride, configId, userHint,
+                                scopeIds, incrementalModelId, step);
                 Map<String, Object> payload = new LinkedHashMap<>();
                 payload.put("nodes", r.payload().path("nodes"));
                 payload.put("edges", r.payload().path("edges"));
                 payload.put("reply", r.payload().path("reply").asText(""));
                 payload.put("salt", r.salt());
                 payload.put("sourceCount", r.sourceCount());
+                payload.put("incremental", r.payload().path("incremental").asBoolean(false));
+                payload.put("skippedUnchanged", r.payload().path("skippedUnchanged").asInt(0));
+                payload.put("manifest", r.payload().path("manifest"));
                 SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
                         objectMapper.writeValueAsString(payload));
                 emitter.complete();

@@ -158,13 +158,17 @@ public class AudioTranscriptionService {
         return new TranscriptResult(root.path("text").asText("").strip(), duration, modelName);
     }
 
-    /** 手工拼 multipart/form-data：model + [language] + response_format + file（{@link HttpRequest} 无内建 multipart）。 */
+    /** 手工拼 multipart/form-data：model + [language] + [prompt 热词] + response_format + file（{@link HttpRequest} 无内建 multipart）。 */
     private byte[] buildMultipart(String boundary, byte[] audio, String filename, String mime, boolean verbose, String modelName) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         List<String[]> fields = new ArrayList<>();
         fields.add(new String[]{"model", modelName});
         if (props.getLanguage() != null && !props.getLanguage().isBlank()) {
             fields.add(new String[]{"language", props.getLanguage().strip()});
+        }
+        // 术语热词：Whisper 会参考 prompt 里的专有词汇拼写，降低行业术语/系统名/表名的转写错误
+        if (props.getPrompt() != null && !props.getPrompt().isBlank()) {
+            fields.add(new String[]{"prompt", props.getPrompt().strip()});
         }
         fields.add(new String[]{"response_format", verbose ? "verbose_json" : "json"});
 

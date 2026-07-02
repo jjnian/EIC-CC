@@ -1,6 +1,6 @@
 // Core domain types shared by App.vue and components.
 
-export type NodeSource = 'predicted' | 'derived' | 'inferred' | 'preset' | 'manual' | string;
+export type NodeSource = 'derived' | 'inferred' | 'preset' | 'manual' | string;
 
 export interface OntologyNode {
   id: string;
@@ -18,11 +18,7 @@ export interface OntologyNode {
   derived_tables?: string[];
   derived_source?: string;
   derived_database?: string;
-  predictedStep?: number;
-  predictedIntent?: 'forward' | 'backward';
   confidence?: number;
-  effectiveProbability?: number;
-  explanation?: string;
   /** 血缘证据：抽取该节点所依据的原文引文/出处（≤30字），可审计。 */
   evidence?: string;
   isNew?: boolean;
@@ -103,65 +99,6 @@ export interface OntologyModel {
   graphData: { nodes: OntologyNode[]; edges: OntologyEdge[] };
   updated?: string;
   [k: string]: any;
-}
-
-export interface ChainStep {
-  step: number;
-  nodeId: string;
-  label: string;
-  type: string;
-  triggeredBy?: string[];
-  ruleId?: string | null;
-  explanation?: string;
-  confidence?: number;
-  effectiveProbability?: number;
-  cumulativeCredibility?: number;
-}
-
-export interface Constraint {
-  nodeId: string;
-  mode: 'force' | 'block' | 'probability';
-  note?: string;
-  // 仅 mode='probability' 时使用，0..1
-  probability?: number;
-}
-
-/** P1-7：预测节点的三段式解释缓存。 */
-export interface NodeExplanation {
-  evidence: string;
-  assumptions: string;
-  counterexamples: string;
-  generatedAt: number;
-  modelName?: string;
-}
-
-export interface PredictionDag {
-  intent?: 'forward' | 'backward';
-  nodes: OntologyNode[];
-  edges: OntologyEdge[];
-  chain: ChainStep[];
-  constraints?: Constraint[];
-  // P1-7：按预测节点 id 缓存的解释
-  explanations?: Record<string, NodeExplanation>;
-}
-
-export interface Scenario {
-  id: string;
-  name: string;
-  modelId: string;
-  parentBranchId?: string | null;
-  intent?: 'forward' | 'backward';
-  steps: number;
-  seeds: string[];
-  prompt?: string;
-  createdAt: number;
-  dag?: PredictionDag;
-  // P1-8：本次推演完整 prompt 快照（按需通过 raw-prompt 端点获取，默认列表不带）
-  rawPrompt?: string;
-  // legacy v0.5 flat snapshot fields:
-  nodes?: OntologyNode[];
-  edges?: OntologyEdge[];
-  chain?: ChainStep[];
 }
 
 export interface SourceMeta {

@@ -8,6 +8,7 @@ import com.tuiyan.backend.model.ChatRequest;
 import com.tuiyan.backend.model.MentionRef;
 import com.tuiyan.backend.service.chat.ChatContextCollector;
 import com.tuiyan.backend.service.chat.ChatStepEmitter;
+import com.tuiyan.backend.service.chat.ChatChangeGuard;
 import com.tuiyan.backend.service.chat.DerivedSourceStamper;
 import com.tuiyan.backend.service.llm.GraphPromptBuilder;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
@@ -40,7 +41,7 @@ public class ChatLlmService {
 
     // 单次对话最多展示的"逐个构建"步骤数，避免大量实体淹没时间线；超出由 merging_graph 汇总兜底
     private static final int MAX_BUILD_STEPS = 24;
-    // 每条构建步骤之间的间隔，制造"逐步生长"的视觉节奏（与推演编排一致）
+    // 每条构建步骤之间的间隔，制造"逐步生长"的视觉节奏
     private static final long BUILD_STEP_DELAY_MS = 70;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -104,7 +105,22 @@ public class ChatLlmService {
             JsonNode responseJson = objectMapper.readTree(response.body());
             String content = http.stripJsonFence(http.extractContent(responseJson, anthropic));
             callLogger.logLlmResponse("LLM-chat", cfg.modelName(), elapsed, content);
-            return objectMapper.readTree(content);
+            JsonNode result = objectMapper.readTree(content);
+            // 同步端点同样过局部变更防护（与 SSE 路径一致），防止绕过防护直接落图
+            if (result instanceof ObjectNode obj) {
+                ChatChangeGuard.Guarded guarded = ChatChangeGuard.apply(
+                        nodes, edges,
+                        result.path("add_nodes"), result.path("add_edges"),
+                        collectIdArray(result.path("remove_nodes")), collectIdArray(result.path("remove_edges")),
+                        collectPatchArray(result.path("update_nodes")), collectPatchArray(result.path("update_edges")));
+                obj.set("add_nodes", guarded.addNodes());
+                obj.set("add_edges", guarded.addEdges());
+                obj.set("remove_nodes", guarded.removeNodes());
+                obj.set("remove_edges", guarded.removeEdges());
+                obj.set("update_nodes", guarded.updateNodes());
+                obj.set("update_edges", guarded.updateEdges());
+            }
+            return result;
         } catch (IOException e) {
             long elapsed = System.currentTimeMillis() - startTime;
             http.metrics().recordCall(cfg.modelName(), elapsed, false);
@@ -180,9 +196,13 @@ public class ChatLlmService {
             // 把本次会话用到的数据库 schema 透传给 handleResponse，
             // 让 LLM 输出里只填了 derived_tables 的节点/边也能被补齐 derived_source / derived_database
             final List<GraphPromptBuilder.DbSchema> dbSchemasForStamp = dbSchemas;
+            // 现有图谱透传给变更防护：重画回收 / 删除预算 / 补丁白名单都要对照现有节点与边
+            final List<Map<String, Object>> nodesForGuard = request.getNodes();
+            final List<Map<String, Object>> edgesForGuard = request.getEdges();
 
             http.httpClient().sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                    .thenAccept(resp -> handleResponse(resp, step, emitter, anthropic, startMs, modelForMetrics, dbSchemasForStamp))
+                    .thenAccept(resp -> handleResponse(resp, step, emitter, anthropic, startMs, modelForMetrics,
+                            dbSchemasForStamp, nodesForGuard, edgesForGuard))
                     .exceptionally(ex -> {
                         long elapsed = System.currentTimeMillis() - startMs;
                         log.error("[LLM-chat-sse] 网络异常 耗时={}ms error={}", elapsed, ex.getMessage());
@@ -202,7 +222,9 @@ public class ChatLlmService {
 
     private void handleResponse(HttpResponse<String> resp, ChatStepEmitter step, SseEmitter emitter,
                                 boolean anthropic, long startMs, String modelName,
-                                List<GraphPromptBuilder.DbSchema> dbSchemas) {
+                                List<GraphPromptBuilder.DbSchema> dbSchemas,
+                                List<Map<String, Object>> existingNodes,
+                                List<Map<String, Object>> existingEdges) {
         long elapsed = System.currentTimeMillis() - startMs;
 
         if (resp.statusCode() != 200) {
@@ -246,8 +268,19 @@ public class ChatLlmService {
                 step.send("text", reply);
             }
 
-            JsonNode addNodes = result.path("add_nodes");
-            JsonNode addEdges = result.path("add_edges");
+            // 局部变更防护:重画回收(重复 label 折叠到现有节点) / 删除预算 / 补丁白名单,
+            // 保证一次对话只改该改的部分,而不是重画整图或误删一大片
+            ChatChangeGuard.Guarded guarded = ChatChangeGuard.apply(
+                    existingNodes, existingEdges,
+                    result.path("add_nodes"), result.path("add_edges"),
+                    collectIdArray(result.path("remove_nodes")), collectIdArray(result.path("remove_edges")),
+                    collectPatchArray(result.path("update_nodes")), collectPatchArray(result.path("update_edges")));
+            for (String notice : guarded.notices()) {
+                step.step("guard", "🛡 " + notice);
+            }
+
+            JsonNode addNodes = guarded.addNodes();
+            JsonNode addEdges = guarded.addEdges();
             int nodeCount = addNodes.size();
             int edgeCount = addEdges.size();
 
@@ -256,14 +289,12 @@ public class ChatLlmService {
             DerivedSourceStamper.stamp(addNodes, dbSchemas);
             DerivedSourceStamper.stamp(addEdges, dbSchemas);
 
-            // 删除:LLM 可返回待删除的现有节点/边 id(仅 chat 场景),透传给前端从画布移除
-            ArrayNode removeNodes = collectIdArray(result.path("remove_nodes"));
-            ArrayNode removeEdges = collectIdArray(result.path("remove_edges"));
+            ArrayNode removeNodes = guarded.removeNodes();
+            ArrayNode removeEdges = guarded.removeEdges();
             int removeNodeCount = removeNodes.size();
             int removeEdgeCount = removeEdges.size();
-            // 修改:LLM 可返回对现有节点/边的局部 patch(须含 id),透传给前端就地更新
-            ArrayNode updateNodes = collectPatchArray(result.path("update_nodes"));
-            ArrayNode updateEdges = collectPatchArray(result.path("update_edges"));
+            ArrayNode updateNodes = guarded.updateNodes();
+            ArrayNode updateEdges = guarded.updateEdges();
             int updateNodeCount = updateNodes.size();
             int updateEdgeCount = updateEdges.size();
 
@@ -284,7 +315,15 @@ public class ChatLlmService {
             step.step("merging_graph", mergeLabel.toString());
 
             ObjectNode finalEvent = objectMapper.createObjectNode();
-            finalEvent.put("reply", reply);
+            String replyOut = reply;
+            if (!guarded.notices().isEmpty()) {
+                StringBuilder sb = new StringBuilder(replyOut);
+                for (String notice : guarded.notices()) {
+                    sb.append(sb.length() > 0 ? "\n" : "").append("🛡 ").append(notice);
+                }
+                replyOut = sb.toString();
+            }
+            finalEvent.put("reply", replyOut);
             finalEvent.set("add_nodes", addNodes);
             finalEvent.set("add_edges", addEdges);
             if (removeNodeCount > 0) finalEvent.set("remove_nodes", removeNodes);

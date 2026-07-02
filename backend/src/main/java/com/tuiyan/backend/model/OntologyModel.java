@@ -6,7 +6,7 @@ import java.util.Map;
 /**
  * 本体图谱模型：项目的基础数据结构，描述实体类型与因果关系骨架。
  * <p>每个模型独立保存为 {@code ~/.tuiyan/ontology-models/<id>.json}，
- * 用户可以建多个图谱（如"金融风险"、"供应链"），推演时选其中一个作为 trunk。
+ * 用户可以建多个图谱（如"金融风险"、"供应链"）。
  * <p>{@code updated}（字符串显示用）与 {@code updatedAt}（毫秒时间戳，用于排序）并存
  * 是历史遗留：早期版本只用 updated，后来加 updatedAt 但旧文件可能没有。
  */

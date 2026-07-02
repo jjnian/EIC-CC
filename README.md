@@ -1,6 +1,6 @@
 # 推演平台 (EIC-CC)
 
-> **基于本体图谱的 AI 因果推演系统**：通过自然语言对话构建知识图谱，沿因果链做正向预测或反向溯因，支持多分支假设对比。
+> **基于本体图谱的 AI 业务血缘建模系统**：通过自然语言对话、文档抽取与经验库沉淀构建业务血缘图，并为图节点绑定真实数据源供血。
 
 ![status](https://img.shields.io/badge/status-active-success) ![license](https://img.shields.io/badge/license-internal-blue) ![java](https://img.shields.io/badge/java-17-orange) ![vue](https://img.shields.io/badge/vue-3.5-brightgreen)
 
@@ -23,22 +23,18 @@
   - [5.8 节点详情与 Schema](#58-节点详情与-schema)
   - [5.9 文档导入与实体抽取](#59-文档导入与实体抽取)
   - [5.10 图谱模板库](#510-图谱模板库)
-  - [5.11 假设模板](#511-假设模板)
-  - [5.12 多 LLM 配置与连接测试](#512-多-llm-配置与连接测试)
-  - [5.13 对话历史与数据源回看](#513-对话历史与数据源回看)
-  - [5.14 导出与共享](#514-导出与共享)
-  - [5.15 版本管理与回滚](#515-版本管理与回滚)
-  - [5.16 系统监控](#516-系统监控)
-  - [5.17 用户偏好设置](#517-用户偏好设置)
-- [六、因果推演（详细用法）](#六因果推演详细用法)
-- [七、分支假设（详细用法）](#七分支假设详细用法)
-- [八、推演深化能力](#八推演深化能力)
-- [九、前端架构详解](#九前端架构详解)
-- [十、后端架构详解](#十后端架构详解)
-- [十一、数据存储](#十一数据存储)
-- [十二、REST API 完整参考](#十二rest-api-完整参考)
-- [十三、快捷键](#十三快捷键)
-- [十四、配置与环境变量](#十四配置与环境变量)
+  - [5.11 多 LLM 配置与连接测试](#511-多-llm-配置与连接测试)
+  - [5.12 对话历史与数据源回看](#512-对话历史与数据源回看)
+  - [5.13 导出与共享](#513-导出与共享)
+  - [5.14 版本管理与回滚](#514-版本管理与回滚)
+  - [5.15 系统监控](#515-系统监控)
+  - [5.16 用户偏好设置](#516-用户偏好设置)
+- [六、前端架构详解](#六前端架构详解)
+- [七、后端架构详解](#七后端架构详解)
+- [八、数据存储](#八数据存储)
+- [九、REST API 完整参考](#九rest-api-完整参考)
+- [十、快捷键](#十快捷键)
+- [十一、配置与环境变量](#十一配置与环境变量)
 - [附录 A：节点 / 边视觉编码](#附录-a节点--边视觉编码)
 - [附录 B：术语缩写](#附录-b术语缩写)
 
@@ -46,20 +42,18 @@
 
 ## 一、项目概述
 
-**推演平台** 是一个面向因果推理的 AI 辅助本体建模工具。核心能力：
+**推演平台** 是一个面向业务血缘的 AI 辅助本体建模工具。核心能力：
 
 | 能力 | 说明 |
 |---|---|
 | **本体建模** | 用自然语言或导入文档（PDF / DOCX / 图片），自动抽取实体、流程、事件、规则及其关系，构建有向图谱 |
-| **因果推演** | 在已有图谱上以选定节点为起点（或终点），由 LLM 沿因果链做多步正向 / 反向推演 |
-| **分支假设** | 每一次推演形成独立的"假设分支"，可在主干与多个分支之间切换、对比 |
 | **多源融合** | 支持上传 PDF、DOCX、图片、Markdown、文本、CSV 等结构化 / 非结构化资料；对话框可直接粘贴图片 |
-| **可解释性** | 节点 / 边都标注来源（derived / inferred / predicted），推演节点支持三段式解释（依据 / 假设 / 反例） |
+| **可解释性** | 节点 / 边都标注来源（derived / inferred）与血缘证据（evidence），可审计追溯 |
 | **可回溯** | 完整撤销 / 重做历史；模型版本快照自动备份与回滚；对话里每条上传文件都可重新查看 |
 | **概率推理** | 支持 force / block / probability 三种约束模式，概率约束融合贝叶斯先验 |
 | **多 LLM 支持** | 10+ 主流模型提供商，OpenAI / Anthropic 双协议，即时切换 |
 
-适用场景：供应链推演、流程审计、事故复盘、规则建模、知识资产沉淀等。
+适用场景：业务血缘梳理、流程审计、规则建模、知识资产沉淀等。
 
 ---
 
@@ -111,8 +105,8 @@ cd frontend && npm install && npm run dev
 │  ┌─────────────────────────────────────────────────────────┐ │
 │  │              Vue 3 SPA  (frontend:5173)                 │ │
 │  │  ┌───────────┐ ┌───────────┐ ┌──────────────────────┐  │ │
-│  │  │ Graph     │ │ Chat      │ │  Prediction /        │  │ │
-│  │  │ Canvas    │ │ Panel     │ │  Explanation Panel   │  │ │
+│  │  │ Graph     │ │ Chat      │ │  Import / Extract    │  │ │
+│  │  │ Canvas    │ │ Panel     │ │  Panels              │  │ │
 │  │  │ (SVG)     │ │ (SSE)     │ │  (SSE streaming)     │  │ │
 │  │  └───────────┘ └───────────┘ └──────────────────────┘  │ │
 │  └────────────────────────┬────────────────────────────────┘ │
@@ -124,11 +118,9 @@ cd frontend && npm install && npm run dev
 │  ┌─────────────────────────────────────────────────────────┐ │
 │  │  Controllers (7 个)                                     │ │
 │  │  ├── ChatController       — 对话 + 图谱增量             │ │
-│  │  ├── ScenarioController   — 推演、分支、解释             │ │
 │  │  ├── OntologyModelController — 本体 CRUD + 抽取 + 版本  │ │
 │  │  ├── ConversationController  — 对话历史                  │ │
 │  │  ├── ModelController      — LLM 模型列表 + 连接测试      │ │
-│  │  ├── HypothesisTemplateController — 假设模板             │ │
 │  │  ├── GraphTemplateController — 图谱模板                  │ │
 │  │  ├── DocumentTextController  — DOCX 抽文本               │ │
 │  │  ├── ConfigController     — 前端配置下发                 │ │
@@ -152,7 +144,7 @@ cd frontend && npm install && npm run dev
 | **LLM 协议** | OpenAI 兼容协议 / Anthropic 原生协议（streaming + JSON 输出） |
 | **文档解析** | Apache PDFBox 3.0（PDF 文字 + 扫描件图片渲染）、Apache POI 5.2（DOCX 段落 + 表格） |
 | **存储** | 本地 JSON 文件（`~/.tuiyan/`），原子写入保证一致性 |
-| **通信** | HTTP REST + SSE（流式生成 / 推演实时回执 / 节点解释） |
+| **通信** | HTTP REST + SSE（流式生成 / 抽取建图实时回执） |
 
 ### 前端架构概要
 
@@ -169,10 +161,10 @@ cd frontend && npm install && npm run dev
 | 模块 | 说明 |
 |---|---|
 | **Controller** | 11 个 REST 控制器，覆盖所有业务端点 |
-| **Service** | 11 个业务服务：LLM 适配、推演编排、解释生成、文档抽取、指标收集等 |
+| **Service** | 业务服务：LLM 适配、文档抽取、经验库建图、指标收集等 |
 | **Model** | 9 个领域模型 / DTO |
-| **Support** | 6 个工具类：原子写入、PDF/DOCX 抽取、文件嗅探、ID 盐重写、SSE 推送、概率计算 |
-| **异步线程池** | `predictionExecutor`：核心 4 线程，最大 8，队列 50，用于推演 / 解释异步执行 |
+| **Support** | 工具类：原子写入、PDF/DOCX 抽取、文件嗅探、ID 盐重写、SSE 推送等 |
+| **异步线程池** | `appTaskExecutor`：核心 4 线程，最大 8，队列 50，用于抽取 / 建图 / 探索等 SSE 长任务 |
 
 ---
 
@@ -182,14 +174,8 @@ cd frontend && npm install && npm run dev
 |---|---|
 | **本体模型 (OntologyModel)** | 一个图谱画布，包含 nodes / edges 与元信息，支持版本快照 |
 | **节点类型** | `entity`（实体）、`process`（流程）、`event`（事件）、`data`（数据源）、`external`（外部系统）、`rule`（规则/条件） |
-| **边来源 (source)** | `derived`（文本明示）、`inferred`（模型推断填充）、`predicted`（推演生成）、`preset`（预置）|
+| **边来源 (source)** | `derived`（文本明示）、`inferred`（模型推断填充）、`preset`（预置）、`manual`（手动）|
 | **rule_driven 边** | 由 rule 节点驱动的关系，画布中以粉色显示 |
-| **主干 (trunk)** | 本体模型的"真实"图谱状态 |
-| **分支 (branch / Scenario)** | 一次推演的快照，挂在主干或其它分支下，仅增量记录预测新增的节点/边 |
-| **推演意图 (intent)** | `forward`（从原因到结果）或 `backward`（从结果反推原因） |
-| **约束 (constraint)** | 推演前指定某节点 `force`（必然发生）、`block`（不会发生）或 `probability`（设定先验概率），用于剪枝或概率融合 |
-| **推演 DAG (PredictionDag)** | 推演产生的有向无环图，包含节点、边、因果链顺序、约束列表、节点解释缓存 |
-| **节点解释 (NodeExplanation)** | 对预测节点的三段式 LLM 解释：依据、假设、反例 |
 
 ---
 
@@ -202,7 +188,7 @@ cd frontend && npm install && npm run dev
 | 创建模型 | 「列表」页 → "新建模型" / 欢迎页对话提交 | 自动生成默认标题，创建后跳转到画布 |
 | 列出模型 | 左侧栏 / "列表" 页 | 卡片形式显示节点 / 关系统计与更新时间 |
 | 打开模型 | 点击模型卡片或左侧条目 | 加载 nodes / edges 并重置历史栈 |
-| 删除模型 | 卡片右上角 "×" | 二次确认，同时清理对应分支 |
+| 删除模型 | 卡片右上角 "×" | 二次确认 |
 | 自动保存 | 任何编辑触发 | 1.2 s 防抖 PUT 到后端；切换 / 撤销时立即保存 |
 | 首次启动默认模型 | 后端初始化时 | 自动创建供应链、金融风控、组织架构等示例模型 |
 
@@ -297,14 +283,14 @@ cd frontend && npm install && npm run dev
 | `Ctrl/⌘ + 点击节点` | 多选/取消多选（加入多选集合） |
 | 拖动节点 | 移动节点（拖拽开始时触发一次历史快照） |
 | 批量拖动 | 多选状态下拖动其中一个，所有选中节点同步移动 |
-| 右键节点 | 弹出上下文菜单（推演 / 编辑 / 删除 / 解释） |
+| 右键节点 | 弹出上下文菜单（编辑 / 删除） |
 | 双击节点 | 进入编辑模式（修改名称和类型） |
 | 点击空白 | 取消选中 |
 
 #### 顶部工具栏（左 → 右）
 
 ```
-[↶ 撤销] [↷ 重做]   [分支选择]   [⚖ 对比] [📥 导入]   [● N 节点] [M 关系]   [Schema] [版本] [📋 模板] [💾 存为模板] [导出] [共享] [预览]
+[↶ 撤销] [↷ 重做]   [📥 导入]   [● N 节点] [M 关系]   [Schema] [版本] [📋 模板] [💾 存为模板] [导出] [共享] [预览]
 ```
 
 #### 画布动作浮条（顶部居中）
@@ -322,13 +308,9 @@ cd frontend && npm install && npm run dev
 - 再次点击同一项：清除筛选
 - 点击其它类型：切换筛选目标
 
-#### 热力图模式
+#### 对比 / 血缘高亮着色
 
-对推演节点按 `effectiveProbability` / `confidence` 在**绿 → 黄 → 红**之间渐变着色，直观展示概率分布。
-
-#### 分支对比着色
-
-在对比模式下，节点按来源差异着色：蓝色 = A 独有，橙色 = B 独有，紫色 = 共同。
+图分析面板可对节点按差异着色：蓝色 = A 独有（上游来源），橙色 = B 独有（下游影响），紫色 = 共同。
 
 #### 视口裁剪优化
 
@@ -420,7 +402,6 @@ NodeInfo 面板的关系 Tab 中，每条边末尾有 `✕` 按钮，点击直�
   - 节点元数据（id、类型、来源）
   - 属性表 (`props[]`)——支持在线编辑
   - 入边 / 出边列表（点击跳转到关联节点）——支持删除
-  - 推演置信度 + 有效概率（若为预测节点）
 - **Schema 面板**：顶栏 "Schema" 按钮切换到模式视图，列出当前图谱里每种 type 的属性合集、约束信息
 
 ---
@@ -433,9 +414,13 @@ NodeInfo 面板的关系 Tab 中，每条边末尾有 `✕` 按钮，点击直�
 |---|---|
 | **PDF** | PDFBox 抽每页文字；扫描件（每页文字 ≤ 200 字符）自动回落到逐页渲染（110 DPI，最多 8 页）走视觉抽取 |
 | **DOCX** | Apache POI 抽取段落 + 表格；表格保留二维结构 |
+| **Excel**（XLSX / XLS / XLSM） | POI 逐 Sheet 渲染成表格文本（业务台账、字段口径、映射对照） |
 | **图片**（PNG / JPEG / WebP / GIF） | base64 编码作为多模态 attachment 给 LLM |
+| **音频** | Whisper 兼容端点转写为正文（支持 ASR 术语热词） |
+| **视频**（MP4 等） | ffmpeg 抽音轨压成语音级 MP3 → 转写；未装 ffmpeg 则原样直发 |
+| **SQL / DDL 脚本** | `SqlLineageExtractor` 确定性血缘解析：INSERT…SELECT / CTAS / VIEW / MERGE / UPDATE…FROM → 表级 `flows_to` 边（置信度 1.0，不经 LLM）；原文仍送 LLM 抽业务语义互补 |
 | **网页 URL** | Jsoup 拉静态 HTML，启发式去掉 nav/footer/script，优先取 article/main 正文；文本 < 500 字时回落 Playwright headless Chromium 重抓（应对 Vue/React SPA） |
-| **文本类** | 直接拼入 prompt |
+| **文本类**（TXT / MD / CSV / JSON …） | 直接拼入 prompt（兜底） |
 
 #### 5.9.2 流程
 
@@ -477,21 +462,7 @@ NodeInfo 面板的关系 Tab 中，每条边末尾有 `✕` 按钮，点击直�
 
 ---
 
-### 5.11 假设模板
-
-把一次推演的参数（intent / seeds / steps / prompt / constraints）保存为模板，下次一键复用。
-
-| 功能 | 说明 |
-|---|---|
-| 保存模板 | 在 PredictDialog 左侧"模板"面板输入名称 → 保存 |
-| 加载模板 | 列表点击即可加载已有模板参数 |
-| 按模型隔离 | 不同模型有不同的模板列表（节点 ID 不同） |
-| 最近使用排序 | `POST /{id}/touch` 更新时间戳，最近使用的排在最前 |
-| 容错处理 | 加载时如果原始 seed 节点已被删除，会自动跳过并提示"已加载 X/Y 个起点" |
-
----
-
-### 5.12 多 LLM 配置与连接测试
+### 5.11 多 LLM 配置与连接测试
 
 #### 配置字段
 
@@ -529,11 +500,11 @@ OpenAI、Anthropic (Claude)、DeepSeek、Qwen（通义千问）、Kimi（月之�
 
 #### 即时切换
 
-对话框头部和推演对话框均提供模型下拉选择，支持 `configId`（指定预置配置）或 `modelOverride`（覆盖模型名）。
+对话框头部提供模型下拉选择，支持 `configId`（指定预置配置）或 `modelOverride`（覆盖模型名）。
 
 ---
 
-### 5.13 对话历史与数据源回看
+### 5.12 对话历史与数据源回看
 
 | 功能 | 说明 |
 |---|---|
@@ -548,7 +519,7 @@ OpenAI、Anthropic (Claude)、DeepSeek、Qwen（通义千问）、Kimi（月之�
 
 ---
 
-### 5.14 导出与共享
+### 5.13 导出与共享
 
 | 功能 | 入口 | 说明 |
 |---|---|---|
@@ -567,7 +538,7 @@ OpenAI、Anthropic (Claude)、DeepSeek、Qwen（通义千问）、Kimi（月之�
 
 ---
 
-### 5.15 版本管理与回滚
+### 5.14 版本管理与回滚
 
 后端在每次保存模型时自动创建版本快照：
 
@@ -581,7 +552,7 @@ OpenAI、Anthropic (Claude)、DeepSeek、Qwen（通义千问）、Kimi（月之�
 
 ---
 
-### 5.16 系统监控
+### 5.15 系统监控
 
 设置页提供系统健康检查和 LLM 调用指标监控：
 
@@ -605,319 +576,23 @@ OpenAI、Anthropic (Claude)、DeepSeek、Qwen（通义千问）、Kimi（月之�
 
 ---
 
-### 5.17 用户偏好设置
+### 5.16 用户偏好设置
 
 设置页「偏好」Tab 提供全局配置：
 
 | 偏好项 | 说明 | 默认值 |
 |---|---|---|
-| 推演默认步数 | `predictDefaultSteps` | 4 |
-| 最低置信度 | `predictMinConfidence` | 0.0 |
 | 显示边标签 | `showEdgeLabels` | true |
 | 自动适应画布 | `autoFit` | true |
 | 字体大小 | 图谱节点字体 | 13px |
 
 偏好存储在 `~/.tuiyan/prefs.json`，新版本新增字段会自动合并到旧文件中（向后兼容）。
 
-设置页还提供「清空所有推演分支」按钮（`DELETE /api/prefs/scenarios`），慎用。
-
 ---
 
-## 六、因果推演（详细用法）
+## 六、前端架构详解
 
-> 因果推演 = 让 AI 沿现有图谱中的因果链 **接着往下走**（正向 / forward），或者 **倒着往回找**（反向 / backward）。每次推演都会生成一个新的"分支"，不会污染主干。
-
-### 6.1 它能解决什么问题？
-
-| 场景 | 选用 |
-|---|---|
-| "如果原料价格上涨 20%，下游会怎样？" | **forward** —— 从「原料涨价」节点向前推演影响 |
-| "客户突然大量流失，可能是什么导致的？" | **backward** —— 从「客户流失」节点向上溯因 |
-| "假设供应商 A 全面罢工，再叠加规则 R3 生效..." | forward + 多 seeds + force 约束 |
-| "把 X 节点排除后，因果链会怎么改？" | forward + block 约束 |
-| "如果节点 Y 发生的概率为 70%，下游影响如何？" | forward + probability 约束 |
-
-### 6.2 启动推演 — 两种入口
-
-#### 方式 A：右键节点
-
-1. 在画布上**右键**点击你要作为起点的节点
-2. 弹出菜单选 **"⚡ 从此推演 (Forward)"**
-3. 该节点自动填到推演对话框的 seeds
-
-#### 方式 B：手动添加
-
-1. 打开 PredictDialog（如已有 seed，从画布右键即可）
-2. 在「起点节点」栏的搜索框输入名称，点击候选添加
-3. 可同时添加多个 seed（共同作为起点 / 共同作为目标结果）
-
-### 6.3 配置参数
-
-PredictDialog 自上而下：
-
-#### ① 推演意图（Forward / Backward）
-
-| | Forward（正向推演） | Backward（溯因） |
-|---|---|---|
-| seed 含义 | 起点（原因） | 目标（结果） |
-| 输出 | 该节点之后会发生什么 | 该节点之前可能由什么导致 |
-| step 含义 | 推演步数 | 溯因层数 |
-| 适用 | "如果 X 发生，接下来..." | "X 已发生，可能是因为..." |
-
-切换意图会清空 constraints（语义不同）。
-
-#### ② seeds（起点 / 目标）
-
-- 可以多个节点共同作为 seeds
-- 每个 seed chip 可点 `×` 移除
-- 提示文案随 intent 切换：「起点节点 (seeds)」 / 「目标节点 (结果)」
-
-#### ③ 步数 / 层数
-
-- 默认 4
-- 通常 3~6 步效果最好
-- 太多步骤模型会发散；超出会截断
-
-#### ④ 自然语言场景描述（prompt）— 可选但强烈推荐
-
-把"假设"写成一句话提示模型，比如：
-
-- "假设主供应商断货 3 天，叠加旺季订单激增 30%"
-- "考虑监管新规 R3 已生效"
-- "排除 ERP 升级带来的临时影响"
-
-模型会用这段描述作为约束条件来生成因果链。
-
-#### ⑤ 分支名 — 可选
-
-不填则后端自动按 `seed_label · MM-dd HH:mm` 格式生成。建议填一句短描述（如「供应商断货-旺季」），方便日后切换。
-
-#### ⑥ 约束（constraints）— 可选
-
-点击「+ 约束节点」展开，可对画布上任意节点设三种约束：
-
-| 模式 | 颜色 | 语义 |
-|---|---|---|
-| **force**（必然） | 绿色 | 该节点一定发生 / 一定存在；提高其下游事件先验 |
-| **block**（禁止） | 红色 | 该节点不会发生；推演时凡是依赖它的预测都会被剪枝 |
-| **probability**（概率） | 紫色 | 设定 0~1 的先验概率，作为下游联合概率入口初值，用贝叶斯式更新 |
-
-点击 chip 可在三态间循环切换（force → block → probability → force）。
-
-概率约束仅适用于现有图谱节点（非预测节点），预测节点的概率按钮会被禁用。
-
-**约束冲突检测**：UI 会扫描 force 与 block 之间的直接因果边，发现冲突时显示橙色警告。
-
-#### ⑦ 加载 / 保存模板 — 可选
-
-左下角 📁 切到"模板"面板：
-
-- 输入名称 → 「保存为模板」把当前所有参数存起来
-- 列表点击即可加载已有模板
-- 模板按"最近使用"排序
-
-### 6.4 执行与实时步骤
-
-1. 点击右下角 **「开始推演」** / 「开始溯因」
-2. 对话框关闭，**右侧对话面板里新增一条「⚡ 推演」消息**（金色边框）
-3. 推演通过 SSE 流式返回，每一步实时追加（220ms 视觉节奏间隔）：
-
-```
-┌── 步 1 ──────────────────────────────┐
-│ ● 库存吃紧                          │
-│   置信度: 0.78                       │
-│   ↑ 由「主供应商断货」(seed) 触发     │
-│   规则: R3-缓冲库存阈值              │
-│   解释: 当前缓冲 < 3 天阈值          │
-└──────────────────────────────────────┘
-                ↓
-┌── 步 2 ──────────────────────────────┐
-│ ● 紧急调拨启动                       │
-│   置信度: 0.65                       │
-│   ↑ 由「库存吃紧」触发                │
-│   …                                  │
-```
-
-### 6.5 推演消息功能
-
-| 功能 | 说明 |
-|---|---|
-| 置信度过滤滑块 | 消息底部（≥ 2 步时出现），拖动可隐藏低置信度的预测步 |
-| 点击步骤卡片 | 画布自动 focus 对应节点 |
-| 点击起点 chip | 画布聚焦到相关节点 |
-| 剪枝报告 | 列出因 block 约束被剪掉的候选及理由 |
-| 停止按钮 | 运行中显示，点击中止推演 |
-| 📜 prompt 按钮 | 查看本次推演发给 LLM 的完整 system + user 文本 |
-| 持久化 | 推演消息沉到对话历史，与对话一并保存 |
-
-### 6.6 推演结果落图
-
-推演完成后，**新增节点 / 边自动加入图谱**（标记 `source: 'predicted'`），视觉表现：
-
-- 节点右上角带"预测 N"角标 + 置信度百分比
-- 边用 **金色虚线 + ◇ 标记** 渲染
-- 当前画布所属"分支"切换为新生成的分支（顶栏出现金色横幅）
-
-### 6.7 评估与调整
-
-| confidence | 含义 |
-|---|---|
-| ≥ 0.7 | 模型相当笃定，有规则或上下文支撑 |
-| 0.4 ~ 0.7 | 合理推断，但存在多种可能 |
-| < 0.4 | 弱推断，建议用 prompt / 约束细化后重跑 |
-
-调整后重跑通常会生成新的分支，而不是覆盖。
-
----
-
-## 七、分支假设（详细用法）
-
-> 分支假设 = 把每一次推演都当成"平行宇宙"。主干 (trunk) 永远是你确认的现实图谱；分支 (branch) 是各种"如果 …" 的快照，可以无限分裂、对比、丢弃。
-
-### 7.1 心智模型
-
-```
-   trunk (主干 - 真实图谱)
-      │
-      ├─── branch A: "供应商断货-旺季"   (从 trunk 推演)
-      │       │
-      │       └─── branch A1: "断货+物流瘫痪"  (从 A 再分叉)
-      │
-      ├─── branch B: "原料涨价 20%"      (从 trunk 推演)
-      │
-      └─── branch C: "新规 R3 上线"      (溯因从 trunk 推演)
-```
-
-- 每个 branch 通过 `parentBranchId` 指向父分支或 trunk
-- branch 只存"在父分支基础上 **新增** 了什么"（DAG 增量格式），节省存储
-- 切换分支时，前端沿祖先链回溯并合并所有增量，重建完整画布
-
-### 7.2 创建分支
-
-分支不需要手动创建 —— **每次推演完成后自动生成一个分支**，名字来自 PredictDialog 的「分支名」字段（不填则自动生成）。
-
-在分支视图下再次右键节点 → 「从此推演」，会以**当前分支**为 `parentBranchId`，产生子分支。
-
-### 7.3 切换分支
-
-顶栏左侧的 **分支选择器**（下拉）：
-
-- 第一项永远是 **主分支 (trunk)**
-- 下面按创建时间倒序列出所有分支
-- 点击某项 → 画布立刻刷新为该分支的合并视图
-- 切换时若有正在跑的推演 SSE 流，会自动中止
-
-#### 分支横幅
-
-进入非主干分支时，画布顶部出现金色横幅：
-
-> ⚡ **当前查看推演分支** · 可右键节点从此再次分叉   [返回主分支]
-
-点击"返回主分支"按钮可一键切回 trunk。
-
-### 7.4 在分支上继续推演（叠加假设）
-
-1. 切到 branch A（"供应商断货-旺季"）
-2. 此时画布显示 trunk + A 的增量节点（金色）
-3. 右键某节点 → 「从此推演」
-4. 在 PredictDialog 里填新的 prompt（如"再叠加物流瘫痪 24h"）
-5. 推演完成 → 自动生成 **branch A1**，挂在 A 之下
-
-层层堆叠假设，每一层都可独立切换查看，互不污染。
-
-### 7.5 对比分支
-
-顶栏「**⚖ 对比**」按钮（**分支数 ≥ 2 时可用**）：
-
-1. 弹出 BranchCompareDialog
-2. 在左右两个下拉选择 A、B 两个分支（或 trunk）
-3. 对比视图展示三段：
-
-| 段 | 颜色 | 内容 |
-|---|---|---|
-| **仅 A** | 蓝色 | A 有而 B 没有的节点 / 边 |
-| **共有** | 紫色 | 两边都存在的（取交集） |
-| **仅 B** | 橙色 | B 有而 A 没有的节点 / 边 |
-
-画布中节点同步着色显示差异。
-
-### 7.6 删除分支
-
-分支选择器里每一项右侧有 `×` 按钮（hover 显示），点击 → 二次确认 → 删除。
-
-- **trunk 不可删**
-- 删父分支不会自动级联删子分支（先删叶再删父）
-
-### 7.7 旧分支迁移
-
-从 v0.5 之前升级的旧分支以"完整快照"形式落盘。分支选择器下拉里有「**迁移旧分支**」入口，自动转换为 DAG 增量格式。
-
-### 7.8 一键清空所有分支
-
-`DELETE /api/prefs/scenarios`（前端入口在「设置」页面）—— 清空所有模型下的所有分支。
-
-### 7.9 典型工作流
-
-**场景：评估三种应急预案**
-
-```
-1. 在 trunk 上建好基线供应链图谱
-2. 推演分支 A："启动 B 级应急预案"  → 看交付率影响
-3. 推演分支 B："启动 A 级应急预案"  → 看交付率影响
-4. 推演分支 C："不响应"             → 作为对照
-5. 用「⚖ 对比」分别看 A vs C 和 B vs C 的差异路径
-6. 在最优分支上继续推演子分支验证细节
-```
-
----
-
-## 八、推演深化能力
-
-### 8.1 概率约束（三态 What-if）
-
-在 PredictDialog 的约束区域，除了 force / block 外，第三种模式 **probability**：
-
-| 操作 | 说明 |
-|---|---|
-| 添加概率约束 | 候选节点添加时选择「概率」按钮（紫色），默认 0.5 |
-| 调整概率值 | 同行追加 range 滑块 + 数值显示，范围 0~1 |
-| 后端融合 | 概率值作为入口节点的 `effProb` 初值，下游节点的联合概率用贝叶斯式更新 |
-| 限制 | 仅适用于现有图谱节点，预测节点禁用此模式 |
-
-### 8.2 原始 Prompt 查看
-
-| 入口 | 说明 |
-|---|---|
-| 推演消息头部 📜 prompt 按钮 | 弹出 RawPromptDialog |
-| 展示内容 | 推演时发给 LLM 的完整文本（`=== SYSTEM ===` + `=== USER ===`） |
-| 操作 | 全文复制 / 关闭 |
-| 兼容性 | 早期版本创建的分支无此数据，提示"该分支创建于早期版本，未保存原始 prompt" |
-
-### 8.3 节点详细解释（"为什么会发生？"）
-
-| 入口 | 说明 |
-|---|---|
-| 推演节点右键 → 🔍 为什么会发生？ | 仅 `source === 'predicted'` 节点可用 |
-| 展示方式 | 浮动 ExplanationPanel（360×440），可同时打开多个（最多 3 个），支持拖拽移动 + 折叠 + 关闭 |
-| 内容 | 三段式 LLM 解释 |
-| 缓存 | 解释结果缓存到 `PredictionDag.explanations[nodeId]`，再次查看直接读取 |
-| 重新生成 | 面板底部 🔄 按钮（`forceRegenerate: true`） |
-
-三段式解释内容：
-
-| 段落 | 含义 |
-|---|---|
-| **依据 (evidence)** | 支持该预测的证据链——上游节点、规则、数据 |
-| **假设 (assumptions)** | 该预测隐含的前提条件 |
-| **反例 (counterexamples)** | 可能导致该预测不成立的反例情景 |
-
-解释通过 SSE 流式返回，每个字段独立推送增量文本。
-
----
-
-## 九、前端架构详解
-
-### 9.1 技术栈
+### 6.1 技术栈
 
 | 项 | 版本 / 说明 |
 |---|---|
@@ -927,7 +602,7 @@ PredictDialog 自上而下：
 | UI 库 | 无（全部自定义 CSS，暗色主题 + 毛玻璃效果） |
 | 图标 | Unicode 符号（✦, ◈, ⚡, 📥 等） |
 
-### 9.2 目录结构
+### 6.2 目录结构
 
 ```
 frontend/src/
@@ -939,17 +614,13 @@ frontend/src/
 ├── api/                       # REST / SSE 客户端（9 个模块）
 │   ├── http.ts               # 统一 HTTP 封装 + SSE 流解析
 │   ├── ontology.ts           # 本体模型 CRUD + 抽取 + 版本 + 模板
-│   ├── scenarios.ts          # 分支 CRUD + 推演 SSE 流
 │   ├── conversations.ts      # 对话历史 CRUD
 │   ├── chat.ts               # LLM 对话 + SSE 流式
 │   ├── explanations.ts       # 节点解释 SSE 流 + rawPrompt
 │   ├── config.ts             # 前端配置
 │   ├── models.ts             # LLM 模型列表 + 连接测试
 │   ├── prefs.ts              # 用户偏好
-│   └── hypothesisTemplates.ts # 假设模板 CRUD
 ├── composables/               # 可复用状态逻辑（16 个）
-│   ├── usePrediction.ts      # 推演编排 + 解释面板管理
-│   ├── useScenarios.ts       # 分支管理 + DAG 祖先合并
 │   ├── useGraphHistory.ts    # 撤销 / 重做栈（50 条）
 │   ├── useGraphActions.ts    # 布局 + 导出（JSON/PNG/Mermaid/Markdown）
 │   ├── useConversations.ts   # 对话持久化
@@ -972,12 +643,8 @@ frontend/src/
     ├── ChatPanel.vue          # 对话面板
     ├── ExplanationPanel.vue   # 节点解释浮动面板
     ├── SchemaPanel.vue        # TBox 模式编辑器
-    ├── PredictDialog.vue      # 推演参数配置对话框
-    ├── BranchCompareDialog.vue # 分支对比对话框
-    ├── BranchPicker.vue       # 分支选择器
     ├── ImportDialog.vue       # 文档导入对话框
     ├── RawPromptDialog.vue    # 原始 prompt 查看
-    ├── ScenarioTimeline.vue   # 推演时间线
     ├── SettingsView.vue       # 设置页
     ├── views/
     │   ├── GraphView.vue      # 图谱页容器
@@ -986,10 +653,9 @@ frontend/src/
         ├── ChatMessageList.vue     # 消息列表
         ├── AttachmentChips.vue     # 附件标签
         ├── AttachmentPreview.vue   # 附件预览
-        └── PredictionMessage.vue   # 推演消息展示
 ```
 
-### 9.3 核心数据类型
+### 6.3 核心数据类型
 
 ```typescript
 // 图谱节点
@@ -998,14 +664,12 @@ interface OntologyNode {
   label: string;
   type: 'entity' | 'process' | 'event' | 'data' | 'external' | 'rule';
   x?: number; y?: number;
-  source?: 'predicted' | 'derived' | 'inferred' | 'preset';
+  source?: 'derived' | 'inferred' | 'preset' | 'manual';
   props?: { key: string; value: any; source?: string }[];
   attributes?: Record<string, any>;
   constraints?: Record<string, any>;
-  predictedStep?: number;
   confidence?: number;
-  effectiveProbability?: number;
-  explanation?: string;
+  evidence?: string;
 }
 
 // 图谱边
@@ -1018,31 +682,6 @@ interface OntologyEdge {
   rule_driven?: boolean;
   ruleId?: string;
   constraints?: Record<string, any>;
-}
-
-// 推演分支
-interface Scenario {
-  id: string;
-  name: string;
-  modelId: string;
-  parentBranchId?: string;
-  intent: 'forward' | 'backward';
-  steps: number;
-  seeds: string[];
-  prompt?: string;
-  rawPrompt?: string;
-  dag: PredictionDag;
-  createdAt: number;
-}
-
-// 推演 DAG
-interface PredictionDag {
-  intent: string;
-  nodes: OntologyNode[];
-  edges: OntologyEdge[];
-  chain: ChainStep[];
-  constraints?: Constraint[];
-  explanations?: Record<string, NodeExplanation>;
 }
 
 // LLM 模型配置
@@ -1059,7 +698,7 @@ interface ModelConfig {
 }
 ```
 
-### 9.4 数据流
+### 6.4 数据流
 
 ```
 用户交互 → Composable 方法调用 → Ref 更新 → 模板响应式渲染
@@ -1069,9 +708,9 @@ interface ModelConfig {
 
 ---
 
-## 十、后端架构详解
+## 七、后端架构详解
 
-### 10.1 技术栈
+### 7.1 技术栈
 
 | 项 | 版本 / 说明 |
 |---|---|
@@ -1085,7 +724,7 @@ interface ModelConfig {
 | Playwright for Java | 1.50.0（SPA 网页 headless 兜底，需首次 `install chromium`） |
 | Java HttpClient | 内置 HTTP 客户端（LLM API 调用） |
 
-### 10.2 目录结构
+### 7.2 目录结构
 
 ```
 backend/src/main/java/com/tuiyan/backend/
@@ -1103,80 +742,51 @@ backend/src/main/java/com/tuiyan/backend/
 │   ├── ConversationController.java
 │   ├── DocumentTextController.java
 │   ├── GraphTemplateController.java
-│   ├── HypothesisTemplateController.java
 │   ├── ModelController.java
 │   ├── OntologyModelController.java
 │   ├── PrefsController.java
-│   ├── ScenarioController.java
 │   └── SystemController.java
 ├── model/                            # 9 个领域模型
 │   ├── ChatRequest.java
 │   ├── ConfigResponse.java
 │   ├── Constraint.java               # force / block / probability
 │   ├── Conversation.java
-│   ├── HypothesisTemplate.java
 │   ├── LlmProvider.java              # 提供商枚举 + 协议检测
 │   ├── NodeExplanation.java           # 三段式解释
 │   ├── OntologyModel.java
-│   ├── PredictRequest.java
-│   ├── PredictionDag.java
-│   └── Scenario.java
 ├── service/                          # 11 个业务服务
 │   ├── ConversationService.java
 │   ├── DocumentExtractionService.java # 多格式文档处理管线
 │   ├── GraphTemplateService.java
-│   ├── HypothesisTemplateService.java
 │   ├── LlmMetricsService.java        # 调用指标收集
 │   ├── LlmService.java               # 多提供商 LLM 适配器
 │   ├── OntologyModelService.java      # 模型 CRUD + 版本管理
-│   ├── PredictionOrchestrator.java    # 推演流程编排
 │   ├── PrefsService.java
-│   ├── ScenarioExplanationService.java # 节点解释生成
-│   └── ScenarioService.java
 ├── support/                          # 6 个工具类
 │   ├── DocxTextExtractor.java
 │   ├── FileSniffer.java              # 魔术字节文件类型检测
 │   ├── IdSaltRewriter.java           # ID 盐重写（防冲突）
 │   ├── PdfTextExtractor.java         # PDF 文字 + 扫描件渲染
-│   ├── PredictionMath.java           # 概率计算工具
+│   ├── SqlLineageExtractor.java      # SQL 确定性血缘解析（表级数据流，不经 LLM）
 │   └── SsePushUtils.java             # SSE 推送 + 可取消 emitter
 └── util/
     └── JsonAtomic.java               # 原子 JSON 写入
 ```
 
-### 10.3 核心服务详解
+### 7.3 核心服务详解
 
 #### LlmService — 多提供商 LLM 适配器
 
 | 方法 | 说明 |
 |---|---|
 | `chat()` / `chatStreaming()` | 对话 + 图谱增量生成 |
-| `predict()` / `streamPredictChain()` | 因果链推演 |
 | `extractFromDocuments()` | 文档实体抽取 |
-| `explainNode()` | 节点三段式解释 |
 | `testModelConnection()` | LLM 连接测试（最小请求 + 15s 超时） |
 | `resolveConfig()` | 按 ID 或覆盖解析模型配置 |
 | `truncateGraphForContext()` | 上下文窗口感知的图谱裁剪（N-hop 邻居） |
 | `mergeExtractionByLabel()` | 跨文档块合并抽取结果 |
 
 协议支持：OpenAI 兼容 + Anthropic 原生，流式 / 非流式双模式。
-
-#### PredictionOrchestrator — 推演编排
-
-执行流程：
-1. 解析 intent（forward/backward）+ parentBranchId（fork 还是新建）
-2. 裁剪图谱上下文（N-hop 邻居，适配 LLM 上下文窗口）
-3. 调用 `LlmService.predictChain()` 获取因果链
-4. 逐步构建节点/边，应用 force/block/probability 约束
-5. SSE 推送每一步结果（220ms 视觉间隔）
-6. 自动布局（X_STEP=220px, Y_STEP=100px）
-7. 落盘 Scenario 到磁盘
-8. 发送 complete/error 事件
-
-约束处理：
-- `force` → 提高下游事件先验概率
-- `block` → 剪枝依赖该节点的所有预测
-- `probability` → 作为入口节点 effProb 初值，贝叶斯式更新
 
 #### DocumentExtractionService — 文档处理管线
 
@@ -1188,15 +798,15 @@ backend/src/main/java/com/tuiyan/backend/
 5. 调用 LLM 抽取实体和关系
 6. ID 盐重写（防止多次导入时 ID 冲突）
 
-### 10.4 CORS 与安全
+### 7.4 CORS 与安全
 
 - 无认证：单用户本地工具
 - CORS 限制：仅允许 `localhost:*` 和 `127.0.0.1:*`
 - 全局异常处理：`ResourceNotFoundException` → 404，`IllegalArgumentException` → 400，`IOException` → 500
 
-### 10.5 异步配置
+### 7.5 异步配置
 
-推演和解释在独立线程池 `predictionExecutor` 中运行：
+抽取 / 建图 / 探索等 SSE 长任务在独立线程池 `appTaskExecutor` 中运行：
 - 核心线程：4
 - 最大线程：8
 - 队列容量：50
@@ -1204,7 +814,7 @@ backend/src/main/java/com/tuiyan/backend/
 
 ---
 
-## 十一、数据存储
+## 八、数据存储
 
 后端无数据库，全部落地到 `~/.tuiyan/`（可通过 `app.data.dir` 配置修改）。
 
@@ -1216,12 +826,8 @@ backend/src/main/java/com/tuiyan/backend/
 │       └── om_xxx/           # 每个模型独立目录（最多 100 个快照）
 │           ├── 1716547200000.json
 │           └── 1716547300000.json
-├── scenarios/                # 推演分支
-│   └── sc_xxx.json
 ├── conversations/            # 对话历史
 │   └── cv_xxx.json
-├── hypothesis-templates/     # 假设模板
-│   └── ht_xxx.json
 ├── templates/                # 图谱模板
 │   └── tpl_xxx.json
 └── prefs.json                # 全局偏好
@@ -1233,7 +839,7 @@ backend/src/main/java/com/tuiyan/backend/
 
 ---
 
-## 十二、REST API 完整参考
+## 九、REST API 完整参考
 
 ### 对话与 LLM
 
@@ -1256,18 +862,8 @@ backend/src/main/java/com/tuiyan/backend/
 | `POST` | `/api/ontology-models/extract` | 上传文档 / 网址抽取实体/关系（multipart：`files` 文件 + `urls` 网址，二者可混用） |
 | `GET` | `/api/ontology-models/{id}/versions` | 列出版本快照 |
 | `POST` | `/api/ontology-models/{id}/versions/{timestamp}/restore` | 恢复到指定版本 |
-
-### 推演与分支
-
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| `GET` | `/api/scenarios?modelId=` | 列出分支（可按模型筛选） |
-| `GET` | `/api/scenarios/{id}` | 取单个分支 |
-| `POST` | `/api/scenarios` | 启动推演（SSE 流式返回每一步） |
-| `DELETE` | `/api/scenarios/{id}` | 删除分支 |
-| `GET` | `/api/scenarios/{id}/raw-prompt` | 获取推演的完整 prompt 文本 |
-| `POST` | `/api/scenarios/{id}/explain` | 节点解释（SSE 流式返回三段式解释） |
-| `POST` | `/api/scenarios/migrate` | 旧版分支批量迁移到 DAG 增量格式 |
+| `POST` | `/api/ontology-models/{id}/build-sources` | 回写建图来源记录（`{sources:[{experienceId, contentHash}]}`，增量建图据此跳过未变更经验） |
+| `POST` | `/api/ontology-models/{id}/schema-drift` | Schema 漂移检测（`{dataSourceId}`）：比对图上表/列引用与数据源最新 schema，报告失效血缘 |
 
 ### 对话历史
 
@@ -1286,13 +882,22 @@ backend/src/main/java/com/tuiyan/backend/
 来源名以「经验：…」前缀与数据源内容区分。
 
 > **本体血缘图由经验库文件构建（数据源只供血）**
-> 新数据流以经验库为本体血缘图的唯一构建入口：在经验库页点击「🧬 构建本体血缘图」，
-> 后端会把**当前工作空间下的全部经验文件**聚合成长文本，经文档抽取管线
-> （`ExperienceOntologyService` → `ExtractionLlmService`）抽出节点 / 边，再 salt 重写后供前端合并 / 另存为模型。
+> 新数据流以经验库为本体血缘图的全量构建入口：在经验库页点击「🧬 构建本体血缘图」，
+> 后端把**所选范围（缺省全部）的经验文件**聚合分批，经文档抽取管线
+> （`ExperienceOntologyService` → `ExtractionLlmService`）并行抽出节点 / 边（失败批自动重试一次），
+> 再 salt 重写后供前端合并 / 另存为模型。DDL 导出经验单独分批走 schema 专用抽取规则；
+> 节点/边的 `derived_source` 精确标注到来源经验（单篇批打「经验：标题」）。
 > 数据库类数据源不再直接出图（旧的 `POST /api/data-sources/{id}/extract-ontology` 直出链路与
 > `SchemaOntologyService` 已移除）：改为在「表」页点「⤓ 导出结构到经验库供血」把 DDL 沉淀成经验文件参与建图。
 > 对应建图 SSE 接口 `POST /api/experiences/extract-ontology`
 > （事件序列：`step`* → `complete{nodes,edges,reply,salt,sourceCount}`）。
+>
+> **推断血缘的数据验证**：对无 FK、按命名推断的血缘边，边详情面板「🔬 数据验证」可做值包含检验
+> （`POST /api/data-sources/{id}/verify-containment`，只读+采样+超时受限），把匹配率写回边的置信度与证据。
+>
+> **图体检**：图分析面板「体检」Tab 提供血缘健康度总览、推断边批量验证、
+> 冲突检测（方向矛盾边对 / 疑似重复节点 / 血缘环路，前端纯内存计算、可点击定位、人工裁决）、
+> Schema 漂移检测（`POST /api/ontology-models/{id}/schema-drift`，比对图上表/列引用与库最新结构）。
 >
 > **第二阶段·数据供血绑定**：图建好后，在节点详情面板「供血」页把节点绑定到数据源的表（可选 WHERE 过滤），
 > 运行时按绑定取数为节点供血。对应 `node_data_binding` 表与 `/api/node-bindings` 端点（含 `/{id}/fetch` 取数）。
@@ -1322,9 +927,10 @@ backend/src/main/java/com/tuiyan/backend/
 | `GET` | `/api/experiences/{id}/index-status` | 查询索引状态 + 文本块数量 |
 | `POST` | `/api/experiences/reindex-all` | 全量补索引（`?force=true` 连已索引的也重建），后台排队，返回调度概况 |
 | `GET` | `/api/experiences/index-summary` | 索引状态汇总（经验总数 + 各 `index_status` 计数，查补索引进度） |
-| `POST` | `/api/experiences/file` | 上传文件建经验（PDF/Word/TXT/MD 抽正文，音频走 ASR） |
-| `POST` | `/api/experiences/from-ddl` | 数据源导出 DDL 沉淀为经验（`{dataSourceId}`，「供血」入口） |
-| `POST` | `/api/experiences/extract-ontology` | **聚合整个工作空间经验库构建本体血缘图（SSE）** |
+| `POST` | `/api/experiences/file` | 上传文件建经验（PDF/Word/TXT/MD 抽正文，音频走 ASR，视频抽音轨转写） |
+| `POST` | `/api/experiences/from-ddl` | 任意数据源抽取为经验（`{dataSourceId}`）：库类导 DDL（origin=ddl，建图走 schema 规则）、文件/音视频取转写正文、HTTP 接口导配置+响应（origin=datasource） |
+| `POST` | `/api/experiences/web-research` | **联网调研业务知识（SSE）**：搜索主题→抓取网页→LLM 归纳成《业务知识文档》存为经验（`{topic, maxPages?}`） |
+| `POST` | `/api/experiences/extract-ontology` | **聚合经验库构建本体血缘图（SSE）**；体可选 `experienceIds` 指定范围、`incrementalModelId` 增量建图（跳过内容未变经验）、`hint` 额外要求 |
 | `GET` | `/api/experiences/{id}/file` | 预览/下载上传原件（`?download` 附件下载，`?wsId` 兜底鉴权） |
 | `PUT` | `/api/experiences/{id}/folder` | 把经验移动到文件夹（`{folderId}`，null=根） |
 
@@ -1367,10 +973,6 @@ backend/src/main/java/com/tuiyan/backend/
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/api/hypothesis-templates?modelId=` | 列出假设模板（按模型 + 最近使用排序） |
-| `POST` | `/api/hypothesis-templates` | 保存 / 创建模板 |
-| `POST` | `/api/hypothesis-templates/{id}/touch` | 标记为最近使用 |
-| `DELETE` | `/api/hypothesis-templates/{id}` | 删除模板 |
 | `GET` | `/api/templates` | 列出图谱模板 |
 | `POST` | `/api/templates` | 保存图谱模板 |
 | `DELETE` | `/api/templates/{id}` | 删除图谱模板 |
@@ -1387,7 +989,6 @@ backend/src/main/java/com/tuiyan/backend/
 |---|---|---|
 | `GET` | `/api/prefs` | 读取用户偏好设置 |
 | `PUT` | `/api/prefs` | 保存偏好设置 |
-| `DELETE` | `/api/prefs/scenarios` | 清空所有推演分支 |
 
 ### 系统管理
 
@@ -1407,26 +1008,9 @@ backend/src/main/java/com/tuiyan/backend/
 | `complete` | `{ reply, add_nodes, add_edges, questions? }` | 对话完成，含新增节点/边；`questions` 为可选澄清问题组（一次最多 4 个、单题可多选），前端渲染为带选项的问题卡片让用户点选 |
 | `error` | 错误描述 | 生成失败 |
 
-#### `/api/scenarios`（推演）事件
-
-| event | data | 说明 |
-|---|---|---|
-| `step` | 单步推演结果 | 包含 nodeId、label、type、confidence、triggeredBy 等 |
-| `prune` | 被剪枝候选 | 因 block 约束被移除的预测 |
-| `complete` | 完整 Scenario 对象 | 推演完成 |
-| `error` | 错误描述 | 推演失败 |
-
-#### `/api/scenarios/{id}/explain`（节点解释）事件
-
-| event | data | 说明 |
-|---|---|---|
-| `chunk` | `{ field, text }` | 增量文本片段（field: evidence / assumptions / counterexamples） |
-| `complete` | `{ explanation: NodeExplanation }` | 解释完成 |
-| `error` | 错误描述 | 生成失败 |
-
 ---
 
-## 十三、快捷键
+## 十、快捷键
 
 > 在图谱视图（`view === 'graph'`）下生效；输入框内不抢键。
 
@@ -1447,9 +1031,9 @@ backend/src/main/java/com/tuiyan/backend/
 
 ---
 
-## 十四、配置与环境变量
+## 十一、配置与环境变量
 
-### 14.1 后端 `application.yml`
+### 11.1 后端 `application.yml`
 
 ```yaml
 server:
@@ -1477,7 +1061,7 @@ spring:
       max-request-size: 80MB
 ```
 
-### 14.2 环境变量
+### 11.2 环境变量
 
 | 变量 | 作用 |
 |---|---|
@@ -1485,7 +1069,7 @@ spring:
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` | 在 `application.yml` 中以 `${...}` 占位即可生效 |
 | `APP_DATA_DIR` | 通过 `--app.data.dir=` 或环境变量覆盖数据目录 |
 
-### 14.3 前端
+### 11.3 前端
 
 Vite 配置 (`vite.config.ts`) 把 `/api/*` 代理到 `http://localhost:8000`。如部署到不同主机，可改代理目标，或在生产环境用 Nginx 反向代理。
 
@@ -1522,18 +1106,14 @@ Vite 配置 (`vite.config.ts`) 把 `/api/*` 代理到 `http://localhost:8000`。
 | 半透明白 | 普通 inferred / derived |
 | 粉色 | `rule_driven` |
 | 绿色高亮 + 流光加速 | 与选中节点关联 |
-| 金色虚线 + ◇ 标记 | 推演新增（`source: 'predicted'`） |
 
 ### 特殊标记
 
 | 标记 | 含义 |
 |---|---|
-| 节点右上角角标 | "预测 N" — 预测步序号 |
-| 节点右上角百分比 | 有效概率 / 置信度 |
-| 热力图渐变 | 绿(高概率) → 黄(中) → 红(低概率) |
-| 蓝色节点 | 分支对比中 A 独有 |
-| 橙色节点 | 分支对比中 B 独有 |
-| 紫色节点 | 分支对比中共有 |
+| 蓝色节点 | 对比/血缘高亮中 A 独有（上游来源） |
+| 橙色节点 | 对比/血缘高亮中 B 独有（下游影响） |
+| 紫色节点 | 对比/血缘高亮中共有 |
 | 金色轮廓 | 搜索当前定位目标 |
 
 ---
@@ -1544,12 +1124,7 @@ Vite 配置 (`vite.config.ts`) 把 `/api/*` 代理到 `http://localhost:8000`。
 |---|---|
 | SSE | Server-Sent Events，单向流式 HTTP |
 | DAG | Directed Acyclic Graph，有向无环图 |
-| trunk | 主干分支（即模型本身的"现实"状态） |
-| seed | 推演起点节点 |
-| chain | 推演产生的因果链 |
 | LR / TB | 布局方向：Left→Right / Top→Bottom |
-| force / block / probability | 推演约束：必然 / 禁止 / 概率先验 |
-| effProb | 有效概率（effective probability），融合先验与上下文的综合后验 |
 | TBox | 术语集（terminological box），Schema 层面的类型与属性定义 |
 
 ---

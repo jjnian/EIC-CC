@@ -146,11 +146,7 @@ public class OntologyVersionRepository {
         po.setConstraintsJson(codec.toJson(n.get("constraints")));
         po.setX(asDouble(n.get("x")));
         po.setY(asDouble(n.get("y")));
-        po.setPredictedStep(asInt(n.get("predictedStep")));
-        po.setPredictedIntent(asString(n.get("predictedIntent")));
         po.setConfidence(asDouble(n.get("confidence")));
-        po.setEffectiveProbability(asDouble(n.get("effectiveProbability")));
-        po.setExplanation(asString(n.get("explanation")));
         po.setEvidence(asString(n.get("evidence")));
         nodeMapper.insert(po);
 
@@ -227,11 +223,7 @@ public class OntologyVersionRepository {
             }
             if (n.getX() != null) m.put("x", n.getX());
             if (n.getY() != null) m.put("y", n.getY());
-            if (n.getPredictedStep() != null) m.put("predictedStep", n.getPredictedStep());
-            if (n.getPredictedIntent() != null) m.put("predictedIntent", n.getPredictedIntent());
             if (n.getConfidence() != null) m.put("confidence", n.getConfidence());
-            if (n.getEffectiveProbability() != null) m.put("effectiveProbability", n.getEffectiveProbability());
-            if (n.getExplanation() != null) m.put("explanation", n.getExplanation());
             if (n.getEvidence() != null) m.put("evidence", n.getEvidence());
             List<OntologyVersionNodePropPO> props = propsByNode.getOrDefault(n.getNodeId(), List.of());
             if (!props.isEmpty()) {

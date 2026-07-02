@@ -24,31 +24,6 @@ export interface ChatMsgAttachment {
   storedTruncated?: boolean;
 }
 
-/** 推演消息(嵌在对话里展示一次推演的全过程与结果)。 */
-export interface PredictionMsg {
-  intent: 'forward' | 'backward';
-  /** 起点 / 目标节点(冗余存 label,便于历史回看时即使节点已删也能识别)。 */
-  seeds: { id: string; label: string }[];
-  prompt?: string;
-  name?: string;
-  status: 'running' | 'done' | 'error' | 'aborted';
-  /** 已收到的推演步,按时间顺序追加。 */
-  steps: {
-    step: number;
-    nodeId: string;
-    label: string;
-    type: string;
-    triggeredBy?: string[];
-    ruleId?: string | null;
-    explanation?: string;
-    confidence?: number;
-  }[];
-  pruneDetails?: { nodeId: string; label: string; reason: string }[];
-  /** 完成后生成的分支 id(供"跳到该分支"等回看入口用)。 */
-  branchId?: string;
-  error?: string;
-}
-
 export interface ChatBuildStep {
   key: string;
   label: string;
@@ -70,10 +45,9 @@ export interface ChatQuestionMsg {
 }
 
 export interface ChatMsg {
-  role: 'a' | 'u' | 'prediction';
+  role: 'a' | 'u';
   text: string;
   atts?: ChatMsgAttachment[];
-  prediction?: PredictionMsg;
   buildSteps?: ChatBuildStep[];
   buildDone?: boolean;
   /** LLM 抛回的澄清问题组(支持一次多个、单题多选)。 */
@@ -111,7 +85,7 @@ const forgetActiveConv = () => {
 const readActiveConv = (): string | null => {
   try { return localStorage.getItem(ACTIVE_CONV_KEY); } catch { return null; }
 };
-const WELCOME_TEXT = '你好!我是推演助手。\n\n用自然语言描述实体和关系,我会自动构建本体图谱。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试:「添加一个财务审计实体,与客户相关联」';
+const WELCOME_TEXT = '你好!我是建模助手。\n\n用自然语言描述实体和关系,我会自动构建本体血缘图。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试:「添加一个财务审计实体,与客户相关联」';
 const PERSIST_DEBOUNCE_MS = 600;
 
 export interface ConversationsCtx {

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, type PropType } from 'vue';
 import type { ChatMsg, ChatMsgAttachment } from '../../composables/useConversations';
-import PredictionMessage from './PredictionMessage.vue';
 import BuildSteps from './BuildSteps.vue';
 import { Button } from '@/components/ui/button';
 
@@ -13,7 +12,6 @@ defineProps({
 const emit = defineEmits<{
   (e: 'preview', att: ChatMsgAttachment): void;
   (e: 'focus-node', id: string): void;
-  (e: 'abort-prediction'): void;
   (e: 'pick-option', messageIndex: number, questionIndex: number, option: { label: string; value?: string }): void;
   (e: 'submit-answers', messageIndex: number): void;
   (e: 'custom-answer', messageIndex: number): void;
@@ -44,19 +42,8 @@ defineExpose({ scrollToBottom });
 <template>
   <div class="ch-msgs" ref="listRef">
     <template v-for="(m, i) in messages" :key="i">
-      <!-- 推演消息(整行宽,带步骤卡片) -->
-      <div v-if="m.role === 'prediction' && m.prediction" class="msg msg-prediction">
-        <div class="avatar avatar-pred">⚡</div>
-        <div class="msg-body">
-          <PredictionMessage
-            :prediction="m.prediction"
-            @focus-node="(id) => emit('focus-node', id)"
-            @abort="emit('abort-prediction')"
-          />
-        </div>
-      </div>
       <!-- 常规用户 / AI 消息 -->
-      <div v-else :class="['msg', `msg-${m.role === 'u' ? 'user' : 'asst'}`]">
+      <div :class="['msg', `msg-${m.role === 'u' ? 'user' : 'asst'}`]">
         <div v-if="m.role === 'a'" class="avatar">推</div>
         <div class="msg-body">
           <div v-if="m.atts && m.atts.length > 0" class="att-tags">
@@ -354,15 +341,6 @@ defineExpose({ scrollToBottom });
   border-color: rgba(47, 134, 214, 0.6);
 }
 
-/* prediction 消息整行宽,头像用金色 */
-.msg-prediction { align-self: stretch; max-width: 100%; }
-.msg-prediction .msg-body { flex: 1; min-width: 0; max-width: 100%; }
-.avatar-pred {
-  background: linear-gradient(135deg, #fbbf24, #f59e0b) !important;
-  color: #1a1a1a !important;
-  font-size: 16px !important;
-}
-
 .ch-msgs {
   align-items: center;
   gap: 18px;
@@ -431,9 +409,6 @@ defineExpose({ scrollToBottom });
 }
 .msg-user .msg-body {
   align-items: flex-end;
-}
-.msg-prediction .msg-body {
-  align-items: flex-start;
 }
 .att-tags {
   justify-content: flex-end;

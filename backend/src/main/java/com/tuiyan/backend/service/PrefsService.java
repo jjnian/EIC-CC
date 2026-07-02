@@ -1,22 +1,18 @@
 package com.tuiyan.backend.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.config.AppPaths;
-import com.tuiyan.backend.entity.ScenarioPO;
-import com.tuiyan.backend.mapper.ScenarioMapper;
 import com.tuiyan.backend.util.JsonAtomic;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
- * 用户偏好（prefs）服务：读 / 写 {@code ~/.tuiyan/prefs.json}，附带默认值合并与一键清空 scenarios。
+ * 用户偏好（prefs）服务：读 / 写 {@code ~/.tuiyan/prefs.json}，附带默认值合并。
  * <p>prefs 文件不存在时返回 {@link #defaults} 的副本；
  * 已有文件时把磁盘内容按字段合并到默认值之上，保证前端拿到的字段集是"默认 ∪ 用户覆盖"。
  */
@@ -25,11 +21,9 @@ public class PrefsService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AppPaths appPaths;
-    private final ScenarioMapper scenarioMapper;
 
-    public PrefsService(AppPaths appPaths, ScenarioMapper scenarioMapper) {
+    public PrefsService(AppPaths appPaths) {
         this.appPaths = appPaths;
-        this.scenarioMapper = scenarioMapper;
     }
 
     /**
@@ -60,25 +54,9 @@ public class PrefsService {
         return merged;
     }
 
-    /**
-     * 清空全部推演分支（含 DAG / chain / 约束 / 解释，外键级联清子表）。
-     * @return 实际删除的分支数
-     */
-    public int clearAllScenarios() {
-        List<ScenarioPO> all = scenarioMapper.selectList(new LambdaQueryWrapper<>());
-        int n = 0;
-        for (ScenarioPO p : all) {
-            if (scenarioMapper.deleteById(p.getId()) > 0) n++;
-        }
-        return n;
-    }
-
     /** 默认偏好字段；新增前端可调项时在这里加默认值即可，旧 prefs.json 不需要迁移。 */
     private Map<String, Object> defaults() {
         Map<String, Object> d = new LinkedHashMap<>();
-        d.put("predictDefaultSteps", 4);
-        d.put("predictMinConfidence", 0.3);
-        d.put("predictStepDelayMs", 220);
         d.put("showEdgeLabels", true);
         d.put("autoFit", true);
         d.put("graphFontSize", 13);

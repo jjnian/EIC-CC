@@ -16,7 +16,7 @@ import java.util.List;
 /**
  * Spring Boot 启动入口。
  * <p>{@code @EnableAsync} 用于让 {@link com.tuiyan.backend.config.AsyncConfig} 中
- * 配置的 predictionExecutor 生效，使推演任务能在异步线程中跑（不阻塞 controller 线程）。
+ * 配置的 appTaskExecutor 生效，使耗时任务能在异步线程中跑（不阻塞 controller 线程）。
  * <p>{@code @MapperScan} 让 MyBatis-Plus 扫描 mapper 包，自动注册所有 BaseMapper 子接口。
  */
 @SpringBootApplication

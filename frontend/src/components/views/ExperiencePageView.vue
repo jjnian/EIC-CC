@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import BaseInput from '../form/BaseInput.vue';
 import BaseTextarea from '../form/BaseTextarea.vue';
 import BaseCheckbox from '../form/BaseCheckbox.vue';
-import { renderMarkdown, MD_TEMPLATE } from '../../utils/markdown';
+import { renderMarkdown, MD_TEMPLATE, INTERVIEW_TEMPLATE } from '../../utils/markdown';
 import type { OntologyNode, OntologyEdge } from '../../types';
 
 const props = defineProps<{
@@ -25,6 +25,8 @@ const props = defineProps<{
   focusId?: string | null;
   /** 自增信号：变化时打开一个空白「新建经验」表单 */
   createSignal?: number;
+  /** 当前打开的本体模型 id（增量建图的目标） */
+  currentModelId?: string;
   /** 当前是否已有打开的本体模型（决定「构建本体血缘图」能否合并到当前模型） */
   hasCurrentModel?: boolean;
 }>();
@@ -142,6 +144,69 @@ const reload = async (_force = false) => {
   }
 };
 
+// ── 联网调研业务知识（第四类来源：公开领域知识，冷启动/补背景用）──────────
+const researchOpen = ref(false);
+const researchTopic = ref('');
+const researchRunning = ref(false);
+const researchSteps = ref<{ key: string; label: string; status: 'running' | 'done' | 'error' }[]>([]);
+const researchError = ref('');
+let researchHandle: { abort: () => void } | null = null;
+
+const openResearch = () => {
+  researchOpen.value = true;
+  researchTopic.value = '';
+  researchSteps.value = [];
+  researchError.value = '';
+};
+const closeResearch = () => {
+  if (researchHandle) { try { researchHandle.abort(); } catch { /* noop */ } researchHandle = null; }
+  researchOpen.value = false;
+  researchRunning.value = false;
+};
+const startResearch = () => {
+  const topic = researchTopic.value.trim();
+  if (!topic || researchRunning.value) return;
+  researchRunning.value = true;
+  researchError.value = '';
+  researchSteps.value = [{ key: 'init', label: '正在准备…', status: 'running' }];
+  const markRunning = (st: 'done' | 'error') => {
+    for (const x of researchSteps.value) if (x.status === 'running') x.status = st;
+  };
+  researchHandle = webResearch({ topic }, {
+    onStep: (key, label) => {
+      const last = researchSteps.value[researchSteps.value.length - 1];
+      if (key === 'fetching' && last && last.key === 'fetching') { last.label = label; return; }
+      markRunning('done');
+      researchSteps.value.push({ key, label, status: 'running' });
+    },
+    onComplete: async (payload) => {
+      markRunning('done');
+      researchRunning.value = false;
+      researchHandle = null;
+      toast.success('已沉淀经验「' + (payload.experience?.title || '网络调研') + '」');
+      await reload(true);
+      const id = payload.experience?.id;
+      closeResearch();
+      const found = id ? items.value.find(e => e.id === id) : null;
+      if (found) selectExperience(found);
+    },
+    onError: (msg) => {
+      markRunning('error');
+      researchError.value = msg || '调研失败';
+      researchRunning.value = false;
+      researchHandle = null;
+    },
+    onClose: () => {
+      researchHandle = null;
+      if (researchRunning.value) {
+        markRunning('error');
+        researchError.value = '连接中断，请重试';
+        researchRunning.value = false;
+      }
+    },
+  });
+};
+
 // ── 接入 Web 系统 + 自动探索（状态与动作见 useWebSystemExplore）──────────
 const {
   exploreOpen, wsFormId, exploreTitle, exploreUrl, exploreUsername, explorePassword,
@@ -232,6 +297,12 @@ const insertTemplate = () => {
   if (!draft.value) return;
   if (draft.value.content.trim() && !confirmOverwrite()) return;
   draft.value.content = MD_TEMPLATE;
+};
+const insertInterviewTemplate = () => {
+  if (!draft.value) return;
+  if (draft.value.content.trim() && !confirmOverwrite()) return;
+  draft.value.content = INTERVIEW_TEMPLATE;
+  if (!draft.value.title.trim()) draft.value.title = '业务访谈：';
 };
 const confirmOverwrite = () => window.confirm('正文已有内容，插入模板会覆盖，确定吗？');
 
@@ -432,13 +503,14 @@ const runFullIndex = async (force = false) => {
 };
 
 // ── 上传文件预览 ────────────────────────────────────────────
-type PreviewKind = 'pdf' | 'image' | 'audio' | 'markdown' | 'text' | 'other';
+type PreviewKind = 'pdf' | 'image' | 'audio' | 'video' | 'markdown' | 'text' | 'other';
 const previewKind = (e: Experience): PreviewKind => {
   const mime = (e.fileMime || '').toLowerCase();
   const name = (e.fileName || '').toLowerCase();
   if (mime.includes('pdf') || name.endsWith('.pdf')) return 'pdf';
   if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/.test(name)) return 'image';
   if (mime.startsWith('audio/') || /\.(mp3|wav|m4a|flac|aac|ogg|opus|wma|amr)$/.test(name)) return 'audio';
+  if (mime.startsWith('video/') || /\.(mp4|m4v|mov|mkv|avi|mpe?g|wmv|flv)$/.test(name)) return 'video';
   if (mime.includes('markdown') || name.endsWith('.md')) return 'markdown';
   if (mime.startsWith('text/') || name.endsWith('.txt')) return 'text';
   return 'other';
@@ -459,7 +531,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
     <div class="exp-header">
       <div>
         <h2>经验库 <span class="exp-public-tag">公共</span></h2>
-        <p>公共经验库：所有工作空间共享，可查看与复用。手写支持 Markdown（实时预览），可上传 PDF / Word / TXT / MD（音频自动转写、图片视觉识别）并预览原件。</p>
+        <p>公共经验库：所有工作空间共享，可查看与复用。手写支持 Markdown（实时预览），可上传 PDF / Word / Excel / TXT / MD（音频/视频自动转写、图片视觉识别）并预览原件。</p>
       </div>
       <div class="exp-header-actions">
         <span
@@ -482,6 +554,12 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         <Button
           variant="secondary"
           size="sm"
+          title="联网搜索业务主题的公开资料，归纳成《业务知识文档》沉淀为经验（冷启动/补充行业背景）"
+          @click="openResearch"
+        >🌐 联网调研</Button>
+        <Button
+          variant="secondary"
+          size="sm"
           class="exp-build"
           :disabled="currentWsCount === 0"
           :title="currentWsCount === 0 ? '当前工作空间还没有经验，请先在当前工作空间创建/上传经验' : '聚合当前工作空间的经验构建本体血缘图'"
@@ -499,7 +577,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             </button>
             <button class="exp-add-item c-upload" :disabled="uploading" @click="triggerUpload">
               <span class="exp-add-ico">⤓</span>
-              <span><strong>{{ uploading ? '解析中…' : '上传文件' }}</strong><em>PDF / Word / TXT / MD / 音频 / 图片</em></span>
+              <span><strong>{{ uploading ? '解析中…' : '上传文件' }}</strong><em>PDF / Word / Excel / TXT / MD / 音频 / 视频 / 图片</em></span>
               <span class="exp-add-go">→</span>
             </button>
             <button class="exp-add-item c-web" @click="openExplore">
@@ -514,7 +592,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         ref="fileInput"
         type="file"
         class="exp-file-input"
-        accept=".pdf,.docx,.txt,.md,.mp3,.wav,.m4a,.flac,.aac,.ogg,.opus,.wma,.amr,audio/*,.png,.jpg,.jpeg,.gif,.webp,.bmp,image/*"
+        accept=".pdf,.docx,.xlsx,.xls,.xlsm,.txt,.md,.csv,.mp3,.wav,.m4a,.flac,.aac,.ogg,.opus,.wma,.amr,audio/*,.mp4,.m4v,.mov,.mkv,.avi,.mpg,.mpeg,.wmv,.flv,video/*,.png,.jpg,.jpeg,.gif,.webp,.bmp,image/*"
         @change="onUploadPick"
       />
     </div>
@@ -627,6 +705,16 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             <div v-else class="exp-prev-note">（暂无转写文字）</div>
           </div>
 
+          <!-- 视频：播放器 + 音轨转写文字（抽音轨 → ASR，存为经验正文） -->
+          <div v-else-if="selectedUpload.hasFile && selKind === 'video'" class="exp-audio-wrap">
+            <video class="exp-video" controls :src="fileUrl(selectedUpload)"></video>
+            <div class="exp-prev-note">音轨转写文字（自动语音识别）：</div>
+            <div v-if="(selectedUpload.content || '').trim()" class="exp-md">
+              <pre class="exp-pre">{{ selectedUpload.content }}</pre>
+            </div>
+            <div v-else class="exp-prev-note">（暂无转写文字）</div>
+          </div>
+
           <!-- markdown / 文本 / 其它格式：渲染抽取的文本（其它格式浏览器无法直接预览） -->
           <template v-if="!selectedUpload.hasFile || selKind === 'markdown' || selKind === 'text' || selKind === 'other'">
             <div v-if="selKind === 'other' && selectedUpload.hasFile" class="exp-prev-note">
@@ -682,6 +770,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           <span class="exp-label">
             正文<span class="exp-hint">（支持 Markdown · 实时预览）</span>
             <Button v-if="editorMode !== 'preview'" variant="ghost" size="sm" title="插入 Markdown 模板" @click="insertTemplate">插入模板</Button>
+            <Button v-if="editorMode !== 'preview'" variant="ghost" size="sm" title="插入业务访谈提纲（按 对象→流程→规则→数据流向 四段引导访谈，转写/笔记按此沉淀建图质量更高）" @click="insertInterviewTemplate">访谈提纲</Button>
           </span>
           <div class="exp-edit-area" :class="editorMode">
             <textarea
@@ -705,12 +794,46 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
       :open="extractDialogOpen"
       :workspace-name="currentWsName"
       :has-current-model="!!hasCurrentModel"
+      :current-model-id="currentModelId"
+      :experiences="items"
       @close="extractDialogOpen = false"
       @commit="onExtractCommit"
     />
 
     <!-- 接入 Web 系统：保存连接 → 探索生成业务文档 -->
     <Teleport to="body">
+    <div v-if="researchOpen" class="exp-modal-mask" @click.self="closeResearch">
+      <div class="exp-modal" :style="{ '--c': 'var(--accent)' }">
+        <div class="exp-modal-head">
+          <span>🌐 联网调研业务知识</span>
+          <button class="exp-modal-x" @click="closeResearch">×</button>
+        </div>
+        <div class="exp-modal-body">
+          <p class="exp-research-desc">
+            搜索该主题的公开资料（行业流程惯例、监管要求、通用术语），归纳成《业务知识文档》沉淀为经验，
+            参与后续建图。<b>公开资料非本企业内部事实</b>，建图后请用访谈 / 系统探索 / 库表结构校对。
+          </p>
+          <label class="exp-modal-row">
+            <span>调研主题</span>
+            <input v-model="researchTopic" :disabled="researchRunning" placeholder="业务域 + 流程/规则，如：汽车金融 贷后管理 业务流程" @keydown.enter="startResearch" />
+          </label>
+          <div v-if="researchSteps.length" class="exp-research-steps">
+            <div v-for="(st, i) in researchSteps" :key="i" class="exp-research-step" :class="st.status">
+              <span class="exp-research-dot">{{ st.status === 'done' ? '✓' : st.status === 'error' ? '✗' : '●' }}</span>
+              <span>{{ st.label }}</span>
+            </div>
+          </div>
+          <div v-if="researchError" class="exp-research-error">{{ researchError }}</div>
+          <div class="exp-modal-actions">
+            <Button size="sm" :disabled="!researchTopic.trim() || researchRunning" @click="startResearch">
+              {{ researchRunning ? '调研中…' : '开始调研' }}
+            </Button>
+            <Button variant="secondary" size="sm" @click="closeResearch">{{ researchRunning ? '中止' : '关闭' }}</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="exploreOpen" class="exp-modal-mask" @click.self="closeExplore">
       <div class="exp-modal" :style="{ '--c': 'var(--accent-3)' }">
         <span class="exp-modal-corner tl" /><span class="exp-modal-corner tr" />
@@ -1377,4 +1500,19 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-md :deep(th) { background: rgba(255,255,255,0.05); font-weight: 650; color: #eafff5; }
 .exp-md :deep(tbody tr:nth-child(even)) { background: rgba(255,255,255,0.02); }
 .exp-md :deep(.exp-md-empty) { color: var(--text-dim); }
+
+/* 联网调研弹窗 */
+.exp-research-desc { font-size: 12.5px; color: #a8b0bf; line-height: 1.7; margin: 0 0 12px; }
+.exp-research-steps { display: flex; flex-direction: column; gap: 4px;
+  background: rgba(255,255,255,.03); border-radius: 6px; padding: 10px 12px;
+  max-height: 180px; overflow-y: auto; margin-bottom: 10px; }
+.exp-research-step { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #c0c4cf; }
+.exp-research-dot { width: 14px; text-align: center; font-weight: bold; }
+.exp-research-step.done .exp-research-dot { color: #22dd88; }
+.exp-research-step.running .exp-research-dot { color: var(--accent, #2f86d6); animation: blink 1s infinite; }
+.exp-research-step.error .exp-research-dot { color: tomato; }
+.exp-research-error { color: tomato; background: rgba(255,99,71,.12);
+  padding: 8px 12px; border-radius: 6px; font-size: 12.5px; margin-bottom: 10px; }
+@keyframes blink { 50% { opacity: .35; } }
+.exp-video { width: 100%; max-height: 360px; border-radius: 8px; background: #000; margin-bottom: 10px; }
 </style>

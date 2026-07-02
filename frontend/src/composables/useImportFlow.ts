@@ -14,10 +14,6 @@ export interface ImportFlowCtx {
   nodes: Ref<OntologyNode[]>;
   /** 当前画布的 edges(可读可写)。 */
   edges: Ref<OntologyEdge[]>;
-  /** 当前活动分支 id。 */
-  activeBranchId: Ref<string>;
-  /** 切回 trunk 的回调。 */
-  switchToTrunk: () => void;
   /** 防抖持久化当前模型。 */
   persistCurrentModel: (immediate?: boolean) => void;
   /** 创建新模型(返回带服务端 id 的 model)。 */
@@ -47,7 +43,6 @@ export function useImportFlow(ctx: ImportFlowCtx) {
     }));
 
     if (payload.mode === 'merge') {
-      if (ctx.activeBranchId.value !== 'trunk') ctx.switchToTrunk();
 
       // 按标准化 label 复用当前模型里已有的同名节点,避免重复建图时节点/关系翻倍
       const norm = (s?: string) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');

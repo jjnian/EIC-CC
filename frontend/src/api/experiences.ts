@@ -191,8 +191,48 @@ export function getExperienceIndexSummary() {
  * 一键从「当前工作空间的整个经验库」构建本体血缘图（SSE 流）。
  * 这是新数据流的主入口：本体血缘图由经验库文件构建，数据源只负责供血。
  */
+/**
+ * 联网调研业务知识（SSE）：搜索主题 → 抓取网页 → LLM 归纳成《业务知识文档》→ 存为经验。
+ * 事件：step* → complete{experience} / error。
+ */
+export function webResearch(
+  body: { topic: string; maxPages?: number; modelOverride?: string; configId?: string },
+  handlers: {
+    onStep?: (key: string, label: string) => void;
+    onComplete?: (payload: { experience: Experience }) => void;
+    onError?: (msg: string) => void;
+    onClose?: () => void;
+  },
+): SseHandle {
+  return sse('/api/experiences/web-research', body, {
+    onEvent: (event, data) => {
+      if (event === 'step') {
+        try {
+          const d = JSON.parse(data);
+          handlers.onStep?.(d.key, d.label);
+        } catch { /* noop */ }
+      } else if (event === 'complete') {
+        try {
+          handlers.onComplete?.(JSON.parse(data));
+        } catch {
+          handlers.onError?.('结果解析失败');
+        }
+      } else if (event === 'error') {
+        handlers.onError?.(data);
+      }
+    },
+    onClose: handlers.onClose,
+  });
+}
+
+export interface BuildManifestEntry { experienceId: string; contentHash: string }
+
 export function extractOntologyFromExperiences(
-  body: { modelOverride?: string; configId?: string; hint?: string },
+  body: {
+    modelOverride?: string; configId?: string; hint?: string; experienceIds?: string[];
+    /** 增量建图：传目标模型 id 时按其构建记录跳过内容未变化的经验 */
+    incrementalModelId?: string;
+  },
   handlers: {
     onStep?: (key: string, label: string) => void;
     onComplete?: (payload: {
@@ -201,6 +241,9 @@ export function extractOntologyFromExperiences(
       reply: string;
       salt: string;
       sourceCount?: number;
+      incremental?: boolean;
+      skippedUnchanged?: number;
+      manifest?: BuildManifestEntry[];
     }) => void;
     onError?: (msg: string) => void;
     onClose?: () => void;

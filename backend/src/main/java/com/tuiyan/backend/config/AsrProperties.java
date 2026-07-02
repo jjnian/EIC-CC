@@ -25,6 +25,11 @@ public class AsrProperties {
     private String model = "whisper-1";
     /** 音频语言（ISO-639-1，如 zh / en）；留空让服务端自动识别。 */
     private String language = "";
+    /**
+     * 术语热词提示（Whisper `prompt` 参数）：填入行业术语/系统名/表名等专有词汇（逗号或空格分隔的短语即可），
+     * 可显著降低访谈录音里专有名词的转写错误。留空不发送。
+     */
+    private String prompt = "";
     /** 是否在转写文本中保留分段时间戳 {@code [mm:ss]}（走 verbose_json，便于回溯血缘）。 */
     private boolean timestamps = false;
     /** 单个音频字节上限（默认 25MB，与 OpenAI Whisper 限制一致）。 */
@@ -42,6 +47,8 @@ public class AsrProperties {
     public void setModel(String model) { this.model = model; }
     public String getLanguage() { return language; }
     public void setLanguage(String language) { this.language = language; }
+    public String getPrompt() { return prompt; }
+    public void setPrompt(String prompt) { this.prompt = prompt; }
     public boolean isTimestamps() { return timestamps; }
     public void setTimestamps(boolean timestamps) { this.timestamps = timestamps; }
     public long getMaxBytes() { return maxBytes; }

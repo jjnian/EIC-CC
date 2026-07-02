@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
-import type { OntologyNode, OntologyEdge, ChainStep, GraphMutation } from '../types';
+import type { OntologyNode, OntologyEdge, GraphMutation } from '../types';
 import { useConversations, type ChatMsg, type ChatMsgAttachment, type ChatQuestionMsg } from '../composables/useConversations';
 import { useAttachments } from '../composables/useAttachments';
 import { useMention } from '../composables/useMention';
 import { useChatModels } from '../composables/useChatModels';
 import { useChatSend } from '../composables/useChatSend';
-import { usePredictionSync, type LivePrediction } from '../composables/usePredictionSync';
 import { useChatQuestions } from '../composables/useChatQuestions';
 import { useContextTokens } from '../composables/useContextTokens';
 import { toast } from '../composables/useToast';
@@ -22,11 +21,6 @@ const props = defineProps<{
   edges: OntologyEdge[];
   width: number;
   seed?: { text: string; files: File[] } | null;
-  /**
-   * 当前推演的实时状态(由 App.vue 从 usePrediction 透传下来)。
-   * status: 0 空闲 1 运行中 2 完成 3 错误 4 已停止
-   */
-  livePrediction?: LivePrediction | null;
   modelId?: string;
   /**
    * 在发送前确保有当前本体模型。无 modelId 时调用,App.vue 负责创建模型并把
@@ -41,14 +35,13 @@ const emit = defineEmits<{
   (e: 'clear-graph'): void;
   (e: 'seed-consumed'): void;
   (e: 'focus-node', id: string): void;
-  (e: 'abort-prediction'): void;
   (e: 'view-graph', modelId: string): void;
   (e: 'user-msg-changed', hasUserMsg: boolean): void;
 }>();
 
 // ===== 消息/输入 状态 =====
 const msgs = ref<ChatMsg[]>([
-  { role: 'a', text: '你好!我是推演助手。\n\n用自然语言描述实体和关系,我会自动构建本体图谱。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试:「添加一个财务审计实体,与客户相关联」' }
+  { role: 'a', text: '你好!我是建模助手。\n\n用自然语言描述实体和关系,我会自动构建本体血缘图。也可以上传文档、PDF、图片或数据源来提取结构。\n\n试试:「添加一个财务审计实体,与客户相关联」' }
 ]);
 const input = ref('');
 const loading = ref(false);
@@ -157,13 +150,6 @@ const onSend = async () => {
   await send();
 };
 
-// ===== 推演消息同步 =====
-usePredictionSync({
-  msgs,
-  livePrediction: () => props.livePrediction ?? null,
-  nodes: () => props.nodes || [],
-});
-
 // ===== 输入框键盘 / 事件 =====
 const onInputKeydown = (e: KeyboardEvent) => {
   if (handleMentionKeydown(e)) return;
@@ -259,58 +245,6 @@ watch(loading, (now, prev) => {
   }
 });
 
-// ===== 推演消息同步 =====
-// 监听父级传下来的 livePrediction:
-//   - 检测到 status 从 0→1 时(运行开始),往 msgs 推一条 role='prediction' 消息
-//   - 后续 steps / status 变化时同步到这条消息上
-let currentPredictionMsg: ChatMsg | null = null;
-const seedLabel = (id: string) => props.nodes.find(n => n.id === id)?.label || id;
-const buildSeedPairs = (ids: string[]) => ids.map(id => ({ id, label: seedLabel(id) }));
-const statusToLabel = (s: 0 | 1 | 2 | 3 | 4): PredictionMsg['status'] =>
-  s === 1 ? 'running' : s === 2 ? 'done' : s === 3 ? 'error' : s === 4 ? 'aborted' : 'done';
-
-watch(() => props.livePrediction, (now, prev) => {
-  if (!now) return;
-  // 进入 running:新建一条推演消息(从非 running 跳到 running 视作新一轮)
-  const enteredRunning = now.status === 1 && (!prev || prev.status !== 1);
-  if (enteredRunning) {
-    const msg: ChatMsg = {
-      role: 'prediction',
-      text: '',
-      prediction: {
-        intent: now.intent,
-        seeds: buildSeedPairs(now.seeds),
-        prompt: now.prompt,
-        name: now.name,
-        status: 'running',
-        steps: [],
-        pruneDetails: [],
-      },
-    };
-    msgs.value.push(msg);
-    currentPredictionMsg = msg;
-  }
-  // 同步增量到当前消息
-  if (currentPredictionMsg && currentPredictionMsg.prediction) {
-    const p = currentPredictionMsg.prediction;
-    if (now.steps.length !== p.steps.length) {
-      p.steps = now.steps.map(s => ({
-        step: s.step, nodeId: s.nodeId, label: s.label, type: s.type,
-        triggeredBy: s.triggeredBy, ruleId: s.ruleId,
-        explanation: s.explanation, confidence: s.confidence,
-      }));
-    }
-    if (now.pruneDetails?.length && (p.pruneDetails?.length || 0) !== now.pruneDetails.length) {
-      p.pruneDetails = now.pruneDetails.slice();
-    }
-    p.status = statusToLabel(now.status);
-    if (now.branchId) p.branchId = now.branchId;
-    if (now.error) p.error = now.error;
-    // 终态后释放,下一轮会新建
-    if (p.status !== 'running') currentPredictionMsg = null;
-  }
-}, { deep: true });
-
 // ===== 上下文 token 预估（抽到 useContextTokens）=====
 const { contextTokenEstimate, formatTokens } = useContextTokens({
   nodes: () => props.nodes || [],
@@ -352,7 +286,7 @@ watch(() => ws.currentId.value, (wsId) => {
 <template>
   <div class="chat-panel" :style="{ width: width + 'px' }">
     <div class="ch-head">
-      <div class="ch-head-l"><div class="ch-pulse" /><span>AI 推演助手</span></div>
+      <div class="ch-head-l"><div class="ch-pulse" /><span>AI 建模助手</span></div>
       <div class="ch-stat">{{ nodes.length }}节点·{{ edges.length }}关系</div>
     </div>
     <ChatMessageList
@@ -361,7 +295,6 @@ watch(() => ws.currentId.value, (wsId) => {
       :loading="loading"
       @preview="(a) => previewAtt = a"
       @focus-node="(id) => emit('focus-node', id)"
-      @abort-prediction="emit('abort-prediction')"
       @pick-option="onPickOption"
       @submit-answers="onSubmitAnswers"
       @custom-answer="onCustomAnswer"

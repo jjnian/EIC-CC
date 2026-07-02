@@ -39,13 +39,10 @@ const emit = defineEmits<{
   (e: 'auto-layout'): void;
   (e: 'toggle-layout-direction'): void;
   (e: 'clear'): void;
-  (e: 'predict-from', id: string): void;
   (e: 'delete-node', id: string): void;
   (e: 'delete-nodes', ids: string[]): void;
   (e: 'edit-node', id: string): void;
   (e: 'clear-diff'): void;
-  // P1-7：对预测节点请求详细解释
-  (e: 'explain-node', id: string): void;
   (e: 'undo'): void;
   (e: 'redo'): void;
   (e: 'add-node', payload: { mode: 'object'; label: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }): void;
@@ -106,8 +103,6 @@ const toggleTypeFilter = coloring.toggleTypeFilter;
 const toggleEdgeFilter = coloring.toggleEdgeFilter;
 const matchesFilter = coloring.matchesFilter;
 const edgeMatchesFilter = coloring.edgeMatchesFilter;
-const heatmapMode = coloring.heatmapMode;
-const heatColor = coloring.heatColor;
 const diffColor = coloring.diffColor;
 const getT = coloring.getT;
 const neighborIds = coloring.neighborIds;
@@ -143,9 +138,7 @@ const menu = useCanvasContextMenu({
   multiSel,
   getReadonly: () => props.readonly,
   emitSelect: (id) => emit('select', id),
-  emitPredictFrom: (id) => emit('predict-from', id),
   emitEditNode: (id) => emit('edit-node', id),
-  emitExplainNode: (id) => emit('explain-node', id),
   emitDeleteNode: (id) => emit('delete-node', id),
   emitDeleteNodes: (ids) => emit('delete-nodes', ids),
   emitAddNode: (payload) => emit('add-node', payload),
@@ -157,10 +150,7 @@ const addNodeInputRef = menu.addNodeInputRef;
 const onNodeContext = menu.onNodeContext;
 const onCanvasContext = menu.onCanvasContext;
 const closeCtx = menu.closeCtx;
-const triggerPredict = menu.triggerPredict;
 const triggerEdit = menu.triggerEdit;
-const triggerExplain = menu.triggerExplain;
-const ctxNodeIsPredicted = menu.ctxNodeIsPredicted;
 const triggerDelete = menu.triggerDelete;
 const triggerBatchDelete = menu.triggerBatchDelete;
 const submitAddNode = menu.submitAddNode;
@@ -281,7 +271,7 @@ onUnmounted(() => {
   ro = null;
 });
 
-// 暴露给父组件：fitView 在推演完成等场景手动调用，focusNode 给节点定位用
+// 暴露给父组件：fitView 在建图完成等场景手动调用，focusNode 给节点定位用
 defineExpose({ fitView, focusNode });
 </script>
 
@@ -310,16 +300,15 @@ defineExpose({ fitView, focusNode });
                 <g v-if="nmap[e.from] && nmap[e.to]" :style="{ opacity: !edgeMatchesFilter(e) ? 0.15 : (selId && selId !== e.from && selId !== e.to ? 0.25 : 1), transition: 'opacity .2s' }">
                   <!-- 不可见点击热区：左键查看抽屉，右键编辑输入输出 -->
                   <path v-if="!readonly" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" @click.stop="emit('select-edge', e.id)" @contextmenu.prevent.stop="emit('edit-edge-relation', e.id)" />
-                  <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : '#3d9bff')" :stroke-width="8" opacity="0.1"/>
+                  <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? '#ff3399' : '#3d9bff'" :stroke-width="8" opacity="0.1"/>
                   <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
-                        :stroke="e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#3d9bff' : 'rgba(255, 255, 255, 0.3)'))"
-                        :stroke-width="selId === e.from || selId === e.to ? 2 : 1.4"
-                        :stroke-dasharray="e.source === 'predicted' ? '6 4' : null"/>
-                  <path v-if="e.source !== 'predicted'" :class="selId === e.from || selId === e.to ? 'line-flow-fast' : 'line-flow'" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (selId === e.from || selId === e.to ? '#9ecbff' : 'rgba(61, 155, 255, 0.55)')" :stroke-width="selId === e.from || selId === e.to ? 2.5 : 1.5"/>
+                        :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#3d9bff' : 'rgba(255, 255, 255, 0.3)')"
+                        :stroke-width="selId === e.from || selId === e.to ? 2 : 1.4"/>
+                  <path :class="selId === e.from || selId === e.to ? 'line-flow-fast' : 'line-flow'" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (selId === e.from || selId === e.to ? '#9ecbff' : 'rgba(61, 155, 255, 0.55)')" :stroke-width="selId === e.from || selId === e.to ? 2.5 : 1.5"/>
                   <g v-if="e.label">
                     <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 20" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="40" height="14" rx="3" fill="#050810" opacity="0.85"/>
-                    <text :x="getPath(nmap[e.from], nmap[e.to]).mx" :y="getPath(nmap[e.from], nmap[e.to]).my - 6" text-anchor="middle" :style="{fill: e.source === 'predicted' ? '#fbbf24' : (e.rule_driven ? '#ff3399' : (selId === e.from || selId === e.to ? '#7ab8f0' : 'rgba(197, 216, 235, 0.65)')), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
-                      <tspan v-if="e.source === 'predicted'">◇</tspan><tspan v-else-if="e.rule_driven">⚡</tspan>{{ e.label }}
+                    <text :x="getPath(nmap[e.from], nmap[e.to]).mx" :y="getPath(nmap[e.from], nmap[e.to]).my - 6" text-anchor="middle" :style="{fill: e.rule_driven ? '#ff3399' : (selId === e.from || selId === e.to ? '#7ab8f0' : 'rgba(197, 216, 235, 0.65)'), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
+                      <tspan v-if="e.rule_driven">⚡</tspan>{{ e.label }}
                     </text>
                   </g>
                 </g>
@@ -329,10 +318,10 @@ defineExpose({ fitView, focusNode });
 
           <div class="graph-root" style="transform:none;">
             <div v-for="n in visibleNodes" :key="n.id"
-                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-multi-sel': multiSel.has(n.id), 'node-predicted': n.source === 'predicted', 'node-dim': !matchesFilter(n) || (searchQuery && !isSearchMatch(n)), 'node-neighbor-dim': !typeFilter && !searchQuery && neighborIds && !neighborIds.has(n.id), 'node-neighbor-hl': !typeFilter && !searchQuery && neighborIds && neighborIds.has(n.id) && selId !== n.id, 'node-hl': typeFilter && matchesFilter(n), 'node-search-current': isCurrentSearchTarget(n) }]"
+                :class="['node', { 'node-new': n.isNew, 'node-sel': selId === n.id, 'node-multi-sel': multiSel.has(n.id), 'node-dim': !matchesFilter(n) || (searchQuery && !isSearchMatch(n)), 'node-neighbor-dim': !typeFilter && !searchQuery && neighborIds && !neighborIds.has(n.id), 'node-neighbor-hl': !typeFilter && !searchQuery && neighborIds && neighborIds.has(n.id) && selId !== n.id, 'node-hl': typeFilter && matchesFilter(n), 'node-search-current': isCurrentSearchTarget(n) }]"
                 :style="{
                   left: n.x + 'px', top: n.y + 'px', width: NW + 'px',
-                  background: diffColor(n) || heatColor(n) || getT(n).bg, borderLeftColor: getT(n).color,
+                  background: diffColor(n) || getT(n).bg, borderLeftColor: getT(n).color,
                   borderTopColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#111c2c',
                   borderRightColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#111c2c',
                   borderBottomColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#111c2c',
@@ -342,10 +331,6 @@ defineExpose({ fitView, focusNode });
               <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
               <div class="node-label">{{ n.label }}</div>
               <div class="node-type">{{ getT(n).label }}</div>
-              <div v-if="n.source === 'predicted'" class="node-pred-badge"
-                   :title="'置信度: ' + Math.round((n.confidence || 0) * 100) + '% | 有效概率: ' + Math.round((n.effectiveProbability || 0) * 100) + '%'">
-                {{ Math.round((n.effectiveProbability || n.confidence || 0) * 100) }}%
-              </div>
               <div v-if="(n.constraints?.length || 0) > 0" class="node-lock-badge" :title="n.constraints.map((c: any) => (c.kind || '约束') + ': ' + c.note).join('\n')">🔒</div>
             </div>
           </div>
@@ -364,18 +349,6 @@ defineExpose({ fitView, focusNode });
     <!-- Right-click context menu -->
     <Teleport to="body">
     <div v-if="ctxMenu" class="node-ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @click.stop>
-      <button class="ctx-item" @click="triggerPredict">
-        <span class="ctx-icon">⚡</span>
-        <span>从此推演</span>
-        <span class="ctx-hint">Forward</span>
-      </button>
-      <!-- P1-7：仅对推演节点显示"为什么" -->
-      <button v-if="ctxNodeIsPredicted" class="ctx-item" @click="triggerExplain">
-        <span class="ctx-icon">🔍</span>
-        <span>为什么会发生？</span>
-        <span class="ctx-hint">Explain</span>
-      </button>
-      <div class="ctx-sep"></div>
       <button class="ctx-item" @click="triggerEdit">
         <span class="ctx-icon">✎</span>
         <span>编辑节点</span>
@@ -511,21 +484,6 @@ defineExpose({ fitView, focusNode });
           <svg v-if="layoutDirection === 'LR'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="20" y2="12"/><polyline points="14 6 20 12 14 18"/></svg>
           <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg>
           {{ layoutDirection === 'LR' ? '从左向右' : '从上到下' }}
-        </button>
-        <button
-          class="ca-btn"
-          :class="{ 'ca-active': heatmapMode }"
-          @click="heatmapMode = !heatmapMode"
-          :title="heatmapMode
-            ? '已开启概率色阶:推演节点按置信度着色(绿 高 → 黄 中 → 红 低)。点击关闭。'
-            : '概率色阶:开启后将推演节点按置信度着色(绿 高 → 黄 中 → 红 低),方便快速识别可信度。'"
-        >
-          <svg class="ca-heat-icon" viewBox="0 0 24 24" width="22" height="10" fill="none" aria-hidden="true">
-            <circle cx="5"  cy="12" r="3.2" fill="#42b883"/>
-            <circle cx="12" cy="12" r="3.2" fill="#fbbf24"/>
-            <circle cx="19" cy="12" r="3.2" fill="#ef4444"/>
-          </svg>
-          概率色阶
         </button>
         <button v-if="diffHighlight" class="ca-btn ca-active" @click="emit('clear-diff')" title="清除对比高亮">
           ✕ 对比

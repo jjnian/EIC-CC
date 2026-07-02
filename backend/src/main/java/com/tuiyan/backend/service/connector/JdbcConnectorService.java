@@ -278,6 +278,75 @@ public class JdbcConnectorService {
         return v instanceof Number || v instanceof Boolean || v instanceof String;
     }
 
+    /** 标识符白名单（与 previewTable 同一套约束），防 SQL 注入。 */
+    private static final java.util.regex.Pattern SAFE_IDENT =
+            java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,63}");
+
+    /**
+     * 值包含检验结果：checkedRows 为参与检验的子表非空行数（可能是采样），orphanRows 为
+     * 在父表中找不到对应值的行数，matchRate = 1 - orphan/checked。
+     * verdict: confirmed(≥99.5%) / likely(≥90%) / rejected(<90%) / empty(子表无非空值)。
+     */
+    public record ContainmentCheckResponse(String childTable, String childColumn,
+                                           String parentTable, String parentColumn,
+                                           long checkedRows, long orphanRows,
+                                           double matchRate, boolean sampled,
+                                           String verdict, int durationMs) {}
+
+    /**
+     * 血缘值包含检验：验证「child.col 派生自 parent.col」这类按命名推断的血缘边是否被数据支持——
+     * 子表列的（非空）值是否都能在父表列中找到。用于把 inferred 边升级为「数据证实」或直接否掉。
+     * <p>只读、单条聚合查询、带行数上限（大表按前 sampleLimit 行采样）与语句超时；
+     * 表名/列名走白名单正则校验 + 方言引用，防注入。
+     */
+    public ContainmentCheckResponse verifyContainment(String kind, Map<String, Object> cfg,
+                                                      String childTable, String childColumn,
+                                                      String parentTable, String parentColumn,
+                                                      int sampleLimit) {
+        for (String ident : List.of(childTable, childColumn, parentTable, parentColumn)) {
+            if (ident == null || !SAFE_IDENT.matcher(ident).matches()) {
+                throw new IllegalArgumentException("非法表名/列名: " + ident);
+            }
+        }
+        int limit = sampleLimit <= 0 ? 50_000 : Math.min(sampleLimit, 500_000);
+        SqlDialect dialect = dialects.resolve(kind);
+        String c = dialect.quote(childTable);
+        String cc = dialect.quote(childColumn);
+        String pTab = dialect.quote(parentTable);
+        String pc = dialect.quote(parentColumn);
+        // 单条聚合查出 总数 + 孤儿数：EXISTS 避免父列非唯一时 JOIN 扇出虚增计数
+        String sql = "SELECT COUNT(*) AS total_rows, "
+                + "SUM(CASE WHEN EXISTS (SELECT 1 FROM " + pTab + " p WHERE p." + pc + " = t.v) THEN 0 ELSE 1 END) AS orphan_rows "
+                + "FROM (SELECT " + cc + " AS v FROM " + c + " WHERE " + cc + " IS NOT NULL"
+                + dialect.rowLimitClause(limit) + ") t";
+
+        long t0 = System.currentTimeMillis();
+        try (HikariDataSource ds = (HikariDataSource) buildTempDataSource(kind, cfg);
+             Connection conn = ds.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setQueryTimeout(QUERY_TIMEOUT_SEC);
+            try (ResultSet rs = ps.executeQuery()) {
+                long total = 0;
+                long orphans = 0;
+                if (rs.next()) {
+                    total = rs.getLong("total_rows");
+                    orphans = rs.getLong("orphan_rows"); // SUM 为 NULL(0行)时 getLong 返回 0
+                }
+                int elapsed = (int) (System.currentTimeMillis() - t0);
+                double rate = total == 0 ? 0 : 1.0 - (double) orphans / total;
+                String verdict = total == 0 ? "empty"
+                        : rate >= 0.995 ? "confirmed"
+                        : rate >= 0.9 ? "likely"
+                        : "rejected";
+                boolean sampled = total >= limit;
+                return new ContainmentCheckResponse(childTable, childColumn, parentTable, parentColumn,
+                        total, orphans, rate, sampled, verdict, elapsed);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("值包含检验失败: " + e.getMessage(), e);
+        }
+    }
+
     /** 单表样例数据：列名 + 若干行(单元格为简单值,复杂类型已转字符串)。 */
     public record TableSample(List<String> columns, List<List<Object>> rows) {}
 

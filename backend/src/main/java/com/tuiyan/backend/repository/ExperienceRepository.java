@@ -110,10 +110,21 @@ public class ExperienceRepository {
      */
     @Transactional
     public Map<String, Object> upsertDdl(String dataSourceId, String title, String content, String tags) {
+        return upsertFromDataSource(dataSourceId, title, content, tags, "ddl");
+    }
+
+    /**
+     * 数据源导出经验的 upsert（同一数据源重复导出原地刷新）。origin 按数据源类型区分：
+     * 库结构导出 = "ddl"（建图走 schema 专用规则），文件转写/HTTP 接口 = "datasource"（普通散文抽取）。
+     * 历史行 origin 混标为 ddl 的在下次导出时被收养并纠正。
+     */
+    public Map<String, Object> upsertFromDataSource(String dataSourceId, String title, String content,
+                                                    String tags, String origin) {
         String ws = WorkspaceContext.required();
+        String effOrigin = origin == null || origin.isBlank() ? "ddl" : origin;
         List<ExperiencePO> existing = mapper.selectList(new LambdaQueryWrapper<ExperiencePO>()
                 .eq(ExperiencePO::getWorkspaceId, ws)
-                .eq(ExperiencePO::getOrigin, "ddl")
+                .in(ExperiencePO::getOrigin, "ddl", "datasource")
                 .orderByDesc(ExperiencePO::getCreatedAt));
         ExperiencePO hit = null;
         for (ExperiencePO po : existing) {
@@ -126,12 +137,13 @@ public class ExperienceRepository {
             hit.setTitle(title);
             hit.setContent(content);
             if (tags != null) hit.setTags(tags);
+            hit.setOrigin(effOrigin); // 纠正历史误标(如视频转写导出曾被标为 ddl)
             hit.setSourceConfig(toJson(Map.of("dataSourceId", dataSourceId)));
             hit.setUpdatedAt(System.currentTimeMillis());
             mapper.updateById(hit);
             return toMap(hit);
         }
-        ExperiencePO po = newPo(title, content, tags, "ddl");
+        ExperiencePO po = newPo(title, content, tags, effOrigin);
         po.setSourceConfig(toJson(Map.of("dataSourceId", dataSourceId)));
         mapper.insert(po);
         return toMap(po);

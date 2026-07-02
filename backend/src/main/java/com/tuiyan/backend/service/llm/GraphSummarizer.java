@@ -1,6 +1,5 @@
 package com.tuiyan.backend.service.llm;
 
-import com.tuiyan.backend.model.Constraint;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -13,12 +12,12 @@ import java.util.Set;
 
 /**
  * 图谱摘要与上下文截断：把图谱压成 LLM 可读文本、按预算裁剪成 N-hop 邻域。
- * <p>供 {@link ChatPromptBuilder} / {@link PredictPromptBuilder} 共享。
+ * <p>供 {@link ChatPromptBuilder} 使用。
  */
 @Component
 public class GraphSummarizer {
 
-    // 单次推演给 LLM 的图谱预算
+    // 单次给 LLM 的图谱预算
     static final int CONTEXT_NODE_BUDGET = 120;
     static final int CONTEXT_EDGE_BUDGET = 240;
     // 从 mandatory 节点向外扩散的跳数；3 跳通常足够覆盖核心因果链
@@ -51,19 +50,18 @@ public class GraphSummarizer {
     }
 
     /**
-     * 根据预算把大图谱裁剪成"以 seeds / rules / constraints 为中心的 N-hop 邻域"。
+     * 根据预算把大图谱裁剪成"以 seeds / rules 为中心的 N-hop 邻域"。
      * <p>策略：
      * <ol>
      *   <li>未超预算直接返回原图；</li>
-     *   <li>把 seeds、所有 rule 节点、constraints 目标作为 mandatory；</li>
+     *   <li>把 seeds、所有 rule 节点作为 mandatory；</li>
      *   <li>从 mandatory 出发 BFS 向外扩 {@link #CONTEXT_HOPS} 层，按发现顺序加入直到达到节点 budget；</li>
      *   <li>边只保留两端都在 keep 集合里的，不超过边 budget。</li>
      * </ol>
      */
     public GraphPromptBuilder.TruncatedGraph truncateGraphForContext(List<Map<String, Object>> nodes,
                                                                      List<Map<String, Object>> edges,
-                                                                     List<String> seeds,
-                                                                     List<Constraint> constraints) {
+                                                                     List<String> seeds) {
         int totalNodes = nodes == null ? 0 : nodes.size();
         int totalEdges = edges == null ? 0 : edges.size();
         if (totalNodes <= CONTEXT_NODE_BUDGET && totalEdges <= CONTEXT_EDGE_BUDGET) {
@@ -82,12 +80,6 @@ public class GraphSummarizer {
                 }
             }
         }
-        if (constraints != null) {
-            for (Constraint c : constraints) {
-                if (c != null && c.getNodeId() != null) mandatory.add(c.getNodeId());
-            }
-        }
-
         Set<String> keep = new LinkedHashSet<>(mandatory);
 
         Map<String, List<String>> neighbors = new HashMap<>();

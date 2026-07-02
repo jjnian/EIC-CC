@@ -3,8 +3,6 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import SettingsView from './components/SettingsView.vue';
 import WorkspacePickerView from './components/WorkspacePickerView.vue';
-import PredictDialog from './components/PredictDialog.vue';
-import BranchCompareDialog from './components/BranchCompareDialog.vue';
 import ImportDialog from './components/ImportDialog.vue';
 import GraphView from './components/views/GraphView.vue';
 import ChatCenterView from './components/views/ChatCenterView.vue';
@@ -21,13 +19,11 @@ import { type ViewId, type NavRoute, NAV_TO_VIEW } from './views';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import './app.css';
 import { toast, mountToastRoot } from './composables/useToast';
-import { updateOntology, deleteOntology } from './api/ontology';
+import { updateOntology, deleteOntology, recordBuildSources } from './api/ontology';
 import { getConversation, updateConversation } from './api/conversations';
 import { ApiError } from './api/http';
 import { useDivider } from './composables/useDivider';
 import { useImportFlow } from './composables/useImportFlow';
-import { useScenarios } from './composables/useScenarios';
-import { usePrediction } from './composables/usePrediction';
 import { useOntologyModel } from './composables/useOntologyModel';
 import { useGraphActions } from './composables/useGraphActions';
 import { useGraphHistory } from './composables/useGraphHistory';
@@ -64,7 +60,6 @@ const wsManager = useWorkspaces();
 const sidebarTree = useSidebarTree();
 
 const currentModelId = ref<string>('');
-const compareDialogOpen = ref(false);
 const importDialogOpen = ref(false);
 
 // 数据源创建对话框状态
@@ -125,7 +120,7 @@ const openExperienceDetail = (id: string) => {
   view.value = 'experience-list';
 };
 
-// 分支对比差异高亮状态
+// 图分析 / 血缘链路高亮状态（GraphAnalysisPanel 等通过 highlight-diff 事件驱动）
 const diffHighlight = ref<{ sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null>(null);
 const onHighlightDiff = (data: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null) => {
   diffHighlight.value = data;
@@ -148,37 +143,10 @@ const deleteOntologyModel = ontology.deleteOntologyModel;
 const nodes = ref<OntologyNode[]>([]);
 const edges = ref<OntologyEdge[]>([]);
 
-// Scenarios 与 Prediction 通过 getter 解耦循环依赖
-let scenarios: ReturnType<typeof useScenarios>;
-const prediction = usePrediction({
-  currentModelId,
-  nodes,
-  edges,
-  getActiveBranchId: () => scenarios.activeBranchId.value,
-  setActiveBranchId: (id) => { scenarios.activeBranchId.value = id; },
-  setTrunkSnapshot: (snap) => { scenarios.trunkSnapshot.value = snap; },
-  appendBranch: (s) => { scenarios.branches.value.unshift(s); },
-  switchBranch: (id) => scenarios.switchBranch(id),
-  fitView: () => graphRef.value?.fitView(),
-});
-
-scenarios = useScenarios({
-  currentModelId,
-  nodes,
-  edges,
-  findModel,
-  abortLiveStream: prediction.abortLiveStream,
-  resetLiveState: () => { prediction.resetLiveState(); sel.value = null; },
-  fitView: () => graphRef.value?.fitView(),
-});
-
-const branches = scenarios.branches;
-const activeBranchId = scenarios.activeBranchId;
-
 // 防抖保存:图谱编辑后 1.2 秒无操作 → PUT 到后端
 let saveTimer: number | null = null;
 const persistCurrentModel = (immediate = false) => {
-  if (!currentModelId.value || activeBranchId.value !== 'trunk') return;
+  if (!currentModelId.value) return;
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   const targetId = currentModelId.value;
   const run = async () => {
@@ -304,17 +272,13 @@ const openModel = async (m: OntologyModel, targetView: 'graph' | 'chat' = 'graph
   if (currentModelId.value && currentModelId.value !== m.id) {
     persistCurrentModel(true);
   }
-  prediction.abortLiveStream();
   currentModelTitle.value = m.title || m.name || '';
   currentModelId.value = m.id;
   nodes.value = m.graphData.nodes;
   edges.value = m.graphData.edges;
   sel.value = null;
-  activeBranchId.value = 'trunk';
-  prediction.resetLiveState();
   view.value = targetView;
   history.reset(nodes.value, edges.value);
-  await scenarios.loadBranches(m.id);
 };
 
 const versionTpl = useVersionTemplates({
@@ -337,27 +301,10 @@ const showTemplates = versionTpl.showTemplates;
 const templates = versionTpl.templates;
 const templatesLoading = versionTpl.templatesLoading;
 
-// 仅保留 ref 别名；函数一律改用 prediction.xxx / scenarios.xxx 命名空间调用。
-const predictDialogOpen = prediction.predictDialogOpen;
-const predictSeeds = prediction.predictSeeds;
-const liveSteps = prediction.liveSteps;
-const liveLoading = prediction.liveLoading;
-const liveActive = prediction.liveActive;
-const liveIntent = prediction.liveIntent;
-const livePruneDetails = prediction.livePruneDetails;
-const liveSeeds = prediction.liveSeeds;
-const livePrompt = prediction.livePrompt;
-const liveName = prediction.liveName;
-const liveBranchId = prediction.liveBranchId;
-const liveError = prediction.liveError;
-const liveStatus = prediction.liveStatus;
-
 // v1.0 导入提交:抽到 useImportFlow composable
 const importFlow = useImportFlow({
   nodes,
   edges,
-  activeBranchId,
-  switchToTrunk: () => scenarios.switchBranch('trunk'),
   persistCurrentModel,
   createNewModel: createOnBackend,
   registerAndOpenModel: async (saved) => {
@@ -371,10 +318,20 @@ const onImportCommit = async (payload: {
   name: string;
   nodes: OntologyNode[];
   edges: OntologyEdge[];
+  manifest?: { experienceId: string; contentHash: string }[];
 }) => {
   importDialogOpen.value = false;
   if (payload.mode === 'merge') history.snapshot();
   await importFlow.onImportCommit(payload);
+  // 经验库建图的结果落进模型后，回写「模型 ← 经验内容版本」构建记录，
+  // 下次增量建图据此跳过未变更的经验（openModel/merge 后 currentModelId 即目标模型）
+  if (payload.manifest?.length && currentModelId.value) {
+    try {
+      await recordBuildSources(currentModelId.value, payload.manifest);
+    } catch (e) {
+      console.warn('record build sources failed', e);
+    }
+  }
 };
 
 const createNewModel = async () => {
@@ -383,7 +340,7 @@ const createNewModel = async () => {
   try {
     const draft: OntologyModel = {
       id: 'om_' + Date.now(),
-      title: `新建推演模型 ${models.value.length + 1}`,
+      title: `新建本体模型 ${models.value.length + 1}`,
       desc: '新创建的空白本体模型画布',
       graphData: { nodes: [], edges: [] }
     };
@@ -422,9 +379,7 @@ const ensureCurrentModel = (titleHint: string): Promise<void> => {
       nodes.value = saved.graphData?.nodes || [];
       edges.value = saved.graphData?.edges || [];
       sel.value = null;
-      activeBranchId.value = 'trunk';
       history.reset(nodes.value, edges.value);
-      await scenarios.loadBranches(saved.id);
       const wsId = wsManager.currentId.value;
       if (wsId) sidebarTree.upsertOntology(wsId, {
         id: saved.id,
@@ -444,18 +399,15 @@ const ensureCurrentModel = (titleHint: string): Promise<void> => {
  * 决定显隐。首条用户消息发送时,ChatPanel 会通过 ensure-model 回调让我们落地新模型。
  */
 const goWelcome = async () => {
-  if (currentModelId.value && activeBranchId.value === 'trunk') {
+  if (currentModelId.value) {
     persistCurrentModel(true);
   }
   await chatRef.value?.flushPersist?.();
-  prediction.abortLiveStream();
   currentModelId.value = '';
   currentModelTitle.value = '';
   nodes.value = [];
   edges.value = [];
   sel.value = null;
-  activeBranchId.value = 'trunk';
-  prediction.resetLiveState();
   view.value = 'chat';
   await nextTick();
   chatRef.value?.newConversation?.();
@@ -664,12 +616,6 @@ const formatFileSize = (bytes: number) => {
         </div>
         <div class="tb-tools" v-if="view === 'graph'">
           <button
-            v-if="branches.length >= 2"
-            class="tb-btn"
-            @click="compareDialogOpen = true"
-            title="对比两个推演分支"
-          >⚖ 对比</button>
-          <button
             class="tb-btn"
             @click="importDialogOpen = true"
             title="从 PDF / 图片抽取本体导入"
@@ -725,7 +671,7 @@ const formatFileSize = (bytes: number) => {
       <div class="model-list-view" v-if="view === 'list'">
         <div class="ml-header">
           <h2>本体模型管理</h2>
-          <p>选择一个已有模型进行编辑拓展，或创建新的推演画布。</p>
+          <p>选择一个已有模型进行编辑拓展，或创建新的画布。</p>
         </div>
         <div class="ml-grid">
           <div class="ml-card" v-for="m in models" :key="m.id" @click="openModel(m)">
@@ -770,6 +716,7 @@ const formatFileSize = (bytes: number) => {
         :focus-id="focusExperienceId"
         :create-signal="experienceCreateSignal"
         :has-current-model="!!currentModelId"
+        :current-model-id="currentModelId"
         @ontology-extracted="onImportCommit"
       />
 
@@ -780,18 +727,6 @@ const formatFileSize = (bytes: number) => {
         :edges="edges"
         :selected-id="sel"
         :model-id="currentModelId"
-        :active-branch-id="activeBranchId"
-        :live-active="liveActive"
-        :live-loading="liveLoading"
-        :live-steps="liveSteps"
-        :live-intent="liveIntent"
-        :live-prune-details="livePruneDetails"
-        :live-seeds="liveSeeds"
-        :live-prompt="livePrompt"
-        :live-name="liveName"
-        :live-branch-id="liveBranchId"
-        :live-error="liveError"
-        :live-status="liveStatus"
         :chat-w="chatW"
         :div-drag-active="isDragging"
         :pending-chat-seed="pendingChatSeed"
@@ -811,12 +746,9 @@ const formatFileSize = (bytes: number) => {
         @auto-layout="autoLayout"
         @toggle-layout-direction="graphActions.toggleLayoutDirection"
         @clear="editor.clearCanvas"
-        @predict-from="prediction.openPredictDialog"
         @edit-node="editor.openEditNode"
         @delete-node="editor.deleteNode"
         @delete-nodes="editor.deleteNodes"
-        @switch-branch="scenarios.switchBranch"
-        @close-timeline="prediction.closeTimeline"
         @focus-node="focusNodeInGraph"
         @update="merger.onUpdate"
         @seed-consumed="pendingChatSeed = null"
@@ -824,7 +756,6 @@ const formatFileSize = (bytes: number) => {
         @graph-ref="(el) => graphRef = el"
         @chat-ref="(el) => chatRef = el"
         @highlight-diff="onHighlightDiff"
-        @abort-prediction="prediction.closeTimeline"
         @update-node-props="editor.updateNodeProps"
         @delete-edge="editor.deleteEdge"
         @clear-diff="clearDiffHighlight"
@@ -839,17 +770,6 @@ const formatFileSize = (bytes: number) => {
         v-else-if="view === 'chat'"
         :nodes="nodes"
         :edges="edges"
-        :live-active="liveActive"
-        :live-loading="liveLoading"
-        :live-steps="liveSteps"
-        :live-intent="liveIntent"
-        :live-prune-details="livePruneDetails"
-        :live-seeds="liveSeeds"
-        :live-prompt="livePrompt"
-        :live-name="liveName"
-        :live-branch-id="liveBranchId"
-        :live-error="liveError"
-        :live-status="liveStatus"
         :pending-chat-seed="pendingChatSeed"
         :model-title="currentModelTitle"
         :model-id="currentModelId"
@@ -857,28 +777,8 @@ const formatFileSize = (bytes: number) => {
         @update="merger.onUpdate"
         @clear-graph="editor.clearCanvas"
         @seed-consumed="pendingChatSeed = null"
-        @abort-prediction="prediction.closeTimeline"
         @chat-ref="(el) => chatRef = el"
         @view-graph="onOpenOntologyModel"
-      />
-
-      <!-- Predict Dialog (modal) -->
-      <PredictDialog
-        :open="predictDialogOpen"
-        :nodes="nodes"
-        :edges="edges"
-        :initialSeedIds="predictSeeds"
-        :modelId="currentModelId"
-        @close="predictDialogOpen = false"
-        @submit="prediction.startPrediction"
-      />
-
-      <!-- Branch Compare Dialog (modal) -->
-      <BranchCompareDialog
-        :open="compareDialogOpen"
-        :branches="branches"
-        @close="compareDialogOpen = false"
-        @highlight-diff="onHighlightDiff"
       />
 
       <!-- Import Dialog (modal) -->

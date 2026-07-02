@@ -8,17 +8,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Set;
 
 /**
- * 节点 id 加盐重写：避免不同导入 / fork 批次的 id 互相冲突。
- * <p>两个使用场景：
- * <ol>
- *   <li>extract 流程（文档抽取草稿）：{@link #applyImportSalt} 给 LLM 草稿的 add_nodes/add_edges 整体加 salt 前缀，
- *       并深度扫描节点字段，命中 idMap 时替换 —— 因为同一份文档可能被反复导入，必须确保两次导入的 id 不冲突；</li>
- *   <li>predict 流程（fork 推演）：{@link #applyPredictionIdSalt} 仅对本批 chain 内、严格匹配 {@code ^p_\d+$} 的 raw id 改写
- *       —— LLM 输出的占位 id（p_1、p_2…）每次都从 1 开始，多次 fork 时会重复，需要加盐隔离。</li>
- * </ol>
+ * 节点 id 加盐重写：避免不同导入批次的 id 互相冲突。
+ * <p>extract 流程（文档抽取草稿）：{@link #applyImportSalt} 给 LLM 草稿的 add_nodes/add_edges 整体加 salt 前缀，
+ * 并深度扫描节点字段，命中 idMap 时替换 —— 因为同一份文档可能被反复导入，必须确保两次导入的 id 不冲突。
  */
 public final class IdSaltRewriter {
 
@@ -85,24 +79,6 @@ public final class IdSaltRewriter {
         root.set("nodes", outNodes);
         root.set("edges", outEdges);
         return root;
-    }
-
-    /**
-     * predict fork id 重写：只对本批 chain 内、严格匹配 {@code ^p_\d+$} 的 raw id 改写为 {@code p<salt>_N}。
-     * <p>判断规则：
-     * <ul>
-     *   <li>idSalt 为空（非 fork 情形）→ 原样返回；</li>
-     *   <li>raw 不符合 p_数字 模式（如 trunk 真实节点 id）→ 不改写；</li>
-     *   <li>raw 不在 currentChainIds 中（即引用祖先批次的 p1a_2 等）→ 不改写。</li>
-     * </ul>
-     * 这保证了 fork 时只对"本批 LLM 新生成的占位 id"加盐，保留对祖先 / trunk 节点的引用关系。
-     */
-    public static String applyPredictionIdSalt(String raw, String idSalt, Set<String> currentChainIds) {
-        if (idSalt == null || idSalt.isEmpty()) return raw;
-        if (raw == null) return null;
-        if (!raw.matches("p_\\d+")) return raw;
-        if (currentChainIds == null || !currentChainIds.contains(raw)) return raw;
-        return "p" + idSalt + "_" + raw.substring(2);
     }
 
     /**

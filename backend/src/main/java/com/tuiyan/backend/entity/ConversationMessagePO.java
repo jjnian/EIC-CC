@@ -6,7 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 /**
  * 对话消息 PO，对应 conversation_message 表。
- * <p>role + content 是强结构主体；payload_json 兜底存附件、@引用、推演消息等扩展字段（JSON 序列化）。
+ * <p>role + content 是强结构主体；payload_json 兜底存附件、@引用等扩展字段（JSON 序列化）。
  */
 @TableName("conversation_message")
 public class ConversationMessagePO {

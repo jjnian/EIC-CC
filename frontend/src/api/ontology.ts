@@ -131,3 +131,29 @@ export function saveGraphTemplate(template: any) {
 export function deleteGraphTemplate(id: string) {
   return request<void>(`/api/templates/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
+
+/** 回写建图来源记录：经验库建图结果合并进模型后调用，供下次增量建图跳过未变更经验。 */
+export function recordBuildSources(modelId: string, sources: { experienceId: string; contentHash: string }[]) {
+  return request<{ recorded: number }>(`/api/ontology-models/${encodeURIComponent(modelId)}/build-sources`, {
+    method: 'POST',
+    body: JSON.stringify({ sources }),
+  });
+}
+
+/** Schema 漂移检测结果。 */
+export interface SchemaDriftResult {
+  database: string;
+  schemaTables: number;
+  referencedTables: number;
+  okTables: number;
+  missingTables: { table: string; nodes: string[]; edges: string[] }[];
+  missingColumns: { table: string; column: string; nodes: string[] }[];
+}
+
+/** Schema 漂移检测：比对图上表/列引用与数据源最新 schema，报告失效引用。 */
+export function detectSchemaDrift(modelId: string, dataSourceId: string) {
+  return request<SchemaDriftResult>(`/api/ontology-models/${encodeURIComponent(modelId)}/schema-drift`, {
+    method: 'POST',
+    body: JSON.stringify({ dataSourceId }),
+  });
+}

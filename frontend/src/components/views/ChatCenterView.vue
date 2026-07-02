@@ -1,45 +1,21 @@
 <script setup lang="ts">
 import { computed, ref, type PropType } from 'vue';
 import ChatPanel from '../ChatPanel.vue';
-import type { OntologyNode, OntologyEdge, ChainStep, GraphMutation } from '../../types';
+import type { OntologyNode, OntologyEdge, GraphMutation } from '../../types';
 
-const props = defineProps({
+defineProps({
   nodes:           { type: Array as PropType<OntologyNode[]>, required: true },
   edges:           { type: Array as PropType<OntologyEdge[]>, required: true },
-  liveActive:      { type: Boolean, required: true },
-  liveLoading:     { type: Boolean, required: true },
-  liveSteps:       { type: Array as PropType<ChainStep[]>, required: true },
-  liveIntent:      { type: String as PropType<'forward' | 'backward'>, required: true },
-  livePruneDetails: { type: Array as PropType<{ nodeId: string; label: string; reason: string }[]>, default: () => [] },
-  liveSeeds:       { type: Array as PropType<string[]>, default: () => [] },
-  livePrompt:      { type: String, default: '' },
-  liveName:        { type: String, default: '' },
-  liveBranchId:    { type: String, default: '' },
-  liveError:       { type: String, default: '' },
-  liveStatus:      { type: Number as PropType<0 | 1 | 2 | 3 | 4>, default: 0 },
   pendingChatSeed: { type: Object as PropType<{ text: string; files: File[] } | null>, default: null },
   modelTitle:      { type: String, default: '' },
   modelId:         { type: String, default: '' },
   ensureModel:     { type: Function as PropType<(titleHint: string) => Promise<void>>, default: null },
 });
 
-const livePrediction = computed(() => ({
-  status: props.liveStatus,
-  intent: props.liveIntent,
-  seeds: props.liveSeeds,
-  prompt: props.livePrompt,
-  name: props.liveName,
-  steps: props.liveSteps,
-  pruneDetails: props.livePruneDetails,
-  branchId: props.liveBranchId,
-  error: props.liveError,
-}));
-
 const emit = defineEmits<{
   (e: 'update', mutation: GraphMutation): void;
   (e: 'clear-graph'): void;
   (e: 'seed-consumed'): void;
-  (e: 'abort-prediction'): void;
   (e: 'chat-ref', el: any): void;
   (e: 'view-graph', modelId: string): void;
 }>();
@@ -85,14 +61,12 @@ const bindRef = (el: any) => {
         :edges="edges"
         :width="0"
         :seed="pendingChatSeed"
-        :live-prediction="livePrediction"
         :model-id="modelId"
         :ensure-model="ensureModel"
         class="cc-chat"
         @update="(mutation) => emit('update', mutation)"
         @clear-graph="emit('clear-graph')"
         @seed-consumed="emit('seed-consumed')"
-        @abort-prediction="emit('abort-prediction')"
         @view-graph="(id) => emit('view-graph', id)"
         @user-msg-changed="(v) => hasUserMsg = v"
       />
