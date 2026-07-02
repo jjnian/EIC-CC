@@ -22,8 +22,8 @@ public class VideoFileHandler implements SourceFileHandler {
 
     /** 转写正文写入 data_source.extra_json 的字符上限（与音频一致）。 */
     private static final int TRANSCRIPT_CHAR_BUDGET = 100_000;
-    /** 视频原始字节上限：抽音轨前的输入体积保护（长视频请先行剪辑/压缩）。 */
-    static final long VIDEO_BYTES_LIMIT = 500L * 1024 * 1024;
+    /** 视频原始字节上限：与 multipart 上限（默认 200MB，UPLOAD_MAX_FILE_SIZE）对齐。 */
+    static final long VIDEO_BYTES_LIMIT = 200L * 1024 * 1024;
 
     private final AudioTranscriptionService transcription;
 

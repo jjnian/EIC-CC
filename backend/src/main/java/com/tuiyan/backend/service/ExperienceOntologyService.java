@@ -56,6 +56,7 @@ public class ExperienceOntologyService {
     private final ExtractionLlmService extractionLlmService;
     private final ExtractionGraphMerger merger;
     private final com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo;
+    private final com.tuiyan.backend.repository.OntologyModelRepository modelRepo;
     /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
     private final ExecutorService batchExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_BATCHES, r -> {
         Thread t = new Thread(r, "exp-ontology-batch");
@@ -66,11 +67,13 @@ public class ExperienceOntologyService {
     public ExperienceOntologyService(ExperienceRepository repo,
                                      ExtractionLlmService extractionLlmService,
                                      ExtractionGraphMerger merger,
-                                     com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo) {
+                                     com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo,
+                                     com.tuiyan.backend.repository.OntologyModelRepository modelRepo) {
         this.repo = repo;
         this.extractionLlmService = extractionLlmService;
         this.merger = merger;
         this.buildSourceRepo = buildSourceRepo;
+        this.modelRepo = modelRepo;
     }
 
     /** 进度回调，用于 SSE 上报「读经验库 / 调 LLM / 后处理」等阶段。 */
@@ -82,11 +85,11 @@ public class ExperienceOntologyService {
     public record ExtractResult(JsonNode payload, String salt,
                                 int sourceCount, int nodeCount, int edgeCount) {}
 
-    /** 单篇待抽取经验：标题 + 剥离图片段后的正文 + 是否 DDL 导出（走 schema 专用抽取规则）。 */
-    private record ExpDoc(String title, String content, boolean ddl) {}
+    /** 单篇待抽取经验：id + 标题 + 剥离图片段后的正文 + 是否 DDL 导出（走 schema 专用抽取规则）。 */
+    private record ExpDoc(String id, String title, String content, boolean ddl) {}
 
-    /** 一次 LLM 抽取批：拼好的输入文本 + 批内经验标题（供来源标记） + 是否 DDL 批。 */
-    private record Batch(String text, List<String> titles, boolean ddl) {}
+    /** 一次 LLM 抽取批：拼好的输入文本 + 批内经验标题（供来源标记）/ id（供失败回滚清单） + 是否 DDL 批。 */
+    private record Batch(String text, List<String> titles, List<String> expIds, boolean ddl) {}
 
     /**
      * 从当前工作空间的经验库构建本体血缘图。
@@ -129,8 +132,12 @@ public class ExperienceOntologyService {
         String hintPrefix = (userHint != null && !userHint.isBlank())
                 ? "【用户额外要求】" + userHint.trim() + "\n\n" : "";
 
-        // 增量建图：读该模型的构建记录，内容哈希未变化的经验直接跳过（只抽新增/变更）
+        // 增量建图：读该模型的构建记录，内容哈希未变化的经验直接跳过（只抽新增/变更）。
+        // 目标模型必须存在且属于当前工作空间（get 已按 ws 过滤），防跨空间读构建记录。
         boolean incremental = incrementalModelId != null && !incrementalModelId.isBlank();
+        if (incremental && modelRepo.get(incrementalModelId) == null) {
+            throw new IllegalStateException("增量建图的目标模型不存在或不属于当前工作空间：" + incrementalModelId);
+        }
         Map<String, String> prevHashes = incremental
                 ? buildSourceRepo.hashesOf(incrementalModelId) : Map.of();
 
@@ -169,7 +176,7 @@ public class ExperienceOntologyService {
             if (content.length() > MAX_CHARS_PER_EXPERIENCE) {
                 content = content.substring(0, MAX_CHARS_PER_EXPERIENCE) + "\n…（正文过长已截断）";
             }
-            docs.add(new ExpDoc(title, content, ddl));
+            docs.add(new ExpDoc(expId, title, content, ddl));
             if (ddl) ddlCount++;
             used++;
             chars += content.length();
@@ -207,6 +214,8 @@ public class ExperienceOntologyService {
             draft = outcome.graph();
             failedBatches = outcome.failed();
             if (failedBatches > 0) {
+                // 失败批的经验从构建清单剔除：不回写哈希，下次（增量）建图仍会重抽，避免漏抽
+                outcome.failedExpIds().forEach(manifest::remove);
                 step.emit("partial", failedBatches + "/" + outcome.total()
                         + " 批建图失败，已用成功批次合并，结果可能不完整，可重试");
             }
@@ -264,17 +273,20 @@ public class ExperienceOntologyService {
         if (docs.isEmpty()) return batches;
         StringBuilder cur = new StringBuilder();
         List<String> titles = new ArrayList<>();
+        List<String> expIds = new ArrayList<>();
         for (ExpDoc doc : docs) {
             String text = "# 经验：" + doc.title() + "\n\n" + doc.content();
             if (cur.length() > 0 && cur.length() + text.length() > BATCH_CHAR_BUDGET) {
-                batches.add(new Batch(hintPrefix + cur, List.copyOf(titles), ddl));
+                batches.add(new Batch(hintPrefix + cur, List.copyOf(titles), List.copyOf(expIds), ddl));
                 cur = new StringBuilder();
                 titles.clear();
+                expIds.clear();
             }
             cur.append(text).append("\n\n");
             titles.add(doc.title());
+            expIds.add(doc.id());
         }
-        if (cur.length() > 0) batches.add(new Batch(hintPrefix + cur, List.copyOf(titles), ddl));
+        if (cur.length() > 0) batches.add(new Batch(hintPrefix + cur, List.copyOf(titles), List.copyOf(expIds), ddl));
         return batches;
     }
 
@@ -282,8 +294,8 @@ public class ExperienceOntologyService {
      * 并行跑各批抽取（{@link #batchExecutor}），各批独立加前缀避免 id 冲突，按 label 增量合并；
      * 单批失败不影响整体（记日志后跳过）。全部失败才抛错。进度在主线程按完成数上报，避免并发写 SSE。
      */
-    /** 并行建图结果：合并后的图 + 总批数 + 失败批数（部分失败时图可能不完整）。 */
-    private record BatchOutcome(JsonNode graph, int total, int failed) {}
+    /** 并行建图结果：合并后的图 + 总批数 + 失败批数 + 失败批覆盖的经验 id（须从构建清单剔除，避免下次增量漏抽）。 */
+    private record BatchOutcome(JsonNode graph, int total, int failed, java.util.Set<String> failedExpIds) {}
 
     private BatchOutcome extractBatchesParallel(List<Batch> batches, String modelOverride, String configId,
                                                 String workspaceId, StepSink step) {
@@ -320,11 +332,15 @@ public class ExperienceOntologyService {
         JsonNode merged = null;
         int done = 0;
         int failed = 0;
-        for (CompletableFuture<JsonNode> f : futures) {
+        java.util.Set<String> failedExpIds = new java.util.HashSet<>();
+        for (int i = 0; i < futures.size(); i++) {
             JsonNode part;
-            try { part = f.join(); } catch (Exception e) { part = null; }
+            try { part = futures.get(i).join(); } catch (Exception e) { part = null; }
             done++;
-            if (part == null) failed++;
+            if (part == null) {
+                failed++;
+                failedExpIds.addAll(batches.get(i).expIds());
+            }
             step.emit("llm_batch", "本体抽取进度 " + done + "/" + n + " 批"
                     + (failed > 0 ? "（" + failed + " 批失败）" : "") + "…");
             if (part == null) continue;
@@ -333,7 +349,7 @@ public class ExperienceOntologyService {
         if (merged == null) {
             throw new IllegalStateException("大模型建图全部批次失败，请检查模型配置后重试");
         }
-        return new BatchOutcome(merged, n, failed);
+        return new BatchOutcome(merged, n, failed, failedExpIds);
     }
 
     /**

@@ -6,8 +6,9 @@ spring:
   servlet:
     multipart:
       # 放宽到 60MB/120MB，容纳音频等较大的数据源文件
-      max-file-size: 60MB
-      max-request-size: 120MB
+      # 单文件/单请求上限（视频接入后放宽；可用环境变量按部署调小/调大）
+      max-file-size: ${UPLOAD_MAX_FILE_SIZE:200MB}
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:400MB}
   # PostgreSQL 数据源：用户需自行准备 PgSQL 实例并执行 init.sql 建表
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/tuiyan}

@@ -76,6 +76,7 @@ public class OntologyModelController {
                                                        @RequestParam String node,
                                                        @RequestParam(defaultValue = "downstream") String direction,
                                                        @RequestParam(defaultValue = "0") int depth) {
+        if (svc.get(id) == null) return ResponseEntity.notFound().build(); // 归属校验：非本工作空间模型不可读
         LineageTraversalService.Direction dir = "upstream".equalsIgnoreCase(direction)
                 ? LineageTraversalService.Direction.UPSTREAM
                 : LineageTraversalService.Direction.DOWNSTREAM;
@@ -88,7 +89,8 @@ public class OntologyModelController {
      */
     @PostMapping("/{id}/build-sources")
     public ResponseEntity<Map<String, Object>> recordBuildSources(@PathVariable String id,
-                                                                  @RequestBody Map<String, Object> body) {
+                                                                  @RequestBody Map<String, Object> body) throws IOException {
+        if (svc.get(id) == null) return ResponseEntity.notFound().build(); // 归属校验：不可写别的工作空间的模型记录
         Map<String, String> entries = new java.util.LinkedHashMap<>();
         Object src = body == null ? null : body.get("sources");
         if (src instanceof List<?> list) {

@@ -14,7 +14,8 @@ import java.util.Set;
 @Order(45)
 public class VideoStoredHandler implements StoredFileHandler {
 
-    private static final long LIMIT_BYTES = 500L * 1024 * 1024;
+    // 与 multipart 上限（默认 200MB，UPLOAD_MAX_FILE_SIZE）对齐
+    private static final long LIMIT_BYTES = 200L * 1024 * 1024;
 
     /** 受支持的视频扩展名（小写，含点）。.webm 归音频 handler（Whisper 原生支持直发）。 */
     private static final Set<String> EXTS = Set.of(

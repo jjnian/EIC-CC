@@ -105,7 +105,22 @@ public class ChatLlmService {
             JsonNode responseJson = objectMapper.readTree(response.body());
             String content = http.stripJsonFence(http.extractContent(responseJson, anthropic));
             callLogger.logLlmResponse("LLM-chat", cfg.modelName(), elapsed, content);
-            return objectMapper.readTree(content);
+            JsonNode result = objectMapper.readTree(content);
+            // 同步端点同样过局部变更防护（与 SSE 路径一致），防止绕过防护直接落图
+            if (result instanceof ObjectNode obj) {
+                ChatChangeGuard.Guarded guarded = ChatChangeGuard.apply(
+                        nodes, edges,
+                        result.path("add_nodes"), result.path("add_edges"),
+                        collectIdArray(result.path("remove_nodes")), collectIdArray(result.path("remove_edges")),
+                        collectPatchArray(result.path("update_nodes")), collectPatchArray(result.path("update_edges")));
+                obj.set("add_nodes", guarded.addNodes());
+                obj.set("add_edges", guarded.addEdges());
+                obj.set("remove_nodes", guarded.removeNodes());
+                obj.set("remove_edges", guarded.removeEdges());
+                obj.set("update_nodes", guarded.updateNodes());
+                obj.set("update_edges", guarded.updateEdges());
+            }
+            return result;
         } catch (IOException e) {
             long elapsed = System.currentTimeMillis() - startTime;
             http.metrics().recordCall(cfg.modelName(), elapsed, false);
