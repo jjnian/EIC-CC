@@ -30,12 +30,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * 文档抽取编排：文件嗅探 → 按类型分派给 {@link SourceFileHandler} → LLM 抽取 → idMap salt 重写。
  * <p>本类只负责"编排"：拿到累积的文本 / 图片后交给 LLM，再做 salt 重写与数据源登记。
  * 各文件类型（PDF / DOCX / 图片）的识别与抽取细节都封装在各自的 {@link SourceFileHandler}
  * 实现里，由 Spring 注入并按 {@code @Order} 排序——新增文件类型无需改动本类。
+ * <p>多来源（≥2 个文件/URL）时按来源分路并行抽取再按 label 合并：每路上下文更小、
+ * 相互隔离，且每个节点/边的 derived_source 能精确标到具体文件/URL；单来源保持一次调用。
  */
 @Service
 public class DocumentExtractionService {
@@ -47,23 +51,38 @@ public class DocumentExtractionService {
     // 一次抽取最多接受 5 个 URL，避免对外网批量打洞
     private static final int URL_LIMIT        = 5;
 
+    // 多来源分路抽取的并行度上限，避免一次性打爆 LLM 限流
+    private static final int MAX_PARALLEL_SOURCES = 4;
+
     private final ExtractionLlmService extractionLlmService;
     private final Executor urlFetchExecutor;
     private final DataSourceRepository dataSourceRepository;
     private final List<SourceFileHandler> fileHandlers;
     private final com.tuiyan.backend.service.indexing.DataSourceIndexService dataSourceIndexService;
+    private final ExtractionGraphMerger merger;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    /**
+     * 分路抽取专用有界线程池（守护线程）：extractCore 本身跑在 appTaskExecutor 上，
+     * 若分路任务也提交到同一个有界池，join 时可能互相等待饿死，故单独开池（与经验库建图同法）。
+     */
+    private final ExecutorService sourceExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_SOURCES, r -> {
+        Thread t = new Thread(r, "doc-extract-source");
+        t.setDaemon(true);
+        return t;
+    });
 
     public DocumentExtractionService(ExtractionLlmService extractionLlmService,
                                      @Qualifier("appTaskExecutor") ThreadPoolTaskExecutor appTaskExecutor,
                                      DataSourceRepository dataSourceRepository,
                                      List<SourceFileHandler> fileHandlers,
-                                     com.tuiyan.backend.service.indexing.DataSourceIndexService dataSourceIndexService) {
+                                     com.tuiyan.backend.service.indexing.DataSourceIndexService dataSourceIndexService,
+                                     ExtractionGraphMerger merger) {
         this.extractionLlmService = extractionLlmService;
         this.urlFetchExecutor = appTaskExecutor;
         this.dataSourceRepository = dataSourceRepository;
         this.fileHandlers = fileHandlers;
         this.dataSourceIndexService = dataSourceIndexService;
+        this.merger = merger;
     }
 
     /**
@@ -159,18 +178,24 @@ public class DocumentExtractionService {
             throw new IllegalArgumentException("未能从上传文件或网址中抽出任何可分析的文本或图片");
         }
 
-        step.emit("calling_llm", "正在调用大模型抽取实体与关系…（依据 "
-                + ctx.textLength() + " 字符文本 / " + ctx.imageCount() + " 张图片）");
-        JsonNode draft = extractionLlmService.extractOntologyFromSources(
-                ctx.text(), ctx.imageAttachments(), modelOverride, configId);
+        List<String> contributing = ctx.contributingSources();
+        JsonNode draft;
+        if (contributing.size() <= 1) {
+            step.emit("calling_llm", "正在调用大模型抽取实体与关系…（依据 "
+                    + ctx.textLength() + " 字符文本 / " + ctx.imageCount() + " 张图片）");
+            draft = extractionLlmService.extractOntologyFromSources(
+                    ctx.text(), ctx.imageAttachments(), modelOverride, configId);
+        } else {
+            draft = extractPerSource(contributing, ctx, modelOverride, configId, step);
+        }
 
         // 用毫秒时间戳的 36 进制作 salt，加在每个节点 id 前面避免与已有图谱冲突
         step.emit("normalizing", "正在整理抽取结果、消解 id 冲突…");
         String salt = Long.toString(System.currentTimeMillis(), 36);
         JsonNode rewritten = IdSaltRewriter.applyImportSalt(draft, salt);
 
-        // 补血缘来源标记：对话建图有 DerivedSourceStamper、经验库建图有 stampSource(经验库)，
-        // 文档/URL 导入同样要在节点/边上留 derived_source，否则「数据来源」卡片无从追溯
+        // 兜底血缘来源标记：多来源分路时各路已精确标到具体文件/URL，这里只补剩余空白；
+        // 单来源时直接落该来源名，与登记的 data_source 名一致，「数据来源」卡片可追溯
         String sourceLabel = sourceLabelOf(ctx.sourcesMeta());
         stampDerivedSource(rewritten.path("nodes"), sourceLabel);
         stampDerivedSource(rewritten.path("edges"), sourceLabel);
@@ -301,7 +326,7 @@ public class DocumentExtractionService {
                 String header = (r.title != null && !r.title.isBlank())
                         ? "# 网页 " + r.title + "（" + r.url + "）"
                         : "# 网页 " + r.url;
-                ctx.appendSection(header, r.text);
+                ctx.appendSection(r.url, header, r.text);
             }
             return meta;
         } catch (IllegalArgumentException ie) {
@@ -311,6 +336,76 @@ public class DocumentExtractionService {
             log.warn("[web] URL 抓取异常 url={} err={}", url, e.toString());
             return skippedMeta(url, "抓取失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 多来源分路并行抽取：每个来源（文件/URL）单独一次 LLM 抽取（只喂它自己的正文与图片），
+     * 抽出的节点/边先打上该来源的 derived_source，再按 label 跨路合并去重。
+     * <p>单路失败重试一次仍失败则跳过（step 上报），全部失败才抛错。
+     */
+    private JsonNode extractPerSource(List<String> sources,
+                                      ExtractionContext ctx,
+                                      String modelOverride,
+                                      String configId,
+                                      StepSink step) {
+        final String workspaceId = WorkspaceContext.get();
+        int n = sources.size();
+        step.emit("calling_llm", "共 " + n + " 个来源，正在按来源分 " + n + " 路并行抽取实体与关系…");
+        List<CompletableFuture<JsonNode>> futures = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            final String source = sources.get(i);
+            final int idx = i;
+            futures.add(CompletableFuture.supplyAsync(() -> {
+                boolean ctxSet = false;
+                try {
+                    if (workspaceId != null && !workspaceId.isBlank()) {
+                        WorkspaceContext.set(workspaceId);
+                        ctxSet = true;
+                    }
+                    String text = ctx.sourceText(source);
+                    List<Map<String, Object>> images = ctx.sourceImages(source);
+                    if (text.isBlank() && images.isEmpty()) return null;
+                    JsonNode part = null;
+                    for (int attempt = 1; attempt <= 2 && part == null; attempt++) {
+                        try {
+                            part = extractionLlmService.extractOntologyFromSources(
+                                    text, images.isEmpty() ? null : images, modelOverride, configId);
+                        } catch (Exception e) {
+                            log.warn("[extract] 来源 {} 第 {} 次抽取失败：{}", source, attempt, e.toString());
+                        }
+                    }
+                    if (part == null) return null;
+                    // 各路内部独立命名 id，加路前缀避免跨路冲突，再交由 label 合并去重
+                    part = merger.prefixChunkIds(part, "s" + idx + "_");
+                    stampDerivedSource(part.path("add_nodes"), source);
+                    stampDerivedSource(part.path("add_edges"), source);
+                    return part;
+                } finally {
+                    if (ctxSet) WorkspaceContext.clear();
+                }
+            }, sourceExecutor));
+        }
+
+        JsonNode merged = null;
+        int done = 0;
+        int failed = 0;
+        for (CompletableFuture<JsonNode> f : futures) {
+            JsonNode part;
+            try { part = f.join(); } catch (Exception e) { part = null; }
+            done++;
+            if (part == null) failed++;
+            step.emit("llm_source", "来源抽取进度 " + done + "/" + n
+                    + (failed > 0 ? "（" + failed + " 路失败）" : "") + "…");
+            if (part == null) continue;
+            merged = (merged == null) ? part : merger.mergeExtractionByLabel(merged, part);
+        }
+        if (merged == null) {
+            throw new IllegalStateException("各来源抽取全部失败，请检查模型配置后重试");
+        }
+        if (failed > 0) {
+            step.emit("partial", failed + "/" + n + " 个来源抽取失败，已用成功来源合并，结果可能不完整");
+        }
+        return merger.sanitizeGraph(merged);
     }
 
     /**

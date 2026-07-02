@@ -705,6 +705,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
       :open="extractDialogOpen"
       :workspace-name="currentWsName"
       :has-current-model="!!hasCurrentModel"
+      :experiences="items"
       @close="extractDialogOpen = false"
       @commit="onExtractCommit"
     />

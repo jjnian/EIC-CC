@@ -58,7 +58,7 @@ public class ImageFileHandler implements SourceFileHandler {
             ctx.step().emit("recognizing_image", "正在识别图片 " + safeName + "…");
             String text = recognition.recognize(f.bytes(), safeName, contentType);
             if (text != null && !text.isBlank()) {
-                ctx.appendSection("# 图片识别 " + safeName, text);
+                ctx.appendSection(safeName, "# 图片识别 " + safeName, text);
                 meta.put("chars", text.length());
                 meta.put("transcript", capText(text));
                 gotText = true;
@@ -75,7 +75,7 @@ public class ImageFileHandler implements SourceFileHandler {
             Map<String, Object> att = new LinkedHashMap<>();
             att.put("type", "image");
             att.put("dataUrl", "data:" + mediaType + ";base64," + b64);
-            ctx.addImage(att);
+            ctx.addImage(safeName, att);
         } else if (!gotText) {
             // 既没识别出文字、又超了图片预算：这张图无可用信息
             meta.put("type", "skipped");

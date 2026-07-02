@@ -192,7 +192,7 @@ export function getExperienceIndexSummary() {
  * 这是新数据流的主入口：本体血缘图由经验库文件构建，数据源只负责供血。
  */
 export function extractOntologyFromExperiences(
-  body: { modelOverride?: string; configId?: string; hint?: string },
+  body: { modelOverride?: string; configId?: string; hint?: string; experienceIds?: string[] },
   handlers: {
     onStep?: (key: string, label: string) => void;
     onComplete?: (payload: {

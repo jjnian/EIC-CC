@@ -76,6 +76,13 @@ public class ExperienceController {
         String modelOverride = body == null ? null : (String) body.get("modelOverride");
         String configId = body == null ? null : (String) body.get("configId");
         String userHint = body == null ? null : (String) body.get("hint");
+        // 可选建图范围：experienceIds 非空时只聚合这些经验，缺省聚合本空间全部
+        List<String> experienceIds = null;
+        Object idsObj = body == null ? null : body.get("experienceIds");
+        if (idsObj instanceof List<?> rawIds && !rawIds.isEmpty()) {
+            experienceIds = rawIds.stream().map(String::valueOf).filter(v -> !v.isBlank()).toList();
+        }
+        final List<String> scopeIds = experienceIds;
         String workspaceId = WorkspaceContext.get();
 
         SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(300_000L,
@@ -92,7 +99,7 @@ public class ExperienceController {
                     } catch (Exception ignore) {}
                 };
                 ExperienceOntologyService.ExtractResult r =
-                        experienceOntology.extractFromWorkspace(modelOverride, configId, userHint, step);
+                        experienceOntology.extractFromWorkspace(modelOverride, configId, userHint, scopeIds, step);
                 Map<String, Object> payload = new LinkedHashMap<>();
                 payload.put("nodes", r.payload().path("nodes"));
                 payload.put("edges", r.payload().path("edges"));

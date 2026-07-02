@@ -49,6 +49,6 @@ public class DocxFileHandler implements SourceFileHandler {
         meta.put("chars", rawChars);
         meta.put("paragraphs", r.paragraphs);
         meta.put("tables", r.tables);
-        ctx.appendSection("# 文件 " + safeName, text);
+        ctx.appendSection(safeName, "# 文件 " + safeName, text);
     }
 }

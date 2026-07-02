@@ -22,10 +22,10 @@ export function useGraphEditor(ctx: GraphEditorCtx) {
     const newNode: OntologyNode = { id: nodeId, label: payload.label, type: 'class', x: payload.x, y: payload.y, source: 'manual' };
     ctx.nodes.value.push(newNode);
     for (const inp of payload.inputs) {
-      ctx.edges.value.push({ id: genId('e'), from: inp.nodeId, to: nodeId, label: inp.edgeLabel || undefined, source: 'manual' });
+      ctx.edges.value.push({ id: genId('e'), from: inp.nodeId, to: nodeId, label: inp.edgeLabel || undefined, rel_type: 'flows_to', source: 'manual' });
     }
     for (const out of payload.outputs) {
-      ctx.edges.value.push({ id: genId('e'), from: nodeId, to: out.nodeId, label: out.edgeLabel || undefined, source: 'manual' });
+      ctx.edges.value.push({ id: genId('e'), from: nodeId, to: out.nodeId, label: out.edgeLabel || undefined, rel_type: 'flows_to', source: 'manual' });
     }
     ctx.sel.value = nodeId;
     ctx.persist();
@@ -38,7 +38,7 @@ export function useGraphEditor(ctx: GraphEditorCtx) {
       for (const toId of payload.outputs) {
         const exists = ctx.edges.value.some(e => e.from === fromId && e.to === toId && e.label === (payload.label || undefined));
         if (!exists) {
-          ctx.edges.value.push({ id: genId('e'), from: fromId, to: toId, label: payload.label || undefined, source: 'manual' });
+          ctx.edges.value.push({ id: genId('e'), from: fromId, to: toId, label: payload.label || undefined, rel_type: 'flows_to', source: 'manual' });
         }
       }
     }

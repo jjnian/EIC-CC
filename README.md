@@ -875,9 +875,11 @@ backend/src/main/java/com/tuiyan/backend/
 来源名以「经验：…」前缀与数据源内容区分。
 
 > **本体血缘图由经验库文件构建（数据源只供血）**
-> 新数据流以经验库为本体血缘图的唯一构建入口：在经验库页点击「🧬 构建本体血缘图」，
-> 后端会把**当前工作空间下的全部经验文件**聚合成长文本，经文档抽取管线
-> （`ExperienceOntologyService` → `ExtractionLlmService`）抽出节点 / 边，再 salt 重写后供前端合并 / 另存为模型。
+> 新数据流以经验库为本体血缘图的全量构建入口：在经验库页点击「🧬 构建本体血缘图」，
+> 后端把**所选范围（缺省全部）的经验文件**聚合分批，经文档抽取管线
+> （`ExperienceOntologyService` → `ExtractionLlmService`）并行抽出节点 / 边（失败批自动重试一次），
+> 再 salt 重写后供前端合并 / 另存为模型。DDL 导出经验单独分批走 schema 专用抽取规则；
+> 节点/边的 `derived_source` 精确标注到来源经验（单篇批打「经验：标题」）。
 > 数据库类数据源不再直接出图（旧的 `POST /api/data-sources/{id}/extract-ontology` 直出链路与
 > `SchemaOntologyService` 已移除）：改为在「表」页点「⤓ 导出结构到经验库供血」把 DDL 沉淀成经验文件参与建图。
 > 对应建图 SSE 接口 `POST /api/experiences/extract-ontology`
@@ -913,7 +915,7 @@ backend/src/main/java/com/tuiyan/backend/
 | `GET` | `/api/experiences/index-summary` | 索引状态汇总（经验总数 + 各 `index_status` 计数，查补索引进度） |
 | `POST` | `/api/experiences/file` | 上传文件建经验（PDF/Word/TXT/MD 抽正文，音频走 ASR） |
 | `POST` | `/api/experiences/from-ddl` | 数据源导出 DDL 沉淀为经验（`{dataSourceId}`，「供血」入口） |
-| `POST` | `/api/experiences/extract-ontology` | **聚合整个工作空间经验库构建本体血缘图（SSE）** |
+| `POST` | `/api/experiences/extract-ontology` | **聚合经验库构建本体血缘图（SSE）**；体可选 `experienceIds` 指定范围、`hint` 额外要求 |
 | `GET` | `/api/experiences/{id}/file` | 预览/下载上传原件（`?download` 附件下载，`?wsId` 兜底鉴权） |
 | `PUT` | `/api/experiences/{id}/folder` | 把经验移动到文件夹（`{folderId}`，null=根） |
 
