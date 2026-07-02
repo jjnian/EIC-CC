@@ -52,7 +52,7 @@ public class ExploreController {
         return runExploration(
                 str(body, "baseUrl"), str(body, "storageState"),
                 str(body, "username"), str(body, "password"),
-                intOr(body, "maxSteps", 15),
+                intOr(body, "maxSteps", 30),
                 !"false".equalsIgnoreCase(str(body, "readOnly")), // 默认只读
                 str(body, "modelOverride"), str(body, "configId"), null);
     }
@@ -76,7 +76,7 @@ public class ExploreController {
         return runExploration(
                 str(cfg, "baseUrl"), str(cfg, "storageState"),
                 str(cfg, "username"), str(cfg, "password"),
-                intOr(cfg, "maxSteps", 15),
+                intOr(cfg, "maxSteps", 30),
                 !Boolean.FALSE.equals(cfg.get("readOnly")), // 默认只读
                 str(body, "modelOverride"), str(body, "configId"), experienceId);
     }
