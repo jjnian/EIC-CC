@@ -2,6 +2,8 @@ package com.tuiyan.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.service.extraction.ExtractionContext;
 import com.tuiyan.backend.service.extraction.FileProbe;
@@ -167,6 +169,12 @@ public class DocumentExtractionService {
         String salt = Long.toString(System.currentTimeMillis(), 36);
         JsonNode rewritten = IdSaltRewriter.applyImportSalt(draft, salt);
 
+        // 补血缘来源标记：对话建图有 DerivedSourceStamper、经验库建图有 stampSource(经验库)，
+        // 文档/URL 导入同样要在节点/边上留 derived_source，否则「数据来源」卡片无从追溯
+        String sourceLabel = sourceLabelOf(ctx.sourcesMeta());
+        stampDerivedSource(rewritten.path("nodes"), sourceLabel);
+        stampDerivedSource(rewritten.path("edges"), sourceLabel);
+
         int nodeCount = rewritten.path("nodes").isArray() ? rewritten.path("nodes").size() : 0;
         int edgeCount = rewritten.path("edges").isArray() ? rewritten.path("edges").size() : 0;
         step.emit("persisting", "正在登记数据源…（抽出 " + nodeCount + " 节点 / " + edgeCount + " 关系）");
@@ -302,6 +310,31 @@ public class DocumentExtractionService {
         } catch (Exception e) {
             log.warn("[web] URL 抓取异常 url={} err={}", url, e.toString());
             return skippedMeta(url, "抓取失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 本次抽取的血缘来源名：单来源直接用其名称（与 persistDataSources 登记的 data_source 名一致），
+     * 多来源用「首个名称 等 N 份资料」概括；全部 skipped 时返回 null（不打标）。
+     */
+    private static String sourceLabelOf(List<Map<String, Object>> sourcesMeta) {
+        List<String> names = new ArrayList<>();
+        for (Map<String, Object> meta : sourcesMeta) {
+            if ("skipped".equals(String.valueOf(meta.getOrDefault("type", "")))) continue;
+            String name = String.valueOf(meta.getOrDefault("name", ""));
+            if (!name.isBlank()) names.add(name);
+        }
+        if (names.isEmpty()) return null;
+        return names.size() == 1 ? names.get(0) : names.get(0) + " 等 " + names.size() + " 份资料";
+    }
+
+    /** 给 nodes/edges 数组里 derived_source 缺失的对象补来源标记，保留 LLM 已填的值。 */
+    private static void stampDerivedSource(JsonNode arr, String sourceLabel) {
+        if (sourceLabel == null || !(arr instanceof ArrayNode list)) return;
+        for (JsonNode n : list) {
+            if (n instanceof ObjectNode obj && obj.path("derived_source").asText("").isBlank()) {
+                obj.put("derived_source", sourceLabel);
+            }
         }
     }
 

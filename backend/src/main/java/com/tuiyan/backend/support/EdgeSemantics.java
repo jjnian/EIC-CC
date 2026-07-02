@@ -10,17 +10,21 @@ import java.util.Set;
  * <ul>
  *   <li>{@code derived_from}：存为 from=child → to=parent，但数据来源是 parent ⇒ 血缘流向 = to→from（反向）；</li>
  *   <li>{@code composed_of}：存为 from=whole → to=part，部件构成整体 ⇒ 血缘流向 = to→from（反向）；</li>
+ *   <li>{@code depends_on}：from=依赖方 → to=被依赖方，被依赖方是前提/来源 ⇒ 血缘流向 = to→from（反向）；</li>
+ *   <li>{@code consumes}：from=消费方 → to=被消耗的输入，输入是来源 ⇒ 血缘流向 = to→from（反向）；</li>
  *   <li>{@code triggers}：from=event → to=被触发 ⇒ 流向 = from→to（正向）；</li>
  *   <li>{@code governs}：from=rule → to=被治理 ⇒ 流向 = from→to（正向）；</li>
- *   <li>其它 / 未知：默认 from→to。</li>
+ *   <li>{@code produces} / {@code transforms} / {@code flows_to} / 其它未知：默认 from→to（正向）。</li>
  * </ul>
+ * <p>必须与前端 {@code useLineageTrace.ts} 的 {@code REVERSE_RELS} 保持一致，
+ * 否则后端 {@code /lineage} 遍历与画布上的血缘高亮会给出相互矛盾的上下游。
  */
 public final class EdgeSemantics {
 
     private EdgeSemantics() {}
 
-    /** 数据流方向与存储方向相反的 rel_type（上游源在 to 端）。 */
-    private static final Set<String> REVERSED = Set.of("derived_from", "composed_of");
+    /** 数据流方向与存储方向相反的 rel_type（上游源在 to 端）。与前端 REVERSE_RELS 对齐。 */
+    private static final Set<String> REVERSED = Set.of("derived_from", "composed_of", "depends_on", "consumes");
 
     /** 该 rel_type 的血缘数据流方向是否与存储的 from→to 相反。 */
     public static boolean reversedForLineage(String relType) {
