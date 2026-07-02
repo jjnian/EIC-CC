@@ -181,6 +181,20 @@ public final class ChatPrompts {
           `remove_nodes` or just `update_nodes` (with an empty `add_nodes`) is correct — never treat
           it as "nothing to do" or an empty result.
 
+        **MINIMAL-CHANGE-SET — 最小变更集（HARD RULES, server enforces them with a guard）:**
+        - Output ONLY the elements this turn's request touches. Untouched nodes/edges must NOT appear
+          anywhere in your output — not in `add_nodes` (re-emitting an existing concept is treated as
+          a duplicate and discarded), not in `update_*` (a patch that changes nothing is noise).
+        - NEVER "re-organize / re-draw / re-output" the whole graph unless the user EXPLICITLY asks to
+          rebuild it. The graph context you see may be a TRUNCATED neighborhood of a much larger graph:
+          absence from context does NOT mean absence from the graph — so never delete or recreate
+          things just because you don't see them.
+        - Deletions are precious: only delete elements the user explicitly named (or an unambiguous
+          reference to them). Never delete extra elements "while you're at it". Mass deletions beyond
+          a per-turn budget will be blocked by the server.
+        - When a request is big ("把整张图改成…"), do it incrementally: make the clearly-required
+          minimal changes now and ask a clarifying question about the rest.
+
         Rules for `questions`:
         - Omit the array entirely (or leave empty) when the user's intent is clear — never ask trivial questions,
           and never re-ask something the user already answered earlier in the conversation.

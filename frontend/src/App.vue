@@ -19,7 +19,7 @@ import { type ViewId, type NavRoute, NAV_TO_VIEW } from './views';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import './app.css';
 import { toast, mountToastRoot } from './composables/useToast';
-import { updateOntology, deleteOntology } from './api/ontology';
+import { updateOntology, deleteOntology, recordBuildSources } from './api/ontology';
 import { getConversation, updateConversation } from './api/conversations';
 import { ApiError } from './api/http';
 import { useDivider } from './composables/useDivider';
@@ -318,10 +318,20 @@ const onImportCommit = async (payload: {
   name: string;
   nodes: OntologyNode[];
   edges: OntologyEdge[];
+  manifest?: { experienceId: string; contentHash: string }[];
 }) => {
   importDialogOpen.value = false;
   if (payload.mode === 'merge') history.snapshot();
   await importFlow.onImportCommit(payload);
+  // 经验库建图的结果落进模型后，回写「模型 ← 经验内容版本」构建记录，
+  // 下次增量建图据此跳过未变更的经验（openModel/merge 后 currentModelId 即目标模型）
+  if (payload.manifest?.length && currentModelId.value) {
+    try {
+      await recordBuildSources(currentModelId.value, payload.manifest);
+    } catch (e) {
+      console.warn('record build sources failed', e);
+    }
+  }
 };
 
 const createNewModel = async () => {
@@ -706,6 +716,7 @@ const formatFileSize = (bytes: number) => {
         :focus-id="focusExperienceId"
         :create-signal="experienceCreateSignal"
         :has-current-model="!!currentModelId"
+        :current-model-id="currentModelId"
         @ontology-extracted="onImportCommit"
       />
 

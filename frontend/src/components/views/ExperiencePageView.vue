@@ -25,6 +25,8 @@ const props = defineProps<{
   focusId?: string | null;
   /** 自增信号：变化时打开一个空白「新建经验」表单 */
   createSignal?: number;
+  /** 当前打开的本体模型 id（增量建图的目标） */
+  currentModelId?: string;
   /** 当前是否已有打开的本体模型（决定「构建本体血缘图」能否合并到当前模型） */
   hasCurrentModel?: boolean;
 }>();
@@ -781,6 +783,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
       :open="extractDialogOpen"
       :workspace-name="currentWsName"
       :has-current-model="!!hasCurrentModel"
+      :current-model-id="currentModelId"
       :experiences="items"
       @close="extractDialogOpen = false"
       @commit="onExtractCommit"

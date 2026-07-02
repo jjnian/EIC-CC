@@ -4,6 +4,7 @@ import com.tuiyan.backend.model.OntologyModel;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.service.DocumentExtractionService;
 import com.tuiyan.backend.service.LineageTraversalService;
+import com.tuiyan.backend.repository.ModelBuildSourceRepository;
 import com.tuiyan.backend.service.OntologyModelService;
 import com.tuiyan.backend.service.extraction.UploadedFile;
 import com.tuiyan.backend.support.SsePushUtils;
@@ -25,13 +26,16 @@ public class OntologyModelController {
     private final OntologyModelService svc;
     private final DocumentExtractionService extractionService;
     private final LineageTraversalService lineageService;
+    private final ModelBuildSourceRepository buildSourceRepo;
 
     public OntologyModelController(OntologyModelService svc,
                                    DocumentExtractionService extractionService,
-                                   LineageTraversalService lineageService) {
+                                   LineageTraversalService lineageService,
+                                   ModelBuildSourceRepository buildSourceRepo) {
         this.svc = svc;
         this.extractionService = extractionService;
         this.lineageService = lineageService;
+        this.buildSourceRepo = buildSourceRepo;
     }
 
     @GetMapping
@@ -76,6 +80,30 @@ public class OntologyModelController {
                 ? LineageTraversalService.Direction.UPSTREAM
                 : LineageTraversalService.Direction.DOWNSTREAM;
         return ResponseEntity.ok(lineageService.traverse(id, node, dir, depth));
+    }
+
+    /**
+     * 回写建图来源记录：前端把经验库建图结果合并进模型后调用，记录「本模型由哪些经验的哪个
+     * 内容版本构建」。下次增量建图据此跳过未变更经验。体：{sources:[{experienceId, contentHash}]}。
+     */
+    @PostMapping("/{id}/build-sources")
+    public ResponseEntity<Map<String, Object>> recordBuildSources(@PathVariable String id,
+                                                                  @RequestBody Map<String, Object> body) {
+        Map<String, String> entries = new java.util.LinkedHashMap<>();
+        Object src = body == null ? null : body.get("sources");
+        if (src instanceof List<?> list) {
+            for (Object o : list) {
+                if (o instanceof Map<?, ?> m) {
+                    Object eid = m.get("experienceId");
+                    Object hash = m.get("contentHash");
+                    if (eid != null && hash != null) {
+                        entries.put(String.valueOf(eid), String.valueOf(hash));
+                    }
+                }
+            }
+        }
+        buildSourceRepo.upsertAll(id, entries);
+        return ResponseEntity.ok(Map.of("recorded", entries.size()));
     }
 
     @GetMapping("/{id}/versions")

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, watch } from 'vue';
-import { extractOntologyFromExperiences } from '../api/experiences';
+import { extractOntologyFromExperiences, type BuildManifestEntry } from '../api/experiences';
 import type { SseHandle } from '../api/http';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -12,6 +12,8 @@ const props = defineProps<{
   /** 当前工作空间名称，仅用于展示 */
   workspaceName?: string;
   hasCurrentModel: boolean;
+  /** 当前打开的本体模型 id（增量建图的目标；无则不显示增量选项） */
+  currentModelId?: string;
   /** 本空间可参与建图的经验列表（供选择建图范围）；缺省时不展示范围选择 */
   experiences?: { id: string; title: string; origin?: string }[];
 }>();
@@ -23,12 +25,16 @@ const emit = defineEmits<{
     name: string;
     nodes: OntologyNode[];
     edges: OntologyEdge[];
+    /** 建图来源清单：合并入模型后回写构建记录，供下次增量建图跳过未变更经验 */
+    manifest?: BuildManifestEntry[];
   }): void;
 }>();
 
 const phase = ref<'idle' | 'running' | 'done' | 'error'>('idle');
 // 建图范围：'all' = 全部经验；'pick' = 勾选部分经验
 const scope = ref<'all' | 'pick'>('all');
+// 增量建图：跳过上次已建图且内容未变化的经验（需要有当前模型作为增量目标）
+const incremental = ref(false);
 const pickedIds = ref<Set<string>>(new Set());
 const scopeList = computed(() => props.experiences || []);
 const togglePicked = (id: string) => {
@@ -50,6 +56,9 @@ const result = ref<{
   reply: string;
   salt: string;
   sourceCount?: number;
+  incremental?: boolean;
+  skippedUnchanged?: number;
+  manifest?: BuildManifestEntry[];
 } | null>(null);
 
 let sseHandle: SseHandle | null = null;
@@ -61,6 +70,7 @@ const reset = () => {
   result.value = null;
   hint.value = '';
   scope.value = 'all';
+  incremental.value = !!props.currentModelId && props.hasCurrentModel;
   pickedIds.value = new Set(scopeList.value.map(e => e.id));
   mode.value = props.hasCurrentModel ? 'merge' : 'new';
   newName.value = `${props.workspaceName || '经验库'} 本体血缘图`;
@@ -96,6 +106,7 @@ const start = () => {
   sseHandle = extractOntologyFromExperiences({
     hint: hint.value.trim() || undefined,
     experienceIds,
+    incrementalModelId: incremental.value && props.currentModelId ? props.currentModelId : undefined,
   }, {
     onStep: (key, label) => {
       // 分批建图进度(llm_batch)会多次上报，原地更新同一行，避免刷出几十行
@@ -115,7 +126,12 @@ const start = () => {
         reply: data.reply || '',
         salt: data.salt,
         sourceCount: data.sourceCount,
+        incremental: data.incremental,
+        skippedUnchanged: data.skippedUnchanged,
+        manifest: data.manifest,
       };
+      // 增量结果只包含新增/变更部分，只能合并进目标模型，不能另存为新模型
+      if (data.incremental) mode.value = 'merge';
       phase.value = 'done';
       sseHandle = null;
     },
@@ -152,6 +168,7 @@ const commit = () => {
     name: newName.value.trim() || `${props.workspaceName || '经验库'} 本体血缘图`,
     nodes: result.value.nodes,
     edges: result.value.edges,
+    manifest: result.value.manifest,
   });
 };
 
@@ -226,6 +243,10 @@ const relStats = computed(() => {
               <div v-if="!pickedIds.size" class="dbo-muted">请至少勾选一篇经验</div>
             </div>
           </div>
+          <label v-if="currentModelId && hasCurrentModel" class="dbo-incr">
+            <input type="checkbox" v-model="incremental" />
+            <span>增量建图：跳过上次已建图且内容未变化的经验，只抽新增/变更部分（海量经验时推荐）</span>
+          </label>
           <label class="dbo-row">
             <span>额外提示（可选）</span>
             <BaseInput v-model="hint" placeholder="例如：重点关注审批链路；忽略历史复盘类经验" />
@@ -264,6 +285,7 @@ const relStats = computed(() => {
               聚合 <strong>{{ result.sourceCount }}</strong> 篇经验
               → 抽出 <strong>{{ result.nodes.length }}</strong> 个节点 /
               <strong>{{ result.edges.length }}</strong> 条关系
+              <span v-if="result.skippedUnchanged" class="dbo-incr-tag">增量：跳过 {{ result.skippedUnchanged }} 篇未变化</span>
             </div>
             <div v-if="result.reply" class="dbo-reply" v-html="formattedReply"></div>
           </div>
@@ -294,8 +316,9 @@ const relStats = computed(() => {
               <span v-if="!hasCurrentModel" class="dbo-muted">（无当前模型）</span>
             </label>
             <label>
-              <input type="radio" v-model="mode" value="new" />
+              <input type="radio" v-model="mode" value="new" :disabled="result?.incremental" />
               另存为新模型
+              <span v-if="result?.incremental" class="dbo-muted">（增量结果只能合并）</span>
             </label>
           </div>
           <label v-if="mode === 'new'" class="dbo-row">
@@ -395,6 +418,12 @@ const relStats = computed(() => {
 .dbo-scope-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbo-scope-badge { flex-shrink: 0; font-size: 10.5px; color: #8fb8e8;
   background: rgba(47,134,214,.15); padding: 1px 6px; border-radius: 8px; }
+
+.dbo-incr { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px;
+  color: #c0c4cf; margin-bottom: 10px; cursor: pointer; line-height: 1.5; }
+.dbo-incr input { margin-top: 2px; }
+.dbo-incr-tag { margin-left: 8px; font-size: 11.5px; color: #8fb8e8;
+  background: rgba(47,134,214,.15); padding: 1px 8px; border-radius: 10px; }
 
 .dbo-mode-pick { display: flex; gap: 18px; margin-bottom: 10px; font-size: 13px;
   color: #c0c4cf; }

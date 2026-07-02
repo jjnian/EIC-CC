@@ -225,8 +225,14 @@ export function webResearch(
   });
 }
 
+export interface BuildManifestEntry { experienceId: string; contentHash: string }
+
 export function extractOntologyFromExperiences(
-  body: { modelOverride?: string; configId?: string; hint?: string; experienceIds?: string[] },
+  body: {
+    modelOverride?: string; configId?: string; hint?: string; experienceIds?: string[];
+    /** 增量建图：传目标模型 id 时按其构建记录跳过内容未变化的经验 */
+    incrementalModelId?: string;
+  },
   handlers: {
     onStep?: (key: string, label: string) => void;
     onComplete?: (payload: {
@@ -235,6 +241,9 @@ export function extractOntologyFromExperiences(
       reply: string;
       salt: string;
       sourceCount?: number;
+      incremental?: boolean;
+      skippedUnchanged?: number;
+      manifest?: BuildManifestEntry[];
     }) => void;
     onError?: (msg: string) => void;
     onClose?: () => void;

@@ -435,6 +435,18 @@ CREATE INDEX IF NOT EXISTS idx_ndb_model_node ON node_data_binding (model_id, no
 CREATE INDEX IF NOT EXISTS idx_ndb_ws ON node_data_binding (workspace_id);
 
 -- ---------------------------------------------------------------------------
+-- 8.4 建图来源记录：某模型由「哪些经验的哪个内容版本」构建。
+--     增量建图据此跳过内容未变化的经验（海量经验时只抽新增/变更部分）。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS model_build_source (
+    model_id       VARCHAR(64)  NOT NULL REFERENCES ontology_model(id) ON DELETE CASCADE,
+    experience_id  VARCHAR(64)  NOT NULL,
+    content_hash   VARCHAR(64)  NOT NULL,                    -- 经验(标题+正文)的 SHA-256
+    built_at       BIGINT       NOT NULL,
+    PRIMARY KEY (model_id, experience_id)
+);
+
+-- ---------------------------------------------------------------------------
 -- 8.5 推演功能移除（老库清理）：平台聚焦业务血缘图构建，推演分支相关表与字段一并下线
 -- ---------------------------------------------------------------------------
 DROP TABLE IF EXISTS scenario_node_explanation;

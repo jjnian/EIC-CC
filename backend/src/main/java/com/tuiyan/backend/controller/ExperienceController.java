@@ -133,6 +133,8 @@ public class ExperienceController {
             experienceIds = rawIds.stream().map(String::valueOf).filter(v -> !v.isBlank()).toList();
         }
         final List<String> scopeIds = experienceIds;
+        // 增量建图：传入目标模型 id 时按其构建记录跳过未变更经验
+        final String incrementalModelId = body == null ? null : (String) body.get("incrementalModelId");
         String workspaceId = WorkspaceContext.get();
 
         SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(300_000L,
@@ -149,13 +151,17 @@ public class ExperienceController {
                     } catch (Exception ignore) {}
                 };
                 ExperienceOntologyService.ExtractResult r =
-                        experienceOntology.extractFromWorkspace(modelOverride, configId, userHint, scopeIds, step);
+                        experienceOntology.extractFromWorkspace(modelOverride, configId, userHint,
+                                scopeIds, incrementalModelId, step);
                 Map<String, Object> payload = new LinkedHashMap<>();
                 payload.put("nodes", r.payload().path("nodes"));
                 payload.put("edges", r.payload().path("edges"));
                 payload.put("reply", r.payload().path("reply").asText(""));
                 payload.put("salt", r.salt());
                 payload.put("sourceCount", r.sourceCount());
+                payload.put("incremental", r.payload().path("incremental").asBoolean(false));
+                payload.put("skippedUnchanged", r.payload().path("skippedUnchanged").asInt(0));
+                payload.put("manifest", r.payload().path("manifest"));
                 SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
                         objectMapper.writeValueAsString(payload));
                 emitter.complete();

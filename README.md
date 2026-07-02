@@ -857,6 +857,7 @@ backend/src/main/java/com/tuiyan/backend/
 | `POST` | `/api/ontology-models/extract` | 上传文档 / 网址抽取实体/关系（multipart：`files` 文件 + `urls` 网址，二者可混用） |
 | `GET` | `/api/ontology-models/{id}/versions` | 列出版本快照 |
 | `POST` | `/api/ontology-models/{id}/versions/{timestamp}/restore` | 恢复到指定版本 |
+| `POST` | `/api/ontology-models/{id}/build-sources` | 回写建图来源记录（`{sources:[{experienceId, contentHash}]}`，增量建图据此跳过未变更经验） |
 
 ### 对话历史
 
@@ -919,7 +920,7 @@ backend/src/main/java/com/tuiyan/backend/
 | `POST` | `/api/experiences/file` | 上传文件建经验（PDF/Word/TXT/MD 抽正文，音频走 ASR，视频抽音轨转写） |
 | `POST` | `/api/experiences/from-ddl` | 数据源导出 DDL 沉淀为经验（`{dataSourceId}`，「供血」入口） |
 | `POST` | `/api/experiences/web-research` | **联网调研业务知识（SSE）**：搜索主题→抓取网页→LLM 归纳成《业务知识文档》存为经验（`{topic, maxPages?}`） |
-| `POST` | `/api/experiences/extract-ontology` | **聚合经验库构建本体血缘图（SSE）**；体可选 `experienceIds` 指定范围、`hint` 额外要求 |
+| `POST` | `/api/experiences/extract-ontology` | **聚合经验库构建本体血缘图（SSE）**；体可选 `experienceIds` 指定范围、`incrementalModelId` 增量建图（跳过内容未变经验）、`hint` 额外要求 |
 | `GET` | `/api/experiences/{id}/file` | 预览/下载上传原件（`?download` 附件下载，`?wsId` 兜底鉴权） |
 | `PUT` | `/api/experiences/{id}/folder` | 把经验移动到文件夹（`{folderId}`，null=根） |
 

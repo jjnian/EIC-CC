@@ -55,6 +55,7 @@ public class ExperienceOntologyService {
     private final ExperienceRepository repo;
     private final ExtractionLlmService extractionLlmService;
     private final ExtractionGraphMerger merger;
+    private final com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo;
     /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
     private final ExecutorService batchExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_BATCHES, r -> {
         Thread t = new Thread(r, "exp-ontology-batch");
@@ -64,10 +65,12 @@ public class ExperienceOntologyService {
 
     public ExperienceOntologyService(ExperienceRepository repo,
                                      ExtractionLlmService extractionLlmService,
-                                     ExtractionGraphMerger merger) {
+                                     ExtractionGraphMerger merger,
+                                     com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo) {
         this.repo = repo;
         this.extractionLlmService = extractionLlmService;
         this.merger = merger;
+        this.buildSourceRepo = buildSourceRepo;
     }
 
     /** 进度回调，用于 SSE 上报「读经验库 / 调 LLM / 后处理」等阶段。 */
@@ -96,16 +99,20 @@ public class ExperienceOntologyService {
      *   <li>其余散文经验按字符预算分批并行抽取。</li>
      * </ul>
      *
-     * @param modelOverride 可选模型覆盖
-     * @param configId      可选 LLM 配置 id
-     * @param userHint      用户额外提示（如「重点关注审批链路」）
-     * @param experienceIds 可选经验范围：非空时只用这些经验建图，空/null = 全部
-     * @param step          进度回调
+     * @param modelOverride      可选模型覆盖
+     * @param configId           可选 LLM 配置 id
+     * @param userHint           用户额外提示（如「重点关注审批链路」）
+     * @param experienceIds      可选经验范围：非空时只用这些经验建图，空/null = 全部
+     * @param incrementalModelId 非空时启用增量建图：按该模型的构建记录跳过内容未变化的经验，
+     *                           只抽新增/变更部分（海量经验的常规更新方式）。结果由前端合并进该模型
+     *                           并回写构建记录（{@code POST /api/ontology-models/{id}/build-sources}）。
+     * @param step               进度回调
      */
     public ExtractResult extractFromWorkspace(String modelOverride,
                                               String configId,
                                               String userHint,
                                               List<String> experienceIds,
+                                              String incrementalModelId,
                                               StepSink step) throws IOException {
         step.emit("load_start", "正在读取当前工作空间经验库…");
         final String workspaceId = WorkspaceContext.get();
@@ -122,19 +129,30 @@ public class ExperienceOntologyService {
         String hintPrefix = (userHint != null && !userHint.isBlank())
                 ? "【用户额外要求】" + userHint.trim() + "\n\n" : "";
 
+        // 增量建图：读该模型的构建记录，内容哈希未变化的经验直接跳过（只抽新增/变更）
+        boolean incremental = incrementalModelId != null && !incrementalModelId.isBlank();
+        Map<String, String> prevHashes = incremental
+                ? buildSourceRepo.hashesOf(incrementalModelId) : Map.of();
+
         List<ExpDoc> docs = new ArrayList<>();          // 待喂 LLM 的经验，逐篇携带标题/是否 DDL
+        Map<String, String> manifest = new java.util.LinkedHashMap<>(); // 本轮扫过的经验 id → 内容哈希
         int used = 0;
         int skippedByCap = 0;
+        int skippedUnchanged = 0;
         int preGraphCount = 0;
         int ddlCount = 0;
         long chars = 0;
         JsonNode preExtracted = null; // 探索文档直采的结构化图片段(免 LLM 重抽),累积后与 LLM 草稿合并
         for (Map<String, Object> exp : all) {
+            String expId = String.valueOf(exp.get("id"));
             String title = String.valueOf(exp.getOrDefault("title", "未命名经验"));
             boolean ddl = "ddl".equalsIgnoreCase(String.valueOf(exp.getOrDefault("origin", "")));
             Object contentObj = exp.get("content");
             String content = contentObj == null ? "" : String.valueOf(contentObj);
             if (content.isBlank()) continue;
+            String hash = sha256Hex(title + "\u0000" + content);
+            manifest.put(expId, hash);
+            if (incremental && hash.equals(prevHashes.get(expId))) { skippedUnchanged++; continue; }
             // #1 结构化直连:抽出探索文档内嵌的图片段并从正文剥离,改走结构化合并而非散文重抽（不占建图上限）
             JsonNode frag = extractGraphFragment(content);
             if (frag != null) {
@@ -158,6 +176,10 @@ public class ExperienceOntologyService {
         }
 
         if (used == 0 && preExtracted == null) {
+            if (incremental && skippedUnchanged > 0) {
+                throw new IllegalStateException("增量建图：所选 " + skippedUnchanged
+                        + " 篇经验自上次建图以来均无变化，无需重建。如需全部重抽请关闭增量选项。");
+            }
             throw new IllegalStateException(
                     "当前工作空间经验库为空（或经验均无正文），请先在经验库中创建/上传经验文件，或把数据源结构导出到经验库供血后再建图。");
         }
@@ -167,6 +189,7 @@ public class ExperienceOntologyService {
         batches.addAll(groupIntoBatches(docs.stream().filter(d -> !d.ddl()).toList(), hintPrefix, false));
         batches.addAll(groupIntoBatches(docs.stream().filter(ExpDoc::ddl).toList(), hintPrefix, true));
         step.emit("load_done", "已聚合 " + used + " 篇经验（约 " + chars + " 字符）"
+                + (skippedUnchanged > 0 ? "；增量模式：跳过 " + skippedUnchanged + " 篇内容未变化的经验" : "")
                 + (preGraphCount > 0 ? "；其中 " + preGraphCount + " 篇含探索直采的结构化图谱(直接合并)" : "")
                 + (ddlCount > 0 ? "；" + ddlCount + " 篇为数据源 DDL 导出(按 schema 专用规则抽取)" : "")
                 + (batches.size() > 1 ? "；将分 " + batches.size() + " 批并行建图" : "")
@@ -208,7 +231,24 @@ public class ExperienceOntologyService {
 
         int nodes = out.path("nodes").isArray() ? out.path("nodes").size() : 0;
         int edges = out.path("edges").isArray() ? out.path("edges").size() : 0;
-        out.put("reply", buildReplyText(used, nodes, edges, failedBatches));
+        String reply = buildReplyText(used, nodes, edges, failedBatches);
+        if (skippedUnchanged > 0) {
+            reply += "\n\n（增量建图：跳过 " + skippedUnchanged
+                    + " 篇内容未变化的经验；本次结果为增量，合并到当前模型即可，旧节点不受影响）";
+        }
+        out.put("reply", reply);
+        out.put("incremental", incremental);
+        out.put("skippedUnchanged", skippedUnchanged);
+        // 构建清单：本轮扫过的全部经验（含跳过的）的内容哈希。前端确认合并后回写为构建记录，
+        // 下次增量据此跳过；用户丢弃结果则不回写，变更不会被漏掉。
+        ArrayNode manifestArr = objectMapper.createArrayNode();
+        for (Map.Entry<String, String> en : manifest.entrySet()) {
+            ObjectNode m = objectMapper.createObjectNode();
+            m.put("experienceId", en.getKey());
+            m.put("contentHash", en.getValue());
+            manifestArr.add(m);
+        }
+        out.set("manifest", manifestArr);
 
         step.emit("done", "完成：从 " + used + " 篇经验生成 " + nodes + " 个节点 / " + edges + " 条边"
                 + (failedBatches > 0 ? "（" + failedBatches + " 批失败，结果可能不完整）" : ""));
@@ -311,6 +351,19 @@ public class ExperienceOntologyService {
             }
         }
         return null;
+    }
+
+    /** SHA-256 十六进制（增量建图的内容指纹）。 */
+    private static String sha256Hex(String s) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e); // JVM 必带 SHA-256
+        }
     }
 
     /** 本批的来源标记：单篇 → 「经验：标题」；多篇 → 「经验：首篇 等 N 篇」；空批 → null。 */

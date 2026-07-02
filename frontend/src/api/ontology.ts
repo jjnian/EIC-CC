@@ -131,3 +131,11 @@ export function saveGraphTemplate(template: any) {
 export function deleteGraphTemplate(id: string) {
   return request<void>(`/api/templates/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
+
+/** 回写建图来源记录：经验库建图结果合并进模型后调用，供下次增量建图跳过未变更经验。 */
+export function recordBuildSources(modelId: string, sources: { experienceId: string; contentHash: string }[]) {
+  return request<{ recorded: number }>(`/api/ontology-models/${encodeURIComponent(modelId)}/build-sources`, {
+    method: 'POST',
+    body: JSON.stringify({ sources }),
+  });
+}
