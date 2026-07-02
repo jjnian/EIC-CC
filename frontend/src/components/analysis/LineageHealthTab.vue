@@ -5,6 +5,7 @@ import { listNodeBindings } from '../../api/nodeBindings';
 import { verifyContainment, type ContainmentCheckResult } from '../../api/dataSources';
 import { detectSchemaDrift, type SchemaDriftResult } from '../../api/ontology';
 import { parseContainmentTarget, verdictConfidence, verdictEvidence, hasVerification, type ContainmentTarget } from '../../utils/lineageVerify';
+import { detectConflicts } from '../../utils/lineageConflicts';
 import { useWorkspaces } from '../../composables/useWorkspaces';
 import { useSidebarTree } from '../../composables/useSidebarTree';
 import { toast } from '../../composables/useToast';
@@ -141,6 +142,12 @@ const verdictView = (v: ContainmentCheckResult['verdict']) => ({
 const edgeLabel = (e: OntologyEdge) =>
   `${nmap.value[e.from]?.label || e.from} → ${nmap.value[e.to]?.label || e.to}`;
 
+// ── 冲突检测（纯内存计算，随图变化实时更新）───────────────
+const conflicts = computed(() => detectConflicts(props.nodes, props.edges));
+const conflictCount = computed(() =>
+  conflicts.value.directionConflicts.length + conflicts.value.duplicateLabels.length + conflicts.value.cycles.length);
+const nodeName = (id: string) => nmap.value[id]?.label || id;
+
 // ── Schema 漂移检测 ─────────────────────────────────────
 const driftDsId = ref('');
 const driftRunning = ref(false);
@@ -245,6 +252,48 @@ const runDrift = async () => {
             </Button>
           </template>
           <span v-else-if="row.error" class="lh-err" :title="row.error">{{ row.error }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 冲突检测 -->
+    <div class="gap-section">
+      <div class="gap-sec-title">冲突检测</div>
+      <div class="lh-note">
+        多来源合并后的图级一致性检查：方向矛盾、疑似重复节点、血缘环路。冲突需人工裁决——点击定位后在图上修正。
+        <b v-if="!conflictCount" style="color:#22dd88">✓ 未发现冲突</b>
+      </div>
+      <div v-if="conflicts.directionConflicts.length" class="lh-drift-group">
+        <div class="lh-drift-title" style="color:#ff7755">方向矛盾（{{ conflicts.directionConflicts.length }} 对）——同一对节点间存在两个流向的血缘边，通常是某条边的 rel_type 标反了</div>
+        <div v-for="dc in conflicts.directionConflicts" :key="dc.a + '⇄' + dc.b" class="lh-drift-item">
+          <span class="lh-drift-refs">
+            <button class="lh-chip" @click="emit('focus-node', dc.a)">{{ nodeName(dc.a) }}</button>
+            <span class="lh-more">⇄</span>
+            <button class="lh-chip" @click="emit('focus-node', dc.b)">{{ nodeName(dc.b) }}</button>
+            <span class="lh-more">{{ dc.edgeIds.length }} 条边</span>
+          </span>
+        </div>
+      </div>
+      <div v-if="conflicts.duplicateLabels.length" class="lh-drift-group">
+        <div class="lh-drift-title" style="color:#ffcc44">疑似重复节点（{{ conflicts.duplicateLabels.length }} 组）——名称相同但未被合并，血缘会被分裂到多个节点上</div>
+        <div v-for="dl in conflicts.duplicateLabels" :key="dl.label" class="lh-drift-item">
+          <span class="lh-drift-key">{{ dl.label }}</span>
+          <span class="lh-drift-refs">
+            <button v-for="id in dl.nodeIds.slice(0, 8)" :key="id" class="lh-chip" @click="emit('focus-node', id)">{{ id }}</button>
+            <span v-if="dl.nodeIds.length > 8" class="lh-more">…共 {{ dl.nodeIds.length }} 个</span>
+          </span>
+        </div>
+      </div>
+      <div v-if="conflicts.cycles.length" class="lh-drift-group">
+        <div class="lh-drift-title" style="color:#ff7755">血缘环路（{{ conflicts.cycles.length }} 条）——派生链成环，通常意味着某条边方向标错</div>
+        <div v-for="(cy, i) in conflicts.cycles" :key="i" class="lh-drift-item">
+          <span class="lh-drift-refs">
+            <template v-for="(id, j) in cy" :key="id + j">
+              <button class="lh-chip" @click="emit('focus-node', id)">{{ nodeName(id) }}</button>
+              <span class="lh-more">→</span>
+            </template>
+            <button class="lh-chip" @click="emit('focus-node', cy[0])">{{ nodeName(cy[0]) }}</button>
+          </span>
         </div>
       </div>
     </div>

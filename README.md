@@ -414,9 +414,13 @@ NodeInfo 面板的关系 Tab 中，每条边末尾有 `✕` 按钮，点击直�
 |---|---|
 | **PDF** | PDFBox 抽每页文字；扫描件（每页文字 ≤ 200 字符）自动回落到逐页渲染（110 DPI，最多 8 页）走视觉抽取 |
 | **DOCX** | Apache POI 抽取段落 + 表格；表格保留二维结构 |
+| **Excel**（XLSX / XLS / XLSM） | POI 逐 Sheet 渲染成表格文本（业务台账、字段口径、映射对照） |
 | **图片**（PNG / JPEG / WebP / GIF） | base64 编码作为多模态 attachment 给 LLM |
+| **音频** | Whisper 兼容端点转写为正文（支持 ASR 术语热词） |
+| **视频**（MP4 等） | ffmpeg 抽音轨压成语音级 MP3 → 转写；未装 ffmpeg 则原样直发 |
+| **SQL / DDL 脚本** | `SqlLineageExtractor` 确定性血缘解析：INSERT…SELECT / CTAS / VIEW / MERGE / UPDATE…FROM → 表级 `flows_to` 边（置信度 1.0，不经 LLM）；原文仍送 LLM 抽业务语义互补 |
 | **网页 URL** | Jsoup 拉静态 HTML，启发式去掉 nav/footer/script，优先取 article/main 正文；文本 < 500 字时回落 Playwright headless Chromium 重抓（应对 Vue/React SPA） |
-| **文本类** | 直接拼入 prompt |
+| **文本类**（TXT / MD / CSV / JSON …） | 直接拼入 prompt（兜底） |
 
 #### 5.9.2 流程
 
@@ -763,6 +767,7 @@ backend/src/main/java/com/tuiyan/backend/
 │   ├── FileSniffer.java              # 魔术字节文件类型检测
 │   ├── IdSaltRewriter.java           # ID 盐重写（防冲突）
 │   ├── PdfTextExtractor.java         # PDF 文字 + 扫描件渲染
+│   ├── SqlLineageExtractor.java      # SQL 确定性血缘解析（表级数据流，不经 LLM）
 │   └── SsePushUtils.java             # SSE 推送 + 可取消 emitter
 └── util/
     └── JsonAtomic.java               # 原子 JSON 写入
@@ -889,6 +894,10 @@ backend/src/main/java/com/tuiyan/backend/
 >
 > **推断血缘的数据验证**：对无 FK、按命名推断的血缘边，边详情面板「🔬 数据验证」可做值包含检验
 > （`POST /api/data-sources/{id}/verify-containment`，只读+采样+超时受限），把匹配率写回边的置信度与证据。
+>
+> **图体检**：图分析面板「体检」Tab 提供血缘健康度总览、推断边批量验证、
+> 冲突检测（方向矛盾边对 / 疑似重复节点 / 血缘环路，前端纯内存计算、可点击定位、人工裁决）、
+> Schema 漂移检测（`POST /api/ontology-models/{id}/schema-drift`，比对图上表/列引用与库最新结构）。
 >
 > **第二阶段·数据供血绑定**：图建好后，在节点详情面板「供血」页把节点绑定到数据源的表（可选 WHERE 过滤），
 > 运行时按绑定取数为节点供血。对应 `node_data_binding` 表与 `/api/node-bindings` 端点（含 `/{id}/fetch` 取数）。

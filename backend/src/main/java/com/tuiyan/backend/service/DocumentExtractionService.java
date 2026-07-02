@@ -180,14 +180,23 @@ public class DocumentExtractionService {
 
         List<String> contributing = ctx.contributingSources();
         JsonNode draft;
-        if (contributing.size() <= 1) {
-            step.emit("calling_llm", "正在调用大模型抽取实体与关系…（依据 "
-                    + ctx.textLength() + " 字符文本 / " + ctx.imageCount() + " 张图片）");
-            draft = extractionLlmService.extractOntologyFromSources(
-                    ctx.text(), ctx.imageAttachments(), modelOverride, configId);
-        } else {
-            draft = extractPerSource(contributing, ctx, modelOverride, configId, step);
+        try {
+            if (contributing.size() <= 1) {
+                step.emit("calling_llm", "正在调用大模型抽取实体与关系…（依据 "
+                        + ctx.textLength() + " 字符文本 / " + ctx.imageCount() + " 张图片）");
+                draft = extractionLlmService.extractOntologyFromSources(
+                        ctx.text(), ctx.imageAttachments(), modelOverride, configId);
+            } else {
+                draft = extractPerSource(contributing, ctx, modelOverride, configId, step);
+            }
+        } catch (Exception e) {
+            // 有确定性图片段（如 SQL 血缘解析）时 LLM 失败可降级：至少把语法可判定的血缘返回
+            if (!ctx.hasGraphFragments()) throw e;
+            log.warn("[extract] LLM 抽取失败，降级为仅确定性解析结果: {}", e.toString());
+            step.emit("partial", "大模型抽取失败，本次仅返回 SQL 解析出的确定性血缘");
+            draft = emptyDraft();
         }
+        draft = mergeGraphFragments(draft, ctx, step);
 
         // 用毫秒时间戳的 36 进制作 salt，加在每个节点 id 前面避免与已有图谱冲突
         step.emit("normalizing", "正在整理抽取结果、消解 id 冲突…");
@@ -405,6 +414,38 @@ public class DocumentExtractionService {
         if (failed > 0) {
             step.emit("partial", failed + "/" + n + " 个来源抽取失败，已用成功来源合并，结果可能不完整");
         }
+        return merger.sanitizeGraph(merged);
+    }
+
+    /** 空草稿骨架 {add_nodes:[], add_edges:[]}：LLM 失败但有确定性图片段时的合并基底。 */
+    private JsonNode emptyDraft() {
+        ObjectNode g = objectMapper.createObjectNode();
+        g.set("add_nodes", objectMapper.createArrayNode());
+        g.set("add_edges", objectMapper.createArrayNode());
+        return g;
+    }
+
+    /**
+     * 把各来源的确定性图片段（SQL 血缘等，{add_nodes,add_edges} 形状）并入 LLM 草稿：
+     * 加路前缀防 id 冲突、补 derived_source、按 label 与 LLM 抽出的同名概念去重合并。
+     * 片段不经 LLM 产生，置信度 1.0 的数据流不会被模型幻觉稀释。
+     */
+    private JsonNode mergeGraphFragments(JsonNode draft, ExtractionContext ctx, StepSink step) {
+        Map<String, List<JsonNode>> fragments = ctx.graphFragments();
+        if (fragments.isEmpty()) return draft;
+        JsonNode merged = draft;
+        int idx = 0;
+        int edgeCount = 0;
+        for (Map.Entry<String, List<JsonNode>> en : fragments.entrySet()) {
+            for (JsonNode frag : en.getValue()) {
+                JsonNode prefixed = merger.prefixChunkIds(frag, "sql" + (idx++) + "_");
+                stampDerivedSource(prefixed.path("add_nodes"), en.getKey());
+                stampDerivedSource(prefixed.path("add_edges"), en.getKey());
+                edgeCount += prefixed.path("add_edges").size();
+                merged = (merged == null) ? prefixed : merger.mergeExtractionByLabel(merged, prefixed);
+            }
+        }
+        step.emit("sql_lineage", "已合并确定性解析的血缘片段（" + edgeCount + " 条数据流）");
         return merger.sanitizeGraph(merged);
     }
 
