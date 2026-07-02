@@ -36,7 +36,7 @@ public class ExploreController {
 
     public ExploreController(ExplorationAgentService agent,
                              ExperienceRepository experienceRepo,
-                             @Qualifier("appTaskExecutor") AsyncTaskExecutor taskExecutor) {
+                             @Qualifier("explorationExecutor") AsyncTaskExecutor taskExecutor) {
         this.agent = agent;
         this.experienceRepo = experienceRepo;
         this.taskExecutor = taskExecutor;
@@ -94,7 +94,8 @@ public class ExploreController {
                 "系统探索超时 (>600s)，请缩小探索步数或稍后重试");
         SseEmitter emitter = ce.emitter();
 
-        taskExecutor.execute(() -> {
+        try {
+            taskExecutor.execute(() -> {
             if (workspaceId != null) WorkspaceContext.set(workspaceId);
             try {
                 // 规范化并校验入口地址：补全 https://、拦掉 asdasd 这类非网址，
@@ -124,7 +125,14 @@ public class ExploreController {
             } finally {
                 WorkspaceContext.clear();
             }
-        });
+            });
+        } catch (org.springframework.core.task.TaskRejectedException rejected) {
+            // 探索池已满（并发 Chromium 达上限）：给前端一个明确的 SSE 错误，而不是 500
+            log.warn("[explore] 探索任务被拒绝（并发已达上限）: {}", rejected.getMessage());
+            SsePushUtils.safeSend(emitter, ce.cancelled(), "error",
+                    "正在进行的探索过多，请等待当前探索结束后再试");
+            emitter.complete();
+        }
         return emitter;
     }
 

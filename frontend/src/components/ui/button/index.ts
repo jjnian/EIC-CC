@@ -9,13 +9,13 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-[0_2px_10px_-3px_var(--accent-glow)] hover:bg-[var(--accent-soft)] hover:-translate-y-px hover:shadow-[0_8px_20px_-4px_var(--accent-glow)] active:translate-y-0 active:shadow-[0_1px_4px_-2px_var(--accent-glow)]",
+          "bg-primary text-primary-foreground shadow-xs hover:bg-[var(--accent-soft)] active:bg-[var(--accent-deep)]",
         destructive:
-          "bg-destructive text-white shadow-[0_2px_10px_-3px_rgba(229,72,77,0.4)] hover:bg-destructive/90 hover:-translate-y-px hover:shadow-[0_8px_20px_-4px_rgba(229,72,77,0.4)] active:translate-y-0 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
+          "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
           "border border-[var(--glass-border)] bg-transparent hover:bg-accent hover:text-accent-foreground hover:border-[var(--glass-border-strong)]",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-xs hover:bg-[var(--bg-elev-hi)] hover:-translate-y-px hover:shadow-sm active:translate-y-0",
+          "bg-secondary text-secondary-foreground shadow-xs hover:bg-[var(--bg-elev-hi)]",
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
         link: "text-primary underline-offset-4 hover:underline",

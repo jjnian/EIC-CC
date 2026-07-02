@@ -254,6 +254,57 @@ public class BrowserAgentDriver {
         }
 
         /**
+         * 直接导航到一个 URL：供探索循环按全局 frontier 系统化补全覆盖（广度优先）。
+         * 同站护栏仍由 route 层兜底（arm 后跨站主导航会被 abort，导致这里抛错，由上层换下一个）。
+         */
+        public void navigateTo(String url) {
+            page.navigate(url, new Page.NavigateOptions().setTimeout(NAV_TIMEOUT_MS));
+            settle();
+        }
+
+        /**
+         * 按可见文字点击一个「导航语义」元素（link/menuitem/tab），用于回放 frontier 里无 href 的菜单/标签点击任务。
+         * <p>只在导航元素范围内按文字匹配，不碰普通 button（多为动作/写操作）；命中登出元素或点不中都返回 false（不致命）。
+         */
+        public boolean clickByName(String name) {
+            if (name == null || name.isBlank()) return false;
+            if (LOGOUT.matcher(name).find()) return false;
+            try {
+                Locator loc = page.locator("a,[role=link],[role=menuitem],[role=tab]")
+                        .filter(new Locator.FilterOptions().setHasText(name)).first();
+                loc.click(new Locator.ClickOptions().setTimeout(CLICK_TIMEOUT_MS));
+                settle();
+                return true;
+            } catch (RuntimeException e) {
+                return false;
+            }
+        }
+
+        /**
+         * 快照前先展开折叠的菜单 / 手风琴（点 aria-expanded=false 的展开器），把嵌套导航露出来，
+         * 否则隐藏在二级菜单里的功能页永远进不了快照、也进不了 frontier，覆盖会漏一大片。
+         * <p>纯 UI 展开操作（不改数据；写操作展开器按文案跳过，且 arm 后网络层也会拦非幂等请求）。
+         * 失败/无可展开元素都不致命。
+         */
+        public void expandMenus() {
+            try {
+                page.evaluate("""
+                    () => {
+                      const DANGER = /(删除|提交|支付|新建|新增|创建|保存|delete|submit|pay|confirm|create|save)/i;
+                      let n = 0;
+                      for (const e of document.querySelectorAll('[aria-expanded="false"]')) {
+                        if (n >= 60) break;
+                        const t = (e.getAttribute('aria-label') || e.innerText || '');
+                        if (DANGER.test(t)) continue;
+                        try { e.click(); n++; } catch (_) {}
+                      }
+                    }
+                    """);
+                page.waitForTimeout(350); // 等二级菜单渲染/展开动画
+            } catch (RuntimeException ignore) { /* 展开失败不致命，照常快照 */ }
+        }
+
+        /**
          * 点击 / 导航后等待页面稳定:优先等"网络空闲"(覆盖 SPA 局部刷新/异步加载,无 load 事件的情形),
          * 超时则退回 load 事件。两者都失败也不致命。
          */
@@ -292,12 +343,29 @@ public class BrowserAgentDriver {
         return a != null && a.equalsIgnoreCase(b);
     }
 
-    /** 取可注册域(末两段域名);单段主机(localhost)/无点直接返回原值。 */
+    /**
+     * 常见的「二级公共后缀」：这些 TLD 的可注册域要取末三段（如 a.example.com.cn）。
+     * <p>不引入完整 Public Suffix List，仅覆盖最常见的中/英/日/澳等 ccTLD，足以避免把
+     * {@code a.com.cn} 与 {@code b.com.cn} 误判为同站。无匹配时退化为「末两段」。
+     */
+    private static final Set<String> TWO_LABEL_SUFFIXES = Set.of(
+            "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "ac.cn",
+            "co.uk", "org.uk", "gov.uk", "ac.uk", "me.uk",
+            "co.jp", "or.jp", "ne.jp", "co.kr", "or.kr",
+            "com.hk", "com.tw", "com.au", "net.au", "org.au",
+            "com.sg", "com.br", "com.mx");
+
+    /** 取可注册域;单段主机(localhost)/无点直接返回原值;识别常见二级公共后缀取末三段。 */
     private static String registrableDomain(String host) {
         if (host == null) return null;
-        String[] p = host.split("\\.");
-        if (p.length < 2) return host;
-        return p[p.length - 2] + "." + p[p.length - 1];
+        String h = host.toLowerCase();
+        String[] p = h.split("\\.");
+        if (p.length < 2) return h;
+        String lastTwo = p[p.length - 2] + "." + p[p.length - 1];
+        if (p.length >= 3 && TWO_LABEL_SUFFIXES.contains(lastTwo)) {
+            return p[p.length - 3] + "." + lastTwo;
+        }
+        return lastTwo;
     }
 
     /**
@@ -318,7 +386,7 @@ public class BrowserAgentDriver {
           const elements = [];
           let ref = 0;
           for (const el of document.querySelectorAll(sel)) {
-            if (ref >= 80) break;
+            if (ref >= 120) break;
             if (!vis(el)) continue;
             const name = txt(el);
             const href = el.getAttribute('href') || '';
