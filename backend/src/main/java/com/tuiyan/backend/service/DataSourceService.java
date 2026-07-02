@@ -218,7 +218,8 @@ public class DataSourceService {
     }
 
     /** 抽取到经验库的通用文档：数据源名 + 标题 + Markdown 正文 + 标签。 */
-    public record SourceDocExport(String sourceName, String title, String content, String tags) {}
+    /** origin: jdbc 库结构导出 = "ddl"（建图走 schema 专用规则）；文件转写/HTTP 接口 = "datasource"（普通散文抽取）。 */
+    public record SourceDocExport(String sourceName, String title, String content, String tags, String origin) {}
 
     /**
      * 把「任意类型」的数据源抽取成一篇可入经验库的 Markdown 文档：
@@ -239,7 +240,7 @@ public class DataSourceService {
                     + (e.withSamples() ? " · 含样例数据" : "")
                     + " · 由数据源结构内省自动生成\n\n"
                     + "```sql\n" + e.ddl() + "\n```\n";
-            return new SourceDocExport(e.sourceName(), title, content, "DDL,schema");
+            return new SourceDocExport(e.sourceName(), title, content, "DDL,schema", "ddl");
         }
         if (SourceKind.HTTPS_API.equals(kind)) {
             return exportHttpDoc(po);
@@ -252,7 +253,7 @@ public class DataSourceService {
         if (text != null && !text.isBlank()) {
             String title = "「" + po.getName() + "」文件";
             String content = "# " + title + "\n\n> 由文件数据源抽取的文本自动生成\n\n" + text;
-            return new SourceDocExport(po.getName(), title, content, "file");
+            return new SourceDocExport(po.getName(), title, content, "file", "datasource");
         }
         throw new IllegalArgumentException("该数据源类型(" + kind + ")没有可抽取到经验库的内容");
     }
@@ -291,7 +292,7 @@ public class DataSourceService {
         } else {
             sb.append("- 调用失败: ").append(err == null || err.isBlank() ? "未知错误" : err).append("\n");
         }
-        return new SourceDocExport(po.getName(), title, sb.toString(), "http,api");
+        return new SourceDocExport(po.getName(), title, sb.toString(), "http,api", "datasource");
     }
 
     /** 从 data_source.extra_json 读取音频转写正文（无则 null）。 */

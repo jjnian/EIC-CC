@@ -44,7 +44,8 @@ const togglePicked = (id: string) => {
   pickedIds.value = next;
 };
 const originBadge = (o?: string) =>
-  o === 'ddl' ? 'DDL' : o === 'explore' ? '探索' : o === 'upload' ? '文件' : o === 'websystem' ? 'Web' : '';
+  o === 'ddl' ? 'DDL' : o === 'explore' ? '探索' : o === 'upload' ? '文件' : o === 'websystem' ? 'Web'
+  : o === 'datasource' ? '数据源' : o === 'websearch' ? '调研' : '';
 const steps = ref<{ key: string; label: string; status: 'running' | 'done' | 'error' }[]>([]);
 const errMsg = ref('');
 const hint = ref('');

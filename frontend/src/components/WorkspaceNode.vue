@@ -587,7 +587,8 @@ const kindIcon: Record<string, string> = {
 
 /** 经验条目图标：上传文件 / DDL 导出 / 系统探索 / 手写经验区分。 */
 const expIcon = (x: Experience) =>
-  x.origin === 'upload' ? '📄' : x.origin === 'ddl' ? '🗃' : x.origin === 'explore' ? '🧭' : '📝';
+  x.origin === 'upload' ? '📄' : x.origin === 'ddl' ? '🗃' : x.origin === 'explore' ? '🧭'
+  : x.origin === 'datasource' ? '🔌' : x.origin === 'websearch' ? '🌐' : '📝';
 
 const renameItem = async () => {
   const current = ctxMenu.value;

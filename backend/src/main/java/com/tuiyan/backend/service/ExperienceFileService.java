@@ -155,7 +155,7 @@ public class ExperienceFileService {
             throw new IllegalArgumentException("缺少 dataSourceId");
         }
         DataSourceService.SourceDocExport doc = dataSourceService.exportSourceDoc(dataSourceId, sampleRows);
-        return repo.upsertDdl(dataSourceId, doc.title(), doc.content(), doc.tags());
+        return repo.upsertFromDataSource(dataSourceId, doc.title(), doc.content(), doc.tags(), doc.origin());
     }
 
     /** content-type 兜底：上传头缺失 / 为通用二进制流时按扩展名推断常见可预览类型。 */

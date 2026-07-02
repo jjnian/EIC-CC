@@ -503,13 +503,14 @@ const runFullIndex = async (force = false) => {
 };
 
 // ── 上传文件预览 ────────────────────────────────────────────
-type PreviewKind = 'pdf' | 'image' | 'audio' | 'markdown' | 'text' | 'other';
+type PreviewKind = 'pdf' | 'image' | 'audio' | 'video' | 'markdown' | 'text' | 'other';
 const previewKind = (e: Experience): PreviewKind => {
   const mime = (e.fileMime || '').toLowerCase();
   const name = (e.fileName || '').toLowerCase();
   if (mime.includes('pdf') || name.endsWith('.pdf')) return 'pdf';
   if (mime.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp)$/.test(name)) return 'image';
   if (mime.startsWith('audio/') || /\.(mp3|wav|m4a|flac|aac|ogg|opus|wma|amr)$/.test(name)) return 'audio';
+  if (mime.startsWith('video/') || /\.(mp4|m4v|mov|mkv|avi|mpe?g|wmv|flv)$/.test(name)) return 'video';
   if (mime.includes('markdown') || name.endsWith('.md')) return 'markdown';
   if (mime.startsWith('text/') || name.endsWith('.txt')) return 'text';
   return 'other';
@@ -698,6 +699,16 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           <div v-else-if="selectedUpload.hasFile && selKind === 'audio'" class="exp-audio-wrap">
             <audio class="exp-audio" controls :src="fileUrl(selectedUpload)"></audio>
             <div class="exp-prev-note">转写文字（自动语音识别）：</div>
+            <div v-if="(selectedUpload.content || '').trim()" class="exp-md">
+              <pre class="exp-pre">{{ selectedUpload.content }}</pre>
+            </div>
+            <div v-else class="exp-prev-note">（暂无转写文字）</div>
+          </div>
+
+          <!-- 视频：播放器 + 音轨转写文字（抽音轨 → ASR，存为经验正文） -->
+          <div v-else-if="selectedUpload.hasFile && selKind === 'video'" class="exp-audio-wrap">
+            <video class="exp-video" controls :src="fileUrl(selectedUpload)"></video>
+            <div class="exp-prev-note">音轨转写文字（自动语音识别）：</div>
             <div v-if="(selectedUpload.content || '').trim()" class="exp-md">
               <pre class="exp-pre">{{ selectedUpload.content }}</pre>
             </div>
@@ -1503,4 +1514,5 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-research-error { color: tomato; background: rgba(255,99,71,.12);
   padding: 8px 12px; border-radius: 6px; font-size: 12.5px; margin-bottom: 10px; }
 @keyframes blink { 50% { opacity: .35; } }
+.exp-video { width: 100%; max-height: 360px; border-radius: 8px; background: #000; margin-bottom: 10px; }
 </style>
