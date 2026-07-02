@@ -450,9 +450,9 @@ public class DocumentExtractionService {
             extra.remove("contentType");
             extra.remove("size");
             try {
-                // 音频/图片来源带「识别正文」(transcript)：按 (工作空间,名称) upsert 去重，避免重复上传同一
-                // 音频/图片堆出多条可检索数据源；其余来源沿用新增(作为每次抽取的溯源记录)。
-                boolean recognizable = "audio".equals(type) || "image".equals(type);
+                // 音频/视频/图片来源带「识别正文」(transcript)：按 (工作空间,名称) upsert 去重，避免重复上传同一
+                // 文件堆出多条可检索数据源；其余来源沿用新增(作为每次抽取的溯源记录)。
+                boolean recognizable = "audio".equals(type) || "video".equals(type) || "image".equals(type);
                 boolean hasText = meta.get("transcript") instanceof String ts && !ts.isBlank();
                 var saved = recognizable
                         ? dataSourceRepository.upsertSource(kind, name, mime, size, extra.isEmpty() ? null : extra)

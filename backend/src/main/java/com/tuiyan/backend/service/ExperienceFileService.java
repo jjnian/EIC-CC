@@ -75,6 +75,43 @@ public class ExperienceFileService {
             }
         }
 
+        // 视频：归档 handler 不抽文本（meta.video=true），抽音轨（ffmpeg，装了则压缩、没装则原样直发）→ ASR 转写
+        if (content.isBlank() && Boolean.TRUE.equals(extracted.meta().get("video"))) {
+            if (!audioTranscriptionService.enabled()) {
+                throw new IllegalArgumentException("音频转写未启用（app.asr.enabled=false），无法转写视频");
+            }
+            try {
+                byte[] audio;
+                String audioName;
+                String audioMime;
+                if (com.tuiyan.backend.service.extraction.VideoAudioExtractor.ffmpegAvailable()) {
+                    audio = com.tuiyan.backend.service.extraction.VideoAudioExtractor.extractAudio(
+                            file.getBytes(), file.getOriginalFilename());
+                    audioName = file.getOriginalFilename() + ".mp3";
+                    audioMime = "audio/mpeg";
+                } else if (file.getSize() <= audioTranscriptionService.maxBytes()) {
+                    audio = file.getBytes();
+                    audioName = file.getOriginalFilename();
+                    audioMime = file.getContentType();
+                } else {
+                    throw new IllegalArgumentException("视频超过转写大小上限 "
+                            + (audioTranscriptionService.maxBytes() / (1024 * 1024))
+                            + " MB 且未安装 ffmpeg（无法抽音轨压缩），请安装 ffmpeg 或先转成音频");
+                }
+                if (audio.length > audioTranscriptionService.maxBytes()) {
+                    throw new IllegalArgumentException("抽出的音轨仍超过转写大小上限 "
+                            + (audioTranscriptionService.maxBytes() / (1024 * 1024)) + " MB，请剪辑分段后重试");
+                }
+                AudioTranscriptionService.TranscriptResult tr =
+                        audioTranscriptionService.transcribe(audio, audioName, audioMime);
+                content = tr.text() == null ? "" : tr.text();
+            } catch (IllegalArgumentException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IllegalArgumentException("视频转写失败：" + e.getMessage());
+            }
+        }
+
         // 图片：归档 handler 不抽文本（meta.image=true），改走视觉识别（OCR + 关键信息）得到正文
         if (content.isBlank() && Boolean.TRUE.equals(extracted.meta().get("image"))) {
             try {
@@ -135,6 +172,10 @@ public class ExperienceFileService {
         if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
         if (n.endsWith(".gif")) return "image/gif";
         if (n.endsWith(".webp")) return "image/webp";
+        if (n.endsWith(".mp4") || n.endsWith(".m4v")) return "video/mp4";
+        if (n.endsWith(".mov")) return "video/quicktime";
+        if (n.endsWith(".mkv")) return "video/x-matroska";
+        if (n.endsWith(".avi")) return "video/x-msvideo";
         if (n.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
         if (n.endsWith(".doc")) return "application/msword";
         return MediaType.APPLICATION_OCTET_STREAM_VALUE;

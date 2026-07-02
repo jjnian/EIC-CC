@@ -916,8 +916,9 @@ backend/src/main/java/com/tuiyan/backend/
 | `GET` | `/api/experiences/{id}/index-status` | 查询索引状态 + 文本块数量 |
 | `POST` | `/api/experiences/reindex-all` | 全量补索引（`?force=true` 连已索引的也重建），后台排队，返回调度概况 |
 | `GET` | `/api/experiences/index-summary` | 索引状态汇总（经验总数 + 各 `index_status` 计数，查补索引进度） |
-| `POST` | `/api/experiences/file` | 上传文件建经验（PDF/Word/TXT/MD 抽正文，音频走 ASR） |
+| `POST` | `/api/experiences/file` | 上传文件建经验（PDF/Word/TXT/MD 抽正文，音频走 ASR，视频抽音轨转写） |
 | `POST` | `/api/experiences/from-ddl` | 数据源导出 DDL 沉淀为经验（`{dataSourceId}`，「供血」入口） |
+| `POST` | `/api/experiences/web-research` | **联网调研业务知识（SSE）**：搜索主题→抓取网页→LLM 归纳成《业务知识文档》存为经验（`{topic, maxPages?}`） |
 | `POST` | `/api/experiences/extract-ontology` | **聚合经验库构建本体血缘图（SSE）**；体可选 `experienceIds` 指定范围、`hint` 额外要求 |
 | `GET` | `/api/experiences/{id}/file` | 预览/下载上传原件（`?download` 附件下载，`?wsId` 兜底鉴权） |
 | `PUT` | `/api/experiences/{id}/folder` | 把经验移动到文件夹（`{folderId}`，null=根） |
