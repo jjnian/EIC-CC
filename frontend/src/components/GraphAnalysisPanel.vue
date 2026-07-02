@@ -4,22 +4,25 @@ import type { OntologyNode, OntologyEdge } from '../types';
 import GraphStatsTab from './analysis/GraphStatsTab.vue';
 import NodeAnalysisTab from './analysis/NodeAnalysisTab.vue';
 import PathQueryTab from './analysis/PathQueryTab.vue';
+import LineageHealthTab from './analysis/LineageHealthTab.vue';
 import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
   nodes: OntologyNode[];
   edges: OntologyEdge[];
   selectedId: string | null;
+  modelId?: string;
 }>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'focus-node', id: string): void;
   (e: 'highlight-diff', data: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null): void;
+  (e: 'update-edge-schema', id: string, patch: any): void;
 }>();
 
 // ── 标签页 ──────────────────────────────────────────
-// 0=全图统计  1=节点分析  2=路径查询
+// 0=全图统计  1=节点分析  2=路径查询  3=血缘体检
 const tab = ref(0);
 
 watch(() => props.selectedId, (id) => {
@@ -34,6 +37,7 @@ watch(() => props.selectedId, (id) => {
         <button :class="['gap-tab', { on: tab === 0 }]" @click="tab = 0">全图统计</button>
         <button :class="['gap-tab', { on: tab === 1 }]" @click="tab = 1">节点分析</button>
         <button :class="['gap-tab', { on: tab === 2 }]" @click="tab = 2">路径查询</button>
+        <button :class="['gap-tab', { on: tab === 3 }]" @click="tab = 3">体检</button>
       </div>
       <Button variant="ghost" size="icon-sm" @click="emit('close')">×</Button>
     </div>
@@ -42,6 +46,9 @@ watch(() => props.selectedId, (id) => {
       <GraphStatsTab v-if="tab === 0" :nodes="nodes" :edges="edges" @focus-node="(id) => emit('focus-node', id)" />
       <NodeAnalysisTab v-else-if="tab === 1" :nodes="nodes" :edges="edges" :selected-id="selectedId" @focus-node="(id) => emit('focus-node', id)" @highlight-diff="(d) => emit('highlight-diff', d)" />
       <PathQueryTab v-else-if="tab === 2" :nodes="nodes" :edges="edges" @focus-node="(id) => emit('focus-node', id)" />
+      <LineageHealthTab v-else-if="tab === 3" :nodes="nodes" :edges="edges" :model-id="modelId"
+                        @focus-node="(id) => emit('focus-node', id)"
+                        @update-edge-schema="(id, patch) => emit('update-edge-schema', id, patch)" />
     </div>
   </div>
 </template>

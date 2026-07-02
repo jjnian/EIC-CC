@@ -531,7 +531,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
     <div class="exp-header">
       <div>
         <h2>经验库 <span class="exp-public-tag">公共</span></h2>
-        <p>公共经验库：所有工作空间共享，可查看与复用。手写支持 Markdown（实时预览），可上传 PDF / Word / TXT / MD（音频/视频自动转写、图片视觉识别）并预览原件。</p>
+        <p>公共经验库：所有工作空间共享，可查看与复用。手写支持 Markdown（实时预览），可上传 PDF / Word / Excel / TXT / MD（音频/视频自动转写、图片视觉识别）并预览原件。</p>
       </div>
       <div class="exp-header-actions">
         <span
@@ -577,7 +577,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             </button>
             <button class="exp-add-item c-upload" :disabled="uploading" @click="triggerUpload">
               <span class="exp-add-ico">⤓</span>
-              <span><strong>{{ uploading ? '解析中…' : '上传文件' }}</strong><em>PDF / Word / TXT / MD / 音频 / 视频 / 图片</em></span>
+              <span><strong>{{ uploading ? '解析中…' : '上传文件' }}</strong><em>PDF / Word / Excel / TXT / MD / 音频 / 视频 / 图片</em></span>
               <span class="exp-add-go">→</span>
             </button>
             <button class="exp-add-item c-web" @click="openExplore">
@@ -592,7 +592,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
         ref="fileInput"
         type="file"
         class="exp-file-input"
-        accept=".pdf,.docx,.txt,.md,.mp3,.wav,.m4a,.flac,.aac,.ogg,.opus,.wma,.amr,audio/*,.mp4,.m4v,.mov,.mkv,.avi,.mpg,.mpeg,.wmv,.flv,video/*,.png,.jpg,.jpeg,.gif,.webp,.bmp,image/*"
+        accept=".pdf,.docx,.xlsx,.xls,.xlsm,.txt,.md,.csv,.mp3,.wav,.m4a,.flac,.aac,.ogg,.opus,.wma,.amr,audio/*,.mp4,.m4v,.mov,.mkv,.avi,.mpg,.mpeg,.wmv,.flv,video/*,.png,.jpg,.jpeg,.gif,.webp,.bmp,image/*"
         @change="onUploadPick"
       />
     </div>

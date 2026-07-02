@@ -6,6 +6,7 @@ import com.tuiyan.backend.service.DocumentExtractionService;
 import com.tuiyan.backend.service.LineageTraversalService;
 import com.tuiyan.backend.repository.ModelBuildSourceRepository;
 import com.tuiyan.backend.service.OntologyModelService;
+import com.tuiyan.backend.service.SchemaDriftService;
 import com.tuiyan.backend.service.extraction.UploadedFile;
 import com.tuiyan.backend.support.SsePushUtils;
 import com.tuiyan.backend.support.WorkspaceContext;
@@ -27,15 +28,18 @@ public class OntologyModelController {
     private final DocumentExtractionService extractionService;
     private final LineageTraversalService lineageService;
     private final ModelBuildSourceRepository buildSourceRepo;
+    private final SchemaDriftService schemaDriftService;
 
     public OntologyModelController(OntologyModelService svc,
                                    DocumentExtractionService extractionService,
                                    LineageTraversalService lineageService,
-                                   ModelBuildSourceRepository buildSourceRepo) {
+                                   ModelBuildSourceRepository buildSourceRepo,
+                                   SchemaDriftService schemaDriftService) {
         this.svc = svc;
         this.extractionService = extractionService;
         this.lineageService = lineageService;
         this.buildSourceRepo = buildSourceRepo;
+        this.schemaDriftService = schemaDriftService;
     }
 
     @GetMapping
@@ -81,6 +85,21 @@ public class OntologyModelController {
                 ? LineageTraversalService.Direction.UPSTREAM
                 : LineageTraversalService.Direction.DOWNSTREAM;
         return ResponseEntity.ok(lineageService.traverse(id, node, dir, depth));
+    }
+
+    /**
+     * Schema 漂移检测：重新内省数据源最新 schema，比对图上 derived_tables / 属性 column 引用，
+     * 报告已失效的表/列与受影响的节点/边。体：{dataSourceId}。只读。
+     */
+    @PostMapping("/{id}/schema-drift")
+    public ResponseEntity<Map<String, Object>> schemaDrift(@PathVariable String id,
+                                                           @RequestBody Map<String, Object> body) throws IOException {
+        if (svc.get(id) == null) return ResponseEntity.notFound().build();
+        Object ds = body == null ? null : body.get("dataSourceId");
+        if (ds == null || String.valueOf(ds).isBlank()) {
+            throw new IllegalArgumentException("缺少 dataSourceId");
+        }
+        return ResponseEntity.ok(schemaDriftService.detect(id, String.valueOf(ds)));
     }
 
     /**

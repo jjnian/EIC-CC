@@ -139,3 +139,21 @@ export function recordBuildSources(modelId: string, sources: { experienceId: str
     body: JSON.stringify({ sources }),
   });
 }
+
+/** Schema 漂移检测结果。 */
+export interface SchemaDriftResult {
+  database: string;
+  schemaTables: number;
+  referencedTables: number;
+  okTables: number;
+  missingTables: { table: string; nodes: string[]; edges: string[] }[];
+  missingColumns: { table: string; column: string; nodes: string[] }[];
+}
+
+/** Schema 漂移检测：比对图上表/列引用与数据源最新 schema，报告失效引用。 */
+export function detectSchemaDrift(modelId: string, dataSourceId: string) {
+  return request<SchemaDriftResult>(`/api/ontology-models/${encodeURIComponent(modelId)}/schema-drift`, {
+    method: 'POST',
+    body: JSON.stringify({ dataSourceId }),
+  });
+}

@@ -858,6 +858,7 @@ backend/src/main/java/com/tuiyan/backend/
 | `GET` | `/api/ontology-models/{id}/versions` | 列出版本快照 |
 | `POST` | `/api/ontology-models/{id}/versions/{timestamp}/restore` | 恢复到指定版本 |
 | `POST` | `/api/ontology-models/{id}/build-sources` | 回写建图来源记录（`{sources:[{experienceId, contentHash}]}`，增量建图据此跳过未变更经验） |
+| `POST` | `/api/ontology-models/{id}/schema-drift` | Schema 漂移检测（`{dataSourceId}`）：比对图上表/列引用与数据源最新 schema，报告失效血缘 |
 
 ### 对话历史
 

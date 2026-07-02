@@ -146,9 +146,11 @@ const analysisOpen = ref(false);
         :nodes="nodes"
         :edges="edges"
         :selectedId="selectedId"
+        :model-id="modelId"
         @close="analysisOpen = false"
         @focus-node="(id) => emit('focus-node', id)"
         @highlight-diff="(d) => emit('highlight-diff', d)"
+        @update-edge-schema="(id, patch) => emit('update-edge-schema', id, patch)"
       />
       <!-- 图分析按钮（悬浮在画布右上角） -->
       <Button

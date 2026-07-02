@@ -186,6 +186,13 @@ public class DataSourceService {
         return schemaInfoDtoMapper.toMap(info);
     }
 
+    /** 内省 schema 的原始结构（含归属校验）：Schema 漂移检测等内部比对用，不经 DTO 转换。 */
+    public JdbcConnectorService.DatabaseSchemaInfo introspectSchemaInfo(String id) {
+        DataSourcePO po = ensureOwnership(id);
+        requireJdbc(po);
+        return jdbc.introspectSchema(po.getKind(), repo.readConfig(po), 500);
+    }
+
     /** 采样的最大表数与每表最大行数：防大库打太多查询 / 经验正文过长。 */
     private static final int SAMPLE_MAX_TABLES = 60;
     private static final int SAMPLE_MAX_PER_TABLE = 10;
