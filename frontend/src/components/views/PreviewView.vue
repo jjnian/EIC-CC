@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 
 const params = new URLSearchParams(window.location.search);
 const modelId = params.get('preview') || '';
-const branchParam = params.get('branch') || ''; // 预留:未来支持指定分支预览
 
 const model = ref<OntologyModel | null>(null);
 const nodes = ref<OntologyNode[]>([]);
@@ -98,7 +97,6 @@ onMounted(load);
       />
     </div>
 
-    <div class="pv-foot" v-if="branchParam">分支: {{ branchParam }}</div>
   </div>
 </template>
 

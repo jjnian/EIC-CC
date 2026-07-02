@@ -54,7 +54,7 @@ public class ExperienceOntologyService {
     private final ExperienceRepository repo;
     private final ExtractionLlmService extractionLlmService;
     private final ExtractionGraphMerger merger;
-    /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 predictionExecutor 造成自饿死。 */
+    /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
     private final ExecutorService batchExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_BATCHES, r -> {
         Thread t = new Thread(r, "exp-ontology-batch");
         t.setDaemon(true);

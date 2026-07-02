@@ -36,7 +36,7 @@ public class ExploreController {
 
     public ExploreController(ExplorationAgentService agent,
                              ExperienceRepository experienceRepo,
-                             @Qualifier("predictionExecutor") AsyncTaskExecutor taskExecutor) {
+                             @Qualifier("appTaskExecutor") AsyncTaskExecutor taskExecutor) {
         this.agent = agent;
         this.experienceRepo = experienceRepo;
         this.taskExecutor = taskExecutor;

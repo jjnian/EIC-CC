@@ -1,4 +1,4 @@
-import { ref, computed, nextTick } from 'vue';
+import { ref, nextTick } from 'vue';
 import type { OntologyNode } from '../types';
 
 export interface CanvasContextMenuCtx {
@@ -9,9 +9,7 @@ export interface CanvasContextMenuCtx {
   multiSel: Set<string>;
   getReadonly: () => boolean | undefined;
   emitSelect: (id: string | null) => void;
-  emitPredictFrom: (id: string) => void;
   emitEditNode: (id: string) => void;
-  emitExplainNode: (id: string) => void;
   emitDeleteNode: (id: string) => void;
   emitDeleteNodes: (ids: string[]) => void;
   emitAddNode: (payload: { mode: 'object'; label: string; x: number; y: number; inputs: { nodeId: string; edgeLabel: string }[]; outputs: { nodeId: string; edgeLabel: string }[] }) => void;
@@ -71,34 +69,12 @@ export function useCanvasContextMenu(ctx: CanvasContextMenuCtx) {
 
   const closeCtx = () => { ctxMenu.value = null; addNodeForm.value = null; };
 
-  const triggerPredict = () => {
-    if (ctxMenu.value) {
-      ctx.emitPredictFrom(ctxMenu.value.id);
-      ctxMenu.value = null;
-    }
-  };
-
   const triggerEdit = () => {
     if (ctxMenu.value) {
       ctx.emitEditNode(ctxMenu.value.id);
       ctxMenu.value = null;
     }
   };
-
-  // P1-7:对预测节点请求详细解释(依据 / 假设 / 反例)
-  const triggerExplain = () => {
-    if (ctxMenu.value) {
-      ctx.emitExplainNode(ctxMenu.value.id);
-      ctxMenu.value = null;
-    }
-  };
-
-  /** 当前右键菜单作用的节点是否为推演节点(用于决定是否显示"为什么"项)。 */
-  const ctxNodeIsPredicted = computed(() => {
-    if (!ctxMenu.value) return false;
-    const node = ctx.getNodes().find(n => n.id === ctxMenu.value!.id);
-    return node?.source === 'predicted';
-  });
 
   const triggerDelete = () => {
     if (ctxMenu.value) {
@@ -170,10 +146,7 @@ export function useCanvasContextMenu(ctx: CanvasContextMenuCtx) {
     onNodeContext,
     onCanvasContext,
     closeCtx,
-    triggerPredict,
     triggerEdit,
-    triggerExplain,
-    ctxNodeIsPredicted,
     triggerDelete,
     triggerBatchDelete,
     submitAddNode,

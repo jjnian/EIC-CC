@@ -27,7 +27,6 @@ const sourceBadge = (s?: string) => {
   if (s === 'inferred')  return { text: 'AI推理',   color: '#bb77ff' };
   if (s === 'derived')   return { text: '文本提取', color: '#22dd88' };
   if (s === 'manual')    return { text: '手动',     color: '#3d9bff' };
-  if (s === 'predicted') return { text: '推演',     color: '#fbbf24' };
   return { text: '预置', color: '#888' };
 };
 

@@ -47,7 +47,7 @@ export function useOntologyModel(ctx: OntologyModelCtx) {
     const name = target?.title || target?.name || '该血缘图';
     const ok = await confirm({
       title: '删除血缘图',
-      message: `确定删除「${name}」?关联的推演分支不会自动清除。`,
+      message: `确定删除「${name}」?此操作无法撤销。`,
       confirmLabel: '删除',
       danger: true,
     });

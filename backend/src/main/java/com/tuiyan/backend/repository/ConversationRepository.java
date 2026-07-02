@@ -18,7 +18,7 @@ import java.util.Map;
 
 /**
  * 对话历史仓储：处理 Conversation 与底层 conversation + conversation_message 表的转换。
- * <p>消息中除 role / content 外的扩展字段（附件、@引用、推演消息等）整体序列化为 payload_json。
+ * <p>消息中除 role / content 外的扩展字段（附件、@引用等）整体序列化为 payload_json。
  */
 @Repository
 public class ConversationRepository {

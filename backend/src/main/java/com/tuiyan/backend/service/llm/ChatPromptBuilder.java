@@ -89,7 +89,7 @@ public class ChatPromptBuilder {
             boolean focused = false;
             if (!anchorIds.isEmpty() && (totalNodes > GraphSummarizer.CONTEXT_NODE_BUDGET / 2
                     || totalEdges > GraphSummarizer.CONTEXT_EDGE_BUDGET / 2)) {
-                GraphPromptBuilder.TruncatedGraph tg = graphSummarizer.truncateGraphForContext(nodes, edges, anchorIds, null);
+                GraphPromptBuilder.TruncatedGraph tg = graphSummarizer.truncateGraphForContext(nodes, edges, anchorIds);
                 if (tg.droppedNodes() > 0 || tg.droppedEdges() > 0) {
                     nodesForPrompt = tg.nodes();
                     edgesForPrompt = tg.edges();

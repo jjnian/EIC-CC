@@ -57,7 +57,7 @@ public class ExperienceController {
                                 ExperienceFileService fileService,
                                 ExperienceOntologyService experienceOntology,
                                 ObjectStorage storage,
-                                @Qualifier("predictionExecutor") AsyncTaskExecutor taskExecutor) {
+                                @Qualifier("appTaskExecutor") AsyncTaskExecutor taskExecutor) {
         this.repo = repo;
         this.indexService = indexService;
         this.fileService = fileService;

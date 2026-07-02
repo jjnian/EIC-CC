@@ -55,12 +55,12 @@ public class DocumentExtractionService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DocumentExtractionService(ExtractionLlmService extractionLlmService,
-                                     @Qualifier("predictionExecutor") ThreadPoolTaskExecutor predictionExecutor,
+                                     @Qualifier("appTaskExecutor") ThreadPoolTaskExecutor appTaskExecutor,
                                      DataSourceRepository dataSourceRepository,
                                      List<SourceFileHandler> fileHandlers,
                                      com.tuiyan.backend.service.indexing.DataSourceIndexService dataSourceIndexService) {
         this.extractionLlmService = extractionLlmService;
-        this.urlFetchExecutor = predictionExecutor;
+        this.urlFetchExecutor = appTaskExecutor;
         this.dataSourceRepository = dataSourceRepository;
         this.fileHandlers = fileHandlers;
         this.dataSourceIndexService = dataSourceIndexService;
@@ -261,7 +261,7 @@ public class DocumentExtractionService {
 
     /**
      * URL 列表抓取：并行（最多 5 个）跑 Jsoup 静态 → Playwright 兜底。
-     * <p>用 predictionExecutor 调度，避免串行最差 5 × (15s + 25s) ≈ 200s 的延迟。
+     * <p>用 appTaskExecutor 调度，避免串行最差 5 × (15s + 25s) ≈ 200s 的延迟。
      * 顺序与输入一致，失败的 URL 留 reason 在对应位置。
      */
     private void processUrls(List<String> urls, ExtractionContext ctx) {

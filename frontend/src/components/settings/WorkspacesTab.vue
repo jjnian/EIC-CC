@@ -96,7 +96,7 @@ const remove = async (w: Workspace) => {
   }
   const ok = await uiConfirm({
     title: '删除工作空间',
-    message: `「${w.name}」内的本体图、推演分支、对话与模板将一并清空，且无法恢复。确定继续吗？`,
+    message: `「${w.name}」内的本体血缘图、对话与模板将一并清空，且无法恢复。确定继续吗？`,
     confirmLabel: '删除',
     danger: true,
   });
@@ -118,7 +118,7 @@ const formatTime = (ts?: number) => ts ? new Date(ts).toLocaleString() : '';
     <div class="sv-section-head">
       <div>
         <h3>工作空间</h3>
-        <p>每个工作空间相互隔离；删除会一并清空其下的本体图、推演与对话。</p>
+        <p>每个工作空间相互隔离；删除会一并清空其下的本体血缘图与对话。</p>
       </div>
       <Button size="sm" @click="openCreate">＋新建</Button>
     </div>

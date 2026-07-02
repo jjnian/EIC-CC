@@ -11,7 +11,7 @@ export interface NodeColoringCtx {
 }
 
 /**
- * 节点 / 边的着色与筛选:图例类型筛选、热力图概率色阶、分支对比着色、
+ * 节点 / 边的着色与筛选:图例类型筛选、对比/血缘高亮着色、
  * 邻居高亮集合、类型样式查表。从 GraphCanvas.vue 抽出以降低主组件行数。
  */
 export function useNodeColoring(ctx: NodeColoringCtx) {
@@ -38,19 +38,9 @@ export function useNodeColoring(ctx: NodeColoringCtx) {
     return (fn && fn.type === typeFilter.value) || (tn && tn.type === typeFilter.value);
   };
 
-  /* ── 热力图 / 差异着色 ── */
-  const heatmapMode = ref(false);
+  /* ── 差异着色 ── */
 
-  /** 热力图模式下,预测节点根据 effectiveProbability 在绿→黄→红之间渐变。 */
-  const heatColor = (n: any) => {
-    if (!heatmapMode.value || n.source !== 'predicted') return null;
-    const p = n.effectiveProbability || n.confidence || 0;
-    // HSL 色相:0=红,60=黄,120=绿;线性映射 p∈[0,1] → h∈[0,120]
-    const h = p * 120;
-    return `hsl(${h}, 80%, 45%)`;
-  };
-
-  /** 分支对比着色:蓝=A 独有,橙=B 独有,紫=共同;优先级高于热力图。 */
+  /** 对比着色:蓝=A 独有,橙=B 独有,紫=共同(图分析/血缘高亮共用)。 */
   const diffColor = (n: any) => {
     const diff = ctx.getDiffHighlight();
     if (!diff) return null;
@@ -80,8 +70,6 @@ export function useNodeColoring(ctx: NodeColoringCtx) {
     toggleEdgeFilter,
     matchesFilter,
     edgeMatchesFilter,
-    heatmapMode,
-    heatColor,
     diffColor,
     getT,
     neighborIds,

@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 
 /**
- * https_api 数据源定时拉取调度器。单线程池避免阻塞推演线程；
+ * https_api 数据源定时拉取调度器。单线程池避免占用业务任务线程；
  * 每个数据源最多注册一个任务；连续失败 5 次自动停用。
  */
 @Service

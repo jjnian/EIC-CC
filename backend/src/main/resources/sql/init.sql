@@ -50,11 +50,7 @@ CREATE TABLE IF NOT EXISTS ontology_node (
     derived_database        VARCHAR(255),
     x                       DOUBLE PRECISION,
     y                       DOUBLE PRECISION,
-    predicted_step          INTEGER,
-    predicted_intent        VARCHAR(16),
     confidence              DOUBLE PRECISION,
-    effective_probability   DOUBLE PRECISION,
-    explanation             TEXT,
     evidence                TEXT,                                        -- 该节点的证据(≤30字引文/出处)，血缘可审计
     PRIMARY KEY (model_id, id)
 );
@@ -143,11 +139,7 @@ CREATE TABLE IF NOT EXISTS ontology_version_node (
     derived_database        VARCHAR(255),
     x                       DOUBLE PRECISION,
     y                       DOUBLE PRECISION,
-    predicted_step          INTEGER,
-    predicted_intent        VARCHAR(16),
     confidence              DOUBLE PRECISION,
-    effective_probability   DOUBLE PRECISION,
-    explanation             TEXT,
     evidence                TEXT,
     PRIMARY KEY (version_id, node_id)
 );
@@ -203,104 +195,6 @@ ALTER TABLE ontology_version_edge
     ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION;
 
 -- ---------------------------------------------------------------------------
--- 3. 推演分支（Scenario）
--- ---------------------------------------------------------------------------
-
--- 分支元信息
-CREATE TABLE IF NOT EXISTS scenario (
-    id                  VARCHAR(64)  PRIMARY KEY,
-    model_id            VARCHAR(64)  NOT NULL REFERENCES ontology_model(id) ON DELETE CASCADE,
-    parent_branch_id    VARCHAR(64),                                  -- 父分支 id；null 表示从 trunk 创建
-    name                VARCHAR(255),
-    intent              VARCHAR(16),                                  -- forward | backward
-    steps               INTEGER      NOT NULL DEFAULT 0,
-    prompt              TEXT,
-    raw_prompt          TEXT,                                         -- 本次发给 LLM 的完整 prompt 快照
-    created_at          BIGINT       NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_scenario_model
-    ON scenario (model_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_scenario_parent
-    ON scenario (parent_branch_id);
-
--- 起点节点（seeds）
-CREATE TABLE IF NOT EXISTS scenario_seed (
-    scenario_id  VARCHAR(64)  NOT NULL REFERENCES scenario(id) ON DELETE CASCADE,
-    node_id      VARCHAR(64)  NOT NULL,
-    sort_no      INTEGER      NOT NULL DEFAULT 0,
-    PRIMARY KEY (scenario_id, node_id)
-);
-
--- DAG 增量节点（仅本分支新增）
-CREATE TABLE IF NOT EXISTS scenario_node (
-    scenario_id             VARCHAR(64)      NOT NULL REFERENCES scenario(id) ON DELETE CASCADE,
-    node_id                 VARCHAR(64)      NOT NULL,
-    label                   VARCHAR(255),
-    type                    VARCHAR(32),
-    source                  VARCHAR(32),
-    x                       DOUBLE PRECISION,
-    y                       DOUBLE PRECISION,
-    predicted_step          INTEGER,
-    confidence              DOUBLE PRECISION,
-    effective_probability   DOUBLE PRECISION,
-    explanation             TEXT,
-    PRIMARY KEY (scenario_id, node_id)
-);
-
--- DAG 增量边（仅本分支新增）
-CREATE TABLE IF NOT EXISTS scenario_edge (
-    scenario_id    VARCHAR(64)  NOT NULL REFERENCES scenario(id) ON DELETE CASCADE,
-    edge_id        VARCHAR(64)  NOT NULL,
-    from_node_id   VARCHAR(64)  NOT NULL,
-    to_node_id     VARCHAR(64)  NOT NULL,
-    label          VARCHAR(255),
-    source         VARCHAR(32),
-    rule_driven    BOOLEAN      NOT NULL DEFAULT FALSE,
-    rule_id        VARCHAR(64),
-    PRIMARY KEY (scenario_id, edge_id)
-);
-
--- 推演链（按 step_no 顺序）
-CREATE TABLE IF NOT EXISTS scenario_chain_step (
-    id                      BIGSERIAL        PRIMARY KEY,
-    scenario_id             VARCHAR(64)      NOT NULL REFERENCES scenario(id) ON DELETE CASCADE,
-    step_no                 INTEGER          NOT NULL,
-    node_id                 VARCHAR(64)      NOT NULL,
-    triggered_by_json       TEXT,                                     -- 上游节点 id 数组的 JSON 序列化
-    rule_id                 VARCHAR(64),
-    explanation             TEXT,
-    confidence              DOUBLE PRECISION,
-    effective_probability   DOUBLE PRECISION,
-    cumulative_credibility  DOUBLE PRECISION
-);
-CREATE INDEX IF NOT EXISTS idx_chain_step_scenario
-    ON scenario_chain_step (scenario_id, step_no);
-
--- what-if 约束
-CREATE TABLE IF NOT EXISTS scenario_constraint (
-    id            BIGSERIAL        PRIMARY KEY,
-    scenario_id   VARCHAR(64)      NOT NULL REFERENCES scenario(id) ON DELETE CASCADE,
-    node_id       VARCHAR(64)      NOT NULL,
-    mode          VARCHAR(16)      NOT NULL,                          -- force | block | probability
-    note          TEXT,
-    probability   DOUBLE PRECISION
-);
-CREATE INDEX IF NOT EXISTS idx_scenario_constraint_owner
-    ON scenario_constraint (scenario_id);
-
--- 节点三段式解释缓存
-CREATE TABLE IF NOT EXISTS scenario_node_explanation (
-    scenario_id        VARCHAR(64)  NOT NULL REFERENCES scenario(id) ON DELETE CASCADE,
-    node_id            VARCHAR(64)  NOT NULL,
-    evidence           TEXT,
-    assumptions        TEXT,
-    counterexamples    TEXT,
-    generated_at       BIGINT,
-    model_name         VARCHAR(128),
-    PRIMARY KEY (scenario_id, node_id)
-);
-
--- ---------------------------------------------------------------------------
 -- 4. 对话历史
 -- ---------------------------------------------------------------------------
 
@@ -348,22 +242,6 @@ CREATE TABLE IF NOT EXISTS graph_template (
 CREATE INDEX IF NOT EXISTS idx_graph_template_updated
     ON graph_template (updated_at DESC);
 
--- 假设模板：seeds/constraints 序列化为 JSON
-CREATE TABLE IF NOT EXISTS hypothesis_template (
-    id                  VARCHAR(64)  PRIMARY KEY,
-    model_id            VARCHAR(64),
-    name                VARCHAR(255),
-    intent              VARCHAR(16),
-    steps               INTEGER,
-    prompt              TEXT,
-    seeds_json          TEXT,
-    constraints_json    TEXT,
-    created_at          BIGINT       NOT NULL,
-    last_used_at        BIGINT
-);
-CREATE INDEX IF NOT EXISTS idx_hypothesis_template_model
-    ON hypothesis_template (model_id, last_used_at DESC);
-
 -- ---------------------------------------------------------------------------
 -- 5.5 数据源（导入过的文档 / 网页）
 -- 每次成功 extract 后写一行；按工作空间隔离，删除工作空间时级联清理。
@@ -408,22 +286,16 @@ CREATE INDEX IF NOT EXISTS idx_fetch_log_ds_at
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE ontology_model      ADD COLUMN IF NOT EXISTS workspace_id VARCHAR(64);
-ALTER TABLE scenario            ADD COLUMN IF NOT EXISTS workspace_id VARCHAR(64);
 ALTER TABLE conversation        ADD COLUMN IF NOT EXISTS workspace_id VARCHAR(64);
 ALTER TABLE graph_template      ADD COLUMN IF NOT EXISTS workspace_id VARCHAR(64);
-ALTER TABLE hypothesis_template ADD COLUMN IF NOT EXISTS workspace_id VARCHAR(64);
 
 UPDATE ontology_model      SET workspace_id = 'ws_default' WHERE workspace_id IS NULL;
-UPDATE scenario            SET workspace_id = 'ws_default' WHERE workspace_id IS NULL;
 UPDATE conversation        SET workspace_id = 'ws_default' WHERE workspace_id IS NULL;
 UPDATE graph_template      SET workspace_id = 'ws_default' WHERE workspace_id IS NULL;
-UPDATE hypothesis_template SET workspace_id = 'ws_default' WHERE workspace_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_ontology_model_ws      ON ontology_model      (workspace_id);
-CREATE INDEX IF NOT EXISTS idx_scenario_ws            ON scenario            (workspace_id);
 CREATE INDEX IF NOT EXISTS idx_conversation_ws        ON conversation        (workspace_id);
 CREATE INDEX IF NOT EXISTS idx_graph_template_ws      ON graph_template      (workspace_id);
-CREATE INDEX IF NOT EXISTS idx_hypothesis_template_ws ON hypothesis_template (workspace_id);
 
 -- ---------------------------------------------------------------------------
 -- 7. 数据源向量索引
@@ -561,6 +433,28 @@ CREATE TABLE IF NOT EXISTS node_data_binding (
 );
 CREATE INDEX IF NOT EXISTS idx_ndb_model_node ON node_data_binding (model_id, node_id);
 CREATE INDEX IF NOT EXISTS idx_ndb_ws ON node_data_binding (workspace_id);
+
+-- ---------------------------------------------------------------------------
+-- 8.5 推演功能移除（老库清理）：平台聚焦业务血缘图构建，推演分支相关表与字段一并下线
+-- ---------------------------------------------------------------------------
+DROP TABLE IF EXISTS scenario_node_explanation;
+DROP TABLE IF EXISTS scenario_constraint;
+DROP TABLE IF EXISTS scenario_chain_step;
+DROP TABLE IF EXISTS scenario_edge;
+DROP TABLE IF EXISTS scenario_node;
+DROP TABLE IF EXISTS scenario_seed;
+DROP TABLE IF EXISTS scenario;
+DROP TABLE IF EXISTS hypothesis_template;
+ALTER TABLE ontology_node
+    DROP COLUMN IF EXISTS predicted_step,
+    DROP COLUMN IF EXISTS predicted_intent,
+    DROP COLUMN IF EXISTS effective_probability,
+    DROP COLUMN IF EXISTS explanation;
+ALTER TABLE ontology_version_node
+    DROP COLUMN IF EXISTS predicted_step,
+    DROP COLUMN IF EXISTS predicted_intent,
+    DROP COLUMN IF EXISTS effective_probability,
+    DROP COLUMN IF EXISTS explanation;
 
 -- ---------------------------------------------------------------------------
 -- 9. 公共库 + 工作空间引用（reference）

@@ -40,7 +40,7 @@ public class ChatLlmService {
 
     // 单次对话最多展示的"逐个构建"步骤数，避免大量实体淹没时间线；超出由 merging_graph 汇总兜底
     private static final int MAX_BUILD_STEPS = 24;
-    // 每条构建步骤之间的间隔，制造"逐步生长"的视觉节奏（与推演编排一致）
+    // 每条构建步骤之间的间隔，制造"逐步生长"的视觉节奏
     private static final long BUILD_STEP_DELAY_MS = 70;
 
     private final ObjectMapper objectMapper = new ObjectMapper();

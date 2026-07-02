@@ -9,7 +9,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /**
  * 异步任务线程池配置。
- * <p>当前只有推演任务使用：controller 收到 SSE 请求后立即返回 emitter，
+ * <p>供 SSE 长任务（抽取 / 建图 / 探索）使用：controller 收到请求后立即返回 emitter，
  * 把耗时的 LLM 调用 + 流式推送丢到本线程池，避免占用 Tomcat 工作线程。
  */
 @Configuration
@@ -17,26 +17,26 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 public class AsyncConfig {
 
     /**
-     * 推演任务专用线程池。
+     * 应用级异步任务线程池。
      * <ul>
-     *   <li>core=4, max=8：单机本地工具，推演大多受限于 LLM 网络耗时，4~8 并发足够；</li>
+     *   <li>core=4, max=8：单机本地工具，任务大多受限于 LLM 网络耗时，4~8 并发足够；</li>
      *   <li>queue=50：防止突发请求超出 max 后被直接拒绝；</li>
-     *   <li>WaitForTasksToCompleteOnShutdown=true：JVM 退出时让正在跑的推演自然结束（最长 20s）。</li>
+     *   <li>WaitForTasksToCompleteOnShutdown=true：JVM 退出时让正在跑的任务自然结束（最长 20s）。</li>
      * </ul>
      * <p>返回类型声明为具体的 {@link ThreadPoolTaskExecutor}：DocumentExtractionService
-     * 注入时需要这个具体类型；ScenarioController 等用 TaskExecutor 接口的地方也能向上兼容。
+     * 注入时需要这个具体类型；用 TaskExecutor 接口的地方也能向上兼容。
      */
-    @Bean(name = "predictionExecutor")
-    public ThreadPoolTaskExecutor predictionExecutor() {
+    @Bean(name = "appTaskExecutor")
+    public ThreadPoolTaskExecutor appTaskExecutor() {
         ThreadPoolTaskExecutor exec = new ThreadPoolTaskExecutor();
         exec.setCorePoolSize(4);
         exec.setMaxPoolSize(8);
         exec.setQueueCapacity(50);
-        exec.setThreadNamePrefix("predict-");
+        exec.setThreadNamePrefix("task-");
         exec.setWaitForTasksToCompleteOnShutdown(true);
         exec.setAwaitTerminationSeconds(20);
         // 把提交线程（Tomcat 请求线程）的 WorkspaceContext 透传到工作线程：
-        // 推演 / 解释等任务在 worker 线程上落盘 scenario 时需要 WorkspaceContext.required()，
+        // 建图 / 抽取等任务在 worker 线程上落库时需要 WorkspaceContext.required()，
         // 而 ThreadLocal 不会自动随线程池传播。worker 线程复用，故任务结束必须还原。
         exec.setTaskDecorator(workspacePropagatingDecorator());
         exec.initialize();

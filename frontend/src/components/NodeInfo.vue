@@ -542,7 +542,7 @@ const startResize = (e: MouseEvent) => {
                     <tbody>
                       <tr><td class="ni-kv-k">总节点数</td><td class="ni-kv-v strong">{{ nodes.length }} <span class="ni-unit">实体</span></td></tr>
                       <tr><td class="ni-kv-k">总关系数</td><td class="ni-kv-v strong">{{ edges.length }} <span class="ni-unit">流向</span></td></tr>
-                      <tr><td class="ni-kv-k">推演引擎</td><td class="ni-kv-v"><span class="ni-chip ok">● 实时就绪</span></td></tr>
+                      <tr><td class="ni-kv-k">建模引擎</td><td class="ni-kv-v"><span class="ni-chip ok">● 实时就绪</span></td></tr>
                     </tbody>
                   </table>
                 </div>
