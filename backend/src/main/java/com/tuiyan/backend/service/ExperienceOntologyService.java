@@ -57,6 +57,7 @@ public class ExperienceOntologyService {
     private final ExtractionGraphMerger merger;
     private final OntologyVocabService vocabService;
     private final EntityAlignmentService alignmentService;
+    private final ExistingGraphContextService graphContextService;
     private final com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo;
     private final com.tuiyan.backend.repository.OntologyModelRepository modelRepo;
     /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
@@ -71,6 +72,7 @@ public class ExperienceOntologyService {
                                      ExtractionGraphMerger merger,
                                      OntologyVocabService vocabService,
                                      EntityAlignmentService alignmentService,
+                                     ExistingGraphContextService graphContextService,
                                      com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo,
                                      com.tuiyan.backend.repository.OntologyModelRepository modelRepo) {
         this.repo = repo;
@@ -78,6 +80,7 @@ public class ExperienceOntologyService {
         this.merger = merger;
         this.vocabService = vocabService;
         this.alignmentService = alignmentService;
+        this.graphContextService = graphContextService;
         this.buildSourceRepo = buildSourceRepo;
         this.modelRepo = modelRepo;
     }
@@ -244,6 +247,17 @@ public class ExperienceOntologyService {
             }
         }
 
+        // 既有图检索回灌（第三阶段，仅增量建图）：从要合并进的既有模型里检索相关概念注入各批抽取，
+        // 让新内容连回既有图谱，不在每次增量时断链。构建失败返回空 context（不回灌），不阻塞建图。
+        ExistingGraphContextService.Context graphCtx = null;
+        if (incremental && !batches.isEmpty()) {
+            step.emit("graph_ctx", "正在载入既有图谱作为增量回灌上下文…");
+            graphCtx = graphContextService.build(incrementalModelId);
+            step.emit("graph_ctx_done", graphCtx.isEmpty()
+                    ? "既有图谱为空或不可用，本次增量不做回灌"
+                    : "已就绪既有图谱回灌上下文，将为各批注入相关既有概念以连回图谱");
+        }
+
         JsonNode draft;
         int failedBatches = 0;
         if (batches.isEmpty()) {
@@ -252,7 +266,7 @@ public class ExperienceOntologyService {
             draft = emptyGraph();
         } else {
             step.emit("llm_call", "正在并行调用大模型分 " + batches.size() + " 批从经验库构建本体血缘图…");
-            BatchOutcome outcome = extractBatchesParallel(batches, vocab, modelOverride, configId, workspaceId, step);
+            BatchOutcome outcome = extractBatchesParallel(batches, vocab, graphCtx, modelOverride, configId, workspaceId, step);
             draft = outcome.graph();
             failedBatches = outcome.failed();
             if (failedBatches > 0) {
@@ -366,12 +380,14 @@ public class ExperienceOntologyService {
     private record BatchOutcome(JsonNode graph, int total, int failed, java.util.Set<String> failedExpIds) {}
 
     private BatchOutcome extractBatchesParallel(List<Batch> batches, OntologyVocabService.Vocab vocab,
+                                                ExistingGraphContextService.Context graphCtx,
                                                 String modelOverride, String configId,
                                                 String workspaceId, StepSink step) {
         int n = batches.size();
         // 词表 preface：注入每批抽取的 user prompt 顶部，统一命名口径（空词表返回空串，行为回退到无骨架）
         final String vocabPreface = vocabService.preface(vocab);
         final OntologyVocabService.Vocab vocabRef = vocab;
+        final ExistingGraphContextService.Context ctxRef = graphCtx;
         List<CompletableFuture<JsonNode>> futures = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
             final Batch batch = batches.get(i);
@@ -384,7 +400,12 @@ public class ExperienceOntologyService {
                         WorkspaceContext.set(workspaceId);
                         ctxSet = true;
                     }
-                    JsonNode part = extractBatchWithRetry(batch, vocabPreface, modelOverride, configId, idx, n);
+                    // 词表规约 + 既有图检索回灌，一并前置到本批（增量时 ctxRef 非空才检索既有概念）
+                    String preface = vocabPreface;
+                    if (ctxRef != null && !ctxRef.isEmpty()) {
+                        preface = preface + ctxRef.prefaceFor(batch.text());
+                    }
+                    JsonNode part = extractBatchWithRetry(batch, preface, modelOverride, configId, idx, n);
                     if (part == null) return null;
                     // 服务端确定性归一：LLM 对词表 preface 的遵循不可靠，这里把命中别名的 label
                     // 强制改写为规范名 + 补 type，归一后的同名节点由随后的 label+type 合并自然折叠
@@ -478,18 +499,33 @@ public class ExperienceOntologyService {
         }
         if (groups.size() < 2) return draft; // 单批建图没有跨批断裂
 
+        // 实体清单超上限时按度数降序取前 N：枢纽节点承载的跨批关系最多，比"取前 N 个"更值得保留
+        Map<String, Integer> degree = new java.util.HashMap<>();
+        if (edges.isArray()) {
+            for (JsonNode e : edges) {
+                degree.merge(e.path("from").asText(""), 1, Integer::sum);
+                degree.merge(e.path("to").asText(""), 1, Integer::sum);
+            }
+        }
+        List<JsonNode> ordered = new ArrayList<>();
+        for (JsonNode nd : nodes) if (!nd.path("id").asText("").isEmpty()) ordered.add(nd);
+        if (ordered.size() > CROSS_LINK_MAX_ENTITIES) {
+            ordered.sort((a, b) -> Integer.compare(
+                    degree.getOrDefault(b.path("id").asText(""), 0),
+                    degree.getOrDefault(a.path("id").asText(""), 0)));
+        }
+
         StringBuilder roster = new StringBuilder("【实体清单】(id | label | type | 批组)\n");
         int listed = 0;
-        for (JsonNode n : nodes) {
+        for (JsonNode n : ordered) {
             if (listed >= CROSS_LINK_MAX_ENTITIES) break;
             String id = n.path("id").asText("");
-            if (id.isEmpty()) continue;
             roster.append(id).append(" | ").append(n.path("label").asText(""))
                   .append(" | ").append(n.path("type").asText(""))
                   .append(" | ").append(groupOf.get(id)).append('\n');
             listed++;
         }
-        boolean truncated = nodes.size() > listed;
+        boolean truncated = ordered.size() > listed;
         roster.append("\n【已存在的关系对】(请勿重复提出)\n");
         int pairs = 0;
         if (edges.isArray()) {
@@ -501,7 +537,7 @@ public class ExperienceOntologyService {
             }
         }
         step.emit("cross_link", "检测到 " + groups.size() + " 个独立抽取批组,正在补齐跨批关系…"
-                + (truncated ? "(实体较多,仅取前 " + CROSS_LINK_MAX_ENTITIES + " 个参与连边)" : ""));
+                + (truncated ? "(实体较多,按度数取前 " + CROSS_LINK_MAX_ENTITIES + " 个枢纽节点参与连边)" : ""));
 
         try {
             JsonNode result = extractionLlmService.extractRaw(
