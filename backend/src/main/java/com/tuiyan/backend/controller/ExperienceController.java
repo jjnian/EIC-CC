@@ -51,8 +51,8 @@ public class ExperienceController {
     private final AsyncTaskExecutor taskExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(ExperienceController.class);
-    /** 上传原件归档前缀，与数据源 datasource-files/ 平行。 */
-    private static final String FILE_PREFIX = "experience-files/";
+    /** 上传原件归档前缀，复用写入方的常量，保证删除清理与归档路径永远一致。 */
+    private static final String FILE_PREFIX = ExperienceFileService.FILE_PREFIX;
 
     public ExperienceController(ExperienceRepository repo,
                                 ExperienceIndexService indexService,

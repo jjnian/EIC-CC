@@ -26,8 +26,8 @@ import java.util.Map;
 public class ExperienceFileService {
 
     private static final Logger log = LoggerFactory.getLogger(ExperienceFileService.class);
-    /** 上传原件归档前缀，与数据源 datasource-files/ 平行。 */
-    private static final String FILE_PREFIX = "experience-files/";
+    /** 上传原件归档前缀，与数据源 datasource-files/ 平行。删除经验时按此前缀清理归档原件，须与写入路径一致。 */
+    public static final String FILE_PREFIX = "experience-files/";
 
     private final ExperienceRepository repo;
     private final FileStoredService fileStoredService;
