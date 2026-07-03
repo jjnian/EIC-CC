@@ -23,7 +23,12 @@ public class GraphSummarizer {
     // 从 mandatory 节点向外扩散的跳数；3 跳通常足够覆盖核心因果链
     static final int CONTEXT_HOPS = 3;
 
-    /** 把图谱压缩成 LLM 能读的可读文本（ASCII 表格风），节点 / 边各一段。 */
+    /**
+     * 把图谱压缩成 LLM 能读的可读文本（ASCII 表格风），节点 / 边各一段。
+     * <p>边行必须带 <b>edge id</b>：chat 编辑协议要求 LLM 在 remove_edges / update_edges 里
+     * 原样回填现有边的 id——摘要里不给 id，删边/改边就只能靠 LLM 编造、必然被防护过滤掉。
+     * rel_type 同理：不展示的话 LLM 既看不懂现有边语义，也无法按协议修改它。
+     */
     public String summarizeGraph(List<Map<String, Object>> nodes, List<Map<String, Object>> edges) {
         StringBuilder sb = new StringBuilder();
         if (nodes != null) {
@@ -36,17 +41,50 @@ public class GraphSummarizer {
             }
         }
         if (edges != null && !edges.isEmpty()) {
-            sb.append("边 (from -> to : label, rule_driven):\n");
+            sb.append("边 (edge_id | from -> to : label (rel_type), rule_driven):\n");
             for (Map<String, Object> e : edges) {
                 Object rd = e.get("rule_driven");
-                sb.append("  ").append(e.get("from"))
+                Object relType = e.get("rel_type");
+                sb.append("  ").append(e.get("id"))
+                  .append(" | ").append(e.get("from"))
                   .append(" -> ").append(e.get("to"))
-                  .append(" : ").append(e.getOrDefault("label", ""))
-                  .append(Boolean.TRUE.equals(rd) ? " [rule]" : "")
+                  .append(" : ").append(e.getOrDefault("label", ""));
+                if (relType != null && !String.valueOf(relType).isBlank()) {
+                    sb.append(" (").append(relType).append(")");
+                }
+                sb.append(Boolean.TRUE.equals(rd) ? " [rule]" : "")
                   .append("\n");
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * 无 @ 锚点时的自动种子：按「度数（连接的边数）从高到低」选出图的核心节点。
+     * <p>度数高的节点是图的枢纽，以它们为中心裁剪出的邻域最能代表整图结构；
+     * rule 节点无需在此选入——{@link #truncateGraphForContext} 会把它们强制并入 mandatory。
+     * 同度数时保持 nodes 原序（稳定输出，同一图两次调用产出一致的上下文）。
+     */
+    public List<String> autoSeeds(List<Map<String, Object>> nodes,
+                                  List<Map<String, Object>> edges,
+                                  int limit) {
+        if (nodes == null || nodes.isEmpty() || limit <= 0) return List.of();
+        Map<String, Integer> degree = new HashMap<>();
+        if (edges != null) {
+            for (Map<String, Object> e : edges) {
+                String f = String.valueOf(e.get("from"));
+                String t = String.valueOf(e.get("to"));
+                degree.merge(f, 1, Integer::sum);
+                degree.merge(t, 1, Integer::sum);
+            }
+        }
+        List<String> ids = new ArrayList<>(nodes.size());
+        for (Map<String, Object> n : nodes) {
+            Object id = n.get("id");
+            if (id != null) ids.add(String.valueOf(id));
+        }
+        ids.sort((a, b) -> Integer.compare(degree.getOrDefault(b, 0), degree.getOrDefault(a, 0)));
+        return ids.size() > limit ? new ArrayList<>(ids.subList(0, limit)) : ids;
     }
 
     /**

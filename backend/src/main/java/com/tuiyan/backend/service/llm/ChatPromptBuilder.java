@@ -99,6 +99,22 @@ public class ChatPromptBuilder {
                       .append(nodesForPrompt.size()).append(" / ").append(totalNodes).append(" 节点 + ")
                       .append(edgesForPrompt.size()).append(" / ").append(totalEdges).append(" 边)\n\n");
                 }
+            } else if (anchorIds.isEmpty() && (totalNodes > GraphSummarizer.CONTEXT_NODE_BUDGET
+                    || totalEdges > GraphSummarizer.CONTEXT_EDGE_BUDGET)) {
+                // 无 @ 锚点的兜底截断：没有这层保护时，几千节点的大图会被整图序列化进 prompt，
+                // 撑爆 context / 拖垮延迟。种子取「度数最高的核心节点」（rule 节点由截断器强制并入）。
+                List<String> seeds = graphSummarizer.autoSeeds(nodes, edges, 12);
+                GraphPromptBuilder.TruncatedGraph tg = graphSummarizer.truncateGraphForContext(nodes, edges, seeds);
+                if (tg.droppedNodes() > 0 || tg.droppedEdges() > 0) {
+                    nodesForPrompt = tg.nodes();
+                    edgesForPrompt = tg.edges();
+                    sb.append("(图谱较大,已自动聚焦到核心节点的 ").append(GraphSummarizer.CONTEXT_HOPS)
+                      .append("-hop 邻域: 保留 ")
+                      .append(nodesForPrompt.size()).append(" / ").append(totalNodes).append(" 节点 + ")
+                      .append(edgesForPrompt.size()).append(" / ").append(totalEdges)
+                      .append(" 边。未展示的节点/边依然存在于图中,不要因为看不到而重建或删除它们;")
+                      .append("如需操作未展示的部分,请让用户用 @ 引用它们)\n\n");
+                }
             }
             sb.append("Existing ontology graph (the user is incrementally extending this — do NOT recreate any of these; reuse the ids exactly when you need to reference them):\n");
             sb.append(graphSummarizer.summarizeGraph(nodesForPrompt, edgesForPrompt));
@@ -106,7 +122,8 @@ public class ChatPromptBuilder {
             sb.append("  - In add_nodes, include ONLY genuinely new entities/events/rules not already present above.\n");
             sb.append("  - If a concept already exists above, reuse its existing id in add_edges instead of creating a duplicate node.\n");
             sb.append("  - In add_edges, 'from'/'to' may reference existing node ids OR ids of nodes in your own add_nodes list.\n");
-            sb.append("  - Do not emit an edge that already exists above with the same (from, to, label).\n");
+            sb.append("  - Do not emit an edge that already exists above with the same (from, to, rel_type/label).\n");
+            sb.append("  - When deleting/modifying an edge (remove_edges / update_edges), copy its edge_id verbatim from the first column of the edge list above.\n");
             if (focused) {
                 sb.append("  - 用户已通过 @ 锚定了关注的节点;请优先围绕它们补全实体/关系,不要漂到与锚点无关的领域。\n");
             }

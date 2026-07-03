@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 节点 id 加盐重写：避免不同导入批次的 id 互相冲突。
@@ -17,6 +18,16 @@ import java.util.Map;
 public final class IdSaltRewriter {
 
     private static final ObjectMapper M = new ObjectMapper();
+
+    /**
+     * 展示性文本字段：内容是给人看的文案（名称/证据引文/描述/属性键值），不是 id 引用。
+     * 深度重写时跳过——否则 label 恰好叫 "n1" 这类与旧 id 撞名的文本会被误改写成加盐 id。
+     */
+    private static final Set<String> DISPLAY_TEXT_FIELDS = Set.of(
+            "label", "evidence", "desc", "description", "note", "title", "key", "value");
+
+    /** 展示性字符串数组字段：别名列表 / 来源表名，同样不是 id 引用，整个子树跳过。 */
+    private static final Set<String> DISPLAY_ARRAY_FIELDS = Set.of("aliases", "derived_tables");
 
     private IdSaltRewriter() {}
 
@@ -83,6 +94,8 @@ public final class IdSaltRewriter {
 
     /**
      * 递归把节点 / 边内所有字符串字段中等于 idMap.key 的值替换为 idMap.value。
+     * <p>展示性字段（{@link #DISPLAY_TEXT_FIELDS} / {@link #DISPLAY_ARRAY_FIELDS}）跳过：
+     * 它们承载的是文案而非 id 引用，与旧 id 撞名（如 label 恰好叫 "n1"）时不能被改写。
      * @param skipField 顶层要跳过的字段名（如 "id"），防止节点自身 id 字段被二次替换；递归到子节点时不再跳过
      */
     private static void remapStringsDeep(JsonNode node, Map<String, String> idMap, String skipField) {
@@ -96,9 +109,11 @@ public final class IdSaltRewriter {
                 JsonNode v = entry.getValue();
                 if (v.isTextual()) {
                     if (skipField != null && skipField.equals(fieldName)) continue;
+                    if (DISPLAY_TEXT_FIELDS.contains(fieldName)) continue;
                     String mapped = idMap.get(v.asText());
                     if (mapped != null) obj.put(fieldName, mapped);
                 } else if (v.isContainerNode()) {
+                    if (DISPLAY_ARRAY_FIELDS.contains(fieldName)) continue; // 展示性数组整棵跳过
                     // 子节点不再跳过任何字段名，第二层及以下的 "id" 字段也是引用
                     remapStringsDeep(v, idMap, null);
                 }
