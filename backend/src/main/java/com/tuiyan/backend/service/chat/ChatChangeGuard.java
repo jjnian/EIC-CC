@@ -103,11 +103,15 @@ public final class ChatChangeGuard {
                     continue;
                 }
                 outAddNodes.add(n);
-                if (!id.isEmpty()) keptNewIds.add(id);
+                if (!id.isEmpty()) {
+                    keptNewIds.add(id);
+                    // 同批内的重复 label 也折叠：后续同名 add 重映射到本节点，而不是双双入图
+                    if (!key.isEmpty()) labelToId.putIfAbsent(key, id);
+                }
             }
         }
         if (redrawn > 0) {
-            notices.add("已忽略 " + redrawn + " 个与现有图重复的节点（按名称合并到已有节点）");
+            notices.add("已忽略 " + redrawn + " 个重复的节点（按名称合并到同名节点）");
         }
 
         // ---- 2. add_edges：端点重映射 + 去重 + 丢弃悬空 ----
@@ -154,9 +158,9 @@ public final class ChatChangeGuard {
             outRemoveEdges = f.arrayNode();
         }
 
-        // ---- 4. 补丁白名单：只留允许字段；改 id 剥掉，改边端点须指向现有节点 ----
-        ArrayNode outUpdateNodes = sanitizePatches(updateNodes, existingNodeIds, NODE_PATCH_FIELDS, null, f);
-        ArrayNode outUpdateEdges = sanitizePatches(updateEdges, existingEdgeIds, EDGE_PATCH_FIELDS, existingNodeIds, f);
+        // ---- 4. 补丁白名单：只留允许字段；改 id / 改边端点（from/to 不在白名单）一律剥掉 ----
+        ArrayNode outUpdateNodes = sanitizePatches(updateNodes, existingNodeIds, NODE_PATCH_FIELDS, f);
+        ArrayNode outUpdateEdges = sanitizePatches(updateEdges, existingEdgeIds, EDGE_PATCH_FIELDS, f);
 
         return new Guarded(outAddNodes, outAddEdges, outRemoveNodes, outRemoveEdges,
                 outUpdateNodes, outUpdateEdges, notices);
@@ -173,12 +177,11 @@ public final class ChatChangeGuard {
     }
 
     /**
-     * 补丁清洗：目标 id 必须真实存在；除 id（定位键）外仅保留白名单字段；
-     * from/to（改边端点）额外要求新端点是现有节点 id；清洗后没有可改字段的丢弃。
+     * 补丁清洗：目标 id 必须真实存在；除 id（定位键）外仅保留白名单字段
+     * （from/to 不在白名单，改边端点须显式走删 + 加）；清洗后没有可改字段的丢弃。
      */
     private static ArrayNode sanitizePatches(ArrayNode patches, Set<String> existingIds,
-                                             Set<String> allowed, Set<String> endpointIds,
-                                             JsonNodeFactory f) {
+                                             Set<String> allowed, JsonNodeFactory f) {
         ArrayNode out = f.arrayNode();
         if (patches == null) return out;
         for (JsonNode p : patches) {
@@ -193,10 +196,6 @@ public final class ChatChangeGuard {
                 Map.Entry<String, JsonNode> en = it.next();
                 String key = en.getKey();
                 if (!allowed.contains(key)) continue;
-                boolean isEndpoint = "from".equals(key) || "to".equals(key);
-                if (isEndpoint && (endpointIds == null || !endpointIds.contains(en.getValue().asText("")))) {
-                    continue; // 改端点必须指向现有节点，否则丢弃该字段
-                }
                 cleaned.set(key, en.getValue());
                 kept++;
             }
