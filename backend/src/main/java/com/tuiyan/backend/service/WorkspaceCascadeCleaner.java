@@ -2,9 +2,13 @@ package com.tuiyan.backend.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.tuiyan.backend.entity.ConversationPO;
+import com.tuiyan.backend.entity.DataSourceFolderPO;
+import com.tuiyan.backend.entity.ExperienceFolderPO;
 import com.tuiyan.backend.entity.GraphTemplatePO;
 import com.tuiyan.backend.entity.OntologyModelPO;
 import com.tuiyan.backend.mapper.ConversationMapper;
+import com.tuiyan.backend.mapper.DataSourceFolderMapper;
+import com.tuiyan.backend.mapper.ExperienceFolderMapper;
 import com.tuiyan.backend.mapper.GraphTemplateMapper;
 import com.tuiyan.backend.mapper.OntologyModelMapper;
 import com.tuiyan.backend.repository.DataSourceRefRepository;
@@ -31,19 +35,25 @@ public class WorkspaceCascadeCleaner {
     private final ExperienceRefRepository experienceRefRepository;
     private final DataSourceRefRepository dataSourceRefRepository;
     private final NodeDataBindingRepository nodeDataBindingRepository;
+    private final ExperienceFolderMapper experienceFolderMapper;
+    private final DataSourceFolderMapper dataSourceFolderMapper;
 
     public WorkspaceCascadeCleaner(OntologyModelMapper ontologyModelMapper,
                                    ConversationMapper conversationMapper,
                                    GraphTemplateMapper graphTemplateMapper,
                                    ExperienceRefRepository experienceRefRepository,
                                    DataSourceRefRepository dataSourceRefRepository,
-                                   NodeDataBindingRepository nodeDataBindingRepository) {
+                                   NodeDataBindingRepository nodeDataBindingRepository,
+                                   ExperienceFolderMapper experienceFolderMapper,
+                                   DataSourceFolderMapper dataSourceFolderMapper) {
         this.ontologyModelMapper = ontologyModelMapper;
         this.conversationMapper = conversationMapper;
         this.graphTemplateMapper = graphTemplateMapper;
         this.experienceRefRepository = experienceRefRepository;
         this.dataSourceRefRepository = dataSourceRefRepository;
         this.nodeDataBindingRepository = nodeDataBindingRepository;
+        this.experienceFolderMapper = experienceFolderMapper;
+        this.dataSourceFolderMapper = dataSourceFolderMapper;
     }
 
     /**
@@ -65,7 +75,13 @@ public class WorkspaceCascadeCleaner {
         // OntologyModelRepository.delete()（那里另有 deleteByModel 兜底单个删除场景），
         // 这里按 workspace_id 直接批量清，避免绑定悬挂指向已被删掉的模型。
         nodeDataBindingRepository.deleteByWorkspace(workspaceId);
-        log.info("delete workspace {}: models={}, conversations={}, graphTpls={}（数据源/经验为公共资源，保留本体、清引用）",
-                workspaceId, models, convs, graphTpls);
+        // 文件夹按工作空间隔离（experience_folder / data_source_folder 无外键级联），
+        // 引用上的归类（*_ref.folder_id）已随上面的引用清理一并消失，这里把文件夹本体也清掉。
+        int expFolders = experienceFolderMapper.delete(
+                new LambdaQueryWrapper<ExperienceFolderPO>().eq(ExperienceFolderPO::getWorkspaceId, workspaceId));
+        int dsFolders = dataSourceFolderMapper.delete(
+                new LambdaQueryWrapper<DataSourceFolderPO>().eq(DataSourceFolderPO::getWorkspaceId, workspaceId));
+        log.info("delete workspace {}: models={}, conversations={}, graphTpls={}, expFolders={}, dsFolders={}（数据源/经验为公共资源，保留本体、清引用）",
+                workspaceId, models, convs, graphTpls, expFolders, dsFolders);
     }
 }
