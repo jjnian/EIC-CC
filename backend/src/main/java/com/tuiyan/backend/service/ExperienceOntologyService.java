@@ -58,6 +58,7 @@ public class ExperienceOntologyService {
     private final OntologyVocabService vocabService;
     private final EntityAlignmentService alignmentService;
     private final ExistingGraphContextService graphContextService;
+    private final com.tuiyan.backend.repository.ExperienceFolderRepository folderRepo;
     private final com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo;
     private final com.tuiyan.backend.repository.OntologyModelRepository modelRepo;
     /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
@@ -73,6 +74,7 @@ public class ExperienceOntologyService {
                                      OntologyVocabService vocabService,
                                      EntityAlignmentService alignmentService,
                                      ExistingGraphContextService graphContextService,
+                                     com.tuiyan.backend.repository.ExperienceFolderRepository folderRepo,
                                      com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo,
                                      com.tuiyan.backend.repository.OntologyModelRepository modelRepo) {
         this.repo = repo;
@@ -81,6 +83,7 @@ public class ExperienceOntologyService {
         this.vocabService = vocabService;
         this.alignmentService = alignmentService;
         this.graphContextService = graphContextService;
+        this.folderRepo = folderRepo;
         this.buildSourceRepo = buildSourceRepo;
         this.modelRepo = modelRepo;
     }
@@ -95,10 +98,13 @@ public class ExperienceOntologyService {
                                 int sourceCount, int nodeCount, int edgeCount) {}
 
     /** 单篇待抽取经验：id + 标题 + 剥离图片段后的正文 + 是否 DDL 导出（走 schema 专用抽取规则）。 */
-    private record ExpDoc(String id, String title, String content, boolean ddl) {}
+    /** 无文件夹归类的经验归入的默认域名。 */
+    private static final String DEFAULT_DOMAIN = "未分域";
+
+    private record ExpDoc(String id, String title, String content, boolean ddl, String domain) {}
 
     /** 一次 LLM 抽取批：拼好的输入文本 + 批内经验标题（供来源标记）/ id（供失败回滚清单） + 是否 DDL 批。 */
-    private record Batch(String text, List<String> titles, List<String> expIds, boolean ddl) {}
+    private record Batch(String text, List<String> titles, List<String> expIds, boolean ddl, String domain) {}
 
     /**
      * 从当前工作空间的经验库构建本体血缘图。
@@ -129,6 +135,18 @@ public class ExperienceOntologyService {
         step.emit("load_start", "正在读取当前工作空间经验库…");
         final String workspaceId = WorkspaceContext.get();
         List<Map<String, Object>> all = repo.list();
+        // 文件夹 id → 名称：把经验按其所属文件夹划为「领域(domain)」，供域感知分批与节点打标。
+        // 分域让抽取域内聚焦(域内深抽)、且每个节点能精确归属到一个业务领域,便于前端分组/折叠。
+        Map<String, String> folderNames = new java.util.HashMap<>();
+        try {
+            for (Map<String, Object> f : folderRepo.listMaps(workspaceId)) {
+                Object fid = f.get("id");
+                Object fname = f.get("name");
+                if (fid != null && fname != null) folderNames.put(String.valueOf(fid), String.valueOf(fname));
+            }
+        } catch (Exception e) {
+            log.warn("[exp-ontology] 载入文件夹名失败(域标签降级为未分域): {}", e.toString());
+        }
         // 全空间现存经验 id 快照（须在范围过滤前取）：供增量模式检测
         // “构建记录里有、经验库里已删除”的孤儿来源
         java.util.Set<String> liveExpIds = new java.util.HashSet<>();
@@ -184,6 +202,9 @@ public class ExperienceOntologyService {
             String expId = String.valueOf(exp.get("id"));
             String title = String.valueOf(exp.getOrDefault("title", "未命名经验"));
             boolean ddl = "ddl".equalsIgnoreCase(String.valueOf(exp.getOrDefault("origin", "")));
+            Object folderId = exp.get("folderId");
+            String domain = folderId == null ? DEFAULT_DOMAIN
+                    : folderNames.getOrDefault(String.valueOf(folderId), DEFAULT_DOMAIN);
             Object contentObj = exp.get("content");
             String content = contentObj == null ? "" : String.valueOf(contentObj);
             if (content.isBlank()) continue;
@@ -197,6 +218,8 @@ public class ExperienceOntologyService {
                 JsonNode prefixed = merger.prefixChunkIds(frag, "ex" + preGraphCount + "_");
                 stampWhenBlank(prefixed.path("add_nodes"), "经验：" + title);
                 stampWhenBlank(prefixed.path("add_edges"), "经验：" + title);
+                stampDomainWhenBlank(prefixed.path("add_nodes"), domain);
+                stampDomainWhenBlank(prefixed.path("add_edges"), domain);
                 preExtracted = (preExtracted == null) ? prefixed
                         : merger.mergeExtractionByLabel(preExtracted, prefixed);
                 preGraphCount++;
@@ -207,7 +230,7 @@ public class ExperienceOntologyService {
             if (content.length() > MAX_CHARS_PER_EXPERIENCE) {
                 content = content.substring(0, MAX_CHARS_PER_EXPERIENCE) + "\n…（正文过长已截断）";
             }
-            docs.add(new ExpDoc(expId, title, content, ddl));
+            docs.add(new ExpDoc(expId, title, content, ddl, domain));
             if (ddl) ddlCount++;
             used++;
             chars += content.length();
@@ -222,10 +245,22 @@ public class ExperienceOntologyService {
                     "当前工作空间经验库为空（或经验均无正文），请先在经验库中创建/上传经验文件，或把数据源结构导出到经验库供血后再建图。");
         }
 
-        // 散文与 DDL 分开分批：DDL 批走 schema 专用抽取规则；每批约对应一次 LLM 调用，批间并行、按 label 增量合并
+        // 域感知分批：先按领域(文件夹)分组、组内再按 char 预算打包，批次不跨域 →
+        // 抽取域内聚焦(域内深抽)，且每个节点能精确归属到它来源的领域。散文与 DDL 仍分开
+        // （DDL 批走 schema 专用抽取规则）。每批约对应一次 LLM 调用，批间并行、按 label 增量合并。
         List<Batch> batches = new ArrayList<>();
-        batches.addAll(groupIntoBatches(docs.stream().filter(d -> !d.ddl()).toList(), hintPrefix, false));
-        batches.addAll(groupIntoBatches(docs.stream().filter(ExpDoc::ddl).toList(), hintPrefix, true));
+        Map<String, List<ExpDoc>> proseByDomain = new java.util.LinkedHashMap<>();
+        Map<String, List<ExpDoc>> ddlByDomain = new java.util.LinkedHashMap<>();
+        for (ExpDoc d : docs) {
+            (d.ddl() ? ddlByDomain : proseByDomain)
+                    .computeIfAbsent(d.domain(), k -> new ArrayList<>()).add(d);
+        }
+        for (Map.Entry<String, List<ExpDoc>> en : proseByDomain.entrySet()) {
+            batches.addAll(groupIntoBatches(en.getValue(), hintPrefix, false, en.getKey()));
+        }
+        for (Map.Entry<String, List<ExpDoc>> en : ddlByDomain.entrySet()) {
+            batches.addAll(groupIntoBatches(en.getValue(), hintPrefix, true, en.getKey()));
+        }
         step.emit("load_done", "已聚合 " + used + " 篇经验（约 " + chars + " 字符）"
                 + (skippedUnchanged > 0 ? "；增量模式：跳过 " + skippedUnchanged + " 篇内容未变化的经验" : "")
                 + (preGraphCount > 0 ? "；其中 " + preGraphCount + " 篇含探索直采的结构化图谱(直接合并)" : "")
@@ -347,19 +382,24 @@ public class ExperienceOntologyService {
     }
 
     /**
-     * 把逐篇经验按 {@link #BATCH_CHAR_BUDGET} 贪心分批；每批前缀用户额外要求，保证每批都遵循。
-     * 单篇超预算时自成一批（其超长部分由下游抽取管线再切片）。批内记录经验标题，供来源标记回溯。
+     * 把某个领域内的逐篇经验按 {@link #BATCH_CHAR_BUDGET} 贪心分批（同域不跨批混入其它域）；
+     * 每批前缀用户额外要求 + 领域聚焦提示，保证每批都遵循。单篇超预算时自成一批（其超长部分由
+     * 下游抽取管线再切片）。批内记录经验标题（供来源标记回溯）与所属领域（供节点打标）。
      */
-    private List<Batch> groupIntoBatches(List<ExpDoc> docs, String hintPrefix, boolean ddl) {
+    private List<Batch> groupIntoBatches(List<ExpDoc> docs, String hintPrefix, boolean ddl, String domain) {
         List<Batch> batches = new ArrayList<>();
         if (docs.isEmpty()) return batches;
+        // 领域聚焦提示：非「未分域」时告诉 LLM 本批内容的业务领域，聚焦域内实体、少漂到无关领域
+        String domainNote = (domain == null || domain.isBlank() || DEFAULT_DOMAIN.equals(domain))
+                ? "" : "【本批内容属于业务领域「" + domain + "」，请聚焦该领域的实体与关系】\n\n";
+        String prefix = hintPrefix + domainNote;
         StringBuilder cur = new StringBuilder();
         List<String> titles = new ArrayList<>();
         List<String> expIds = new ArrayList<>();
         for (ExpDoc doc : docs) {
             String text = "# 经验：" + doc.title() + "\n\n" + doc.content();
             if (cur.length() > 0 && cur.length() + text.length() > BATCH_CHAR_BUDGET) {
-                batches.add(new Batch(hintPrefix + cur, List.copyOf(titles), List.copyOf(expIds), ddl));
+                batches.add(new Batch(prefix + cur, List.copyOf(titles), List.copyOf(expIds), ddl, domain));
                 cur = new StringBuilder();
                 titles.clear();
                 expIds.clear();
@@ -368,7 +408,7 @@ public class ExperienceOntologyService {
             titles.add(doc.title());
             expIds.add(doc.id());
         }
-        if (cur.length() > 0) batches.add(new Batch(hintPrefix + cur, List.copyOf(titles), List.copyOf(expIds), ddl));
+        if (cur.length() > 0) batches.add(new Batch(prefix + cur, List.copyOf(titles), List.copyOf(expIds), ddl, domain));
         return batches;
     }
 
@@ -418,6 +458,9 @@ public class ExperienceOntologyService {
                         stampWhenBlank(part.path("add_nodes"), label);
                         stampWhenBlank(part.path("add_edges"), label);
                     }
+                    // 领域标记：本批不跨域，故本批产出的每个节点/边都归属该域(供前端分组/着色/折叠)
+                    stampDomainWhenBlank(part.path("add_nodes"), batch.domain());
+                    stampDomainWhenBlank(part.path("add_edges"), batch.domain());
                     return part;
                 } finally {
                     if (ctxSet) WorkspaceContext.clear();
@@ -598,6 +641,16 @@ public class ExperienceOntologyService {
         for (JsonNode n : list) {
             if (n instanceof ObjectNode obj && obj.path("derived_source").asText("").isBlank()) {
                 obj.put("derived_source", label);
+            }
+        }
+    }
+
+    /** 给数组里 domain 缺失的节点/边补业务领域；已有值不覆盖（跨域合并时保留最先归属的域）。 */
+    private static void stampDomainWhenBlank(JsonNode arr, String domain) {
+        if (domain == null || domain.isBlank() || !(arr instanceof ArrayNode list)) return;
+        for (JsonNode n : list) {
+            if (n instanceof ObjectNode obj && obj.path("domain").asText("").isBlank()) {
+                obj.put("domain", domain);
             }
         }
     }

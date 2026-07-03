@@ -143,6 +143,7 @@ public class OntologyVersionRepository {
         po.setDerivedSource(asString(n.get("derived_source")));
         po.setDerivedDatabase(asString(n.get("derived_database")));
         po.setDerivedSourcesJson(codec.toJson(n.get("derived_sources")));
+        po.setDomain(asString(n.get("domain")));
         po.setAttributesJson(codec.toJson(n.get("attributes")));
         po.setConstraintsJson(codec.toJson(n.get("constraints")));
         po.setX(asDouble(n.get("x")));
@@ -184,6 +185,7 @@ public class OntologyVersionRepository {
         po.setDerivedSource(asString(e.get("derived_source")));
         po.setDerivedDatabase(asString(e.get("derived_database")));
         po.setDerivedSourcesJson(codec.toJson(e.get("derived_sources")));
+        po.setDomain(asString(e.get("domain")));
         po.setConstraintsJson(codec.toJson(e.get("constraints")));
         Object rd = e.get("rule_driven");
         po.setRuleDriven(rd instanceof Boolean ? (Boolean) rd : Boolean.FALSE);
@@ -220,6 +222,7 @@ public class OntologyVersionRepository {
             if (n.getDerivedSourcesJson() != null && !n.getDerivedSourcesJson().isBlank()) {
                 m.put("derived_sources", codec.readMapList(n.getDerivedSourcesJson()));
             }
+            if (n.getDomain() != null) m.put("domain", n.getDomain());
             if (n.getAttributesJson() != null && !n.getAttributesJson().isBlank()) {
                 m.put("attributes", codec.readMapList(n.getAttributesJson()));
             }
@@ -266,6 +269,7 @@ public class OntologyVersionRepository {
             if (e.getDerivedSourcesJson() != null && !e.getDerivedSourcesJson().isBlank()) {
                 m.put("derived_sources", codec.readMapList(e.getDerivedSourcesJson()));
             }
+            if (e.getDomain() != null) m.put("domain", e.getDomain());
             if (e.getConstraintsJson() != null && !e.getConstraintsJson().isBlank()) {
                 m.put("constraints", codec.readMapList(e.getConstraintsJson()));
             }

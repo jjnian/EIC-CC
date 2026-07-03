@@ -19,6 +19,8 @@ public class OntologyNodePO {
     private String derivedDatabase;
     // 多数据源血缘 JSON：[{source,database,tables[]}]；单值 derivedSource 仅保留首个来源作兼容
     private String derivedSourcesJson;
+    // 业务领域（经验来源文件夹名）：供前端按域分组/着色/折叠
+    private String domain;
     private String attributesJson;
     private String constraintsJson;
     private Double x;
@@ -44,6 +46,8 @@ public class OntologyNodePO {
     public void setDerivedDatabase(String derivedDatabase) { this.derivedDatabase = derivedDatabase; }
     public String getDerivedSourcesJson() { return derivedSourcesJson; }
     public void setDerivedSourcesJson(String derivedSourcesJson) { this.derivedSourcesJson = derivedSourcesJson; }
+    public String getDomain() { return domain; }
+    public void setDomain(String domain) { this.domain = domain; }
     public String getAttributesJson() { return attributesJson; }
     public void setAttributesJson(String attributesJson) { this.attributesJson = attributesJson; }
     public String getConstraintsJson() { return constraintsJson; }

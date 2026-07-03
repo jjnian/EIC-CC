@@ -24,7 +24,7 @@ public final class IdSaltRewriter {
      * 深度重写时跳过——否则 label 恰好叫 "n1" 这类与旧 id 撞名的文本会被误改写成加盐 id。
      */
     private static final Set<String> DISPLAY_TEXT_FIELDS = Set.of(
-            "label", "evidence", "desc", "description", "note", "title", "key", "value");
+            "label", "evidence", "desc", "description", "note", "title", "key", "value", "domain");
 
     /** 展示性字符串数组字段：别名列表 / 来源表名，同样不是 id 引用，整个子树跳过。 */
     private static final Set<String> DISPLAY_ARRAY_FIELDS = Set.of("aliases", "derived_tables");

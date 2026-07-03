@@ -61,7 +61,8 @@ ALTER TABLE ontology_node
     ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
     ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255),
     ADD COLUMN IF NOT EXISTS evidence TEXT,
-    ADD COLUMN IF NOT EXISTS derived_sources_json TEXT;  -- 多数据源血缘：[{source,database,tables[]}]，单值 derived_source 仅保留首个来源作兼容
+    ADD COLUMN IF NOT EXISTS derived_sources_json TEXT,  -- 多数据源血缘：[{source,database,tables[]}]，单值 derived_source 仅保留首个来源作兼容
+    ADD COLUMN IF NOT EXISTS domain VARCHAR(255);        -- 业务领域（经验来源文件夹名），供前端分组/着色/折叠
 CREATE INDEX IF NOT EXISTS idx_ontology_node_model
     ON ontology_node (model_id);
 
@@ -104,7 +105,8 @@ ALTER TABLE ontology_edge
     ADD COLUMN IF NOT EXISTS rel_type   VARCHAR(64),   -- 边语义类型(derived_from/composed_of/triggers/governs…)，上下游遍历据此判方向
     ADD COLUMN IF NOT EXISTS evidence   TEXT,           -- 该边的证据(FK 列/视图名/命名依据等，粒度尽量细)
     ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION,
-    ADD COLUMN IF NOT EXISTS derived_sources_json TEXT; -- 多数据源血缘：[{source,database,tables[]}]
+    ADD COLUMN IF NOT EXISTS derived_sources_json TEXT, -- 多数据源血缘：[{source,database,tables[]}]
+    ADD COLUMN IF NOT EXISTS domain VARCHAR(255);        -- 业务领域（经验来源文件夹名）
 CREATE INDEX IF NOT EXISTS idx_ontology_edge_model
     ON ontology_edge (model_id);
 CREATE INDEX IF NOT EXISTS idx_ontology_edge_from
@@ -152,7 +154,8 @@ ALTER TABLE ontology_version_node
     ADD COLUMN IF NOT EXISTS derived_source VARCHAR(255),
     ADD COLUMN IF NOT EXISTS derived_database VARCHAR(255),
     ADD COLUMN IF NOT EXISTS evidence TEXT,
-    ADD COLUMN IF NOT EXISTS derived_sources_json TEXT;
+    ADD COLUMN IF NOT EXISTS derived_sources_json TEXT,
+    ADD COLUMN IF NOT EXISTS domain VARCHAR(255);
 
 -- 版本节点属性
 CREATE TABLE IF NOT EXISTS ontology_version_node_prop (
@@ -196,7 +199,8 @@ ALTER TABLE ontology_version_edge
     ADD COLUMN IF NOT EXISTS rel_type VARCHAR(64),
     ADD COLUMN IF NOT EXISTS evidence TEXT,
     ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION,
-    ADD COLUMN IF NOT EXISTS derived_sources_json TEXT;
+    ADD COLUMN IF NOT EXISTS derived_sources_json TEXT,
+    ADD COLUMN IF NOT EXISTS domain VARCHAR(255);
 
 -- ---------------------------------------------------------------------------
 -- 4. 对话历史
