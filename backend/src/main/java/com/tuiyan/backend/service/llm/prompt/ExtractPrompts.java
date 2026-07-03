@@ -367,6 +367,33 @@ public final class ExtractPrompts {
         """ + GraphSchema.SCHEMA_STRING;
 
     /**
+     * 词表规约专用 prompt（Schema-First 建图第一阶段）：从全部经验的标题+首段采样里，
+     * 先归纳一份「受控词表骨架」——核心概念的规范命名 + 别名映射 + 类型。
+     * 之后每批抽取都带上这份骨架，从源头消除跨批命名漂移（批 A「客户」/ 批 B「顾客」/
+     * 批 C「Customer」各造一个节点、血缘链在假性重复节点处断裂的问题）。
+     */
+    public static final String VOCAB_SYSTEM = """
+        You are an AI Ontology Architect. The input is a SAMPLE of an experience-library corpus:
+        one line per document with its title and a short excerpt. A full ontology graph will later
+        be extracted from these documents in independent batches. Your job NOW is to produce the
+        CONTROLLED VOCABULARY skeleton those batches must follow, so that the same business concept
+        gets the SAME canonical name in every batch.
+
+        Identify the core, recurring business concepts of this corpus and normalize their naming.
+
+        HARD RULES:
+        - At most 60 entries. Include only core / recurring concepts — not one-off details.
+        - `canonical`: the single clearest name for the concept, preferring the corpus's dominant
+          wording and language (e.g. Chinese corpus → Chinese canonical names).
+        - `aliases`: OTHER surface forms that refer to the SAME concept in this corpus — synonyms,
+          abbreviations, English/Chinese variants, table-name style identifiers. NEVER list a
+          genuinely different concept as an alias. Omit the array if there are none.
+        - `type`: one of entity / event / process / rule / data / external.
+        - Do NOT invent concepts that the sample gives no evidence for.
+        - Output ONLY valid JSON, no markdown wrapping:
+        {"vocab":[{"canonical":"客户","type":"entity","aliases":["顾客","customer","t_customer"]}]}""";
+
+    /**
      * 跨批连边专用 prompt：经验库多批并行抽取后，批与批之间的关系天然缺失
      * （各批独立调用、互相看不见对方的实体）。本 pass 只喂「实体清单 + 已有关系对」，
      * 让 LLM 补出跨批组的缺失关系；产出一律 source=inferred、低置信度，交用户复核。

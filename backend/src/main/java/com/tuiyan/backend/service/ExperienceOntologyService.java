@@ -55,6 +55,7 @@ public class ExperienceOntologyService {
     private final ExperienceRepository repo;
     private final ExtractionLlmService extractionLlmService;
     private final ExtractionGraphMerger merger;
+    private final OntologyVocabService vocabService;
     private final com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo;
     private final com.tuiyan.backend.repository.OntologyModelRepository modelRepo;
     /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
@@ -67,11 +68,13 @@ public class ExperienceOntologyService {
     public ExperienceOntologyService(ExperienceRepository repo,
                                      ExtractionLlmService extractionLlmService,
                                      ExtractionGraphMerger merger,
+                                     OntologyVocabService vocabService,
                                      com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo,
                                      com.tuiyan.backend.repository.OntologyModelRepository modelRepo) {
         this.repo = repo;
         this.extractionLlmService = extractionLlmService;
         this.merger = merger;
+        this.vocabService = vocabService;
         this.buildSourceRepo = buildSourceRepo;
         this.modelRepo = modelRepo;
     }
@@ -168,6 +171,8 @@ public class ExperienceOntologyService {
         int preGraphCount = 0;
         int ddlCount = 0;
         long chars = 0;
+        // 词表规约采样：覆盖「本轮所有非空经验」的标题+首段（含增量跳过的，规约要看整个库而不只是变化的部分）
+        List<OntologyVocabService.DocSample> vocabSamples = new ArrayList<>();
         JsonNode preExtracted = null; // 探索文档直采的结构化图片段(免 LLM 重抽),累积后与 LLM 草稿合并
         for (Map<String, Object> exp : all) {
             String expId = String.valueOf(exp.get("id"));
@@ -176,6 +181,7 @@ public class ExperienceOntologyService {
             Object contentObj = exp.get("content");
             String content = contentObj == null ? "" : String.valueOf(contentObj);
             if (content.isBlank()) continue;
+            vocabSamples.add(OntologyVocabService.sampleOf(title, content));
             String hash = sha256Hex(title + "\u0000" + content);
             manifest.put(expId, hash);
             if (incremental && hash.equals(prevHashes.get(expId))) { skippedUnchanged++; continue; }
@@ -221,6 +227,20 @@ public class ExperienceOntologyService {
                 + (batches.size() > 1 ? "；将分 " + batches.size() + " 批并行建图" : "")
                 + (skippedByCap > 0 ? "；超出单次建图上限 " + MAX_EXPERIENCES + " 篇，已跳过 " + skippedByCap + " 篇" : ""));
 
+        // 词表规约（Schema-First）：分批抽取前先建/复用一份受控词表，注入各批 prompt 统一命名，
+        // 消除「客户/顾客/Customer 在不同批各造一个节点」的跨批命名漂移。增量建图复用旧词表，
+        // 全量建图重建覆盖；构建失败降级为无骨架（vocab.isEmpty()），不阻塞主流程。
+        OntologyVocabService.Vocab vocab = OntologyVocabService.Vocab.empty();
+        if (!batches.isEmpty()) {
+            step.emit("vocab", incremental ? "正在复用/更新本体词表骨架…" : "正在从经验库规约本体词表骨架（统一命名口径）…");
+            vocab = vocabService.loadOrBuild(workspaceId, vocabSamples, incremental, modelOverride, configId);
+            if (!vocab.isEmpty()) {
+                step.emit("vocab_done", "已就绪词表骨架：" + vocab.entries().size() + " 个受控概念，将据此统一各批命名");
+            } else {
+                step.emit("vocab_skip", "未生成词表骨架，本次按无规约建图（不影响结果，仅跨批同义词去重稍弱）");
+            }
+        }
+
         JsonNode draft;
         int failedBatches = 0;
         if (batches.isEmpty()) {
@@ -229,7 +249,7 @@ public class ExperienceOntologyService {
             draft = emptyGraph();
         } else {
             step.emit("llm_call", "正在并行调用大模型分 " + batches.size() + " 批从经验库构建本体血缘图…");
-            BatchOutcome outcome = extractBatchesParallel(batches, modelOverride, configId, workspaceId, step);
+            BatchOutcome outcome = extractBatchesParallel(batches, vocab, modelOverride, configId, workspaceId, step);
             draft = outcome.graph();
             failedBatches = outcome.failed();
             if (failedBatches > 0) {
@@ -243,6 +263,8 @@ public class ExperienceOntologyService {
         // 把探索直采的结构化图谱并入 LLM 草稿(按 label 去重合并),再统一校验
         if (preExtracted != null) {
             step.emit("normalizing", "正在合并探索直采的结构化图谱…");
+            // 结构化片段也按词表归一,使其与 LLM 草稿共享同一命名口径后再合并(否则同义节点合不到一起)
+            vocabService.normalize(preExtracted, vocab);
             draft = merger.mergeExtractionByLabel(draft, preExtracted);
         }
         // 跨批连边:各批并行抽取时互相看不见对方的实体,批与批之间的关系天然缺失。
@@ -327,9 +349,13 @@ public class ExperienceOntologyService {
     /** 并行建图结果：合并后的图 + 总批数 + 失败批数 + 失败批覆盖的经验 id（须从构建清单剔除，避免下次增量漏抽）。 */
     private record BatchOutcome(JsonNode graph, int total, int failed, java.util.Set<String> failedExpIds) {}
 
-    private BatchOutcome extractBatchesParallel(List<Batch> batches, String modelOverride, String configId,
+    private BatchOutcome extractBatchesParallel(List<Batch> batches, OntologyVocabService.Vocab vocab,
+                                                String modelOverride, String configId,
                                                 String workspaceId, StepSink step) {
         int n = batches.size();
+        // 词表 preface：注入每批抽取的 user prompt 顶部，统一命名口径（空词表返回空串，行为回退到无骨架）
+        final String vocabPreface = vocabService.preface(vocab);
+        final OntologyVocabService.Vocab vocabRef = vocab;
         List<CompletableFuture<JsonNode>> futures = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
             final Batch batch = batches.get(i);
@@ -342,8 +368,11 @@ public class ExperienceOntologyService {
                         WorkspaceContext.set(workspaceId);
                         ctxSet = true;
                     }
-                    JsonNode part = extractBatchWithRetry(batch, modelOverride, configId, idx, n);
+                    JsonNode part = extractBatchWithRetry(batch, vocabPreface, modelOverride, configId, idx, n);
                     if (part == null) return null;
+                    // 服务端确定性归一：LLM 对词表 preface 的遵循不可靠，这里把命中别名的 label
+                    // 强制改写为规范名 + 补 type，归一后的同名节点由随后的 label+type 合并自然折叠
+                    vocabService.normalize(part, vocabRef);
                     // 各批内部独立命名 id，加批前缀避免跨批冲突，再交由 label 合并去重
                     part = merger.prefixChunkIds(part, "b" + idx + "_");
                     // 来源标记精确到本批经验：单篇批直接落该经验标题，多篇批概括
@@ -384,14 +413,18 @@ public class ExperienceOntologyService {
 
     /**
      * 单批抽取（失败自动重试一次）：DDL 批用 schema 专用 system prompt，散文批用通用抽取 prompt。
+     * {@code vocabPreface} 非空时前置到正文，作为受控词表规约（统一命名）。
      * 两次都失败返回 null，由上层按"部分失败"处理。
      */
-    private JsonNode extractBatchWithRetry(Batch batch, String modelOverride, String configId, int idx, int total) {
+    private JsonNode extractBatchWithRetry(Batch batch, String vocabPreface,
+                                           String modelOverride, String configId, int idx, int total) {
         String systemPrompt = batch.ddl() ? ExtractPrompts.SCHEMA_TO_ONTOLOGY_SYSTEM : null;
+        String text = (vocabPreface == null || vocabPreface.isBlank())
+                ? batch.text() : vocabPreface + batch.text();
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
                 return extractionLlmService.extractOntologyFromSources(
-                        batch.text(), null, modelOverride, configId, systemPrompt);
+                        text, null, modelOverride, configId, systemPrompt);
             } catch (Exception e) {
                 log.warn("[exp-ontology] 第 {}/{} 批建图第 {} 次尝试失败：{}", idx + 1, total, attempt, e.toString());
             }

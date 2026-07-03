@@ -450,6 +450,16 @@ CREATE TABLE IF NOT EXISTS model_build_source (
     PRIMARY KEY (model_id, experience_id)
 );
 
+-- 本体词表骨架（Schema-First 建图的规约产物）：每工作空间一份受控词表
+-- {vocab:[{canonical,type,aliases[]}]}。批抽取时作为命名规约注入，消除跨批命名漂移；
+-- 增量建图直接复用，全量建图重建并覆盖。
+CREATE TABLE IF NOT EXISTS workspace_vocab (
+    workspace_id  VARCHAR(64)  NOT NULL PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+    vocab_json    TEXT         NOT NULL,
+    source_count  INTEGER,                                   -- 构建该词表时采样的经验篇数
+    updated_at    BIGINT       NOT NULL
+);
+
 -- ---------------------------------------------------------------------------
 -- 8.5 推演功能移除（老库清理）：平台聚焦业务血缘图构建，推演分支相关表与字段一并下线
 -- ---------------------------------------------------------------------------
