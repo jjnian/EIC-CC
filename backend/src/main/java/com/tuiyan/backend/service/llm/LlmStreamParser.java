@@ -35,8 +35,8 @@ public class LlmStreamParser {
                 rawDump.append(line).append("\n");
                 rawLineCount++;
             }
-            if (!line.startsWith("data: ")) continue;
-            String data = line.substring(6);
+            String data = sseData(line);
+            if (data == null) continue;
             if ("[DONE]".equals(data)) break;
             try {
                 JsonNode chunk = objectMapper.readTree(data);
@@ -81,12 +81,12 @@ public class LlmStreamParser {
                 rawLineCount++;
             }
             if (line.isEmpty()) continue;
-            if (line.startsWith("event: ")) {
-                currentEvent = line.substring(7).trim();
+            if (line.startsWith("event:")) {
+                currentEvent = line.substring(6).trim();
                 continue;
             }
-            if (!line.startsWith("data: ")) continue;
-            String data = line.substring(6);
+            String data = sseData(line);
+            if (data == null) continue;
             if ("[DONE]".equals(data)) break;
 
             try {
@@ -155,5 +155,16 @@ public class LlmStreamParser {
     /** 根据协议类型分派到对应的解析方法。 */
     public StringBuilder parse(BufferedReader reader, SseEmitter emitter, boolean anthropic) throws IOException {
         return anthropic ? parseAnthropic(reader, emitter) : parseOpenAI(reader, emitter);
+    }
+
+    /**
+     * 取 SSE data 行的载荷；非 data 行返回 null。
+     * <p>SSE 规范中字段冒号后的空格是可选的，部分中转站/代理发 {@code data:{...}}（无空格），
+     * 只认 {@code "data: "} 会把整个流静默丢弃。
+     */
+    private static String sseData(String line) {
+        if (!line.startsWith("data:")) return null;
+        String d = line.substring(5);
+        return d.startsWith(" ") ? d.substring(1) : d;
     }
 }
