@@ -34,6 +34,7 @@ public class OntologyModelRepository {
     private final OntologyNodePropMapper propMapper;
     private final OntologyEdgeMapper edgeMapper;
     private final OntologyRowMapper rowMapper;
+    private final NodeDataBindingRepository bindingRepo;
     private final JsonCodec codec;
 
     public OntologyModelRepository(OntologyModelMapper modelMapper,
@@ -41,12 +42,14 @@ public class OntologyModelRepository {
                                    OntologyNodePropMapper propMapper,
                                    OntologyEdgeMapper edgeMapper,
                                    OntologyRowMapper rowMapper,
+                                   NodeDataBindingRepository bindingRepo,
                                    ObjectMapper objectMapper) {
         this.modelMapper = modelMapper;
         this.nodeMapper = nodeMapper;
         this.propMapper = propMapper;
         this.edgeMapper = edgeMapper;
         this.rowMapper = rowMapper;
+        this.bindingRepo = bindingRepo;
         this.codec = new JsonCodec(objectMapper);
     }
 
@@ -123,7 +126,9 @@ public class OntologyModelRepository {
         OntologyModelPO po = modelMapper.selectById(id);
         if (po == null) return false;
         if (!WorkspaceContext.required().equals(po.getWorkspaceId())) return false;
-        return modelMapper.deleteById(id) > 0;
+        boolean removed = modelMapper.deleteById(id) > 0;
+        if (removed) bindingRepo.deleteByModel(id);
+        return removed;
     }
 
     /** 删除指定模型的所有节点/props/边（用于覆盖保存时的清理）。 */

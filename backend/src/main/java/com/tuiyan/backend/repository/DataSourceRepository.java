@@ -24,12 +24,14 @@ public class DataSourceRepository {
 
     private final DataSourceMapper mapper;
     private final DataSourceRefRepository refRepo;
+    private final NodeDataBindingRepository bindingRepo;
     private final JsonCodec codec;
 
     public DataSourceRepository(DataSourceMapper mapper, DataSourceRefRepository refRepo,
-                                ObjectMapper objectMapper) {
+                                NodeDataBindingRepository bindingRepo, ObjectMapper objectMapper) {
         this.mapper = mapper;
         this.refRepo = refRepo;
+        this.bindingRepo = bindingRepo;
         this.codec = new JsonCodec(objectMapper);
     }
 
@@ -146,10 +148,12 @@ public class DataSourceRepository {
 
     @Transactional
     public boolean delete(String id) {
-        // 数据源为全局公共资源：任意工作空间均可删除；删除本体时清理其全部工作空间引用。
+        // 数据源为全局公共资源：任意工作空间均可删除；删除本体时清理其全部工作空间引用与节点供血绑定，
+        // 否则绑定会悬挂指向已不存在的数据源，建图/推演读取时才报错。
         DataSourcePO existing = mapper.selectById(id);
         if (existing == null) return false;
         refRepo.deleteByDataSource(id);
+        bindingRepo.deleteByDataSource(id);
         return mapper.deleteById(id) > 0;
     }
 

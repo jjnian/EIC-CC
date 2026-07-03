@@ -99,6 +99,31 @@ public class NodeDataBindingRepository {
         return mapper.deleteById(id) > 0;
     }
 
+    /** 数据源本体被删除时清理其全部供血绑定（跨工作空间），避免绑定悬挂指向已不存在的数据源。 */
+    @Transactional
+    public void deleteByDataSource(String dataSourceId) {
+        mapper.delete(new LambdaQueryWrapper<NodeDataBindingPO>()
+                .eq(NodeDataBindingPO::getDataSourceId, dataSourceId));
+    }
+
+    /**
+     * 本体模型被删除时清理其全部供血绑定：node_data_binding.model_id 没有 DB 级外键约束
+     * （不像 ontology_node/edge 那样靠 ON DELETE CASCADE），删模型时若不主动清理，
+     * 绑定会悬挂指向已不存在的 model_id，运行时取数供血才报错。
+     */
+    @Transactional
+    public void deleteByModel(String modelId) {
+        mapper.delete(new LambdaQueryWrapper<NodeDataBindingPO>()
+                .eq(NodeDataBindingPO::getModelId, modelId));
+    }
+
+    /** 工作空间被删除时清理它名下的全部供血绑定(该工作空间下的模型是被批量 delete 的,不会逐个走 deleteByModel)。 */
+    @Transactional
+    public void deleteByWorkspace(String workspaceId) {
+        mapper.delete(new LambdaQueryWrapper<NodeDataBindingPO>()
+                .eq(NodeDataBindingPO::getWorkspaceId, workspaceId));
+    }
+
     private Map<String, Object> toMap(NodeDataBindingPO po) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", po.getId());

@@ -485,6 +485,9 @@ CREATE TABLE IF NOT EXISTS experience_ref (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_experience_ref ON experience_ref (workspace_id, experience_id);
 CREATE INDEX IF NOT EXISTS idx_experience_ref_ws ON experience_ref (workspace_id);
+-- experience_id 不是上面复合唯一索引的前导列，删除经验时 deleteByExperience() 按 experience_id
+-- 单独过滤会退化成全表扫描；单列索引让这条随经验库增长愈发频繁的删除路径吃到索引。
+CREATE INDEX IF NOT EXISTS idx_experience_ref_exp ON experience_ref (experience_id);
 
 -- 9.2 数据源引用：工作空间 → 数据源（多对多）。folder_id 同上。
 CREATE TABLE IF NOT EXISTS data_source_ref (
@@ -496,6 +499,8 @@ CREATE TABLE IF NOT EXISTS data_source_ref (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_data_source_ref ON data_source_ref (workspace_id, data_source_id);
 CREATE INDEX IF NOT EXISTS idx_data_source_ref_ws ON data_source_ref (workspace_id);
+-- 同上：data_source_id 单列索引，配合 deleteByDataSource() 的按数据源删除引用路径。
+CREATE INDEX IF NOT EXISTS idx_data_source_ref_ds ON data_source_ref (data_source_id);
 
 -- 9.3 一次性迁移标记表：让回填脚本只在首次升级时执行一次（init.sql 每次启动都跑，需幂等且不重复回填）。
 CREATE TABLE IF NOT EXISTS schema_migration (

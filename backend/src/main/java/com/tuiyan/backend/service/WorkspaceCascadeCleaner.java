@@ -9,6 +9,7 @@ import com.tuiyan.backend.mapper.GraphTemplateMapper;
 import com.tuiyan.backend.mapper.OntologyModelMapper;
 import com.tuiyan.backend.repository.DataSourceRefRepository;
 import com.tuiyan.backend.repository.ExperienceRefRepository;
+import com.tuiyan.backend.repository.NodeDataBindingRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -29,17 +30,20 @@ public class WorkspaceCascadeCleaner {
     private final GraphTemplateMapper graphTemplateMapper;
     private final ExperienceRefRepository experienceRefRepository;
     private final DataSourceRefRepository dataSourceRefRepository;
+    private final NodeDataBindingRepository nodeDataBindingRepository;
 
     public WorkspaceCascadeCleaner(OntologyModelMapper ontologyModelMapper,
                                    ConversationMapper conversationMapper,
                                    GraphTemplateMapper graphTemplateMapper,
                                    ExperienceRefRepository experienceRefRepository,
-                                   DataSourceRefRepository dataSourceRefRepository) {
+                                   DataSourceRefRepository dataSourceRefRepository,
+                                   NodeDataBindingRepository nodeDataBindingRepository) {
         this.ontologyModelMapper = ontologyModelMapper;
         this.conversationMapper = conversationMapper;
         this.graphTemplateMapper = graphTemplateMapper;
         this.experienceRefRepository = experienceRefRepository;
         this.dataSourceRefRepository = dataSourceRefRepository;
+        this.nodeDataBindingRepository = nodeDataBindingRepository;
     }
 
     /**
@@ -57,6 +61,10 @@ public class WorkspaceCascadeCleaner {
         // 数据源/经验本体保留为公共资源，但清理该工作空间对它们的引用关系（避免悬挂引用）。
         experienceRefRepository.deleteByWorkspace(workspaceId);
         dataSourceRefRepository.deleteByWorkspace(workspaceId);
+        // 上面 ontologyModelMapper.delete(...) 是按 workspace_id 批量删的，不会逐个走
+        // OntologyModelRepository.delete()（那里另有 deleteByModel 兜底单个删除场景），
+        // 这里按 workspace_id 直接批量清，避免绑定悬挂指向已被删掉的模型。
+        nodeDataBindingRepository.deleteByWorkspace(workspaceId);
         log.info("delete workspace {}: models={}, conversations={}, graphTpls={}（数据源/经验为公共资源，保留本体、清引用）",
                 workspaceId, models, convs, graphTpls);
     }
