@@ -56,6 +56,7 @@ public class ExperienceOntologyService {
     private final ExtractionLlmService extractionLlmService;
     private final ExtractionGraphMerger merger;
     private final OntologyVocabService vocabService;
+    private final EntityAlignmentService alignmentService;
     private final com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo;
     private final com.tuiyan.backend.repository.OntologyModelRepository modelRepo;
     /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
@@ -69,12 +70,14 @@ public class ExperienceOntologyService {
                                      ExtractionLlmService extractionLlmService,
                                      ExtractionGraphMerger merger,
                                      OntologyVocabService vocabService,
+                                     EntityAlignmentService alignmentService,
                                      com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo,
                                      com.tuiyan.backend.repository.OntologyModelRepository modelRepo) {
         this.repo = repo;
         this.extractionLlmService = extractionLlmService;
         this.merger = merger;
         this.vocabService = vocabService;
+        this.alignmentService = alignmentService;
         this.buildSourceRepo = buildSourceRepo;
         this.modelRepo = modelRepo;
     }
@@ -266,6 +269,19 @@ public class ExperienceOntologyService {
             // 结构化片段也按词表归一,使其与 LLM 草稿共享同一命名口径后再合并(否则同义节点合不到一起)
             vocabService.normalize(preExtracted, vocab);
             draft = merger.mergeExtractionByLabel(draft, preExtracted);
+        }
+        // 向量兜底同义消解(第二阶段):词表没收录的同义词(收款/回款)在这里靠向量召回 + LLM 仲裁折叠。
+        // 放在跨批连边之前:先把同义节点并成一个,连边才连到规范节点而非散落的重复节点上。
+        step.emit("aligning", "正在做向量兜底的同义实体对齐…");
+        EntityAlignmentService.AlignResult align = alignmentService.align(draft, modelOverride, configId);
+        draft = align.graph();
+        if (align.any()) {
+            step.emit("align_done", "向量对齐:合并 " + align.foldedGroups() + " 组同义实体(共折叠 "
+                    + align.foldedNodes() + " 个重复节点)");
+            // 发现的同义反哺词表:下次建图走确定性快路径,无需再花向量 + LLM
+            vocabService.recordDiscoveredAliases(workspaceId, align.discoveredAliases());
+        } else {
+            step.emit("align_skip", "向量对齐:未发现需要合并的同义实体");
         }
         // 跨批连边:各批并行抽取时互相看不见对方的实体,批与批之间的关系天然缺失。
         // 用实体清单追加一轮轻量 LLM 调用,只补跨批组关系(source=inferred,失败不影响主结果)。

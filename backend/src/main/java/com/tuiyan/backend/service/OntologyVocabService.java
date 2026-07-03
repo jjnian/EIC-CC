@@ -13,9 +13,11 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 本体词表骨架服务（Schema-First 建图的第一阶段）。
@@ -126,6 +128,43 @@ public class OntologyVocabService {
         } catch (Exception e) {
             log.warn("[vocab] 词表构建失败(降级为无骨架建图): {}", e.toString());
             return Vocab.empty();
+        }
+    }
+
+    /**
+     * 把实体对齐（第二阶段向量兜底）发现的同义映射反哺进词表：规范名 → 新别名集。
+     * 已有该规范名的条目追加别名（去重），没有的新增一条（type 留空，后续构建自然补齐）。
+     * 这样下次建图这些同义词就走 {@link #normalize} 的确定性快路径，无需再花向量 + LLM。
+     * <p>空映射 / 读表失败均安全跳过；本身失败也不影响主流程。
+     */
+    public void recordDiscoveredAliases(String workspaceId, Map<String, Set<String>> discovered) {
+        if (workspaceId == null || discovered == null || discovered.isEmpty()) return;
+        try {
+            Vocab current = load(workspaceId);
+            // 规范名(标准化) → 可变条目
+            Map<String, Entry> byCanon = new LinkedHashMap<>();
+            for (Entry e : current.entries()) byCanon.put(norm(e.canonical()), e);
+
+            for (Map.Entry<String, Set<String>> en : discovered.entrySet()) {
+                String canon = en.getKey();
+                if (canon == null || canon.isBlank()) continue;
+                Entry existing = byCanon.get(norm(canon));
+                LinkedHashSet<String> aliases = new LinkedHashSet<>();
+                String type = "";
+                if (existing != null) {
+                    if (existing.aliases() != null) aliases.addAll(existing.aliases());
+                    type = existing.type() == null ? "" : existing.type();
+                }
+                for (String a : en.getValue()) {
+                    if (a != null && !a.isBlank() && !norm(a).equals(norm(canon))) aliases.add(a);
+                }
+                byCanon.put(norm(canon), new Entry(canon, type, new ArrayList<>(aliases)));
+            }
+            Vocab merged = new Vocab(new ArrayList<>(byCanon.values()));
+            persist(workspaceId, merged, current.entries().size());
+            log.info("[vocab] 反哺 {} 组对齐发现的同义到词表", discovered.size());
+        } catch (Exception e) {
+            log.warn("[vocab] 反哺同义到词表失败(不影响本次建图): {}", e.toString());
         }
     }
 

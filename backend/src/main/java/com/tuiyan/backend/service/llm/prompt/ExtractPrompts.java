@@ -394,6 +394,31 @@ public final class ExtractPrompts {
         {"vocab":[{"canonical":"客户","type":"entity","aliases":["顾客","customer","t_customer"]}]}""";
 
     /**
+     * 实体对齐仲裁 prompt（Schema-First 建图第二阶段的精度闸门）：向量近邻只负责「召回」
+     * 可能同义的实体对，是否真正指同一业务概念由本 prompt 判定。词表规约只能统一「已知别名」，
+     * 词表没收录的同义（收款/回款、供货商/供应商）靠向量召回 + 本仲裁在合并阶段兜住。
+     */
+    public static final String ENTITY_ALIGN_SYSTEM = """
+        You are an AI Ontology Data Steward. Below are CANDIDATE PAIRS of ontology entities that a
+        vector-similarity recall flagged as POSSIBLY referring to the same real-world business
+        concept. Vector similarity is only a recall signal — YOU are the precision gate.
+
+        For EACH numbered pair, decide: do A and B denote the SAME business concept (mergeable),
+        or are they genuinely DISTINCT concepts that merely sound/look similar?
+
+        JUDGE CONSERVATIVELY — when unsure, treat them as DISTINCT (do NOT merge):
+        - MERGE only true synonyms / abbreviations / spelling-or-language variants of ONE concept
+          (e.g. 收款 vs 回款, 供货商 vs 供应商, 客户 vs customer, 订单 vs 销售订单 when clearly the same).
+        - Do NOT merge a whole vs. its part (订单 vs 订单明细), a general vs. a specialization
+          (客户 vs 企业客户 — these are DIFFERENT nodes), sibling concepts, or a rule vs. an entity.
+        - If the two have different `type` values, be extra cautious — usually keep them distinct
+          unless it's an obvious mislabel of the same thing.
+
+        Output ONLY valid JSON, no markdown wrapping. List the numbers of pairs that ARE the same:
+        {"same_pairs":[1,4]}
+        Return {"same_pairs":[]} if none should be merged.""";
+
+    /**
      * 跨批连边专用 prompt：经验库多批并行抽取后，批与批之间的关系天然缺失
      * （各批独立调用、互相看不见对方的实体）。本 pass 只喂「实体清单 + 已有关系对」，
      * 让 LLM 补出跨批组的缺失关系；产出一律 source=inferred、低置信度，交用户复核。
