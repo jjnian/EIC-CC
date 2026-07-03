@@ -18,6 +18,12 @@ public class OntologyModel {
     private String updated;
     private long createdAt;
     private long updatedAt;
+    /**
+     * 乐观锁基线（仅请求携带，不持久化）：前端提交时回传它加载/上次保存时拿到的 {@code updatedAt}。
+     * 服务端发现当前 {@code updatedAt} 与基线不一致 → 409，防止并发编辑互相覆盖。
+     * null / ≤0 表示调用方不参与并发校验（老客户端、版本恢复、播种等路径），跳过检查。
+     */
+    private Long baseUpdatedAt;
     private GraphData graphData;
 
     public String getId() { return id; }
@@ -32,6 +38,8 @@ public class OntologyModel {
     public void setCreatedAt(long createdAt) { this.createdAt = createdAt; }
     public long getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(long updatedAt) { this.updatedAt = updatedAt; }
+    public Long getBaseUpdatedAt() { return baseUpdatedAt; }
+    public void setBaseUpdatedAt(Long baseUpdatedAt) { this.baseUpdatedAt = baseUpdatedAt; }
     public GraphData getGraphData() { return graphData; }
     public void setGraphData(GraphData graphData) { this.graphData = graphData; }
 

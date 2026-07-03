@@ -2,12 +2,18 @@ import type { OntologyEdge } from '../types';
 
 /**
  * 这些受控关系类型里，边的 `from` 是"结果"、`to` 是"来源"（箭头指向上游）。
- * 其余类型（produces / flows_to / triggers / transforms / governs / associated_with…）
+ * 其余类型（produces / flows_to / triggers / transforms / governs…）
  * 一律视为 from=来源、to=结果，顺箭头即下游。
  * 归一化后，统一按 source→result 的"流向"做可达性遍历，避免逐类型猜方向出错。
- * 注意：必须与后端 EdgeSemantics.REVERSED 保持一致（供 /lineage 上下游遍历），改一处要同步另一处。
+ * 注意：必须与后端 EdgeSemantics.REVERSED / NON_LINEAGE 保持一致（供 /lineage 上下游遍历），改一处要同步另一处。
  */
 const REVERSE_RELS = new Set(['derived_from', 'depends_on', 'consumes', 'composed_of']);
+
+/**
+ * 无数据流方向的纯关联类型:「A 与 B 相关」不构成上下游派生,
+ * 不参与血缘遍历,避免关联噪声把不相干节点卷进上下游高亮。与后端 EdgeSemantics.NON_LINEAGE 对齐。
+ */
+const NON_LINEAGE_RELS = new Set(['associated_with']);
 
 export interface LineageResult {
   /** 全部上游来源节点 id（不含种子）。 */
@@ -48,6 +54,7 @@ export function traceLineage(seedId: string, edges: OntologyEdge[]): LineageResu
   const bwd = new Map<string, string[]>(); // result -> sources（上游）
   for (const e of edges) {
     if (!e.from || !e.to || e.from === e.to) continue;
+    if (NON_LINEAGE_RELS.has(e.rel_type || '')) continue; // 纯关联不参与血缘
     const reverse = REVERSE_RELS.has(e.rel_type || '');
     const src = reverse ? e.to : e.from;
     const res = reverse ? e.from : e.to;

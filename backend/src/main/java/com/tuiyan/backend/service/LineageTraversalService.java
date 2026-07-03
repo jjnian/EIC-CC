@@ -34,13 +34,17 @@ public class LineageTraversalService {
     }
 
     /**
-     * @param modelId  本体模型 id
-     * @param nodeId   起点节点 id
-     * @param dir      上游 / 下游
-     * @param maxDepth 最大跳数（≤0 表示不限）
-     * @return {root, direction, maxDepth, nodes:[{id,label,depth}], edges:[经过的边(含 rel_type/evidence)]}
+     * @param modelId             本体模型 id
+     * @param nodeId              起点节点 id
+     * @param dir                 上游 / 下游
+     * @param maxDepth            最大跳数（≤0 表示不限）
+     * @param includeAssociations true 时把 {@code associated_with} 等无方向的纯关联边也纳入遍历
+     *                            （按存储方向 from→to 处理）；默认应传 false，避免关联噪声污染上下游
+     * @return {root, direction, maxDepth, includeAssociations, skippedAssociations,
+     *          nodes:[{id,label,depth}], edges:[经过的边(含 rel_type/evidence)]}
      */
-    public Map<String, Object> traverse(String modelId, String nodeId, Direction dir, int maxDepth) {
+    public Map<String, Object> traverse(String modelId, String nodeId, Direction dir, int maxDepth,
+                                        boolean includeAssociations) {
         OntologyModelRepository.NodesAndEdges g = repo.loadGraphForVersion(modelId);
 
         Map<String, String> labelOf = new HashMap<>();
@@ -52,10 +56,15 @@ public class LineageTraversalService {
         // 按血缘方向建邻接表：邻居 + 走过的边。
         // DOWNSTREAM 用「上游源 → 下游」；UPSTREAM 用「下游 → 上游源」。
         Map<String, List<Object[]>> adj = new HashMap<>();
+        int skippedAssociations = 0;
         for (Map<String, Object> e : g.edges()) {
             String from = str(e.get("from"));
             String to = str(e.get("to"));
             if (from == null || to == null) continue;
+            if (!includeAssociations && EdgeSemantics.nonLineage(str(e.get("rel_type")))) {
+                skippedAssociations++; // 纯关联不构成派生关系，默认排除并报告数量
+                continue;
+            }
             String[] st = EdgeSemantics.sourceTarget(from, to, str(e.get("rel_type")));
             String src = st[0]; // 上游
             String tgt = st[1]; // 下游
@@ -102,6 +111,8 @@ public class LineageTraversalService {
         out.put("root", nodeId);
         out.put("direction", dir.name().toLowerCase());
         out.put("maxDepth", maxDepth);
+        out.put("includeAssociations", includeAssociations);
+        out.put("skippedAssociations", skippedAssociations);
         out.put("nodes", nodesOut);
         out.put("edges", traversedEdges);
         return out;

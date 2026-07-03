@@ -17,6 +17,8 @@ public class OntologyEdgePO {
     private String derivedTablesJson;
     private String derivedSource;
     private String derivedDatabase;
+    // 多数据源血缘 JSON：[{source,database,tables[]}]；单值 derivedSource 仅保留首个来源作兼容
+    private String derivedSourcesJson;
     private String constraintsJson;
     private Boolean ruleDriven;
     private String ruleId;
@@ -45,6 +47,8 @@ public class OntologyEdgePO {
     public void setDerivedSource(String derivedSource) { this.derivedSource = derivedSource; }
     public String getDerivedDatabase() { return derivedDatabase; }
     public void setDerivedDatabase(String derivedDatabase) { this.derivedDatabase = derivedDatabase; }
+    public String getDerivedSourcesJson() { return derivedSourcesJson; }
+    public void setDerivedSourcesJson(String derivedSourcesJson) { this.derivedSourcesJson = derivedSourcesJson; }
     public String getConstraintsJson() { return constraintsJson; }
     public void setConstraintsJson(String constraintsJson) { this.constraintsJson = constraintsJson; }
     public Boolean getRuleDriven() { return ruleDriven; }

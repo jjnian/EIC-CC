@@ -132,8 +132,10 @@ public class ExtractionGraphMerger {
     }
 
     /**
-     * 跨 chunk 合并：按 normalized label 去重节点，把重复节点的 props 合并，
+     * 跨 chunk 合并：按 normalized label(+aliases) 去重节点，把重复节点的 props 合并，
      * 并对重复 id 做 from/to 重映射。
+     * <p>判等同时看 type：同名但 type 明确不同视作两个概念（如 rule「风险」与 metric「风险」），
+     * 不折叠；任一方 type 为空作通配（兼容 LLM 省略 type 的输出）。
      */
     public JsonNode mergeExtractionByLabel(JsonNode a, JsonNode b) {
         ObjectNode out = objectMapper.createObjectNode();
@@ -141,7 +143,7 @@ public class ExtractionGraphMerger {
 
         ArrayNode outNodes = objectMapper.createArrayNode();
         ArrayNode outEdges = objectMapper.createArrayNode();
-        Map<String, String> labelToId = new HashMap<>();
+        Map<String, List<String[]>> keyIndex = new HashMap<>(); // 标准化键 → 候选 {id, 标准化 type}
         Map<String, ObjectNode> idToNode = new HashMap<>();
         Map<String, String> idRemap = new HashMap<>();
 
@@ -150,16 +152,21 @@ public class ExtractionGraphMerger {
             outNodes.add(copy);
             String id = copy.path("id").asText("");
             if (id.isEmpty()) continue; // 空 id 不参与去重映射，避免后续同名节点被重映射到 "" 而连同边一起丢失
-            for (String key : labelKeys(copy)) labelToId.putIfAbsent(key, id);
+            String type = copy.path("type").asText("");
+            for (String key : labelKeys(copy)) registerKey(keyIndex, key, type, id);
             idToNode.put(id, copy);
         }
         for (JsonNode e : a.path("add_edges")) outEdges.add(e);
 
         for (JsonNode n : b.path("add_nodes")) {
             String id = n.path("id").asText("");
+            String type = n.path("type").asText("");
             List<String> keys = labelKeys(n);
-            String matchId = keys.stream().map(labelToId::get)
-                    .filter(v -> v != null && !v.isEmpty()).findFirst().orElse(null);
+            String matchId = null;
+            for (String key : keys) {
+                matchId = lookupKey(keyIndex, key, type);
+                if (matchId != null) break;
+            }
             if (matchId != null) {
                 idRemap.put(id, matchId);
                 ObjectNode existing = idToNode.get(matchId);
@@ -171,7 +178,7 @@ public class ExtractionGraphMerger {
                 ObjectNode copy = n.deepCopy();
                 outNodes.add(copy);
                 if (!id.isEmpty()) {
-                    for (String key : keys) labelToId.put(key, id);
+                    for (String key : keys) registerKey(keyIndex, key, type, id);
                     idToNode.put(id, copy);
                 }
             }
@@ -269,6 +276,29 @@ public class ExtractionGraphMerger {
             seenKeys.add(k);
         }
         aNode.set("props", merged);
+    }
+
+    /** 把 (标准化键, 标准化 type) 注册进去重索引。 */
+    private static void registerKey(Map<String, List<String[]>> index, String key, String type, String id) {
+        if (key.isEmpty() || id.isEmpty()) return;
+        index.computeIfAbsent(key, k -> new ArrayList<>()).add(new String[]{id, normalizeLabel(type)});
+    }
+
+    /**
+     * 去重索引查询：同键下优先 type 精确匹配；查询方或候选方 type 为空作通配；
+     * 同名但 type 明确不同 → 返回 null（不折叠）。
+     */
+    private static String lookupKey(Map<String, List<String[]>> index, String key, String type) {
+        List<String[]> cands = index.get(key);
+        if (cands == null || cands.isEmpty()) return null;
+        String t = normalizeLabel(type);
+        if (t.isEmpty()) return cands.get(0)[0];
+        String blankHit = null;
+        for (String[] c : cands) {
+            if (t.equals(c[1])) return c[0];
+            if (c[1].isEmpty() && blankHit == null) blankHit = c[0];
+        }
+        return blankHit;
     }
 
     /** label 标准化：trim + 小写 + 多空白合一；用于 chunk 间去重的等价判断。 */

@@ -1,5 +1,6 @@
 package com.tuiyan.backend.service;
 
+import com.tuiyan.backend.config.ConflictException;
 import com.tuiyan.backend.config.ResourceNotFoundException;
 import com.tuiyan.backend.model.OntologyModel;
 import com.tuiyan.backend.repository.OntologyModelRepository;
@@ -45,19 +46,28 @@ public class OntologyModelService {
 
     /**
      * 保存（新建或更新）。
-     * <p>更新场景下会先把旧版本写入版本表作为快照，再覆盖写入新内容，保证"任何一次保存"都有回溯点。
+     * <p>更新场景下会先做乐观锁校验（调用方携带 {@code baseUpdatedAt} 时，与库中当前
+     * {@code updatedAt} 不一致 → 409，防止并发编辑 last-write-wins 互相覆盖），
+     * 再把旧版本写入版本表作为快照，最后覆盖写入新内容，保证"任何一次保存"都有回溯点。
      */
     public OntologyModel save(OntologyModel m) {
         if (m.getId() == null || m.getId().isBlank()) {
             m.setId("om_" + System.currentTimeMillis());
         }
+        Long base = m.getBaseUpdatedAt();
+        m.setBaseUpdatedAt(null); // 并发基线仅用于本次校验，不回显、不落库
         long now = System.currentTimeMillis();
         if (m.getCreatedAt() == 0L) m.setCreatedAt(now);
         m.setUpdatedAt(now);
         m.setUpdated("刚刚");
-        // 若已存在则先快照旧版本
+        // 若已存在：先过乐观锁，再快照旧版本
         OntologyModel existing = modelRepository.get(m.getId());
         if (existing != null) {
+            if (base != null && base > 0 && existing.getUpdatedAt() > 0
+                    && existing.getUpdatedAt() != base) {
+                throw new ConflictException("保存冲突：该图谱在你上次加载后已被其它窗口/会话修改。"
+                        + "请刷新获取最新图谱后再保存，以免覆盖对方的改动。");
+            }
             try {
                 versionRepository.snapshot(existing);
             } catch (Exception e) {

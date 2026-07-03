@@ -18,14 +18,16 @@ import java.util.Set;
  * 对话建模的「局部变更防护」：LLM 的输出在应用到图谱前先过一道范围校验，
  * 保证一次对话只改它该改的那部分，而不是把整张图重画 / 误删一大片。
  * <ul>
- *   <li><b>重画回收</b>：add_nodes 里 label 与现有节点相同的一律丢弃并把其 id 重映射到现有节点
- *       （上下文被裁剪时 LLM 看不到全图，常会把已有概念再画一遍——这里把"重画"折叠成 no-op）；
+ *   <li><b>重画回收</b>：add_nodes 里 label+type 与现有节点相同的一律丢弃并把其 id 重映射到现有节点
+ *       （上下文被裁剪时 LLM 看不到全图，常会把已有概念再画一遍——这里把"重画"折叠成 no-op；
+ *       同名但 type 明确不同视作两个概念，不折叠，空 type 作通配）；
  *       add_edges 端点跟随重映射，与现有边重复的（同 from/to/rel_type）也丢弃；</li>
  *   <li><b>删除预算</b>：单轮删除的节点/边数量有硬上限（绝对值 + 图规模占比取大者），
  *       超限视为疑似误删，整批拦截并提示用户改用画布多选删除或分次明确指令；
  *       引用不存在 id 的删除项直接过滤；</li>
- *   <li><b>补丁白名单</b>：update_nodes / update_edges 只允许修改白名单字段，
- *       禁止改 id、禁止改边的 from/to（改端点应显式走删 + 加）。</li>
+ *   <li><b>补丁白名单</b>：update_nodes / update_edges 只允许修改白名单字段，禁止改 id；
+ *       边的 from/to（改端点）允许，但新端点必须真实存在、改后不得自环或与现有关系重复，
+ *       非法端点改动被剥离并通过 notice 告知。</li>
  * </ul>
  * 全部为无副作用的 JSON 处理；拦截情况通过 {@link Guarded#notices()} 返回给调用方上报用户。
  */
@@ -41,9 +43,13 @@ public final class ChatChangeGuard {
     private static final Set<String> NODE_PATCH_FIELDS = Set.of(
             "label", "type", "props", "attributes", "constraints", "aliases",
             "derived_source", "derived_database", "derived_tables", "evidence", "confidence");
-    /** 边补丁允许修改的字段（不含 from/to：改端点须显式删+加）。 */
+    /**
+     * 边补丁允许修改的字段。from/to（改端点）与 prompt 的教学保持一致地放行，
+     * 但须通过端点专门校验：新端点必须真实存在、改后不得自环/与现有边重复，
+     * 非法端点字段被剥离并产生 notice（见 apply 内的 update_edges 处理）。
+     */
     private static final Set<String> EDGE_PATCH_FIELDS = Set.of(
-            "label", "rel_type", "rule_driven", "constraints",
+            "label", "rel_type", "rule_driven", "constraints", "from", "to",
             "derived_source", "derived_database", "derived_tables", "evidence", "confidence");
 
     private ChatChangeGuard() {}
@@ -63,15 +69,17 @@ public final class ChatChangeGuard {
         JsonNodeFactory f = JsonNodeFactory.instance;
 
         // ---- 现有图索引 ----
-        Map<String, String> labelToId = new HashMap<>();   // 标准化 label → 现有节点 id
+        // 标准化 label → 候选 {id, 标准化 type}。折叠判等看 label + type：
+        // 同名不同 type 是两个概念（如 rule「风险」与 metric「风险」），不得互相折叠；
+        // 空 type 作通配（旧数据/LLM 省略 type 时仍能按 label 折叠）。
+        Map<String, List<String[]>> labelIndex = new HashMap<>();
         Set<String> existingNodeIds = new HashSet<>();
         if (existingNodes != null) {
             for (Map<String, Object> n : existingNodes) {
                 String id = str(n.get("id"));
                 if (id == null) continue;
                 existingNodeIds.add(id);
-                String key = norm(str(n.get("label")));
-                if (!key.isEmpty()) labelToId.putIfAbsent(key, id);
+                registerLabel(labelIndex, str(n.get("label")), str(n.get("type")), id);
             }
         }
         Set<String> existingEdgeIds = new HashSet<>();
@@ -94,8 +102,9 @@ public final class ChatChangeGuard {
         if (addNodes != null && addNodes.isArray()) {
             for (JsonNode n : addNodes) {
                 String id = n.path("id").asText("");
-                String key = norm(n.path("label").asText(""));
-                String hit = key.isEmpty() ? null : labelToId.get(key);
+                String label = n.path("label").asText("");
+                String type = n.path("type").asText("");
+                String hit = lookupLabel(labelIndex, label, type);
                 if (hit == null && existingNodeIds.contains(id)) hit = id; // 直接复用了现有 id 也算重画
                 if (hit != null) {
                     if (!id.isEmpty()) idRemap.put(id, hit);
@@ -105,8 +114,8 @@ public final class ChatChangeGuard {
                 outAddNodes.add(n);
                 if (!id.isEmpty()) {
                     keptNewIds.add(id);
-                    // 同批内的重复 label 也折叠：后续同名 add 重映射到本节点，而不是双双入图
-                    if (!key.isEmpty()) labelToId.putIfAbsent(key, id);
+                    // 同批内的重复 label(+type) 也折叠：后续同名 add 重映射到本节点，而不是双双入图
+                    registerLabel(labelIndex, label, type, id);
                 }
             }
         }
@@ -158,9 +167,11 @@ public final class ChatChangeGuard {
             outRemoveEdges = f.arrayNode();
         }
 
-        // ---- 4. 补丁白名单：只留允许字段；改 id / 改边端点（from/to 不在白名单）一律剥掉 ----
+        // ---- 4. 补丁白名单：只留允许字段（改 id 一律剥掉）；边端点改动再过专门校验 ----
         ArrayNode outUpdateNodes = sanitizePatches(updateNodes, existingNodeIds, NODE_PATCH_FIELDS, f);
         ArrayNode outUpdateEdges = sanitizePatches(updateEdges, existingEdgeIds, EDGE_PATCH_FIELDS, f);
+        outUpdateEdges = sanitizeEdgeEndpointPatches(outUpdateEdges, existingEdges, existingNodeIds,
+                keptNewIds, existingEdgeSigs, outAddEdges, notices, f);
 
         return new Guarded(outAddNodes, outAddEdges, outRemoveNodes, outRemoveEdges,
                 outUpdateNodes, outUpdateEdges, notices);
@@ -200,6 +211,104 @@ public final class ChatChangeGuard {
                 kept++;
             }
             if (kept > 0) out.add(cleaned);
+        }
+        return out;
+    }
+
+    /** 把节点按 (标准化 label, 标准化 type) 注册进折叠索引。空 label 不注册。 */
+    private static void registerLabel(Map<String, List<String[]>> index, String label, String type, String id) {
+        String key = norm(label);
+        if (key.isEmpty() || id == null || id.isEmpty()) return;
+        index.computeIfAbsent(key, k -> new ArrayList<>()).add(new String[]{id, norm(type)});
+    }
+
+    /**
+     * 折叠索引查询：同 label 下优先 type 精确匹配；查询方或候选方 type 为空视作通配；
+     * 同名但 type 明确不同 → 不折叠（返回 null，让其作为新节点入图）。
+     */
+    private static String lookupLabel(Map<String, List<String[]>> index, String label, String type) {
+        String key = norm(label);
+        if (key.isEmpty()) return null;
+        List<String[]> cands = index.get(key);
+        if (cands == null || cands.isEmpty()) return null;
+        String t = norm(type);
+        if (t.isEmpty()) return cands.get(0)[0]; // 查询方未给 type：按旧行为折叠到首个同名节点
+        String blankHit = null;
+        for (String[] c : cands) {
+            if (t.equals(c[1])) return c[0];
+            if (c[1].isEmpty() && blankHit == null) blankHit = c[0];
+        }
+        return blankHit;
+    }
+
+    /**
+     * 边端点补丁校验：带 from/to 的补丁，改后的两端必须真实存在（现有节点或本轮新增节点）、
+     * 不得自环、不得与现有边/本轮新增边/本轮其它端点补丁改出的边重复（自身旧签名除外）。
+     * 非法时只剥离 from/to（保留其余可改字段）；剥完只剩 id 的整条丢弃。统一出一条 notice。
+     */
+    private static ArrayNode sanitizeEdgeEndpointPatches(ArrayNode patches,
+                                                         List<Map<String, Object>> existingEdges,
+                                                         Set<String> existingNodeIds,
+                                                         Set<String> keptNewIds,
+                                                         Set<String> existingEdgeSigs,
+                                                         ArrayNode addedEdges,
+                                                         List<String> notices,
+                                                         JsonNodeFactory f) {
+        if (patches == null || patches.isEmpty()) return patches == null ? f.arrayNode() : patches;
+        Map<String, Map<String, Object>> edgeById = new HashMap<>();
+        if (existingEdges != null) {
+            for (Map<String, Object> e : existingEdges) {
+                String id = str(e.get("id"));
+                if (id != null) edgeById.put(id, e);
+            }
+        }
+        // 已被占用的边签名：现有边 + 本轮新增边 + 已接受的端点补丁，防补丁改出重复边
+        Set<String> takenSigs = new HashSet<>(existingEdgeSigs);
+        if (addedEdges != null) {
+            for (JsonNode e : addedEdges) {
+                String sig = edgeSig(e.path("from").asText(""), e.path("to").asText(""),
+                        e.path("rel_type").asText(null), e.path("label").asText(null));
+                if (sig != null) takenSigs.add(sig);
+            }
+        }
+        ArrayNode out = f.arrayNode();
+        int stripped = 0;
+        for (JsonNode p : patches) {
+            if (!(p instanceof ObjectNode obj)) continue;
+            boolean hasFrom = obj.hasNonNull("from");
+            boolean hasTo = obj.hasNonNull("to");
+            if (!hasFrom && !hasTo) { out.add(obj); continue; }
+            Map<String, Object> cur = edgeById.get(obj.path("id").asText(""));
+            String curFrom = cur == null ? null : str(cur.get("from"));
+            String curTo = cur == null ? null : str(cur.get("to"));
+            String newFrom = hasFrom ? obj.path("from").asText("") : curFrom;
+            String newTo = hasTo ? obj.path("to").asText("") : curTo;
+            boolean fromOk = newFrom != null && !newFrom.isBlank()
+                    && (existingNodeIds.contains(newFrom) || keptNewIds.contains(newFrom));
+            boolean toOk = newTo != null && !newTo.isBlank()
+                    && (existingNodeIds.contains(newTo) || keptNewIds.contains(newTo));
+            boolean valid = fromOk && toOk && !newFrom.equals(newTo);
+            if (valid) {
+                // 补丁可能同时改 rel_type / label，签名按“改后生效值”计算
+                String rel = obj.hasNonNull("rel_type") ? obj.path("rel_type").asText(null)
+                        : (cur == null ? null : str(cur.get("rel_type")));
+                String lbl = obj.hasNonNull("label") ? obj.path("label").asText(null)
+                        : (cur == null ? null : str(cur.get("label")));
+                String newSig = edgeSig(newFrom, newTo, rel, lbl);
+                String oldSig = cur == null ? null
+                        : edgeSig(curFrom, curTo, str(cur.get("rel_type")), str(cur.get("label")));
+                if (newSig != null && !newSig.equals(oldSig) && !takenSigs.add(newSig)) valid = false;
+            }
+            if (!valid) {
+                obj.remove("from");
+                obj.remove("to");
+                stripped++;
+                if (obj.size() <= 1) continue; // 只剩 id，无可改字段
+            }
+            out.add(obj);
+        }
+        if (stripped > 0) {
+            notices.add("已拦截 " + stripped + " 条关系的端点改动（新端点不存在、自环或与现有关系重复），其余字段照常生效");
         }
         return out;
     }

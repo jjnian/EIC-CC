@@ -30,6 +30,13 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", e.getMessage() == null ? "资源未找到" : e.getMessage()));
     }
 
+    /** 并发修改冲突（乐观锁基线过期）→ 409。由 service 主动抛出 {@link ConflictException} 触发。 */
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleConflict(ConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", e.getMessage() == null ? "并发修改冲突，请刷新后重试" : e.getMessage()));
+    }
+
     /** 参数校验类异常统一映射到 400；包含 Spring 的缺失参数异常。 */
     @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class,
                        MissingServletRequestParameterException.class})

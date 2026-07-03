@@ -154,13 +154,17 @@ const persistCurrentModel = (immediate = false) => {
     if (!m) return;
     m.graphData = { nodes: nodes.value, edges: edges.value };
     try {
-      await updateOntology(m.id, m);
+      // 乐观锁:带上加载/上次保存时的 updatedAt 作基线,服务端不一致时返回 409 而不是覆盖
+      const saved = await updateOntology(m.id, { ...m, baseUpdatedAt: m.updatedAt });
+      if (saved?.updatedAt) m.updatedAt = saved.updatedAt; // 回填新基线,下次防抖保存不误报冲突
       // 回填侧栏血缘图缓存，让展开时立刻可见
       const wsId = wsManager.currentId.value;
       if (wsId) sidebarTree.upsertOntology(wsId, { id: m.id, name: m.name || m.title || '未命名图谱', updatedAt: Date.now() });
     } catch (e) {
       console.error('save failed', e);
-      if (e instanceof ApiError) {
+      if (e instanceof ApiError && e.status === 409) {
+        toast.warn(e.message || '保存冲突:图谱已在其它窗口被修改,请刷新后再编辑');
+      } else if (e instanceof ApiError) {
         toast.warn('未保存到服务器(HTTP ' + e.status + ')');
       } else {
         toast.warn('未保存到服务器');
@@ -513,7 +517,7 @@ const renameGraph = async (id: string, title: string) => {
   const m = findModel(id);
   if (!m) return;
   try {
-    const next = { ...m, title, name: title };
+    const next = { ...m, title, name: title, baseUpdatedAt: m.updatedAt };
     const saved = await updateOntology(id, next);
     const idx = models.value.findIndex(x => x.id === id);
     if (idx >= 0) models.value[idx] = saved;

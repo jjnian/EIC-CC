@@ -2,6 +2,7 @@ package com.tuiyan.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tuiyan.backend.service.extraction.ProvenanceValidator;
 import com.tuiyan.backend.service.llm.LlmCallLogger;
 import com.tuiyan.backend.service.llm.LlmHttpClient;
 import com.tuiyan.backend.service.llm.prompt.ExtractPrompts;
@@ -81,6 +82,10 @@ public class ExtractionLlmService {
         if (chunks.isEmpty()) chunks = new ArrayList<>(List.of(""));
 
         JsonNode merged = null;
+        ProvenanceValidator.Stats provenance = ProvenanceValidator.Stats.empty();
+        // evidence 落地校验只对「纯文本 + 通用抽取规则」的段生效：
+        // 图片段的实体来自图内容、无法对回文本；DDL/schema 段的 evidence 是结构引用而非原文引文。
+        boolean generalProse = ExtractPrompts.EXTRACT_SYSTEM.equals(system);
         for (int i = 0; i < chunks.size(); i++) {
             List<Map<String, Object>> imgs = (i == 0) ? imageAttachments : null;
             String preface = chunks.size() > 1
@@ -91,10 +96,48 @@ public class ExtractionLlmService {
             // 这样本段产生的关系才能直接连到“别的段落里”的实体，避免血缘链在段边界断裂。
             preface += merger.knownEntitiesPreface(merged);
             JsonNode part = callExtractOnce(preface + chunks.get(i), imgs, cfg, anthropic, system);
+            // 事实性校验：derived 的 evidence 须能在本段原文命中，否则降级 inferred；confidence 越界收敛。
+            // 对回的是本段正文（不含 preface），避免回灌的实体清单让幻觉引文误判为"有据"。
+            boolean grounding = generalProse && (imgs == null || imgs.isEmpty());
+            provenance = provenance.plus(ProvenanceValidator.validate(part, chunks.get(i), grounding));
             if (chunks.size() > 1) part = merger.prefixChunkIds(part, "c" + i + "_");
             merged = (merged == null) ? part : merger.mergeExtractionByLabel(merged, part);
         }
+        if (provenance.any()) {
+            log.info("[LLM-extract] 事实性校验：{} 个元素 evidence 未命中原文已降级为 inferred，{} 个 confidence 越界已收敛",
+                    provenance.downgraded(), provenance.clamped());
+        }
         return merger.sanitizeGraph(merged == null ? objectMapper.createObjectNode() : merged);
+    }
+
+    /**
+     * 单次原样调用：给定 system prompt 与完整输入文本（原样作为 user 消息，不加文档包装、
+     * 不切片、不合并、不做图校验），返回 LLM 的 JSON 输出。
+     * <p>供「跨批连边」等非文档抽取的结构化小任务复用同一套 LLM 配置 / 日志 / 指标。
+     * 调用方自行负责结果过滤与校验。
+     */
+    public JsonNode extractRaw(String userText, String systemPrompt,
+                               String modelOverride, String configId) throws IOException {
+        LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(modelOverride, configId);
+        boolean anthropic = http.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
+        callLogger.logConversation("LLM-extract-raw", cfg.modelName(), systemPrompt, null, userText, null);
+        String requestBody = http.buildBody(cfg, systemPrompt, userText,
+                null, null, false, true, LlmHttpClient.EXTRACT_TEMPERATURE);
+        HttpRequest req = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, requestBody, cfg.rawUrl());
+        long start = System.currentTimeMillis();
+        HttpResponse<String> resp = http.sendHttp(req, HttpResponse.BodyHandlers.ofString());
+        long elapsed = System.currentTimeMillis() - start;
+        if (resp.statusCode() != 200) {
+            log.error("[LLM-extract-raw] 请求失败 status={} 耗时={}ms", resp.statusCode(), elapsed);
+            callLogger.logUpstreamError("extract-raw", resp.statusCode(), resp.body());
+            http.metrics().recordCall(cfg.modelName(), elapsed, false);
+            throw new RuntimeException("LLM 调用失败 HTTP " + resp.statusCode() + "（详情见服务器日志）");
+        }
+        http.metrics().recordCall(cfg.modelName(), elapsed, true);
+        JsonNode root = objectMapper.readTree(resp.body());
+        String content = http.stripJsonFence(http.extractContent(root, anthropic));
+        callLogger.logLlmResponse("LLM-extract-raw", cfg.modelName(), elapsed, content);
+        return objectMapper.readTree(content);
     }
 
     /** 单次 chunk 调用 LLM 抽取节点 / 边。文本与图片同时挂上让 LLM 跨模态理解文档。 */

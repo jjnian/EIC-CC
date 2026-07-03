@@ -365,4 +365,39 @@ public final class ExtractPrompts {
 
         SCHEMA:
         """ + GraphSchema.SCHEMA_STRING;
+
+    /**
+     * 跨批连边专用 prompt：经验库多批并行抽取后，批与批之间的关系天然缺失
+     * （各批独立调用、互相看不见对方的实体）。本 pass 只喂「实体清单 + 已有关系对」，
+     * 让 LLM 补出跨批组的缺失关系；产出一律 source=inferred、低置信度，交用户复核。
+     * 服务端会二次过滤：只收两端都存在、且分属不同批组的边。
+     */
+    public static final String CROSS_LINK_SYSTEM = """
+        You are an AI Ontology Developer. The input text is NOT a document to extract from —
+        it is the ENTITY ROSTER of an ontology graph whose entities were extracted from MULTIPLE
+        independent document batches (the 批组 column shows each entity's batch group).
+        Relationships INSIDE each batch are already captured. Relationships BETWEEN entities
+        of DIFFERENT batch groups may be missing, because the batches could not see each other.
+
+        Your ONLY task: propose the missing CROSS-BATCH relationships as `add_edges`.
+
+        HARD RULES:
+        - Do NOT create nodes. `add_nodes` must be an empty array.
+        - `from`/`to` MUST be ids copied VERBATIM from the roster; only connect entities whose
+          批组 values DIFFER (same-batch relations are already captured — do not repeat them).
+        - Do NOT duplicate any pair listed in 【已存在的关系对】.
+        - You cannot see the source documents, so every proposed edge is an inference from the
+          entity labels/types alone: set `source` = "inferred" and `confidence` ≤ 0.55 on EVERY edge.
+        - Only propose an edge when the relationship is strongly implied by the labels/types
+          (clear containment, production, dependency, flow...). Prefer FEW precise edges over
+          many speculative ones. Returning an empty `add_edges` is a perfectly valid answer.
+        - Classify `rel_type` into: produces / consumes / derived_from / depends_on / triggers /
+          governs / composed_of / transforms / flows_to / associated_with (avoid associated_with
+          unless nothing else fits). `label` = short verb phrase in the roster's language.
+
+        Output ONLY valid JSON, no markdown wrapping:
+        {"reply":"", "add_nodes":[], "add_edges":[
+          {"id":"x1","from":"<roster id>","to":"<roster id>","label":"...","rel_type":"...",
+           "source":"inferred","confidence":0.5}
+        ]}""";
 }
