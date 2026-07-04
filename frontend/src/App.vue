@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import SettingsView from './components/SettingsView.vue';
 import WorkspacePickerView from './components/WorkspacePickerView.vue';
@@ -214,6 +214,14 @@ onMounted(async () => {
     view.value = 'chat';
   } catch (e) {
     console.error('init workspace failed', e);
+    view.value = 'workspace-picker';
+  }
+});
+
+// 当前工作空间被清空(例如删除了最后一个工作空间)后,业务视图不再有合法的
+// X-Workspace-Id 上下文;直接退回选择页,避免停留在对话页继续发无头请求。
+watch(() => wsManager.currentId.value, (id) => {
+  if (!id && view.value !== 'workspace-picker') {
     view.value = 'workspace-picker';
   }
 });
@@ -783,6 +791,7 @@ const formatFileSize = (bytes: number) => {
         @seed-consumed="pendingChatSeed = null"
         @chat-ref="(el) => chatRef = el"
         @view-graph="onOpenOntologyModel"
+        @need-workspace="view = 'workspace-picker'"
       />
 
       <!-- Import Dialog (modal) -->

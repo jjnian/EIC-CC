@@ -37,6 +37,7 @@ const emit = defineEmits<{
   (e: 'focus-node', id: string): void;
   (e: 'view-graph', modelId: string): void;
   (e: 'user-msg-changed', hasUserMsg: boolean): void;
+  (e: 'need-workspace'): void;
 }>();
 
 // ===== 消息/输入 状态 =====
@@ -135,6 +136,13 @@ const { send, abortChat } = sender;
  */
 const onSend = async () => {
   if (!input.value.trim() && !atts.value.length) return;
+  // 没有选中工作空间时,所有 /api 业务请求都会缺 X-Workspace-Id 头被后端 400 拒绝。
+  // 在发送前拦下,给出可操作的提示并把用户带回工作空间选择页,而不是抛后端的原始报错。
+  if (!ws.currentId.value) {
+    toast.warn('请先选择或新建工作空间');
+    emit('need-workspace');
+    return;
+  }
   if (props.ensureModel && !props.modelId) {
     try {
       await props.ensureModel(input.value);

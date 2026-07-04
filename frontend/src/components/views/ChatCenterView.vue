@@ -18,6 +18,7 @@ const emit = defineEmits<{
   (e: 'seed-consumed'): void;
   (e: 'chat-ref', el: any): void;
   (e: 'view-graph', modelId: string): void;
+  (e: 'need-workspace'): void;
 }>();
 
 const cpRef = ref<InstanceType<typeof ChatPanel> | null>(null);
@@ -68,6 +69,7 @@ const bindRef = (el: any) => {
         @clear-graph="emit('clear-graph')"
         @seed-consumed="emit('seed-consumed')"
         @view-graph="(id) => emit('view-graph', id)"
+        @need-workspace="emit('need-workspace')"
         @user-msg-changed="(v) => hasUserMsg = v"
       />
     </div>
