@@ -61,7 +61,7 @@
   border: 1px solid rgba(47, 134, 214, 0.3);
   box-shadow: none;
 }
-.sv-tab-icon { font-size: 14px; flex-shrink: 0; }
+.sv-tab-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; opacity: 0.9; }
 
 .sv-pane { min-width: 0; }
 .sv-section-head {

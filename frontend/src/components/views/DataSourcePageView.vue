@@ -12,6 +12,10 @@ import { useSidebarTree } from '../../composables/useSidebarTree';
 import { useWorkspaces } from '../../composables/useWorkspaces';
 import DataSourceConfigForm from '../datasource/DataSourceConfigForm.vue';
 import { Button } from '@/components/ui/button';
+import {
+  Database, FileText, Globe, Link2, Package, Plus, X, ChevronLeft, Diamond, Circle,
+  type LucideIcon,
+} from '@lucide/vue';
 
 const tree = useSidebarTree();
 const ws = useWorkspaces();
@@ -52,15 +56,16 @@ const kindLabel: Record<string, string> = {
   file_stored: '文件', https_api: 'HTTPS 接口',
   file: '文件(旧)', url: 'URL(旧)',
 };
-const kindIcon: Record<string, string> = {
-  mysql: '🗄', pgsql: '🐘', oracle: '🔶', dm: '🏮', gbase: '🧩', file_stored: '📄', https_api: '🌐',
-  file: '📄', url: '🔗',
+const kindIcon: Record<string, LucideIcon> = {
+  mysql: Database, pgsql: Database, oracle: Database, dm: Database, gbase: Database,
+  file_stored: FileText, https_api: Globe, file: FileText, url: Link2,
 };
+const iconFor = (kind: string): LucideIcon => kindIcon[kind] ?? Package;
 const statusLabel: Record<string, string> = {
   connected: '已连接', error: '异常', idle: '未测试',
 };
 const statusColor: Record<string, string> = {
-  connected: '#22dd88', error: 'tomato', idle: '#aaa',
+  connected: '#22dd88', error: '#ff6644', idle: 'var(--text-muted)',
 };
 const canOpen = (d: DataSource) =>
   ['mysql', 'pgsql', 'oracle', 'dm', 'gbase', 'file_stored', 'https_api'].includes(d.kind);
@@ -165,13 +170,13 @@ const submitting = ref(false);
 const testing = ref(false);
 const testMsg = ref('');
 
-const TYPES: { kind: DataSourceKind; icon: string; label: string; desc: string }[] = [
-  { kind: 'mysql',       icon: '🗄', label: 'MySQL',       desc: '连接 MySQL 数据库，查表写 SQL' },
-  { kind: 'pgsql',       icon: '🐘', label: 'PostgreSQL',  desc: '连接 PgSQL 数据库，查表写 SQL' },
-  { kind: 'oracle',      icon: '🔶', label: 'Oracle',      desc: '连接 Oracle 数据库，查表写 SQL' },
-  { kind: 'dm',          icon: '🏮', label: '达梦 DM',     desc: '国产库，兼容 Oracle 语法' },
-  { kind: 'gbase',       icon: '🧩', label: 'GBase 8a',    desc: '国产 MPP 库，兼容 MySQL 协议' },
-  { kind: 'https_api',   icon: '🌐', label: 'HTTPS 接口',  desc: 'REST API，可定时拉取' },
+const TYPES: { kind: DataSourceKind; icon: LucideIcon; label: string; desc: string }[] = [
+  { kind: 'mysql',       icon: Database, label: 'MySQL',       desc: '连接 MySQL 数据库，查表写 SQL' },
+  { kind: 'pgsql',       icon: Database, label: 'PostgreSQL',  desc: '连接 PgSQL 数据库，查表写 SQL' },
+  { kind: 'oracle',      icon: Database, label: 'Oracle',      desc: '连接 Oracle 数据库，查表写 SQL' },
+  { kind: 'dm',          icon: Database, label: '达梦 DM',     desc: '国产库，兼容 Oracle 语法' },
+  { kind: 'gbase',       icon: Database, label: 'GBase 8a',    desc: '国产 MPP 库，兼容 MySQL 协议' },
+  { kind: 'https_api',   icon: Globe,    label: 'HTTPS 接口',  desc: 'REST API，可定时拉取' },
 ];
 
 const openAdd = () => {
@@ -235,7 +240,7 @@ const submit = async () => {
     <div class="ds-header">
       <h2>数据源</h2>
       <span class="ds-total">共 {{ items.length }} 个 · 跨全部工作空间</span>
-      <Button @click="openAdd">＋ 添加数据源</Button>
+      <Button @click="openAdd"><Plus :size="15" :stroke-width="2" /> 添加数据源</Button>
     </div>
 
     <!-- 工作空间筛选条 -->
@@ -252,12 +257,12 @@ const submit = async () => {
     <div v-if="showForm" class="add-panel">
       <div class="add-panel-head">
         <span>添加数据源 · 归入当前工作空间「{{ wsName(ws.currentId.value) }}」</span>
-        <Button variant="ghost" size="icon-sm" @click="showForm = false">×</Button>
+        <Button variant="ghost" size="icon-sm" @click="showForm = false"><X :size="16" /></Button>
       </div>
 
       <div v-if="step === 'pick'" class="picker">
         <button v-for="t in TYPES" :key="t.kind" class="type-card" @click="pickType(t.kind)">
-          <span class="ic">{{ t.icon }}</span>
+          <span class="ic"><component :is="t.icon" :size="22" :stroke-width="1.75" /></span>
           <strong>{{ t.label }}</strong>
           <small>{{ t.desc }}</small>
         </button>
@@ -272,7 +277,7 @@ const submit = async () => {
         />
         <div v-if="testMsg" class="test-msg">{{ testMsg }}</div>
         <div class="form-actions">
-          <Button variant="ghost" size="sm" type="button" @click="step = 'pick'">‹ 返回</Button>
+          <Button variant="ghost" size="sm" type="button" @click="step = 'pick'"><ChevronLeft :size="15" /> 返回</Button>
           <span style="flex:1" />
           <Button
             v-if="kind"
@@ -308,7 +313,7 @@ const submit = async () => {
         class="ds-row clickable"
         @click="openPreview(d)"
       >
-        <span class="row-ic">{{ kindIcon[d.kind] ?? '📦' }}</span>
+        <span class="row-ic"><component :is="iconFor(d.kind)" :size="18" :stroke-width="1.75" /></span>
         <div class="ds-main">
           <span class="ds-name">{{ d.name }}</span>
           <span class="ds-kind">{{ kindLabel[d.kind] ?? d.kind }}</span>
@@ -318,15 +323,15 @@ const submit = async () => {
           class="ws-badge"
           :title="`被引用工作空间：${refWsNames(d.id).join('、')}（创建于：${wsName(d.workspaceId)}）`"
         >
-          <span class="ws-badge-ic">◆</span>{{ refWsNames(d.id)[0] }}<span
+          <Diamond class="ws-badge-ic" :size="9" fill="currentColor" />{{ refWsNames(d.id)[0] }}<span
             v-if="refWsNames(d.id).length > 1" class="ws-badge-more"
           >+{{ refWsNames(d.id).length - 1 }}</span>
         </span>
         <span v-else class="ws-badge none" :title="`创建于：${wsName(d.workspaceId)}`">
-          <span class="ws-badge-ic">◇</span>未被引用
+          <Diamond class="ws-badge-ic" :size="9" />未被引用
         </span>
-        <span class="ds-status" :style="{ color: statusColor[d.status ?? 'idle'] ?? '#aaa' }">
-          ● {{ statusLabel[d.status ?? 'idle'] ?? d.status }}
+        <span class="ds-status" :style="{ color: statusColor[d.status ?? 'idle'] ?? 'var(--text-muted)' }">
+          <Circle :size="8" fill="currentColor" :stroke-width="0" /> {{ statusLabel[d.status ?? 'idle'] ?? d.status }}
         </span>
         <span class="row-actions">
           <Button variant="ghost" size="sm" title="预览" @click.stop="openPreview(d)">预览</Button>
@@ -340,10 +345,10 @@ const submit = async () => {
     <div v-if="previewItem" class="preview-overlay" @click.self="closePreview">
       <div class="preview-panel">
         <div class="preview-head">
-          <span class="row-ic">{{ kindIcon[previewItem.kind] ?? '📦' }}</span>
+          <span class="row-ic"><component :is="iconFor(previewItem.kind)" :size="18" :stroke-width="1.75" /></span>
           <span class="preview-title">{{ previewItem.name }}</span>
-          <span class="ws-badge"><span class="ws-badge-ic">◆</span>{{ wsName(previewItem.workspaceId) }}</span>
-          <Button variant="ghost" size="icon-sm" class="close-btn" @click="closePreview">×</Button>
+          <span class="ws-badge"><Diamond class="ws-badge-ic" :size="9" fill="currentColor" />{{ wsName(previewItem.workspaceId) }}</span>
+          <Button variant="ghost" size="icon-sm" class="close-btn" @click="closePreview"><X :size="16" /></Button>
         </div>
         <div class="preview-body">
           <div v-for="r in previewRows" :key="r.label" class="preview-row">
@@ -368,108 +373,110 @@ const submit = async () => {
 </template>
 
 <style scoped>
-.ds-page { display: flex; flex-direction: column; height: 100%; padding: 24px 32px; color: #e8eaed; overflow-y: auto; }
-.ds-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.ds-header h2 { margin: 0; font-size: 18px; font-weight: 600; }
-.ds-total { font-size: 12px; color: #8a909c; flex: 1; }
+.ds-page { display: flex; flex-direction: column; height: 100%; padding: 28px 32px; color: var(--text-main); overflow-y: auto; }
+.ds-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.ds-header h2 { margin: 0; font-size: 22px; font-weight: 600; color: var(--text-main); letter-spacing: 0.3px; }
+.ds-total { font-size: 12px; color: var(--text-dim); flex: 1; font-family: var(--font-mono); }
 
 .ws-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
 .chip {
-  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
-  border-radius: 100px; padding: 4px 12px; color: #c0c4cf; cursor: pointer; font-size: 12px;
-  transition: background .12s, color .12s, border-color .12s;
+  background: var(--bg-elev); border: 1px solid var(--glass-border);
+  border-radius: 100px; padding: 4px 13px; color: var(--text-dim); cursor: pointer; font-size: 12px;
+  transition: background .14s var(--ease-out), color .14s var(--ease-out), border-color .14s var(--ease-out);
 }
-.chip:hover { background: rgba(255,255,255,.09); }
-.chip.on { background: rgba(47,134,214,.18); border-color: rgba(47,134,214,.5); color: var(--accent-soft); }
+.chip:hover { background: var(--bg-elev-hi); color: var(--text-main); }
+.chip.on { background: var(--accent-tint); border-color: rgba(47,134,214,.5); color: var(--accent-soft); }
 
-.add-panel { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 10px; margin-bottom: 20px; }
-.add-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 14px; font-weight: 500; }
-.close-btn { background: none; border: none; color: #aaa; font-size: 18px; cursor: pointer; line-height: 1; }
+.add-panel {
+  background: linear-gradient(180deg, var(--bg-panel) 0%, rgba(11,18,32,.5) 100%);
+  border: 1px solid var(--hairline); border-radius: 14px; margin-bottom: 20px;
+  box-shadow: var(--shadow-md), inset 0 1px 0 var(--hairline-top);
+  overflow: hidden;
+}
+.add-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; border-bottom: 1px solid var(--hairline); font-size: 13px; font-weight: 500; color: var(--text-main); background: linear-gradient(180deg, rgba(255,255,255,.03), transparent); }
+.close-btn { color: var(--text-dim); }
 
-.picker { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px; }
-.type-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 8px; padding: 14px; cursor: pointer; color: #e8eaed; text-align: left; }
-.type-card:hover { background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.16); }
-.type-card .ic { font-size: 22px; }
-.type-card strong { font-size: 14px; }
-.type-card small { font-size: 12px; color: #999; }
+.picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 18px; }
+.type-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  background: var(--bg-elev); border: 1px solid var(--glass-border); border-radius: 12px;
+  padding: 16px; cursor: pointer; color: var(--text-main); text-align: left;
+  transition: transform .18s var(--ease-out), background .18s var(--ease-out), border-color .18s var(--ease-out), box-shadow .18s var(--ease-out);
+}
+.type-card:hover { transform: translateY(-2px); background: var(--bg-elev-hi); border-color: rgba(47,134,214,.42); box-shadow: 0 10px 26px rgba(0,0,0,.28); }
+.type-card .ic { display: inline-flex; color: var(--accent-soft); margin-bottom: 2px; }
+.type-card strong { font-size: 14px; font-weight: 600; }
+.type-card small { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
 
-.form-area { padding: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
+.form-area { padding: 18px; display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
 .row { display: flex; align-items: center; gap: 8px; }
-.row > span { min-width: 88px; font-size: 13px; color: #c0c4cf; }
-.row > input { flex: 1; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 6px 8px; color: #e8eaed; }
+.row > span { min-width: 88px; font-size: 13px; color: var(--text-dim); }
+.row > input { flex: 1; background: rgba(8,13,22,.7); border: 1px solid var(--glass-border); border-radius: 8px; padding: 8px 10px; color: var(--text-main); outline: none; transition: border-color .15s; }
+.row > input:focus { border-color: rgba(47,134,214,.55); }
 .row.block { flex-direction: column; align-items: stretch; gap: 6px; }
-.test-msg { font-size: 13px; color: #aaa; padding: 8px; background: rgba(255,255,255,.03); border-radius: 6px; }
+.test-msg { font-size: 13px; color: var(--text-dim); padding: 10px 12px; background: var(--bg-elev); border: 1px solid var(--hairline); border-radius: 8px; }
 .form-actions { display: flex; gap: 8px; align-items: center; padding-top: 4px; }
 
 /* 扁平列表 */
-.ds-list { display: flex; flex-direction: column; gap: 4px; }
+.ds-list { display: flex; flex-direction: column; gap: 3px; }
 .ds-row {
   display: flex; align-items: center; gap: 12px;
-  padding: 10px 14px; border-radius: 9px; min-height: 46px;
+  padding: 10px 14px; border-radius: 11px; min-height: 48px;
   border: 1px solid transparent;
-  transition: background .12s, border-color .12s;
+  transition: background .14s var(--ease-out), border-color .14s var(--ease-out);
 }
-.ds-row:hover { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.08); }
+.ds-row:hover { background: var(--bg-elev); border-color: var(--hairline); }
 
 /* 列表表头 */
 .ds-head {
-  min-height: 0; padding-top: 2px; padding-bottom: 8px; margin-bottom: 2px;
+  min-height: 0; padding-top: 2px; padding-bottom: 9px; margin-bottom: 2px;
   border-radius: 0; cursor: default;
-  border-bottom: 1px solid rgba(255,255,255,.1);
+  border-bottom: 1px solid var(--hairline);
 }
-.ds-head:hover { background: none; border-color: transparent; border-bottom-color: rgba(255,255,255,.1); }
-.ds-head .ds-name { font-size: 12px; font-weight: 600; color: #8a909c; }
+.ds-head:hover { background: none; border-color: transparent; border-bottom-color: var(--hairline); }
+.ds-head .ds-name { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.6px; }
 .ds-head .ws-col, .ds-head .status-col, .ds-head .actions-col {
-  flex: none; font-size: 12px; font-weight: 600; color: #8a909c;
+  flex: none; font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.6px;
 }
 .ds-head .ws-col { width: 160px; }
 .ds-head .status-col { width: 120px; }
 .ds-head .actions-col { width: 120px; text-align: center; }
 .ds-row.clickable { cursor: pointer; }
 .ds-row:hover .row-actions { opacity: 1; }
-.row-ic { font-size: 20px; flex: none; width: 24px; text-align: center; }
+.row-ic { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border-radius: 9px; background: var(--accent-tint); color: var(--accent-soft); }
 .ds-main { display: flex; flex-direction: column; gap: 2px; flex: 0 0 360px; min-width: 0; }
-.ds-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ds-kind { font-size: 12px; color: #888; }
+.ds-name { font-size: 14px; font-weight: 500; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-kind { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
 
 .ws-badge {
   display: inline-flex; align-items: center; gap: 5px; flex: none;
-  font-size: 12px; color: #9fb6ff;
-  background: rgba(93,158,255,.12); border: 1px solid rgba(93,158,255,.28);
+  font-size: 12px; color: var(--accent-soft);
+  background: var(--accent-tint); border: 1px solid rgba(61,155,255,.28);
   border-radius: 100px; padding: 3px 11px; width: 160px; box-sizing: border-box;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ws-badge-ic { font-size: 9px; opacity: .8; }
+.ws-badge-ic { flex-shrink: 0; opacity: .85; }
 .ws-badge-more { margin-left: 4px; font-size: 10px; opacity: .75; }
-.ws-badge.none { color: #8a909c; background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.12); }
-.ds-status { font-size: 12px; flex: none; width: 120px; }
+.ws-badge.none { color: var(--text-muted); background: var(--bg-elev); border-color: var(--glass-border); }
+.ds-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; flex: none; width: 120px; }
 
-.row-actions { display: flex; gap: 4px; flex: none; width: 120px; justify-content: center; opacity: 0; transition: opacity .12s; }
-.row-actions button {
-  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
-  color: #c0c4cf; font-size: 12px; cursor: pointer; padding: 4px 12px; border-radius: 6px; line-height: 1.4;
-}
-.row-actions button:hover { color: #fff; background: rgba(255,255,255,.12); }
+.row-actions { display: flex; gap: 4px; flex: none; width: 120px; justify-content: center; opacity: 0; transition: opacity .14s; }
+.row-actions button:hover { color: #fff; background: var(--bg-elev-hi); }
 .row-actions button.danger:hover { color: #fff; background: rgba(255,99,71,.22); border-color: rgba(255,99,71,.5); }
 
-.empty { color: #888; padding: 40px; text-align: center; font-size: 14px; }
-
-.btn-primary { background: #4a8df0; border: none; color: #fff; padding: 7px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
-.btn-ghost { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 6px 12px; color: #e8eaed; cursor: pointer; font-size: 13px; }
-.btn-ghost:disabled { opacity: .5; }
+.empty { color: var(--text-dim); padding: 48px; text-align: center; font-size: 14px; }
 
 /* 只读预览弹层 */
-.preview-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 60; }
-.preview-panel { background: #1c1f26; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; width: 460px; max-width: 92vw; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,.5); }
-.preview-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
-.preview-title { font-size: 15px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.preview-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.preview-panel { background: linear-gradient(180deg, #182338 0%, #101729 100%); border: 1px solid var(--glass-border); border-radius: 16px; width: 460px; max-width: 92vw; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow-panel); }
+.preview-head { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--hairline); background: linear-gradient(180deg, rgba(255,255,255,.03), transparent); }
+.preview-title { font-size: 15px; font-weight: 600; color: var(--text-main); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .preview-head .close-btn { margin-left: 4px; }
-.preview-body { padding: 8px 16px 12px; overflow-y: auto; display: flex; flex-direction: column; }
-.preview-row { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.05); font-size: 13px; }
+.preview-body { padding: 8px 18px 12px; overflow-y: auto; display: flex; flex-direction: column; }
+.preview-row { display: flex; gap: 12px; padding: 9px 0; border-bottom: 1px dashed var(--hairline); font-size: 13px; }
 .preview-row:last-child { border-bottom: none; }
-.preview-k { flex: none; width: 120px; color: #8a909c; word-break: break-all; }
-.preview-v { flex: 1; min-width: 0; color: #e8eaed; word-break: break-all; }
-.preview-foot { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid rgba(255,255,255,.08); }
-.preview-hint { font-size: 12px; color: #8a909c; }
+.preview-k { flex: none; width: 120px; color: var(--text-dim); word-break: break-all; text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; }
+.preview-v { flex: 1; min-width: 0; color: var(--text-main); word-break: break-all; }
+.preview-foot { display: flex; align-items: center; gap: 8px; padding: 13px 18px; border-top: 1px solid var(--hairline); }
+.preview-hint { font-size: 12px; color: var(--text-dim); }
 </style>

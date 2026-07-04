@@ -11,6 +11,7 @@ import MonitorTab from './settings/MonitorTab.vue';
 import AboutTab from './settings/AboutTab.vue';
 import WorkspacesTab from './settings/WorkspacesTab.vue';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { LayoutGrid, Boxes, Palette, HardDrive, Activity, Info, type LucideIcon } from '@lucide/vue';
 
 const emit = defineEmits<{
   (e: 'switch-workspace', id: string): void;
@@ -25,13 +26,13 @@ const showToast = (msg: string, kind: 'success' | 'error' = 'success') => {
 const mc = useModelConfigs({ showToast });
 const sp = useSettingsPrefs();
 
-const TABS = [
-  { id: 'workspaces', label: '工作空间', icon: '▣' },
-  { id: 'models',     label: '模型管理', icon: '◈' },
-  { id: 'appearance', label: '图谱外观', icon: '✦' },
-  { id: 'data',       label: '数据管理', icon: '◐' },
-  { id: 'monitor',    label: '系统监控', icon: '📊' },
-  { id: 'about',      label: '关于',     icon: 'ⓘ' }
+const TABS: { id: string; label: string; icon: LucideIcon }[] = [
+  { id: 'workspaces', label: '工作空间', icon: LayoutGrid },
+  { id: 'models',     label: '模型管理', icon: Boxes },
+  { id: 'appearance', label: '图谱外观', icon: Palette },
+  { id: 'data',       label: '数据管理', icon: HardDrive },
+  { id: 'monitor',    label: '系统监控', icon: Activity },
+  { id: 'about',      label: '关于',     icon: Info }
 ];
 const activeTab = ref('workspaces');
 const APP_VERSION = '0.5.0';
@@ -63,7 +64,7 @@ watch(activeTab, (tab) => {
     <Tabs v-model="activeTab" orientation="vertical" class="sv-layout">
       <TabsList class="sv-tabs">
         <TabsTrigger v-for="t in TABS" :key="t.id" :value="t.id" class="sv-tab">
-          <span class="sv-tab-icon">{{ t.icon }}</span>
+          <span class="sv-tab-icon"><component :is="t.icon" :size="16" :stroke-width="1.75" /></span>
           <span>{{ t.label }}</span>
         </TabsTrigger>
       </TabsList>

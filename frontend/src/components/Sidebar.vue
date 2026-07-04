@@ -7,6 +7,7 @@ import { ApiError } from '../api/http';
 import { isNavActive, type NavRoute, type ViewId } from '../views';
 import { Button } from '@/components/ui/button';
 import BaseInput from './form/BaseInput.vue';
+import { MessageSquarePlus, Database, Library, Settings, Plus, type LucideIcon } from '@lucide/vue';
 
 const props = defineProps<{
   expanded: boolean;
@@ -32,10 +33,10 @@ const emit = defineEmits<{
 }>();
 
 // 左侧顶级功能菜单：新对话 / 数据源 / 经验库
-const items: [string, string, string][] = [
-  ['✦', '新对话', 'welcome'],
-  ['◈', '数据源', 'datasource'],
-  ['📚', '经验库', 'experience'],
+const items: [LucideIcon, string, string][] = [
+  [MessageSquarePlus, '新对话', 'welcome'],
+  [Database, '数据源', 'datasource'],
+  [Library, '经验库', 'experience'],
 ];
 
 const isActive = (route: string): boolean => isNavActive(route as NavRoute, props.view as ViewId);
@@ -99,7 +100,7 @@ const submitCreate = async () => {
     <button v-for="(item, i) in items" :key="i"
             :class="['sb-item', { active: isActive(item[2]) }]"
             @click="onPick(item[2])">
-      <span class="sb-icon">{{ item[0] }}</span><span class="sb-item-label">{{ item[1] }}</span>
+      <span class="sb-icon"><component :is="item[0]" :size="18" :stroke-width="1.75" /></span><span class="sb-item-label">{{ item[1] }}</span>
     </button>
 
     <!-- 工作空间树 -->
@@ -126,7 +127,7 @@ const submitCreate = async () => {
                        @rename-graph="(id, title) => emit('rename-graph', id, title)"
                        @delete-graph="emit('delete-graph', $event)" />
         <button class="sb-ws-new" @click="openCreate" title="新建工作空间">
-          <span class="sb-ws-avatar plus">＋</span>
+          <span class="sb-ws-avatar plus"><Plus :size="14" :stroke-width="2" /></span>
           <span class="sb-ws-name">新建工作空间</span>
         </button>
       </div>
@@ -134,7 +135,7 @@ const submitCreate = async () => {
 
     <div v-if="!expanded" class="sb-spacer" />
     <button :class="['sb-item', { active: view === 'settings' }]" @click="emit('nav', 'settings')">
-      <span class="sb-icon">⚙</span><span class="sb-item-label">设置</span>
+      <span class="sb-icon"><Settings :size="18" :stroke-width="1.75" /></span><span class="sb-item-label">设置</span>
     </button>
 
     <!-- 新建工作空间弹层 -->

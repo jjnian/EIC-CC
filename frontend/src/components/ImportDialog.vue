@@ -7,6 +7,10 @@ import { useImportDedup } from '../composables/useImportDedup';
 import { Button } from '@/components/ui/button';
 import BaseInput from './form/BaseInput.vue';
 import BaseTextarea from './form/BaseTextarea.vue';
+import { Inbox, Paperclip, X, Image as ImageIcon, Music, FileText, Camera, Zap, type LucideIcon } from '@lucide/vue';
+
+const fileIcon = (mime: string): LucideIcon =>
+  mime.startsWith('image/') ? ImageIcon : mime.startsWith('audio/') ? Music : FileText;
 
 const props = defineProps<{
   open: boolean;
@@ -124,8 +128,8 @@ const onBackdrop = (e: MouseEvent) => {
   <div v-if="open" class="imp-backdrop" @mousedown="onBackdrop">
     <div class="imp-dialog">
       <div class="imp-head">
-        <div class="imp-title"><span class="imp-icon">📥</span><span>从文档 / 网页抽取本体</span></div>
-        <Button variant="ghost" size="icon-sm" @click="emit('close')">×</Button>
+        <div class="imp-title"><span class="imp-icon"><Inbox :size="18" :stroke-width="1.75" /></span><span>从文档 / 网页抽取本体</span></div>
+        <Button variant="ghost" size="icon-sm" @click="emit('close')"><X :size="16" /></Button>
       </div>
 
       <div class="imp-body">
@@ -147,17 +151,17 @@ const onBackdrop = (e: MouseEvent) => {
               @change="onPick"
             />
             <div class="imp-drop-msg">
-              <div style="font-size: 28px;">📎</div>
+              <div class="imp-drop-ic"><Paperclip :size="26" :stroke-width="1.5" /></div>
               <div>点击或拖拽文件到此处 · 最多 8 个</div>
               <div class="imp-drop-hint">PDF / DOCX / Excel / 文本走抽取 · 图片走多模态视觉 · 音频/视频先转写成文本</div>
             </div>
           </div>
           <div v-if="files.length" class="imp-files">
             <div v-for="(f, i) in files" :key="i" class="imp-file">
-              <span class="imp-file-icon">{{ f.type.startsWith('image/') ? '🖼' : f.type.startsWith('audio/') ? '🎵' : '📄' }}</span>
+              <span class="imp-file-icon"><component :is="fileIcon(f.type)" :size="15" :stroke-width="1.75" /></span>
               <span class="imp-file-name">{{ f.name }}</span>
               <span class="imp-file-size">{{ fmtSize(f.size) }}</span>
-              <Button variant="ghost" size="icon-sm" @click="removeFile(i)" type="button">×</Button>
+              <Button variant="ghost" size="icon-sm" @click="removeFile(i)" type="button"><X :size="15" /></Button>
             </div>
           </div>
 
@@ -265,7 +269,7 @@ https://another.site/page"
                   {{ s.chars?.toLocaleString() }} 字{{ s.truncated ? ' · 截断' : '' }}{{ s.usedHeadless ? ' · 浏览器渲染' : '' }}
                 </span>
                 <span v-else class="imp-source-meta imp-source-skip">{{ s.reason }}</span>
-                <span v-if="s.renderedPages" class="imp-source-rendered">📸 渲染 {{ s.renderedPages }} 页</span>
+                <span v-if="s.renderedPages" class="imp-source-rendered"><Camera :size="12" :stroke-width="1.75" /> 渲染 {{ s.renderedPages }} 页</span>
                 <Button v-if="(s.type === 'audio' || s.type === 'image') && (s.transcript || '').trim()"
                         variant="ghost" size="sm"
                         type="button" @click="toggleSourceTranscript(i)">
@@ -303,7 +307,7 @@ https://another.site/page"
                   <span class="imp-edge-from">{{ (extractedRaw && extractedRaw.nodes.find(n => n.id === e.from)?.label) || e.from }}</span>
                   <span class="imp-edge-arrow">→</span>
                   <span class="imp-edge-to">{{ (extractedRaw && extractedRaw.nodes.find(n => n.id === e.to)?.label) || e.to }}</span>
-                  <span v-if="e.rule_driven" class="imp-row-rule">⚡</span>
+                  <span v-if="e.rule_driven" class="imp-row-rule"><Zap :size="12" :stroke-width="1.75" /></span>
                 </label>
               </div>
             </div>
@@ -358,7 +362,7 @@ https://another.site/page"
   border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 .imp-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; color: var(--text-main); }
-.imp-icon { font-size: 18px; }
+.imp-icon { display: inline-flex; align-items: center; color: var(--accent-soft); }
 .imp-close {
   background: rgba(255,255,255,0.06); border: none; color: var(--text-dim);
   width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 18px;
@@ -378,7 +382,8 @@ https://another.site/page"
   transition: all 0.15s;
 }
 .imp-drop:hover { border-color: rgba(47, 134, 214,0.5); background: rgba(47, 134, 214,0.08); }
-.imp-drop-msg { text-align: center; font-size: 13px; color: var(--text-dim); display: flex; flex-direction: column; gap: 6px; }
+.imp-drop-msg { text-align: center; font-size: 13px; color: var(--text-dim); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.imp-drop-ic { display: flex; color: var(--text-muted); }
 .imp-drop-hint { font-size: 11px; color: rgba(255,255,255,0.3); font-family: 'JetBrains Mono', monospace; }
 .imp-files { display: flex; flex-direction: column; gap: 4px; }
 .imp-file {
@@ -389,7 +394,7 @@ https://another.site/page"
   border-radius: 8px;
   font-size: 12px;
 }
-.imp-file-icon { font-size: 14px; flex-shrink: 0; }
+.imp-file-icon { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--text-dim); }
 .imp-file-name { flex: 1; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-file-size { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
 .imp-file-x { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 2px 6px; font-size: 16px; line-height: 1; }
@@ -461,7 +466,7 @@ https://another.site/page"
 .imp-source-icon { font-size: 12px; }
 .imp-source-name { color: var(--text-main); }
 .imp-source-skip { color: #ff8a8a; }
-.imp-source-rendered { color: #63b3ed; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+.imp-source-rendered { display: inline-flex; align-items: center; gap: 4px; color: #63b3ed; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
 .imp-source-toggle { margin-left: auto; padding: 2px 8px; font-size: 10px; cursor: pointer;
   color: var(--accent); background: rgba(47,134,214,0.08); border: 1px solid rgba(47,134,214,0.3);
   border-radius: 4px; }
@@ -530,7 +535,7 @@ https://another.site/page"
 .imp-tag-entity { background: rgba(47,134,214,0.12); color: var(--accent); }
 .imp-tag-process { background: rgba(251,191,36,0.12); color: #fbbf24; }
 .imp-row-inf { font-size: 9px; color: #fbbf24; }
-.imp-row-rule { color: #ff3399; }
+.imp-row-rule { display: inline-flex; align-items: center; color: #ff3399; }
 .imp-edge-from, .imp-edge-to { color: var(--text-main); font-size: 11px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-edge-to { text-align: right; }
 .imp-edge-arrow { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 11px; flex-shrink: 0; }

@@ -6,6 +6,7 @@ import { ApiError } from '../api/http';
 import { toast } from '../composables/useToast';
 import DataSourceConfigForm from './datasource/DataSourceConfigForm.vue';
 import { Button } from '@/components/ui/button';
+import { Database, Globe, X, ChevronLeft, Zap, ArrowRight, type LucideIcon } from '@lucide/vue';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -22,13 +23,13 @@ const testMsg = ref<string>('');
 const testOk = ref<boolean | null>(null);
 const formValid = ref(false);
 
-const TYPES: { kind: DataSourceKind; icon: string; label: string; desc: string; tag: string; accent: string }[] = [
-  { kind: 'mysql',     icon: '🗄', label: 'MySQL',      desc: '连接 MySQL 数据库，查表写 SQL',  tag: 'RDBMS', accent: 'var(--accent)' },
-  { kind: 'pgsql',     icon: '🐘', label: 'PostgreSQL', desc: '连接 PgSQL 数据库，查表写 SQL',  tag: 'RDBMS', accent: 'var(--accent-2)' },
-  { kind: 'oracle',    icon: '🔶', label: 'Oracle',     desc: '连接 Oracle 数据库，查表写 SQL', tag: 'RDBMS', accent: 'var(--accent)' },
-  { kind: 'dm',        icon: '🏮', label: '达梦 DM',    desc: '国产库，兼容 Oracle 语法',      tag: '国产',  accent: 'var(--accent-2)' },
-  { kind: 'gbase',     icon: '🧩', label: 'GBase 8a',   desc: '国产 MPP 库，兼容 MySQL 协议',  tag: '国产',  accent: 'var(--accent-3)' },
-  { kind: 'https_api', icon: '🌐', label: 'HTTPS 接口', desc: 'REST API，可定时拉取',           tag: 'API',   accent: 'var(--accent-3)' },
+const TYPES: { kind: DataSourceKind; icon: LucideIcon; label: string; desc: string; tag: string; accent: string }[] = [
+  { kind: 'mysql',     icon: Database, label: 'MySQL',      desc: '连接 MySQL 数据库，查表写 SQL',  tag: 'RDBMS', accent: 'var(--accent)' },
+  { kind: 'pgsql',     icon: Database, label: 'PostgreSQL', desc: '连接 PgSQL 数据库，查表写 SQL',  tag: 'RDBMS', accent: 'var(--accent-2)' },
+  { kind: 'oracle',    icon: Database, label: 'Oracle',     desc: '连接 Oracle 数据库，查表写 SQL', tag: 'RDBMS', accent: 'var(--accent)' },
+  { kind: 'dm',        icon: Database, label: '达梦 DM',    desc: '国产库，兼容 Oracle 语法',      tag: '国产',  accent: 'var(--accent-2)' },
+  { kind: 'gbase',     icon: Database, label: 'GBase 8a',   desc: '国产 MPP 库，兼容 MySQL 协议',  tag: '国产',  accent: 'var(--accent-3)' },
+  { kind: 'https_api', icon: Globe,    label: 'HTTPS 接口', desc: 'REST API，可定时拉取',           tag: 'API',   accent: 'var(--accent-3)' },
 ];
 
 const accentOf = (k: DataSourceKind | null) => TYPES.find(t => t.kind === k)?.accent ?? 'var(--accent)';
@@ -94,7 +95,7 @@ const submit = async () => {
           <div class="dlg-kicker">{{ step === 'pick' ? 'NEW · DATA SOURCE' : 'CONFIGURE · ' + (kind || '').toUpperCase() }}</div>
           <h3>{{ step === 'pick' ? '添加数据源' : labelOf(kind) + ' 连接' }}</h3>
         </div>
-        <Button variant="ghost" size="icon-sm" @click="emit('close')">×</Button>
+        <Button variant="ghost" size="icon-sm" @click="emit('close')"><X :size="16" /></Button>
       </div>
 
       <!-- 步骤指示 -->
@@ -114,12 +115,12 @@ const submit = async () => {
             @click="pickType(t.kind)"
           >
             <span class="tc-glow" />
-            <span class="ic">{{ t.icon }}</span>
+            <span class="ic"><component :is="t.icon" :size="22" :stroke-width="1.75" /></span>
             <span class="tc-main">
               <strong>{{ t.label }}<small class="tc-tag">{{ t.tag }}</small></strong>
               <small>{{ t.desc }}</small>
             </span>
-            <span class="tc-go">→</span>
+            <span class="tc-go"><ArrowRight :size="16" /></span>
           </button>
         </div>
         <div v-else class="form">
@@ -137,12 +138,12 @@ const submit = async () => {
       </div>
 
       <div class="dlg-foot">
-        <Button v-if="step === 'form'" variant="ghost" size="sm" @click="step = 'pick'">‹ 返回</Button>
+        <Button v-if="step === 'form'" variant="ghost" size="sm" @click="step = 'pick'"><ChevronLeft :size="15" /> 返回</Button>
         <span class="spacer" />
         <Button
           v-if="step === 'form' && kind"
           variant="secondary" size="sm" :disabled="testing || !formValid" @click="runTest"
-        >{{ testing ? '测试中…' : '⚡ 测试连接' }}</Button>
+        >{{ testing ? '测试中…' : '' }}<Zap v-if="!testing" :size="14" /> {{ testing ? '' : '测试连接' }}</Button>
         <Button size="sm" :disabled="step === 'pick' || submitting || !formValid || !name.trim()" @click="submit">
           {{ submitting ? '提交中…' : '保存连接' }}
         </Button>
@@ -217,7 +218,8 @@ const submit = async () => {
 .tc-glow { position: absolute; left: -40%; top: 0; width: 40%; height: 100%; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--c) 16%, transparent), transparent); transition: left .5s var(--ease-out); pointer-events: none; }
 .type-card:hover .tc-glow { left: 130%; }
 .type-card .ic {
-  flex-shrink: 0; width: 46px; height: 46px; border-radius: 12px; font-size: 22px;
+  flex-shrink: 0; width: 46px; height: 46px; border-radius: 12px;
+  color: var(--c);
   display: flex; align-items: center; justify-content: center;
   background: color-mix(in srgb, var(--c) 15%, rgba(255,255,255,0.02));
   border: 1px solid color-mix(in srgb, var(--c) 32%, transparent);
@@ -229,7 +231,7 @@ const submit = async () => {
 .tc-main strong { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 9px; }
 .tc-tag { font-family: var(--font-mono); font-size: 9px; letter-spacing: 1px; color: var(--c); border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); border-radius: 5px; padding: 1px 6px; font-weight: 500; }
 .tc-main small { font-size: 12px; color: var(--text-dim); }
-.tc-go { font-family: var(--font-mono); font-size: 17px; color: var(--c); opacity: 0; transform: translateX(-6px); transition: all .18s var(--ease-out); }
+.tc-go { display: inline-flex; align-items: center; color: var(--c); opacity: 0; transform: translateX(-6px); transition: all .18s var(--ease-out); }
 .type-card:hover .tc-go { opacity: 0.9; transform: translateX(0); }
 
 .form { display: flex; flex-direction: column; gap: 12px; }

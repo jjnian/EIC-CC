@@ -7,6 +7,7 @@ import type { Workspace } from '../api/workspaces';
 import { Button } from '@/components/ui/button';
 import BaseInput from './form/BaseInput.vue';
 import BaseTextarea from './form/BaseTextarea.vue';
+import { Plus } from '@lucide/vue';
 
 const emit = defineEmits<{
   (e: 'enter', ws: Workspace): void;
@@ -71,7 +72,7 @@ const formatTime = (ts?: number) => {
 
       <div class="wp-grid" v-if="!ws.loading.value && ws.workspaces.value.length">
         <div class="wp-card wp-card-new" @click="openCreate">
-          <div class="wp-plus">＋</div>
+          <div class="wp-plus"><Plus :size="26" :stroke-width="2" /></div>
           <div class="wp-card-title">新建工作空间</div>
           <div class="wp-card-desc">创建一个空白的工作空间</div>
         </div>
@@ -82,7 +83,10 @@ const formatTime = (ts?: number) => {
           @click="enter(w)"
         >
           <div class="wp-card-head">
-            <h3>{{ w.name }}</h3>
+            <div class="wp-card-head-l">
+              <span class="wp-avatar">{{ (w.name || '·').slice(0, 1).toUpperCase() }}</span>
+              <h3>{{ w.name }}</h3>
+            </div>
             <span v-if="w.isDefault" class="wp-default">默认</span>
           </div>
           <p class="wp-card-desc">{{ w.description || '（无描述）' }}</p>
@@ -168,63 +172,112 @@ const formatTime = (ts?: number) => {
   gap: 20px;
 }
 .wp-card {
-  background: rgba(15, 23, 42, 0.5);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  padding: 22px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.55) 0%, rgba(11, 18, 32, 0.45) 100%);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 18px;
+  padding: 22px 24px;
   cursor: pointer;
-  transition: all 0.18s;
+  transition: transform 0.22s var(--ease-spring), border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-height: 150px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.wp-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 12% -10%, rgba(47, 134, 214, 0.14), transparent 55%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.22s ease;
 }
 .wp-card:hover {
-  transform: translateY(-3px);
-  border-color: rgba(47, 134, 214, 0.45);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  transform: translateY(-4px);
+  background: linear-gradient(180deg, rgba(20, 30, 52, 0.62) 0%, rgba(15, 23, 42, 0.55) 100%);
+  border-color: rgba(47, 134, 214, 0.42);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(47, 134, 214, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
+.wp-card:hover::before { opacity: 1; }
 .wp-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+}
+.wp-card-head-l {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+.wp-avatar {
+  width: 34px; height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent-soft), var(--accent-deep));
+  box-shadow: 0 4px 12px rgba(47, 134, 214, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  letter-spacing: 0.4px;
 }
 .wp-card-head h3 {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-main);
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .wp-default {
   font-size: 11px;
-  background: rgba(47, 134, 214, 0.18);
-  color: #5aa6ee;
-  padding: 2px 8px;
+  background: var(--accent-tint);
+  color: var(--accent-soft);
+  padding: 2px 9px;
   border-radius: 100px;
   border: 1px solid rgba(47, 134, 214, 0.3);
+  flex-shrink: 0;
 }
 .wp-card-desc {
   font-size: 13px;
   color: var(--text-dim);
-  line-height: 1.5;
+  line-height: 1.6;
   flex: 1;
 }
 .wp-card-foot {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.42);
   font-family: 'JetBrains Mono', monospace;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.10);
 }
 .wp-card-new {
   align-items: center;
   justify-content: center;
   text-align: center;
   border-style: dashed;
+  gap: 8px;
+}
+.wp-card-new:hover .wp-plus {
+  color: var(--accent-soft);
+  border-color: rgba(47, 134, 214, 0.5);
+  background: rgba(47, 134, 214, 0.08);
 }
 .wp-plus {
-  font-size: 32px;
+  width: 46px; height: 46px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 13px;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
   color: rgba(255, 255, 255, 0.55);
   margin-bottom: 4px;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
 .wp-card-title {
   font-size: 15px;
