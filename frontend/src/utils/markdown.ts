@@ -12,12 +12,24 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;');
 }
 
+/**
+ * 链接 URL 安全化：拦截 javascript:/data:/vbscript:/file: 等可执行伪协议（防点击即执行脚本），
+ * 并把可能突破 href="…" 属性的双引号编码掉——{@link escapeHtml} 只转义 &<>、不转义引号，
+ * 否则 `[x](http://a"onmouseover="alert(1))` 能注入事件处理器。命中危险协议退回 '#'。
+ * <p>入参已整体经过 {@link escapeHtml}（&<> 已转义、伪协议名不含这些字符），故可直接判定。
+ */
+function sanitizeUrl(href: string): string {
+  const url = href.trim();
+  if (/^(javascript|data|vbscript|file):/i.test(url)) return '#';
+  return url.replace(/"/g, '%22');
+}
+
 /** 行内元素：代码 → 链接 → 粗体 → 斜体。输入须已转义。 */
 function renderInline(text: string): string {
   let s = text;
   s = s.replace(/`([^`]+)`/g, (_m, c) => `<code>${c}</code>`);
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,
-    (_m, label, href) => `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+    (_m, label, href) => `<a href="${sanitizeUrl(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`);
   s = s.replace(/\*\*([^*]+)\*\*/g, (_m, c) => `<strong>${c}</strong>`);
   s = s.replace(/(^|[^*])\*([^*]+)\*/g, (_m, pre, c) => `${pre}<em>${c}</em>`);
   return s;

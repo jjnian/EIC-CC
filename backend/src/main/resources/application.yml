@@ -13,7 +13,7 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/tuiyan}
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:123456}
+    password: ${DB_PASSWORD:12345678}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -63,7 +63,7 @@ app:
         provider: deepseek
         base-url: https://api.deepseek.com
         model-name: deepseek-v4-flash
-        api-key: ${DEEPSEEK_API_KEY:sk-8fc96b5d37f5431b8392988afd9181f2}
+        api-key: ${DEEPSEEK_API_KEY:}
         protocol: openai
         enabled: true
         context-window: 128000
@@ -78,7 +78,7 @@ app:
         provider: deepseek
         base-url: https://api.deepseek.com
         model-name: deepseek-v4-pro
-        api-key: ${DEEPSEEK_API_KEY:sk-8fc96b5d37f5431b8392988afd9181f2}
+        api-key: ${DEEPSEEK_API_KEY:}
         protocol: openai
         enabled: true
         context-window: 128000
@@ -95,7 +95,7 @@ app:
         provider: openai
         base-url: ${ASR_BASE_URL:https://api.openai.com/v1}
         model-name: ${ASR_MODEL:whisper-1}
-        api-key: ${ASR_API_KEY:sk-8fc96b5d37f5431b8392988afd9181f2}
+        api-key: ${ASR_API_KEY:}
         protocol: openai
         enabled: ${ASR_ENABLED:false}     # 默认关闭，填好 api-key 后再设为 true
         capabilities:
@@ -109,7 +109,7 @@ app:
         provider: openai
         base-url: ${VISION_BASE_URL:https://api.openai.com/v1}
         model-name: ${VISION_MODEL:gpt-4o}
-        api-key: ${VISION_API_KEY:sk-8fc96b5d37f5431b8392988afd9181f2}
+        api-key: ${VISION_API_KEY:}
         protocol: openai
         enabled: ${VISION_ENABLED:false}  # 默认关闭，填好 api-key 后再设为 true
         capabilities:

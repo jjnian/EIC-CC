@@ -119,8 +119,8 @@ public class ExploreController {
                         objectMapper.writeValueAsString(payload));
                 emitter.complete();
             } catch (Exception e) {
-                String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                SsePushUtils.safeSend(emitter, ce.cancelled(), "error", msg);
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "error",
+                        clientSafeError(e, "探索失败，请稍后重试"));
                 emitter.complete();
             } finally {
                 WorkspaceContext.clear();
@@ -134,6 +134,21 @@ public class ExploreController {
             emitter.complete();
         }
         return emitter;
+    }
+
+    /**
+     * SSE 错误事件对客文案:与 {@link com.tuiyan.backend.config.GlobalExceptionHandler} 同策略——
+     * 受控业务异常({@link IllegalArgumentException}/{@link IllegalStateException})原样回传;
+     * 其它未预期异常(Playwright/JDBC/LLM 客户端等,message 可能含内部路径、连接串)只在服务端记全栈,
+     * 对外回退通用文案,避免经 SSE error 事件泄露内部细节。
+     */
+    private static String clientSafeError(Throwable e, String fallback) {
+        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException) {
+            String msg = e.getMessage();
+            if (msg != null && !msg.isBlank()) return msg;
+        }
+        log.warn("[explore] SSE 任务未预期异常: {}", e.toString(), e);
+        return fallback;
     }
 
     private static String str(Map<String, Object> body, String key) {

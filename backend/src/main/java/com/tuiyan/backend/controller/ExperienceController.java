@@ -71,6 +71,22 @@ public class ExperienceController {
     }
 
     /**
+     * SSE 错误事件的对客文案：与 {@link com.tuiyan.backend.config.GlobalExceptionHandler} 同策略——
+     * 受控业务异常（{@link IllegalArgumentException}/{@link IllegalStateException}，message 由我们自己写）
+     * 原样回传；其它未预期异常（JDBC/LLM 客户端/NPE 等，message 可能含连接串、内部路径、SQL 片段）
+     * 只在服务端记全栈，对外统一回退通用文案，避免经 SSE error 事件泄露内部细节。
+     * <p>SSE 在 emitter 建立后异常无法走全局处理器，故各 SSE 端点需自行经此收敛错误文案。
+     */
+    private static String clientSafeError(Throwable e, String fallback) {
+        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException) {
+            String msg = e.getMessage();
+            if (msg != null && !msg.isBlank()) return msg;
+        }
+        log.warn("[experience] SSE 任务未预期异常: {}", e.toString(), e);
+        return fallback;
+    }
+
+    /**
      * 联网调研业务知识（SSE 流式）：搜索主题 → 抓取命中网页 → LLM 归纳成《业务知识文档》
      * → 存为经验（origin=websearch，自动引用进当前工作空间 + 建索引）。
      * 体：{topic, maxPages?, modelOverride?, configId?}。事件：step* → complete{experience} / error。
@@ -103,10 +119,9 @@ public class ExperienceController {
                         objectMapper.writeValueAsString(Map.of("experience", exp)));
                 emitter.complete();
             } catch (Exception e) {
-                log.warn("[web-research] 调研失败: {}", e.toString());
                 try {
                     SsePushUtils.safeSend(emitter, ce.cancelled(), "error",
-                            e.getMessage() == null ? "调研失败" : e.getMessage());
+                            clientSafeError(e, "联网调研失败，请稍后重试"));
                 } catch (Exception ignore) {}
                 emitter.complete();
             } finally {
@@ -166,8 +181,8 @@ public class ExperienceController {
                         objectMapper.writeValueAsString(payload));
                 emitter.complete();
             } catch (Exception e) {
-                String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                SsePushUtils.safeSend(emitter, ce.cancelled(), "error", msg);
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "error",
+                        clientSafeError(e, "建图失败，请稍后重试"));
                 emitter.complete();
             } finally {
                 WorkspaceContext.clear();

@@ -230,7 +230,7 @@ export function useChatSend(ctx: ChatSendCtx) {
       const history = ctx.msgs.value
         .filter(m => m !== aiMsg && (m.role === 'u' || m.role === 'a') && m.text)
         .slice(-40)
-        .map(m => ({ role: m.role === 'u' ? 'user' : 'assistant', content: m.text }));
+        .map(m => ({ role: (m.role === 'u' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.text }));
 
       let composedMessage = txt;
       const textAtts = requestAtts.filter(a => a.kind === 'text' && a.content);
