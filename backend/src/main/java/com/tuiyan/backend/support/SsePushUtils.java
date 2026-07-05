@@ -88,4 +88,19 @@ public final class SsePushUtils {
             return false;
         }
     }
+
+    /**
+     * SSE 错误事件对客文案：受控业务异常({@link IllegalArgumentException}/{@link IllegalStateException},
+     * message 由我们自己写)原样回传；其它未预期异常(JDBC/LLM 客户端/NPE 等,message 可能含连接串、内部路径、
+     * SQL 片段)只在服务端记全栈、对外回退通用文案,避免经 SSE error 事件泄露内部细节。
+     * <p>SSE 在 emitter 建立后异常无法走 {@code GlobalExceptionHandler},故各 SSE 端点经此收敛错误文案(同策略)。
+     */
+    public static String clientSafeError(Throwable e, String fallback) {
+        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException) {
+            String msg = e.getMessage();
+            if (msg != null && !msg.isBlank()) return msg;
+        }
+        log.warn("[sse] 未预期异常: {}", e.toString(), e);
+        return fallback;
+    }
 }

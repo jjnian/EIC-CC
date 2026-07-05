@@ -4,15 +4,10 @@ import com.tuiyan.backend.entity.DataSourceFetchLogPO;
 import com.tuiyan.backend.model.dto.*;
 import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.repository.NodeDataBindingRepository;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.service.DataSourceService;
 import com.tuiyan.backend.service.StructuralGraphService;
-import com.tuiyan.backend.support.SsePushUtils;
+import com.tuiyan.backend.support.SseJobRunner;
 import com.tuiyan.backend.support.WorkspaceContext;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -32,25 +27,22 @@ import java.util.Map;
 @RequestMapping("/api/data-sources")
 public class DataSourceController {
 
-    private static final Logger log = LoggerFactory.getLogger(DataSourceController.class);
-
     private final DataSourceRepository repo;
     private final DataSourceService service;
     private final NodeDataBindingRepository bindingRepo;
     private final StructuralGraphService structuralGraphService;
-    private final AsyncTaskExecutor taskExecutor;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final SseJobRunner sseJobs;
 
     public DataSourceController(DataSourceRepository repo,
                                 DataSourceService service,
                                 NodeDataBindingRepository bindingRepo,
                                 StructuralGraphService structuralGraphService,
-                                @Qualifier("appTaskExecutor") AsyncTaskExecutor taskExecutor) {
+                                SseJobRunner sseJobs) {
         this.repo = repo;
         this.service = service;
         this.bindingRepo = bindingRepo;
         this.structuralGraphService = structuralGraphService;
-        this.taskExecutor = taskExecutor;
+        this.sseJobs = sseJobs;
     }
 
     /**
@@ -74,44 +66,8 @@ public class DataSourceController {
     public SseEmitter buildStructuralGraphStream(@PathVariable String id,
                                                  @RequestBody(required = false) Map<String, Object> body) {
         String title = body == null ? null : asString(body.get("title"));
-        String workspaceId = WorkspaceContext.get();
-        // 大库内省 + 落库可能几十分钟，给足超时
-        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(
-                1_800_000L, "结构建图超时（>30min），请对超大库分 schema 建图或稍后重试");
-        SseEmitter emitter = ce.emitter();
-        taskExecutor.execute(() -> {
-            if (workspaceId != null) WorkspaceContext.set(workspaceId);
-            try {
-                java.util.function.BiConsumer<String, String> step = (key, label) -> {
-                    try {
-                        String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
-                        SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
-                    } catch (Exception ignore) {}
-                };
-                StructuralGraphService.BuildResult r = structuralGraphService.buildFromDataSource(id, title, step);
-                SsePushUtils.safeSend(emitter, ce.cancelled(), "complete", objectMapper.writeValueAsString(r));
-                emitter.complete();
-            } catch (Exception e) {
-                SsePushUtils.safeSend(emitter, ce.cancelled(), "error", clientSafeError(e, "结构建图失败，请稍后重试"));
-                emitter.complete();
-            } finally {
-                WorkspaceContext.clear();
-            }
-        });
-        return emitter;
-    }
-
-    /**
-     * SSE 错误文案：受控业务异常原样回传，未预期异常回退通用文案并只记服务端日志
-     * （与 {@code GlobalExceptionHandler} 同策略，避免经 SSE error 事件泄露内部细节）。
-     */
-    private static String clientSafeError(Throwable e, String fallback) {
-        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException) {
-            String msg = e.getMessage();
-            if (msg != null && !msg.isBlank()) return msg;
-        }
-        log.warn("[data-source] SSE 任务未预期异常: {}", e.toString(), e);
-        return fallback;
+        return sseJobs.run(1_800_000L, "结构建图超时（>30min），请对超大库分 schema 建图或稍后重试", "结构建图失败，请稍后重试",
+                step -> structuralGraphService.buildFromDataSource(id, title, (k, l) -> step.emit(k, l)));
     }
 
     private static String asString(Object v) { return v == null ? null : String.valueOf(v); }

@@ -1,6 +1,5 @@
 package com.tuiyan.backend.controller;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.model.dto.ExperienceCreateRequest;
 import com.tuiyan.backend.model.dto.ExperienceUpdateRequest;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
@@ -12,14 +11,12 @@ import com.tuiyan.backend.service.WebSystemConfigAssembler;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
 import com.tuiyan.backend.entity.ExperiencePO;
 import com.tuiyan.backend.service.storage.ObjectStorage;
-import com.tuiyan.backend.support.SsePushUtils;
+import com.tuiyan.backend.support.SseJobRunner;
 import com.tuiyan.backend.support.WebUrls;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.InputStreamResource;
-import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -48,8 +45,7 @@ public class ExperienceController {
     private final ExperienceOntologyService experienceOntology;
     private final WebResearchService webResearchService;
     private final ObjectStorage storage;
-    private final AsyncTaskExecutor taskExecutor;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final SseJobRunner sseJobs;
     private static final Logger log = LoggerFactory.getLogger(ExperienceController.class);
     /** 上传原件归档前缀，复用写入方的常量，保证删除清理与归档路径永远一致。 */
     private static final String FILE_PREFIX = ExperienceFileService.FILE_PREFIX;
@@ -60,30 +56,14 @@ public class ExperienceController {
                                 ExperienceOntologyService experienceOntology,
                                 WebResearchService webResearchService,
                                 ObjectStorage storage,
-                                @Qualifier("appTaskExecutor") AsyncTaskExecutor taskExecutor) {
+                                SseJobRunner sseJobs) {
         this.repo = repo;
         this.indexService = indexService;
         this.fileService = fileService;
         this.experienceOntology = experienceOntology;
         this.webResearchService = webResearchService;
         this.storage = storage;
-        this.taskExecutor = taskExecutor;
-    }
-
-    /**
-     * SSE 错误事件的对客文案：与 {@link com.tuiyan.backend.config.GlobalExceptionHandler} 同策略——
-     * 受控业务异常（{@link IllegalArgumentException}/{@link IllegalStateException}，message 由我们自己写）
-     * 原样回传；其它未预期异常（JDBC/LLM 客户端/NPE 等，message 可能含连接串、内部路径、SQL 片段）
-     * 只在服务端记全栈，对外统一回退通用文案，避免经 SSE error 事件泄露内部细节。
-     * <p>SSE 在 emitter 建立后异常无法走全局处理器，故各 SSE 端点需自行经此收敛错误文案。
-     */
-    private static String clientSafeError(Throwable e, String fallback) {
-        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException) {
-            String msg = e.getMessage();
-            if (msg != null && !msg.isBlank()) return msg;
-        }
-        log.warn("[experience] SSE 任务未预期异常: {}", e.toString(), e);
-        return fallback;
+        this.sseJobs = sseJobs;
     }
 
     /**
@@ -100,35 +80,9 @@ public class ExperienceController {
         Object mp = body == null ? null : body.get("maxPages");
         if (mp instanceof Number n) maxPages = n.intValue();
         final int pages = maxPages;
-        String workspaceId = WorkspaceContext.get();
-
-        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(300_000L,
-                "联网调研超时 (>300s)，请稍后重试或减少抓取页数");
-        SseEmitter emitter = ce.emitter();
-        taskExecutor.execute(() -> {
-            if (workspaceId != null) WorkspaceContext.set(workspaceId);
-            try {
-                ExperienceOntologyService.StepSink step = (key, label) -> {
-                    try {
-                        String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
-                        SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
-                    } catch (Exception ignore) {}
-                };
-                Map<String, Object> exp = webResearchService.research(topic, pages, modelOverride, configId, step);
-                SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
-                        objectMapper.writeValueAsString(Map.of("experience", exp)));
-                emitter.complete();
-            } catch (Exception e) {
-                try {
-                    SsePushUtils.safeSend(emitter, ce.cancelled(), "error",
-                            clientSafeError(e, "联网调研失败，请稍后重试"));
-                } catch (Exception ignore) {}
-                emitter.complete();
-            } finally {
-                if (workspaceId != null) WorkspaceContext.clear();
-            }
-        });
-        return emitter;
+        return sseJobs.run(300_000L, "联网调研超时 (>300s)，请稍后重试或减少抓取页数", "联网调研失败，请稍后重试",
+                step -> Map.of("experience",
+                        webResearchService.research(topic, pages, modelOverride, configId, (k, l) -> step.emit(k, l))));
     }
 
     /**
@@ -150,45 +104,21 @@ public class ExperienceController {
         final List<String> scopeIds = experienceIds;
         // 增量建图：传入目标模型 id 时按其构建记录跳过未变更经验
         final String incrementalModelId = body == null ? null : (String) body.get("incrementalModelId");
-        String workspaceId = WorkspaceContext.get();
 
-        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(300_000L,
-                "经验库 → 本体提取超时 (>300s)，请稍后重试或精简经验库内容");
-        SseEmitter emitter = ce.emitter();
-
-        taskExecutor.execute(() -> {
-            if (workspaceId != null) WorkspaceContext.set(workspaceId);
-            try {
-                ExperienceOntologyService.StepSink step = (key, label) -> {
-                    try {
-                        String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
-                        SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
-                    } catch (Exception ignore) {}
-                };
-                ExperienceOntologyService.ExtractResult r =
-                        experienceOntology.extractFromWorkspace(modelOverride, configId, userHint,
-                                scopeIds, incrementalModelId, step);
-                Map<String, Object> payload = new LinkedHashMap<>();
-                payload.put("nodes", r.payload().path("nodes"));
-                payload.put("edges", r.payload().path("edges"));
-                payload.put("reply", r.payload().path("reply").asText(""));
-                payload.put("salt", r.salt());
-                payload.put("sourceCount", r.sourceCount());
-                payload.put("incremental", r.payload().path("incremental").asBoolean(false));
-                payload.put("skippedUnchanged", r.payload().path("skippedUnchanged").asInt(0));
-                payload.put("manifest", r.payload().path("manifest"));
-                SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
-                        objectMapper.writeValueAsString(payload));
-                emitter.complete();
-            } catch (Exception e) {
-                SsePushUtils.safeSend(emitter, ce.cancelled(), "error",
-                        clientSafeError(e, "建图失败，请稍后重试"));
-                emitter.complete();
-            } finally {
-                WorkspaceContext.clear();
-            }
+        return sseJobs.run(300_000L, "经验库 → 本体提取超时 (>300s)，请稍后重试或精简经验库内容", "建图失败，请稍后重试", step -> {
+            ExperienceOntologyService.ExtractResult r = experienceOntology.extractFromWorkspace(
+                    modelOverride, configId, userHint, scopeIds, incrementalModelId, (k, l) -> step.emit(k, l));
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("nodes", r.payload().path("nodes"));
+            payload.put("edges", r.payload().path("edges"));
+            payload.put("reply", r.payload().path("reply").asText(""));
+            payload.put("salt", r.salt());
+            payload.put("sourceCount", r.sourceCount());
+            payload.put("incremental", r.payload().path("incremental").asBoolean(false));
+            payload.put("skippedUnchanged", r.payload().path("skippedUnchanged").asInt(0));
+            payload.put("manifest", r.payload().path("manifest"));
+            return payload;
         });
-        return emitter;
     }
 
     /**
@@ -203,33 +133,10 @@ public class ExperienceController {
         String configId = body == null ? null : (String) body.get("configId");
         String userHint = body == null ? null : (String) body.get("hint");
         String title = body == null ? null : (String) body.get("title");
-        String workspaceId = WorkspaceContext.get();
-
         // 海量经验 = 成千上万次 LLM 调用，给足超时（30min）
-        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(
-                1_800_000L, "全量建图超时（>30min），请分域建图或减少经验范围后重试");
-        SseEmitter emitter = ce.emitter();
-        taskExecutor.execute(() -> {
-            if (workspaceId != null) WorkspaceContext.set(workspaceId);
-            try {
-                ExperienceOntologyService.StepSink step = (key, label) -> {
-                    try {
-                        String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
-                        SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
-                    } catch (Exception ignore) {}
-                };
-                ExperienceOntologyService.BuildIntoModelResult r =
-                        experienceOntology.buildFullIntoNewModel(modelOverride, configId, userHint, title, step);
-                SsePushUtils.safeSend(emitter, ce.cancelled(), "complete", objectMapper.writeValueAsString(r));
-                emitter.complete();
-            } catch (Exception e) {
-                SsePushUtils.safeSend(emitter, ce.cancelled(), "error", clientSafeError(e, "全量建图失败，请稍后重试"));
-                emitter.complete();
-            } finally {
-                WorkspaceContext.clear();
-            }
-        });
-        return emitter;
+        return sseJobs.run(1_800_000L, "全量建图超时（>30min），请分域建图或减少经验范围后重试", "全量建图失败，请稍后重试",
+                step -> experienceOntology.buildFullIntoNewModel(
+                        modelOverride, configId, userHint, title, (k, l) -> step.emit(k, l)));
     }
 
     @GetMapping
