@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted } from 'vue';
-import { getDataSource, updateDataSource } from '../../api/dataSources';
+import { getDataSource, updateDataSource, buildStructuralGraphStream } from '../../api/dataSources';
 import { createExperienceFromDdl } from '../../api/experiences';
 import { ApiError } from '../../api/http';
 import { toast } from '../../composables/useToast';
@@ -46,6 +46,31 @@ const exportDdlToExperience = async () => {
   } finally {
     exportingDdl.value = false;
   }
+};
+
+// 确定性结构建图（绕过 LLM，面向千张/万张表）：全库内省 → 表/列/外键 直出为新本体模型。
+// 走 SSE 流式，避免大库同步请求超时；进度文案实时显示在按钮上。
+const buildingStructural = ref(false);
+const structuralProgress = ref('');
+const buildStructuralNow = () => {
+  if (!ds.value || buildingStructural.value) return;
+  buildingStructural.value = true;
+  structuralProgress.value = '正在启动…';
+  buildStructuralGraphStream(ds.value.id, {
+    onStep: (_key, label) => { structuralProgress.value = label; },
+    onComplete: async (r) => {
+      const wsId = ws.currentId.value;
+      if (wsId) await tree.loadOntologies(wsId, true);   // 刷新侧栏，让新模型出现
+      toast.success(`结构建图完成：${r.nodeCount} 节点 / ${r.edgeCount} 边（${r.tableCount} 表 · ${r.viewCount} 视图 · ${r.fkCount} 外键）→ 模型「${r.title}」`);
+      buildingStructural.value = false;
+      structuralProgress.value = '';
+    },
+    onError: (msg) => {
+      toast.error(`结构建图失败：${msg}`);
+      buildingStructural.value = false;
+      structuralProgress.value = '';
+    },
+  });
 };
 
 const editing = ref(false);
@@ -131,6 +156,14 @@ watch(() => props.dsId, load);
           :title="ddlWithSamples ? '把库表结构（DDL）+ 每表前 10 行样例数据导出为一条经验' : '把库表结构（DDL）导出为一条经验，供对话建模召回'"
           @click="exportDdlToExperience"
         >{{ exportingDdl ? '导出中…' : '⤴ 导出 DDL 到经验库' }}</Button>
+        <Button
+          v-if="isDb"
+          variant="secondary"
+          size="sm"
+          :disabled="buildingStructural"
+          title="从全库内省，把 表→节点、列→属性、外键→血缘边 确定性直出为一个新本体模型（绕过 LLM，面向千张/万张表）。大库内省+落库可能耗时较长。"
+          @click="buildStructuralNow"
+        >{{ buildingStructural ? (structuralProgress || '结构建图中…') : '🏗 结构建图（全库）' }}</Button>
       </header>
       <nav class="tabs">
         <button v-for="t in tabs" :key="t.id" :class="{ active: tab === t.id }" @click="tab = t.id">{{ t.label }}</button>

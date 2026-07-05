@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar.vue';
 import SettingsView from './components/SettingsView.vue';
 import WorkspacePickerView from './components/WorkspacePickerView.vue';
 import ImportDialog from './components/ImportDialog.vue';
+import LargeGraphBrowser from './components/LargeGraphBrowser.vue';
 import GraphView from './components/views/GraphView.vue';
 import ChatCenterView from './components/views/ChatCenterView.vue';
 import ConversationListView from './components/views/ConversationListView.vue';
@@ -497,9 +498,22 @@ const onNewConversation = async () => {
   await goWelcome();
 };
 
+// 大图守卫：整图渲染上万节点会卡死浏览器，且编辑画布会把 nodes.value 持久化回模型
+// （给它塞子图会截断整图）。超阈值的模型改走只读的大图浏览器（本地状态、服务端按需取子图）。
+const LARGE_GRAPH_THRESHOLD = 1500;
+const largeGraphModel = ref<{ id: string; title: string; nodeCount: number; edgeCount: number } | null>(null);
+
 const onOpenOntologyModel = async (id: string) => {
   const m = findModel(id);
   if (!m) return;
+  const nc = m.graphData?.nodes?.length || 0;
+  if (nc > LARGE_GRAPH_THRESHOLD) {
+    largeGraphModel.value = {
+      id, title: m.title || m.name || '大图',
+      nodeCount: nc, edgeCount: m.graphData?.edges?.length || 0,
+    };
+    return;
+  }
   await chatRef.value?.flushPersist?.();
   chatW.value = 0;
   await openModel(m, 'graph');
@@ -792,6 +806,16 @@ const formatFileSize = (bytes: number) => {
         @chat-ref="(el) => chatRef = el"
         @view-graph="onOpenOntologyModel"
         @need-workspace="view = 'workspace-picker'"
+      />
+
+      <!-- 大图只读浏览器（超阈值模型：不整图渲染，服务端按需取子图/领域） -->
+      <LargeGraphBrowser
+        v-if="largeGraphModel"
+        :model-id="largeGraphModel.id"
+        :title="largeGraphModel.title"
+        :node-count="largeGraphModel.nodeCount"
+        :edge-count="largeGraphModel.edgeCount"
+        @close="largeGraphModel = null"
       />
 
       <!-- Import Dialog (modal) -->

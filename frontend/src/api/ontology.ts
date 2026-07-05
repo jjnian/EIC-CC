@@ -28,6 +28,35 @@ export function deleteOntology(id: string) {
     `/api/ontology-models/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+// ── 大图服务端查询层（面向千张/万张表：不整图渲染，按需取子图/领域） ──
+export interface ModelSummary { nodeCount: number; edgeCount: number; domainCount: number; }
+export interface ModelSubgraph { nodes: OntologyNode[]; edges: OntologyEdge[]; truncated: boolean; seed: string; }
+export interface DomainRollup {
+  domains: { domain: string; nodeCount: number }[];
+  edges: { from: string; to: string; count: number }[];
+}
+
+/** 模型规模摘要（不加载整图），供前端判定是否进「大图模式」。 */
+export function getModelSummary(id: string) {
+  return request<ModelSummary>(`/api/ontology-models/${encodeURIComponent(id)}/summary`);
+}
+
+/** 聚焦子图：某节点 N 跳邻域（node 为空则取度数最高的入口枢纽）。 */
+export function getModelSubgraph(id: string, opts?: { node?: string; depth?: number; dir?: 'up' | 'down' | 'both'; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (opts?.node) qs.set('node', opts.node);
+  if (opts?.depth != null) qs.set('depth', String(opts.depth));
+  if (opts?.dir) qs.set('dir', opts.dir);
+  if (opts?.limit != null) qs.set('limit', String(opts.limit));
+  const q = qs.toString();
+  return request<ModelSubgraph>(`/api/ontology-models/${encodeURIComponent(id)}/subgraph${q ? '?' + q : ''}`);
+}
+
+/** 领域汇总：节点按 domain 聚成超级节点 + 跨领域流向计数。 */
+export function getModelDomains(id: string) {
+  return request<DomainRollup>(`/api/ontology-models/${encodeURIComponent(id)}/domains`);
+}
+
 export interface ExtractResult {
   nodes: OntologyNode[];
   edges: OntologyEdge[];

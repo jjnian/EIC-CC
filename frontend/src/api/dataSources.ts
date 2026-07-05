@@ -1,4 +1,4 @@
-import { request } from './http';
+import { request, sse, type SseHandle } from './http';
 
 export type DataSourceKind =
   | 'file' | 'url'                // 旧的导入历史
@@ -138,6 +138,58 @@ export function verifyContainment(id: string, body: {
 
 export function getDataSource(id: string) {
   return request<DataSource>(`/api/data-sources/${encodeURIComponent(id)}`);
+}
+
+/** 确定性结构建图结果摘要（表/视图/列/外键/节点/边计数 + 新模型 id）。 */
+export interface StructuralBuildResult {
+  modelId: string;
+  title: string;
+  database: string;
+  tableCount: number;
+  viewCount: number;
+  columnCount: number;
+  fkCount: number;
+  nodeCount: number;
+  edgeCount: number;
+}
+
+/**
+ * 从关系型数据源全库内省，确定性构建结构血缘图（绕过 LLM，面向千张/万张表），落成一个新本体模型。
+ * 大库内省 + 落库可能耗时较长（同步；大库建议用 {@link buildStructuralGraphStream} 流式版）。
+ */
+export function buildStructuralGraph(id: string, title?: string) {
+  return request<StructuralBuildResult>(`/api/data-sources/${encodeURIComponent(id)}/build-structural-graph`, {
+    method: 'POST',
+    body: JSON.stringify(title ? { title } : {}),
+  });
+}
+
+/** 结构建图（SSE 流式）：流式回进度，避免万张表大库同步请求超时。 */
+export function buildStructuralGraphStream(
+  id: string,
+  handlers: {
+    onStep?: (key: string, label: string) => void;
+    onComplete?: (r: StructuralBuildResult) => void;
+    onError?: (msg: string) => void;
+    onClose?: () => void;
+  },
+  title?: string,
+): SseHandle {
+  return sse(`/api/data-sources/${encodeURIComponent(id)}/build-structural-graph/stream`, title ? { title } : {}, {
+    onEvent: (event, data) => {
+      if (event === 'step') {
+        try { const j = JSON.parse(data) as { key: string; label: string }; handlers.onStep?.(j.key, j.label); }
+        catch { /* ignore */ }
+      } else if (event === 'complete') {
+        try { handlers.onComplete?.(JSON.parse(data)); }
+        catch (e) { handlers.onError?.((e as Error).message); }
+      } else if (event === 'error') {
+        handlers.onError?.(data);
+      }
+    },
+    onError: (err) => handlers.onError?.(err.message),
+    onClose: () => handlers.onClose?.(),
+  });
 }
 
 export function createDataSource(payload: { name: string; kind: DataSourceKind; config: Record<string, unknown> }) {
