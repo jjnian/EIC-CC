@@ -142,6 +142,75 @@ public class OntologyModelRepository {
                 .eq(OntologyEdgePO::getModelId, modelId));
     }
 
+    // ---------- 外科手术式局部编辑（大图快速修复：只动指定行，不加载/不重存整图） ----------
+
+    /** 局部 upsert 单个节点（先删旧行+props 再插）。 */
+    @Transactional
+    public void patchUpsertNode(String modelId, Map<String, Object> node) {
+        String id = str(node.get("id"));
+        if (id.isEmpty()) throw new IllegalArgumentException("节点缺少 id");
+        propMapper.delete(new LambdaQueryWrapper<OntologyNodePropPO>()
+                .eq(OntologyNodePropPO::getModelId, modelId).eq(OntologyNodePropPO::getNodeId, id));
+        nodeMapper.delete(new LambdaQueryWrapper<OntologyNodePO>()
+                .eq(OntologyNodePO::getModelId, modelId).eq(OntologyNodePO::getId, id));
+        rowMapper.insertNode(modelId, node);
+    }
+
+    /** 局部删除单个节点：连带其 props 与所有关联边（from/to 指向它）。返回删除的节点行数。 */
+    @Transactional
+    public int patchDeleteNode(String modelId, String nodeId) {
+        if (nodeId == null || nodeId.isBlank()) return 0;
+        propMapper.delete(new LambdaQueryWrapper<OntologyNodePropPO>()
+                .eq(OntologyNodePropPO::getModelId, modelId).eq(OntologyNodePropPO::getNodeId, nodeId));
+        edgeMapper.delete(new LambdaQueryWrapper<OntologyEdgePO>()
+                .eq(OntologyEdgePO::getModelId, modelId)
+                .and(w -> w.eq(OntologyEdgePO::getFromNodeId, nodeId).or().eq(OntologyEdgePO::getToNodeId, nodeId)));
+        return nodeMapper.delete(new LambdaQueryWrapper<OntologyNodePO>()
+                .eq(OntologyNodePO::getModelId, modelId).eq(OntologyNodePO::getId, nodeId));
+    }
+
+    /** 局部 upsert 单条边（先删旧行再插）。 */
+    @Transactional
+    public void patchUpsertEdge(String modelId, Map<String, Object> edge) {
+        String id = str(edge.get("id"));
+        if (id.isEmpty()) throw new IllegalArgumentException("边缺少 id");
+        edgeMapper.delete(new LambdaQueryWrapper<OntologyEdgePO>()
+                .eq(OntologyEdgePO::getModelId, modelId).eq(OntologyEdgePO::getId, id));
+        rowMapper.insertEdge(modelId, edge);
+    }
+
+    /** 局部删除单条边。返回删除行数。 */
+    @Transactional
+    public int patchDeleteEdge(String modelId, String edgeId) {
+        if (edgeId == null || edgeId.isBlank()) return 0;
+        return edgeMapper.delete(new LambdaQueryWrapper<OntologyEdgePO>()
+                .eq(OntologyEdgePO::getModelId, modelId).eq(OntologyEdgePO::getId, edgeId));
+    }
+
+    /** 刷新模型 updatedAt（局部编辑后调用一次）。 */
+    @Transactional
+    public void touch(String modelId) {
+        OntologyModelPO po = modelMapper.selectById(modelId);
+        if (po == null) return;
+        po.setUpdatedAt(System.currentTimeMillis());
+        po.setUpdatedLabel("刚刚");
+        modelMapper.updateById(po);
+    }
+
+    /** 当前节点数（不加载整图）。 */
+    public long nodeCountOf(String modelId) {
+        return nodeMapper.selectCount(new LambdaQueryWrapper<OntologyNodePO>()
+                .eq(OntologyNodePO::getModelId, modelId));
+    }
+
+    /** 当前边数（不加载整图）。 */
+    public long edgeCountOf(String modelId) {
+        return edgeMapper.selectCount(new LambdaQueryWrapper<OntologyEdgePO>()
+                .eq(OntologyEdgePO::getModelId, modelId));
+    }
+
+    private static String str(Object v) { return v == null ? "" : String.valueOf(v); }
+
     // ---------- 内部编排 ----------
 
     private OntologyModelPO toPO(OntologyModel m) {

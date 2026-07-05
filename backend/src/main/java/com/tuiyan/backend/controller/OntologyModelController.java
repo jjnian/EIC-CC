@@ -31,20 +31,61 @@ public class OntologyModelController {
     private final ModelBuildSourceRepository buildSourceRepo;
     private final SchemaDriftService schemaDriftService;
     private final com.tuiyan.backend.service.GraphQueryService graphQueryService;
+    private final com.tuiyan.backend.service.GraphPatchService graphPatchService;
+    private final com.tuiyan.backend.service.GraphChatEditService graphChatEditService;
 
     public OntologyModelController(OntologyModelService svc,
                                    DocumentExtractionService extractionService,
                                    LineageTraversalService lineageService,
                                    ModelBuildSourceRepository buildSourceRepo,
                                    SchemaDriftService schemaDriftService,
-                                   com.tuiyan.backend.service.GraphQueryService graphQueryService) {
+                                   com.tuiyan.backend.service.GraphQueryService graphQueryService,
+                                   com.tuiyan.backend.service.GraphPatchService graphPatchService,
+                                   com.tuiyan.backend.service.GraphChatEditService graphChatEditService) {
         this.svc = svc;
         this.extractionService = extractionService;
         this.lineageService = lineageService;
         this.buildSourceRepo = buildSourceRepo;
         this.schemaDriftService = schemaDriftService;
         this.graphQueryService = graphQueryService;
+        this.graphPatchService = graphPatchService;
+        this.graphChatEditService = graphChatEditService;
     }
+
+    /**
+     * 外科手术式局部编辑：对已落库的模型只改动指定节点/边（增/删/改），不加载/不重存整图——
+     * 面向大图快速修复，也是对话驱动改图的落地入口。请求体：{@code {ops:[{op,node?/edge?/id}]}}。
+     * 含归属校验。返回 {applied, skipped, nodeCount, edgeCount}。
+     */
+    @PostMapping("/{id}/patch")
+    public ResponseEntity<com.tuiyan.backend.service.GraphPatchService.PatchResult> patch(
+            @PathVariable String id, @RequestBody Map<String, Object> body) {
+        Object opsObj = body == null ? null : body.get("ops");
+        List<Map<String, Object>> ops = new ArrayList<>();
+        if (opsObj instanceof List<?> list) {
+            for (Object o : list) if (o instanceof Map<?, ?> m) {
+                @SuppressWarnings("unchecked") Map<String, Object> mm = (Map<String, Object>) m;
+                ops.add(mm);
+            }
+        }
+        return ResponseEntity.ok(graphPatchService.apply(id, ops));
+    }
+
+    /**
+     * 对话驱动精准改图：用自然语言描述要怎么改（连边/删节点/改方向/改命名…），系统只检索相关子图喂 LLM
+     * （不发整图，大图也能改），LLM 产精确 patch 后局部应用。请求体：{@code {message, modelOverride?, configId?}}。
+     * 返回 {reply, applied, skipped, ops, nodeCount, edgeCount}。
+     */
+    @PostMapping("/{id}/chat-edit")
+    public ResponseEntity<com.tuiyan.backend.service.GraphChatEditService.EditResult> chatEdit(
+            @PathVariable String id, @RequestBody Map<String, Object> body) throws IOException {
+        String message = body == null ? null : asString(body.get("message"));
+        String modelOverride = body == null ? null : asString(body.get("modelOverride"));
+        String configId = body == null ? null : asString(body.get("configId"));
+        return ResponseEntity.ok(graphChatEditService.chatEdit(id, message, modelOverride, configId));
+    }
+
+    private static String asString(Object v) { return v == null ? null : String.valueOf(v); }
 
     /**
      * 大图规模摘要：{nodeCount, edgeCount, domainCount}。前端据此判定是否进「大图模式」
