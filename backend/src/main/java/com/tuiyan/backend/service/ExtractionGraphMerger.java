@@ -132,6 +132,18 @@ public class ExtractionGraphMerger {
     }
 
     /**
+     * 批内自去重：把<b>同一份抽取结果内部</b> label(+aliases)/type 等价的重复节点折叠成一个
+     * （含 props/aliases 合并、边端点重映射）。
+     * <p>{@link #mergeExtractionByLabel} 只折叠「b 相对 a」，单批内部的重复不经手——尤其首批/单批
+     * （直接作为合并基底、不作为 b）以及词表归一把「顾客/客户」在同批都改写成「客户」的情形，
+     * 会残留同名重复节点。本方法用空图作 a 走同一套折叠逻辑，把这层兜住。
+     */
+    public JsonNode dedupeWithin(JsonNode part) {
+        if (part == null) return null;
+        return mergeExtractionByLabel(objectMapper.createObjectNode(), part);
+    }
+
+    /**
      * 跨 chunk 合并：按 normalized label(+aliases) 去重节点，把重复节点的 props 合并，
      * 并对重复 id 做 from/to 重映射。
      * <p>判等同时看 type：同名但 type 明确不同视作两个概念（如 rule「风险」与 metric「风险」），

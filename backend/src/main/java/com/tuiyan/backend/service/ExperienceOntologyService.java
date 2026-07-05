@@ -317,6 +317,8 @@ public class ExperienceOntologyService {
             step.emit("normalizing", "正在合并探索直采的结构化图谱…");
             // 结构化片段也按词表归一,使其与 LLM 草稿共享同一命名口径后再合并(否则同义节点合不到一起)
             vocabService.normalize(preExtracted, vocab);
+            // 片段内部先自去重（如多张表映射到同一业务名、FK 片段两表同注释），避免带着重复节点并进草稿
+            preExtracted = merger.dedupeWithin(preExtracted);
             draft = merger.mergeExtractionByLabel(draft, preExtracted);
         }
         // 向量兜底同义消解(第二阶段):词表没收录的同义词(收款/回款)在这里靠向量召回 + LLM 仲裁折叠。
@@ -450,6 +452,9 @@ public class ExperienceOntologyService {
                     // 服务端确定性归一：LLM 对词表 preface 的遵循不可靠，这里把命中别名的 label
                     // 强制改写为规范名 + 补 type，归一后的同名节点由随后的 label+type 合并自然折叠
                     vocabService.normalize(part, vocabRef);
+                    // 批内自去重：词表归一可能把同批的「顾客/客户」都改成「客户」，跨批合并只折叠 b 对 a、
+                    // 兜不住单批内部（尤其单批建图时该批直接作基底），这里先把批内同名重复折掉
+                    part = merger.dedupeWithin(part);
                     // 各批内部独立命名 id，加批前缀避免跨批冲突，再交由 label 合并去重
                     part = merger.prefixChunkIds(part, "b" + idx + "_");
                     // 来源标记精确到本批经验：单篇批直接落该经验标题，多篇批概括

@@ -30,6 +30,7 @@ public class DataSourceService {
     private final FileStoredService fileStored;
     private final SchemaInfoDtoMapper schemaInfoDtoMapper;
     private final com.tuiyan.backend.service.llm.DdlRenderer ddlRenderer;
+    private final com.tuiyan.backend.service.llm.SchemaGraphFragmentRenderer schemaFragmentRenderer;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DataSourceService(DataSourceRepository repo,
@@ -39,7 +40,8 @@ public class DataSourceService {
                              HttpScheduler scheduler,
                              FileStoredService fileStored,
                              SchemaInfoDtoMapper schemaInfoDtoMapper,
-                             com.tuiyan.backend.service.llm.DdlRenderer ddlRenderer) {
+                             com.tuiyan.backend.service.llm.DdlRenderer ddlRenderer,
+                             com.tuiyan.backend.service.llm.SchemaGraphFragmentRenderer schemaFragmentRenderer) {
         this.repo = repo;
         this.logRepo = logRepo;
         this.jdbc = jdbc;
@@ -48,6 +50,7 @@ public class DataSourceService {
         this.fileStored = fileStored;
         this.schemaInfoDtoMapper = schemaInfoDtoMapper;
         this.ddlRenderer = ddlRenderer;
+        this.schemaFragmentRenderer = schemaFragmentRenderer;
     }
 
     // ---------- 通用 CRUD ----------
@@ -197,8 +200,12 @@ public class DataSourceService {
     private static final int SAMPLE_MAX_TABLES = 60;
     private static final int SAMPLE_MAX_PER_TABLE = 10;
 
-    /** DDL 导出结果：数据源名 + 库名 + 渲染好的 DDL 文本 + 对象（表/视图）数量 + 是否含样例数据。 */
-    public record DdlExport(String sourceName, String database, String ddl, int objectCount, boolean withSamples) {}
+    /**
+     * DDL 导出结果：数据源名 + 库名 + 渲染好的 DDL 文本 + 对象（表/视图）数量 + 是否含样例数据 +
+     * 外键血缘的结构化图片段注释块（可直接附到文档末尾；无外键时为空串）。
+     */
+    public record DdlExport(String sourceName, String database, String ddl, int objectCount,
+                            boolean withSamples, String graphBlock) {}
 
     /** 不含样例数据的导出（向后兼容）。 */
     public DdlExport exportDdl(String id) {
@@ -221,7 +228,10 @@ public class DataSourceService {
                     Math.min(sampleRows, SAMPLE_MAX_PER_TABLE), SAMPLE_MAX_TABLES);
         }
         String ddl = ddlRenderer.render(info, samples);
-        return new DdlExport(po.getName(), info.database(), ddl, info.tables().size(), !samples.isEmpty());
+        // 外键 = 引用血缘 ground truth：确定性直出结构化片段（source=derived/confidence=1.0），
+        // 建图时免 LLM 重抽直接合并；无外键则为空串。
+        String graphBlock = schemaFragmentRenderer.renderEmbeddedBlock(info);
+        return new DdlExport(po.getName(), info.database(), ddl, info.tables().size(), !samples.isEmpty(), graphBlock);
     }
 
     /** 抽取到经验库的通用文档：数据源名 + 标题 + Markdown 正文 + 标签。 */
@@ -245,8 +255,11 @@ public class DataSourceService {
             String content = "# " + title + "\n\n"
                     + "> 库: `" + e.database() + "` · 对象数: " + e.objectCount()
                     + (e.withSamples() ? " · 含样例数据" : "")
+                    + (e.graphBlock().isBlank() ? "" : " · 含外键血缘(确定性)")
                     + " · 由数据源结构内省自动生成\n\n"
-                    + "```sql\n" + e.ddl() + "\n```\n";
+                    + "```sql\n" + e.ddl() + "\n```\n"
+                    // 外键血缘的结构化图片段（隐藏注释）：建图时直连合并，人读 markdown 不受影响
+                    + e.graphBlock();
             return new SourceDocExport(e.sourceName(), title, content, "DDL,schema", "ddl");
         }
         if (SourceKind.HTTPS_API.equals(kind)) {
