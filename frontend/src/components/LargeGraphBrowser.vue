@@ -61,7 +61,9 @@ const submitEdit = async () => {
   if (!msg || editing.value) return;
   editing.value = true;
   try {
-    const r = await chatEditModel(props.modelId, msg);
+    // 办法 B：把当前可见子图的节点范围作上下文，服务端免读整图、更精准
+    const scopeNodeIds = subNodes.value.map(n => n.id);
+    const r = await chatEditModel(props.modelId, msg, { scopeNodeIds });
     nodeCountLive.value = r.nodeCount;
     edgeCountLive.value = r.edgeCount;
     if (r.applied > 0) {

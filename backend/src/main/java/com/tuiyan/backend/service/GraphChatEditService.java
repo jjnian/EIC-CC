@@ -65,15 +65,25 @@ public class GraphChatEditService {
     public record EditResult(String reply, int applied, int skipped,
                              List<Map<String, Object>> ops, long nodeCount, long edgeCount) {}
 
-    public EditResult chatEdit(String modelId, String message, String modelOverride, String configId) throws IOException {
+    public EditResult chatEdit(String modelId, String message, List<String> scopeNodeIds,
+                               String modelOverride, String configId) throws IOException {
         if (!modelRepo.existsInWorkspace(modelId)) {
             throw new ResourceNotFoundException("模型不存在或不属于当前工作空间：" + modelId);
         }
         if (message == null || message.isBlank()) {
             throw new IllegalArgumentException("请描述你想怎么修改血缘图");
         }
-        OntologyModelRepository.NodesAndEdges g = modelRepo.loadGraphForVersion(modelId);
-        String context = buildContext(g, message);
+        // 上下文来源(办法 B 优先)：前端传来「当前可见子图」的节点范围时，直接按 id 取(不读整图)；
+        // 否则退回「读整图 + 关键词检索」。用户正看着的邻域多半就是要改的部分，既省读整图又更精准。
+        String context;
+        if (scopeNodeIds != null && !scopeNodeIds.isEmpty()) {
+            List<Map<String, Object>> nodes = modelRepo.nodeHeadsByIds(modelId, scopeNodeIds);
+            List<Map<String, Object>> edges = modelRepo.edgesAmongIds(modelId, scopeNodeIds);
+            context = formatContext(nodes, edges);
+        } else {
+            OntologyModelRepository.NodesAndEdges g = modelRepo.loadGraphForVersion(modelId);
+            context = buildContext(g, message);
+        }
 
         String user = "【当前相关子图】\n" + context + "\n\n【用户请求】\n" + message.trim()
                 + "\n\n请输出精确修改的 JSON。";
@@ -156,24 +166,31 @@ public class GraphChatEditService {
                     .forEach(n -> keep.add(str(n.get("id"))));
         }
 
+        List<Map<String, Object>> selNodes = new ArrayList<>();
+        for (String id : keep) { Map<String, Object> n = byId.get(id); if (n != null) selNodes.add(n); }
+        List<Map<String, Object>> selEdges = new ArrayList<>();
+        for (Map<String, Object> e : edges) {
+            if (keep.contains(str(e.get("from"))) && keep.contains(str(e.get("to")))) selEdges.add(e);
+        }
+        return formatContext(selNodes, selEdges);
+    }
+
+    /** 把选定的节点/边格式化成喂 LLM 的相关子图文本（两条检索路共用）。 */
+    static String formatContext(List<Map<String, Object>> nodes, List<Map<String, Object>> edges) {
         StringBuilder sb = new StringBuilder("节点(id | label | type | domain):\n");
-        for (String id : keep) {
-            Map<String, Object> n = byId.get(id);
-            if (n == null) continue;
-            sb.append(id).append(" | ").append(str(n.get("label")))
+        int nc = 0;
+        for (Map<String, Object> n : nodes) {
+            if (nc++ >= CONTEXT_NODES) break;
+            sb.append(str(n.get("id"))).append(" | ").append(str(n.get("label")))
               .append(" | ").append(str(n.get("type")))
               .append(" | ").append(str(n.get("domain"))).append('\n');
         }
         sb.append("\n边(id | from | to | rel_type | label):\n");
         int ec = 0;
         for (Map<String, Object> e : edges) {
-            if (ec >= CONTEXT_EDGES) break;
-            String f = str(e.get("from")), t = str(e.get("to"));
-            if (keep.contains(f) && keep.contains(t)) {
-                sb.append(str(e.get("id"))).append(" | ").append(f).append(" | ").append(t)
-                  .append(" | ").append(str(e.get("rel_type"))).append(" | ").append(str(e.get("label"))).append('\n');
-                ec++;
-            }
+            if (ec++ >= CONTEXT_EDGES) break;
+            sb.append(str(e.get("id"))).append(" | ").append(str(e.get("from"))).append(" | ").append(str(e.get("to")))
+              .append(" | ").append(str(e.get("rel_type"))).append(" | ").append(str(e.get("label"))).append('\n');
         }
         return sb.toString();
     }

@@ -82,7 +82,11 @@ public class OntologyModelController {
         String message = body == null ? null : asString(body.get("message"));
         String modelOverride = body == null ? null : asString(body.get("modelOverride"));
         String configId = body == null ? null : asString(body.get("configId"));
-        return ResponseEntity.ok(graphChatEditService.chatEdit(id, message, modelOverride, configId));
+        // 可选：前端传来「当前可见子图」的节点范围作上下文（免读整图、更精准）
+        List<String> scopeNodeIds = new ArrayList<>();
+        Object scope = body == null ? null : body.get("scopeNodeIds");
+        if (scope instanceof List<?> list) for (Object o : list) if (o != null) scopeNodeIds.add(String.valueOf(o));
+        return ResponseEntity.ok(graphChatEditService.chatEdit(id, message, scopeNodeIds, modelOverride, configId));
     }
 
     private static String asString(Object v) { return v == null ? null : String.valueOf(v); }

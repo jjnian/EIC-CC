@@ -16,6 +16,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -207,6 +208,38 @@ public class OntologyModelRepository {
     public long edgeCountOf(String modelId) {
         return edgeMapper.selectCount(new LambdaQueryWrapper<OntologyEdgePO>()
                 .eq(OntologyEdgePO::getModelId, modelId));
+    }
+
+    /** 按 id 集取节点头(id/label/type/domain)，不加载整图——供对话改图用「当前可见子图」作上下文。 */
+    public List<Map<String, Object>> nodeHeadsByIds(String modelId, java.util.Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return nodeMapper.selectList(new LambdaQueryWrapper<OntologyNodePO>()
+                        .eq(OntologyNodePO::getModelId, modelId).in(OntologyNodePO::getId, ids))
+                .stream().map(p -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", p.getId());
+                    m.put("label", p.getLabel());
+                    m.put("type", p.getType());
+                    m.put("domain", p.getDomain());
+                    return m;
+                }).toList();
+    }
+
+    /** 取两端都在 id 集内的边(id/from/to/rel_type/label)，不加载整图。 */
+    public List<Map<String, Object>> edgesAmongIds(String modelId, java.util.Collection<String> ids) {
+        if (ids == null || ids.size() < 2) return List.of();
+        return edgeMapper.selectList(new LambdaQueryWrapper<OntologyEdgePO>()
+                        .eq(OntologyEdgePO::getModelId, modelId)
+                        .in(OntologyEdgePO::getFromNodeId, ids).in(OntologyEdgePO::getToNodeId, ids))
+                .stream().map(p -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", p.getId());
+                    m.put("from", p.getFromNodeId());
+                    m.put("to", p.getToNodeId());
+                    m.put("rel_type", p.getRelType());
+                    m.put("label", p.getLabel());
+                    return m;
+                }).toList();
     }
 
     private static String str(Object v) { return v == null ? "" : String.valueOf(v); }

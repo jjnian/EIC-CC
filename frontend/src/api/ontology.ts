@@ -80,8 +80,12 @@ export interface GraphEditResult {
   edgeCount: number;
 }
 
-/** 对话驱动精准改图：自然语言 → 检索相关子图 → LLM 产 patch → 局部应用（大图也能改）。 */
-export function chatEditModel(id: string, message: string, opts?: { modelOverride?: string; configId?: string }) {
+/**
+ * 对话驱动精准改图：自然语言 → 相关子图作上下文 → LLM 产 patch → 局部应用（大图也能改）。
+ * 传 scopeNodeIds（当前可见子图节点范围）时，服务端直接用它作上下文——免读整图、更精准（办法 B）。
+ */
+export function chatEditModel(id: string, message: string,
+  opts?: { modelOverride?: string; configId?: string; scopeNodeIds?: string[] }) {
   return request<GraphEditResult>(`/api/ontology-models/${encodeURIComponent(id)}/chat-edit`, {
     method: 'POST',
     body: JSON.stringify({ message, ...(opts || {}) }),
