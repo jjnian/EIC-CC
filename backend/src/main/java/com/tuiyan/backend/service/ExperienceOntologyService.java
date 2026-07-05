@@ -132,6 +132,22 @@ public class ExperienceOntologyService {
                                               List<String> experienceIds,
                                               String incrementalModelId,
                                               StepSink step) throws IOException {
+        return extractFromWorkspace(modelOverride, configId, userHint, experienceIds,
+                incrementalModelId, MAX_EXPERIENCES, step);
+    }
+
+    /**
+     * 同上，但可指定单次建图的经验数上限 {@code expCap}。
+     * <p>{@code expCap} 传 {@link Integer#MAX_VALUE} 即「全量建图」（海量经验场景，配合 SSE 长超时 +
+     * 服务端落库，见 {@code ExperienceController.buildFull}），不再丢弃超出 500 的经验。
+     */
+    public ExtractResult extractFromWorkspace(String modelOverride,
+                                              String configId,
+                                              String userHint,
+                                              List<String> experienceIds,
+                                              String incrementalModelId,
+                                              int expCap,
+                                              StepSink step) throws IOException {
         step.emit("load_start", "正在读取当前工作空间经验库…");
         final String workspaceId = WorkspaceContext.get();
         List<Map<String, Object>> all = repo.list();
@@ -208,7 +224,7 @@ public class ExperienceOntologyService {
             Object contentObj = exp.get("content");
             String content = contentObj == null ? "" : String.valueOf(contentObj);
             if (content.isBlank()) continue;
-            vocabSamples.add(OntologyVocabService.sampleOf(title, content));
+            vocabSamples.add(OntologyVocabService.sampleOf(title, content, domain));
             String hash = sha256Hex(title + "\u0000" + content);
             manifest.put(expId, hash);
             if (incremental && hash.equals(prevHashes.get(expId))) { skippedUnchanged++; continue; }
@@ -226,7 +242,7 @@ public class ExperienceOntologyService {
                 content = stripGraphFragment(content);
                 if (content.isBlank()) { used++; continue; } // 纯结构化文档,无散文可喂 LLM
             }
-            if (used >= MAX_EXPERIENCES) { skippedByCap++; continue; }
+            if (used >= expCap) { skippedByCap++; continue; }
             if (content.length() > MAX_CHARS_PER_EXPERIENCE) {
                 content = content.substring(0, MAX_CHARS_PER_EXPERIENCE) + "\n…（正文过长已截断）";
             }
@@ -266,7 +282,7 @@ public class ExperienceOntologyService {
                 + (preGraphCount > 0 ? "；其中 " + preGraphCount + " 篇含探索直采的结构化图谱(直接合并)" : "")
                 + (ddlCount > 0 ? "；" + ddlCount + " 篇为数据源 DDL 导出(按 schema 专用规则抽取)" : "")
                 + (batches.size() > 1 ? "；将分 " + batches.size() + " 批并行建图" : "")
-                + (skippedByCap > 0 ? "；超出单次建图上限 " + MAX_EXPERIENCES + " 篇，已跳过 " + skippedByCap + " 篇" : ""));
+                + (skippedByCap > 0 ? "；超出本次建图上限 " + expCap + " 篇，已跳过 " + skippedByCap + " 篇" : ""));
 
         // 词表规约（Schema-First）：分批抽取前先建/复用一份受控词表，注入各批 prompt 统一命名，
         // 消除「客户/顾客/Customer 在不同批各造一个节点」的跨批命名漂移。增量建图复用旧词表，
@@ -381,6 +397,55 @@ public class ExperienceOntologyService {
         step.emit("done", "完成：从 " + used + " 篇经验生成 " + nodes + " 个节点 / " + edges + " 条边"
                 + (failedBatches > 0 ? "（" + failedBatches + " 批失败，结果可能不完整）" : ""));
         return new ExtractResult(out, salt, used, nodes, edges);
+    }
+
+    /** 全量建图落库结果摘要。 */
+    public record BuildIntoModelResult(String modelId, String title, int sourceCount, int nodeCount, int edgeCount) {}
+
+    /**
+     * 全量建图（面向海量经验：不封顶单次经验数，分域分批处理全部经验），直接<b>服务端落成一个新模型</b>
+     * 并回写构建记录（供后续增量跳过未变化经验）。避免把万节点 payload 回传前端合并。
+     * <p>配合 SSE 长超时端点使用（{@code ExperienceController.buildFull}）。调用前须设置 WorkspaceContext。
+     */
+    public BuildIntoModelResult buildFullIntoNewModel(String modelOverride, String configId,
+                                                      String userHint, String title, StepSink step) throws IOException {
+        ExtractResult r = extractFromWorkspace(modelOverride, configId, userHint,
+                null, null, Integer.MAX_VALUE, step);
+        step.emit("persist", "正在把结果落成新模型（大图落库较慢）…");
+
+        List<Map<String, Object>> nodeMaps = objectMapper.convertValue(
+                r.payload().path("nodes"), new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+        List<Map<String, Object>> edgeMaps = objectMapper.convertValue(
+                r.payload().path("edges"), new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {});
+        if (nodeMaps == null) nodeMaps = new ArrayList<>();
+        if (edgeMaps == null) edgeMaps = new ArrayList<>();
+
+        String modelTitle = (title == null || title.isBlank()) ? "经验库全量血缘图" : title.trim();
+        com.tuiyan.backend.model.OntologyModel m = new com.tuiyan.backend.model.OntologyModel();
+        m.setId("om_" + System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        m.setCreatedAt(now);
+        m.setUpdatedAt(now);
+        m.setUpdated("刚刚");
+        m.setTitle(modelTitle);
+        m.setDesc("由经验库全量建图生成（" + r.sourceCount() + " 篇经验 · " + nodeMaps.size() + " 节点 / " + edgeMaps.size() + " 边）");
+        com.tuiyan.backend.model.OntologyModel.GraphData g = new com.tuiyan.backend.model.OntologyModel.GraphData();
+        g.setNodes(nodeMaps);
+        g.setEdges(edgeMaps);
+        m.setGraphData(g);
+        modelRepo.save(m);
+
+        // 回写构建记录（manifest：本轮扫过的经验 id → 内容哈希），供后续增量建图跳过未变化经验
+        Map<String, String> manifest = new java.util.LinkedHashMap<>();
+        for (JsonNode e : r.payload().path("manifest")) {
+            String eid = e.path("experienceId").asText("");
+            String hash = e.path("contentHash").asText("");
+            if (!eid.isEmpty() && !hash.isEmpty()) manifest.put(eid, hash);
+        }
+        if (!manifest.isEmpty()) buildSourceRepo.upsertAll(m.getId(), manifest);
+
+        step.emit("saved", "已落成模型「" + modelTitle + "」：" + nodeMaps.size() + " 节点 / " + edgeMaps.size() + " 边");
+        return new BuildIntoModelResult(m.getId(), modelTitle, r.sourceCount(), nodeMaps.size(), edgeMaps.size());
     }
 
     /**
@@ -517,9 +582,10 @@ public class ExperienceOntologyService {
         return null;
     }
 
-    // 跨批连边:实体清单上限(防撑爆 context)与已有关系对上限
-    private static final int CROSS_LINK_MAX_ENTITIES = 200;
-    private static final int CROSS_LINK_MAX_PAIRS = 400;
+    // 跨批连边:实体清单上限(防撑爆 context)与已有关系对上限。
+    // D:面向海量多域场景放宽(200→500 / 400→800)——万批之间的关系尤其是跨域血缘最缺,清单太小补不全。
+    private static final int CROSS_LINK_MAX_ENTITIES = 500;
+    private static final int CROSS_LINK_MAX_PAIRS = 800;
 
     /**
      * 跨批连边 pass:并行分批抽取的各批互相看不见对方实体,跨批关系天然缺失(血缘链在批边界断裂)。
@@ -557,23 +623,37 @@ public class ExperienceOntologyService {
         }
         List<JsonNode> ordered = new ArrayList<>();
         for (JsonNode nd : nodes) if (!nd.path("id").asText("").isEmpty()) ordered.add(nd);
-        if (ordered.size() > CROSS_LINK_MAX_ENTITIES) {
-            ordered.sort((a, b) -> Integer.compare(
-                    degree.getOrDefault(b.path("id").asText(""), 0),
-                    degree.getOrDefault(a.path("id").asText(""), 0)));
+        // 按度数降序：枢纽节点承载的跨批关系最多
+        ordered.sort((a, b) -> Integer.compare(
+                degree.getOrDefault(b.path("id").asText(""), 0),
+                degree.getOrDefault(a.path("id").asText(""), 0)));
+
+        // D：按领域(domain)分层轮转取样（每域已按度数排序），保证各领域枢纽都进清单——
+        // 跨域血缘正是并行分批下最缺、最有业务价值的关系；纯 top-N 度数可能整段偏向单一领域而漏掉跨域连接。
+        java.util.LinkedHashMap<String, java.util.ArrayDeque<JsonNode>> byDomain = new java.util.LinkedHashMap<>();
+        for (JsonNode n : ordered) {
+            byDomain.computeIfAbsent(n.path("domain").asText(""), k -> new java.util.ArrayDeque<>()).add(n);
+        }
+        List<JsonNode> pick = new ArrayList<>();
+        boolean progress = true;
+        while (pick.size() < CROSS_LINK_MAX_ENTITIES && progress) {
+            progress = false;
+            for (java.util.ArrayDeque<JsonNode> q : byDomain.values()) {
+                if (pick.size() >= CROSS_LINK_MAX_ENTITIES) break;
+                JsonNode n = q.poll();
+                if (n != null) { pick.add(n); progress = true; }
+            }
         }
 
-        StringBuilder roster = new StringBuilder("【实体清单】(id | label | type | 批组)\n");
-        int listed = 0;
-        for (JsonNode n : ordered) {
-            if (listed >= CROSS_LINK_MAX_ENTITIES) break;
+        StringBuilder roster = new StringBuilder("【实体清单】(id | label | type | 批组 | 领域)\n");
+        for (JsonNode n : pick) {
             String id = n.path("id").asText("");
             roster.append(id).append(" | ").append(n.path("label").asText(""))
                   .append(" | ").append(n.path("type").asText(""))
-                  .append(" | ").append(groupOf.get(id)).append('\n');
-            listed++;
+                  .append(" | ").append(groupOf.get(id))
+                  .append(" | ").append(n.path("domain").asText("")).append('\n');
         }
-        boolean truncated = ordered.size() > listed;
+        boolean truncated = ordered.size() > pick.size();
         roster.append("\n【已存在的关系对】(请勿重复提出)\n");
         int pairs = 0;
         if (edges.isArray()) {

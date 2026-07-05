@@ -39,12 +39,25 @@ public class OntologyVocabService {
 
     private static final Logger log = LoggerFactory.getLogger(OntologyVocabService.class);
 
-    /** 词表条目上限（与 VOCAB_SYSTEM 的约束一致，服务端兜底截断）。 */
-    private static final int MAX_ENTRIES = 60;
+    /**
+     * 词表条目上限（= 持久化注册表规模，服务端兜底截断）。C：把「注册表规模」与「注入 prompt 的 preface 规模」
+     * 解耦——注册表可较大（供确定性 {@link #normalize} 全量折叠同义，零 token），而 preface 另行封顶控 token。
+     * 海量经验跨众多领域时，60 个概念远不够，放宽到 200。
+     */
+    private static final int MAX_ENTRIES = 200;
+    /** 注入各批抽取 prompt 的 preface 条目上限：控 token（每批都带一份），与注册表规模解耦。 */
+    private static final int PREFACE_MAX_ENTRIES = 80;
     /** 采样：每篇经验取的首段字符数。 */
     private static final int SAMPLE_EXCERPT_CHARS = 300;
-    /** 采样：最多取多少篇（超出按等距抽样，保证覆盖整个库而不是只看前面的）。 */
+    /** 采样基准篇数；实际按库规模自适应放大（见 {@link #sampleDocsFor}），并分域分层保证每个领域都被覆盖。 */
     private static final int SAMPLE_MAX_DOCS = 60;
+    /** 采样篇数随库规模自适应的上限（防单次 vocab 构建 prompt 过长）。 */
+    private static final int SAMPLE_MAX_DOCS_CAP = 240;
+
+    /** E：采样篇数随库规模自适应——小库沿用 60，大库放大（每 40 篇多采 1 篇），封顶 240。 */
+    static int sampleDocsFor(int docCount) {
+        return Math.min(SAMPLE_MAX_DOCS_CAP, Math.max(SAMPLE_MAX_DOCS, docCount / 40));
+    }
 
     private final ExtractionLlmService extractionLlmService;
     private final WorkspaceVocabRepository repo;
@@ -55,8 +68,8 @@ public class OntologyVocabService {
         this.repo = repo;
     }
 
-    /** 一篇经验的采样输入：标题 + 首段摘录。 */
-    public record DocSample(String title, String excerpt) {}
+    /** 一篇经验的采样输入：标题 + 首段摘录 + 所属领域（供分域分层采样）。 */
+    public record DocSample(String title, String excerpt, String domain) {}
 
     /** 词表条目：规范名 + 类型 + 别名。 */
     public record Entry(String canonical, String type, List<String> aliases) {}
@@ -68,10 +81,33 @@ public class OntologyVocabService {
     }
 
     /** 从经验正文构造采样（调用方在文档收集循环里逐篇调用）。 */
-    public static DocSample sampleOf(String title, String content) {
+    public static DocSample sampleOf(String title, String content, String domain) {
         String excerpt = content == null ? "" :
                 content.substring(0, Math.min(content.length(), SAMPLE_EXCERPT_CHARS));
-        return new DocSample(title == null ? "" : title, excerpt);
+        return new DocSample(title == null ? "" : title, excerpt, domain == null ? "" : domain);
+    }
+
+    /**
+     * E：分域分层采样——按领域(domain)分组后轮转取样，直到达到 {@code cap}。保证<b>每个领域都被覆盖</b>
+     * （小领域全采、大领域抽样），而非等距抽样可能整段漏掉某些领域，从而让受控词表覆盖全库命名口径。
+     */
+    static List<DocSample> stratifiedSample(List<DocSample> samples, int cap) {
+        if (samples.size() <= cap) return samples;
+        LinkedHashMap<String, java.util.ArrayDeque<DocSample>> byDomain = new LinkedHashMap<>();
+        for (DocSample s : samples) {
+            byDomain.computeIfAbsent(s.domain() == null ? "" : s.domain(), k -> new java.util.ArrayDeque<>()).add(s);
+        }
+        List<DocSample> out = new ArrayList<>(cap);
+        boolean progress = true;
+        while (out.size() < cap && progress) {
+            progress = false;
+            for (java.util.ArrayDeque<DocSample> q : byDomain.values()) {
+                if (out.size() >= cap) break;
+                DocSample s = q.poll();
+                if (s != null) { out.add(s); progress = true; }
+            }
+        }
+        return out;
     }
 
     /**
@@ -105,15 +141,8 @@ public class OntologyVocabService {
 
     /** 用 LLM 从采样构建词表。失败返回 empty（不抛出，主流程降级）。 */
     public Vocab build(List<DocSample> samples, String modelOverride, String configId) {
-        // 等距抽样：库很大时均匀覆盖，而不是只看最前面的文档
-        List<DocSample> picked = samples;
-        if (samples.size() > SAMPLE_MAX_DOCS) {
-            picked = new ArrayList<>(SAMPLE_MAX_DOCS);
-            double stride = (double) samples.size() / SAMPLE_MAX_DOCS;
-            for (int i = 0; i < SAMPLE_MAX_DOCS; i++) {
-                picked.add(samples.get((int) Math.floor(i * stride)));
-            }
-        }
+        // E：采样篇数随库规模自适应 + 分域分层，保证覆盖全库各领域的命名口径（而非等距抽样可能整段漏域）
+        List<DocSample> picked = stratifiedSample(samples, sampleDocsFor(samples.size()));
         StringBuilder sb = new StringBuilder("【经验库采样】每行一篇: 标题 ||| 首段摘录\n\n");
         for (DocSample s : picked) {
             sb.append(s.title().replace('\n', ' ')).append(" ||| ")
@@ -198,13 +227,21 @@ public class OntologyVocabService {
         sb.append("【本体词表骨架】以下是本工作空间的受控词表。抽取实体时:\n")
           .append("- 概念命中词表(含别名)时,label 必须使用规范名,把原文叫法放进 aliases,type 与词表一致;\n")
           .append("- 只有词表未覆盖的新概念才允许新建命名。\n");
-        for (Entry e : vocab.entries()) {
+        // C：注入 prompt 的 preface 封顶 PREFACE_MAX_ENTRIES 条控 token（每批都带一份）；
+        // 完整注册表(可达 MAX_ENTRIES 条)仍由服务端确定性 normalize 全量使用，不受此上限影响。
+        List<Entry> entries = vocab.entries();
+        int shown = Math.min(entries.size(), PREFACE_MAX_ENTRIES);
+        for (int i = 0; i < shown; i++) {
+            Entry e = entries.get(i);
             sb.append("- ").append(e.canonical());
             if (e.type() != null && !e.type().isBlank()) sb.append(" (").append(e.type()).append(")");
             if (e.aliases() != null && !e.aliases().isEmpty()) {
                 sb.append(" 别名: ").append(String.join("、", e.aliases()));
             }
             sb.append('\n');
+        }
+        if (entries.size() > shown) {
+            sb.append("…(另有 ").append(entries.size() - shown).append(" 个受控概念，服务端会自动统一命名)\n");
         }
         sb.append('\n');
         return sb.toString();

@@ -191,6 +191,47 @@ public class ExperienceController {
         return emitter;
     }
 
+    /**
+     * 全量建图（SSE 流式，面向海量经验：千个/万个）：不封顶单次经验数，分域分批处理<b>全部</b>经验，
+     * <b>服务端直接落成一个新模型</b>并回写构建记录（不把万节点 payload 回传前端合并）。
+     * <p>与 {@code extract-ontology} 的区别：无 500 上限、长超时、服务端落库、返回摘要而非整图。
+     * 事件：{@code step}（进度）→ {@code complete}（{modelId, nodeCount, edgeCount, sourceCount, title}）/ {@code error}。
+     */
+    @PostMapping(value = "/build-full", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter buildFull(@RequestBody(required = false) Map<String, Object> body) {
+        String modelOverride = body == null ? null : (String) body.get("modelOverride");
+        String configId = body == null ? null : (String) body.get("configId");
+        String userHint = body == null ? null : (String) body.get("hint");
+        String title = body == null ? null : (String) body.get("title");
+        String workspaceId = WorkspaceContext.get();
+
+        // 海量经验 = 成千上万次 LLM 调用，给足超时（30min）
+        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(
+                1_800_000L, "全量建图超时（>30min），请分域建图或减少经验范围后重试");
+        SseEmitter emitter = ce.emitter();
+        taskExecutor.execute(() -> {
+            if (workspaceId != null) WorkspaceContext.set(workspaceId);
+            try {
+                ExperienceOntologyService.StepSink step = (key, label) -> {
+                    try {
+                        String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
+                        SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
+                    } catch (Exception ignore) {}
+                };
+                ExperienceOntologyService.BuildIntoModelResult r =
+                        experienceOntology.buildFullIntoNewModel(modelOverride, configId, userHint, title, step);
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "complete", objectMapper.writeValueAsString(r));
+                emitter.complete();
+            } catch (Exception e) {
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "error", clientSafeError(e, "全量建图失败，请稍后重试"));
+                emitter.complete();
+            } finally {
+                WorkspaceContext.clear();
+            }
+        });
+        return emitter;
+    }
+
     @GetMapping
     public ResponseEntity<List<Map<String, Object>>> list(
             @RequestParam(required = false) String workspaceId,

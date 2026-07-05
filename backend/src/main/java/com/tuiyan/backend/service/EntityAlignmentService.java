@@ -40,10 +40,14 @@ public class EntityAlignmentService {
 
     private static final Logger log = LoggerFactory.getLogger(EntityAlignmentService.class);
 
-    /** 参与对齐的节点上限：超出只嵌入前 N 个（按度数降序，枢纽优先），避免超大图嵌入开销失控。 */
-    private static final int MAX_ALIGN_NODES = 400;
-    /** 送交 LLM 仲裁的候选对上限（按相似度降序取），控制单次仲裁 token。 */
-    private static final int MAX_CANDIDATE_PAIRS = 80;
+    /**
+     * 参与对齐的节点上限：超出只嵌入前 N 个（按度数降序，枢纽优先）。
+     * 面向海量经验建图（跨众多领域、成千上万节点），从 400 放宽到 1200——两两余弦 O(N²)≈144 万次，
+     * CPU 秒级可接受；覆盖更多节点，海量同义消解更全。仍按度数优先，小图不受影响（全参与）。
+     */
+    private static final int MAX_ALIGN_NODES = 1200;
+    /** 送交 LLM 仲裁的候选对上限（按相似度降序取），控制单次仲裁 token；随节点池放宽同步略增。 */
+    private static final int MAX_CANDIDATE_PAIRS = 150;
     /** 余弦相似度召回阈值：偏召回，精度由 LLM 仲裁把关。 */
     private static final double SIM_THRESHOLD = 0.88;
 
