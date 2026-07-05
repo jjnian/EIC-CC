@@ -54,6 +54,9 @@ const onSelect = (id: string | null) => {
 // ── 对话驱动精准改图：自然语言 → 服务端检索相关子图 → LLM 产 patch → 局部应用 ──
 const editMsg = ref('');
 const editing = ref(false);
+// 全图语义检索(向量)：关时用当前可见子图作上下文(快、免读整图)；开时对全图做向量语义检索，
+// 适合请求引用了视图外的实体(如「把订单连到库存」而库存不在当前视图)。
+const wholeGraphSearch = ref(false);
 const nodeCountLive = ref(props.nodeCount);
 const edgeCountLive = ref(props.edgeCount);
 const submitEdit = async () => {
@@ -61,8 +64,8 @@ const submitEdit = async () => {
   if (!msg || editing.value) return;
   editing.value = true;
   try {
-    // 办法 B：把当前可见子图的节点范围作上下文，服务端免读整图、更精准
-    const scopeNodeIds = subNodes.value.map(n => n.id);
+    // 关：办法 B(可见子图作上下文，免读整图)；开：办法 A(全图向量语义检索，不发 scope)
+    const scopeNodeIds = wholeGraphSearch.value ? undefined : subNodes.value.map(n => n.id);
     const r = await chatEditModel(props.modelId, msg, { scopeNodeIds });
     nodeCountLive.value = r.nodeCount;
     edgeCountLive.value = r.edgeCount;
@@ -139,6 +142,9 @@ onMounted(async () => {
         placeholder="用一句话修改这张图：如「把订单连到发票，关系 produces」「删除孤立的备注节点」「客户和订单的血缘方向标反了，改过来」"
         @keydown.enter="submitEdit"
       />
+      <label class="lgb-edit-toggle" title="开启后对全图做向量语义检索，适合请求引用了当前视图外的实体；关闭则只改当前可见部分（更快）">
+        <input type="checkbox" v-model="wholeGraphSearch" :disabled="editing" /> 全图语义检索
+      </label>
       <button class="lgb-edit-btn" :disabled="editing || !editMsg.trim()" @click="submitEdit">
         {{ editing ? '修改中…' : '发送' }}
       </button>
@@ -187,4 +193,6 @@ onMounted(async () => {
   color: #cfe0f5; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 12.5px; }
 .lgb-edit-btn:hover:not(:disabled) { border-color: rgba(47,134,214,.8); }
 .lgb-edit-btn:disabled { opacity: .5; cursor: default; }
+.lgb-edit-toggle { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: #9aa2b0;
+  white-space: nowrap; cursor: pointer; }
 </style>

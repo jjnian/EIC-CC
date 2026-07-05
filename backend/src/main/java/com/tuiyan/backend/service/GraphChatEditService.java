@@ -52,13 +52,19 @@ public class GraphChatEditService {
 
     private final OntologyModelRepository modelRepo;
     private final GraphPatchService patchService;
+    /** 向量检索的候选嵌入上限：按度数取前 N 个节点嵌入(枢纽优先)，控嵌入开销。 */
+    private static final int VECTOR_CANDIDATES = 1000;
+
     private final ExtractionLlmService extractionLlmService;
+    private final com.tuiyan.backend.service.indexing.EmbeddingClient embeddingClient;
 
     public GraphChatEditService(OntologyModelRepository modelRepo, GraphPatchService patchService,
-                                ExtractionLlmService extractionLlmService) {
+                                ExtractionLlmService extractionLlmService,
+                                com.tuiyan.backend.service.indexing.EmbeddingClient embeddingClient) {
         this.modelRepo = modelRepo;
         this.extractionLlmService = extractionLlmService;
         this.patchService = patchService;
+        this.embeddingClient = embeddingClient;
     }
 
     /** 改图结果：LLM 说明 + 应用统计 + 实际应用的 ops（供前端局部反映，不必重载整图）+ 最新计数。 */
@@ -82,7 +88,11 @@ public class GraphChatEditService {
             context = formatContext(nodes, edges);
         } else {
             OntologyModelRepository.NodesAndEdges g = modelRepo.loadGraphForVersion(modelId);
-            context = buildContext(g, message);
+            // 无可见范围时：配了 embedding 就用向量语义检索(认同义/模糊,能找到与请求语义相关但字面不匹配的节点)，
+            // 否则退回关键词检索。向量失败也降级到关键词，不阻断。
+            context = embeddingClient.isConfigured()
+                    ? buildContextVector(g, message)
+                    : buildContext(g, message);
         }
 
         String user = "【当前相关子图】\n" + context + "\n\n【用户请求】\n" + message.trim()
@@ -173,6 +183,75 @@ public class GraphChatEditService {
             if (keep.contains(str(e.get("from"))) && keep.contains(str(e.get("to")))) selEdges.add(e);
         }
         return formatContext(selNodes, selEdges);
+    }
+
+    /**
+     * 向量语义检索：把请求与节点 label 一起 embedding，按余弦相似度取最相关的若干节点(+一跳邻居)作上下文。
+     * 认同义/模糊意图——能找到与请求语义相关但字面不匹配的节点(如请求「账单」命中图里的「发票」)。
+     * 候选按度数取前 {@link #VECTOR_CANDIDATES} 个控嵌入开销；任何嵌入失败降级到关键词检索。
+     */
+    private String buildContextVector(OntologyModelRepository.NodesAndEdges g, String message) {
+        List<Map<String, Object>> nodes = g.nodes();
+        List<Map<String, Object>> edges = g.edges();
+        try {
+            // 候选：按度数降序取前 N 个有 label 的节点(枢纽优先)
+            Map<String, Integer> deg = new java.util.HashMap<>();
+            for (Map<String, Object> e : edges) {
+                deg.merge(str(e.get("from")), 1, Integer::sum);
+                deg.merge(str(e.get("to")), 1, Integer::sum);
+            }
+            List<Map<String, Object>> cand = new ArrayList<>();
+            for (Map<String, Object> n : nodes) if (!str(n.get("label")).isBlank()) cand.add(n);
+            cand.sort((a, b) -> Integer.compare(
+                    deg.getOrDefault(str(b.get("id")), 0), deg.getOrDefault(str(a.get("id")), 0)));
+            if (cand.size() > VECTOR_CANDIDATES) cand = cand.subList(0, VECTOR_CANDIDATES);
+            if (cand.isEmpty()) return buildContext(g, message);
+
+            float[] qv = embeddingClient.embed(message);
+            List<String> labels = new ArrayList<>(cand.size());
+            for (Map<String, Object> n : cand) labels.add(str(n.get("label")));
+            List<float[]> vecs = embeddingClient.embedBatch(labels);
+            if (vecs.size() != cand.size()) return buildContext(g, message);
+
+            // 按余弦相似度降序取 top-K 节点
+            Integer[] order = new Integer[cand.size()];
+            for (int i = 0; i < order.length; i++) order[i] = i;
+            double[] sim = new double[cand.size()];
+            for (int i = 0; i < cand.size(); i++) sim[i] = cosine(qv, vecs.get(i));
+            java.util.Arrays.sort(order, (a, b) -> Double.compare(sim[b], sim[a]));
+
+            Set<String> keep = new LinkedHashSet<>();
+            for (int k = 0; k < order.length && keep.size() < CONTEXT_NODES; k++) {
+                keep.add(str(cand.get(order[k]).get("id")));
+            }
+            // 一跳邻居，让 LLM 看到相关节点的现有连接
+            Map<String, Map<String, Object>> byId = new java.util.HashMap<>();
+            for (Map<String, Object> n : nodes) byId.put(str(n.get("id")), n);
+            Set<String> seed = new LinkedHashSet<>(keep);
+            for (Map<String, Object> e : edges) {
+                if (keep.size() >= CONTEXT_NODES) break;
+                String f = str(e.get("from")), t = str(e.get("to"));
+                if (seed.contains(f) && byId.containsKey(t)) keep.add(t);
+                if (seed.contains(t) && byId.containsKey(f)) keep.add(f);
+            }
+            List<Map<String, Object>> selNodes = new ArrayList<>();
+            for (String id : keep) { Map<String, Object> n = byId.get(id); if (n != null) selNodes.add(n); }
+            List<Map<String, Object>> selEdges = new ArrayList<>();
+            for (Map<String, Object> e : edges) {
+                if (keep.contains(str(e.get("from"))) && keep.contains(str(e.get("to")))) selEdges.add(e);
+            }
+            return formatContext(selNodes, selEdges);
+        } catch (Exception ex) {
+            log.warn("[graph-chat-edit] 向量检索失败，降级关键词: {}", ex.toString());
+            return buildContext(g, message);
+        }
+    }
+
+    private static double cosine(float[] a, float[] b) {
+        if (a == null || b == null || a.length != b.length) return 0;
+        double dot = 0, na = 0, nb = 0;
+        for (int i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+        return (na == 0 || nb == 0) ? 0 : dot / (Math.sqrt(na) * Math.sqrt(nb));
     }
 
     /** 把选定的节点/边格式化成喂 LLM 的相关子图文本（两条检索路共用）。 */
