@@ -1,6 +1,7 @@
 package com.tuiyan.backend.repository;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.entity.ExperienceFolderPO;
 import com.tuiyan.backend.entity.ExperiencePO;
@@ -80,6 +81,32 @@ public class ExperienceRepository {
         return mapper.selectList(new LambdaQueryWrapper<ExperiencePO>()
                         .orderByDesc(ExperiencePO::getCreatedAt))
                 .stream().map(this::toMap).toList();
+    }
+
+    /**
+     * 全量经验分页（可选按归属工作空间过滤），按创建时间倒序。经验库大到万篇时，列表按页取。
+     * @param workspaceId 非空时只取该归属工作空间的经验；null/空取全部
+     * @param offset 起始行（≥0）；@param limit 每页行数（调用方已 clamp）
+     */
+    public List<Map<String, Object>> listAllPaged(String workspaceId, int offset, int limit) {
+        LambdaQueryWrapper<ExperiencePO> w = new LambdaQueryWrapper<ExperiencePO>()
+                .orderByDesc(ExperiencePO::getCreatedAt);
+        if (workspaceId != null && !workspaceId.isBlank()) w.eq(ExperiencePO::getWorkspaceId, workspaceId);
+        w.last("LIMIT " + limit + " OFFSET " + offset);   // limit/offset 为已校验的 int，无注入风险
+        return mapper.selectList(w).stream().map(this::toMap).toList();
+    }
+
+    /** 全量经验总数（分页用），过滤条件与 {@link #listAllPaged} 一致。 */
+    public long countAll(String workspaceId) {
+        LambdaQueryWrapper<ExperiencePO> w = new LambdaQueryWrapper<>();
+        if (workspaceId != null && !workspaceId.isBlank()) w.eq(ExperiencePO::getWorkspaceId, workspaceId);
+        return mapper.selectCount(w);
+    }
+
+    /** 有经验存在的归属工作空间 id 集合（供列表筛选条，避免为此加载全量经验）。 */
+    public List<String> distinctWorkspaceIds() {
+        return mapper.selectObjs(new QueryWrapper<ExperiencePO>().select("DISTINCT workspace_id"))
+                .stream().filter(java.util.Objects::nonNull).map(String::valueOf).toList();
     }
 
     /** 按 id 取一行。经验库为全局公共资源，任意工作空间均可查看，不再按归属隔离。 */

@@ -7,7 +7,7 @@ import { toast } from '../../composables/useToast';
 import { ApiError } from '../../api/http';
 import {
   createExperience, updateExperience, reindexExperience, uploadExperienceFile,
-  experienceFileUrl, listAllExperiences, listExperiences, deleteExperience,
+  experienceFileUrl, listExperiencesPaged, listExperienceWorkspaces, listAllExperiences, listExperiences, deleteExperience,
   reindexAllExperiences, getExperienceIndexSummary, type Experience,
 } from '../../api/experiences';
 import { listAllDataSources, type DataSource } from '../../api/dataSources';
@@ -48,6 +48,14 @@ const tree = useSidebarTree();
 // ── 公共经验库：跨工作空间的全量列表 ───────────────────────────
 const items = ref<Experience[]>([]);
 const loading = ref(false);
+// 分页：经验库达千/万篇时按页取，避免一次拉全量 + 渲染上万 DOM 行
+const PAGE_SIZE = 60;
+const total = ref(0);
+const pageNo = ref(0);
+const loadingMore = ref(false);
+const hasMore = computed(() => items.value.length < total.value);
+// 有经验的归属工作空间 id（筛选条来源，独立轻量查询，不依赖已加载页）
+const wsChipIds = ref<string[]>([]);
 
 // 数据源名称解析：DDL 抽取的经验据此显示「来自哪个数据库」（实时名，随数据源重命名变化）。
 const dataSources = ref<DataSource[]>([]);
@@ -67,11 +75,9 @@ const wsName = (id?: string) => {
   return ws.workspaces.value.find(w => w.id === id)?.name || '(已删除)';
 };
 
-// 出现在列表里的归属工作空间（用于筛选条）
-const usedWorkspaces = computed(() => {
-  const ids = new Set(items.value.map(e => e.workspaceId).filter(Boolean) as string[]);
-  return ws.workspaces.value.filter(w => ids.has(w.id));
-});
+// 出现在列表里的归属工作空间（筛选条）：取自独立 distinct 查询，分页下也完整
+const usedWorkspaces = computed(() =>
+  ws.workspaces.value.filter(w => wsChipIds.value.includes(w.id)));
 
 // 统一列表：手写 / DDL 供血 / 系统探索 / 上传文件 全部按更新时间倒序展示为「经验文件」
 const allExperiences = computed<Experience[]>(() =>
@@ -91,10 +97,15 @@ const upsertItem = (exp: Experience) => {
   const arr = [...items.value];
   const idx = arr.findIndex(x => x.id === exp.id);
   if (idx >= 0) arr[idx] = { ...arr[idx], ...exp };
-  else arr.unshift(exp);
+  else { arr.unshift(exp); total.value += 1; }
   items.value = arr;
+  extractScopeItems.value = [];   // 使建图范围选择器缓存失效，下次打开重取含新增项的全量
 };
-const removeItem = (id: string) => { items.value = items.value.filter(x => x.id !== id); };
+const removeItem = (id: string) => {
+  const before = items.value.length;
+  items.value = items.value.filter(x => x.id !== id);
+  if (items.value.length < before) total.value = Math.max(0, total.value - 1);
+};
 
 // ── 右上角「新增」下拉菜单 ──────────────────────────────────
 const addMenuOpen = ref(false);
@@ -130,14 +141,18 @@ const reload = async (_force = false) => {
   try {
     if (!ws.workspaces.value.length) await ws.reload();
     const curWs = ws.currentId.value;
-    const [exps, dss, refExps] = await Promise.all([
-      listAllExperiences(),
+    pageNo.value = 0;
+    const [pageRes, dss, refExps, wsIds] = await Promise.all([
+      listExperiencesPaged({ page: 0, size: PAGE_SIZE, workspaceId: filterWs.value }),
       listAllDataSources().catch(() => [] as DataSource[]),
       curWs ? listExperiences({ workspaceId: curWs }).catch(() => [] as Experience[]) : Promise.resolve([] as Experience[]),
+      listExperienceWorkspaces().catch(() => [] as string[]),
     ]);
-    items.value = exps;
+    items.value = pageRes.items;
+    total.value = pageRes.total;
     dataSources.value = dss;
     currentWsCount.value = refExps.length;
+    wsChipIds.value = wsIds;
     loadIndexSummary();
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '加载失败');
@@ -145,6 +160,36 @@ const reload = async (_force = false) => {
     loading.value = false;
   }
 };
+
+/** 追加下一页（「加载更多」/滚动到底）。去重追加，防并发/新增造成重复。 */
+const loadMore = async () => {
+  if (loadingMore.value || !hasMore.value) return;
+  loadingMore.value = true;
+  try {
+    const next = pageNo.value + 1;
+    const res = await listExperiencesPaged({ page: next, size: PAGE_SIZE, workspaceId: filterWs.value });
+    const seen = new Set(items.value.map(x => x.id));
+    items.value = [...items.value, ...res.items.filter(x => !seen.has(x.id))];
+    total.value = res.total;
+    pageNo.value = next;
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '加载更多失败');
+  } finally {
+    loadingMore.value = false;
+  }
+};
+
+// 归属工作空间筛选改为服务端：切换即重取第一页（分页下客户端筛选会漏未加载页）
+watch(filterWs, () => { reload(); });
+
+// 建图范围选择器需要「全量」经验（分页的 items 只有已加载页）：仅在对话框打开时按需全量拉一次
+const extractScopeItems = ref<Experience[]>([]);
+watch(() => extractDialogOpen.value, async (open) => {
+  if (open && extractScopeItems.value.length === 0) {
+    try { extractScopeItems.value = await listAllExperiences(); }
+    catch { extractScopeItems.value = items.value; }  // 退化为已加载页，不阻断建图
+  }
+});
 
 // ── 联网调研业务知识（第四类来源：公开领域知识，冷启动/补背景用）──────────
 const researchOpen = ref(false);
@@ -671,6 +716,11 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             <span class="exp-row-del" title="删除" @click.stop="remove(x)">×</span>
           </button>
         </template>
+        <div v-if="hasMore && !loading" class="exp-more">
+          <Button variant="secondary" size="sm" :disabled="loadingMore" @click="loadMore">
+            {{ loadingMore ? '加载中…' : `加载更多（已 ${items.length} / ${total}）` }}
+          </Button>
+        </div>
       </div>
 
       <!-- 右侧预览（上传文件） -->
@@ -797,7 +847,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
       :workspace-name="currentWsName"
       :has-current-model="!!hasCurrentModel"
       :current-model-id="currentModelId"
-      :experiences="items"
+      :experiences="extractScopeItems"
       @close="extractDialogOpen = false"
       @commit="onExtractCommit"
       @built-model="(p) => emit('built-model', p)"
@@ -1208,6 +1258,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 
 .exp-body { flex: 1; display: flex; gap: 18px; min-height: 0; }
 .exp-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+.exp-more { display: flex; justify-content: center; padding: 8px 0 16px; }
 .exp-state, .exp-empty { color: var(--text-dim); font-size: 13px; padding: 40px 0; text-align: center; }
 .exp-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .exp-empty-icon { font-size: 40px; opacity: 0.6; }

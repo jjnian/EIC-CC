@@ -114,6 +114,20 @@ export function listAllExperiences() {
   return request<Experience[]>('/api/experiences?all=true');
 }
 
+export interface ExperiencePage { items: Experience[]; total: number; page: number; size: number; }
+
+/** 分页版全量经验列表（经验库达千/万篇时用）。workspaceId 非空则按归属工作空间过滤。 */
+export function listExperiencesPaged(opts: { page: number; size: number; workspaceId?: string | null }) {
+  const qs = new URLSearchParams({ page: String(opts.page), size: String(opts.size) });
+  if (opts.workspaceId) qs.set('workspaceId', opts.workspaceId);
+  return request<ExperiencePage>(`/api/experiences/page?${qs}`);
+}
+
+/** 有经验存在的归属工作空间 id（供列表筛选条，避免为此拉全量经验）。 */
+export function listExperienceWorkspaces() {
+  return request<string[]>('/api/experiences/workspaces');
+}
+
 /** 当前工作空间「尚未引用」的公共经验（引用选择器列出可引入的经验）。 */
 export function listReferencableExperiences() {
   return request<Experience[]>('/api/experiences/referencable');

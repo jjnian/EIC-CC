@@ -149,6 +149,33 @@ public class ExperienceController {
         return ResponseEntity.ok(list);
     }
 
+    /**
+     * 分页版全量经验列表（经验库达千/万篇时用，避免一次拉全量卡前端）。
+     * 参数：page(从 0)、size(1..200，默认 60)、workspaceId(可选，按归属工作空间过滤)。
+     * 返回：{items, total, page, size}。
+     */
+    @GetMapping("/page")
+    public ResponseEntity<Map<String, Object>> page(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "60") int size,
+            @RequestParam(required = false) String workspaceId) {
+        int p = Math.max(0, page);
+        int s = Math.min(Math.max(size, 1), 200);
+        String wsFilter = (workspaceId != null && !workspaceId.isBlank()) ? workspaceId : null;
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("items", repo.listAllPaged(wsFilter, p * s, s));
+        out.put("total", repo.countAll(wsFilter));
+        out.put("page", p);
+        out.put("size", s);
+        return ResponseEntity.ok(out);
+    }
+
+    /** 有经验存在的归属工作空间 id（供列表筛选条，避免为筛选条而拉全量经验）。 */
+    @GetMapping("/workspaces")
+    public ResponseEntity<List<String>> owningWorkspaces() {
+        return ResponseEntity.ok(repo.distinctWorkspaceIds());
+    }
+
     /** 当前工作空间「尚未引用」的公共经验（引用选择器列出可引入的经验）。 */
     @GetMapping("/referencable")
     public ResponseEntity<List<Map<String, Object>>> referencable() {
