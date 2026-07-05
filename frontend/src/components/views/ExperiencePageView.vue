@@ -1055,17 +1055,9 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
   transform: translateX(-4px); transition: opacity .16s var(--ease-out), transform .16s var(--ease-out);
 }
 .exp-add-item:hover:not(:disabled) .exp-add-go { opacity: 0.9; transform: translateX(0); }
-.exp-build {
-  background: linear-gradient(135deg, rgba(47,134,214,0.22), rgba(47,134,214,0.1));
-  color: var(--accent-soft); border: 1px solid rgba(47,134,214,0.5);
-  padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
-  cursor: pointer; font-family: inherit;
-}
-.exp-build:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(47,134,214,0.34), rgba(47,134,214,0.18));
-  color: #fff;
-}
-.exp-build:disabled { opacity: 0.45; cursor: not-allowed; }
+/* 顶栏三个次级按钮统一走共享 <Button variant=secondary> 的玻璃样式，仅保留不换行；
+   顶栏只留「新增」一个蓝色主 CTA，避免多个蓝色按钮互相打架。 */
+.exp-build { white-space: nowrap; }
 .exp-idx-summary {
   font-size: 12px; color: var(--text-dim, rgba(255,255,255,0.7));
   padding: 4px 10px; border-radius: 999px;
@@ -1073,14 +1065,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
   white-space: nowrap; font-family: 'JetBrains Mono', monospace;
 }
 .exp-idx-summary .exp-idx-run { color: #f0c660; font-style: normal; }
-.exp-fullidx {
-  background: rgba(255,255,255,0.06); color: var(--text-main, #e6e9ef);
-  border: 1px solid rgba(255,255,255,0.14);
-  padding: 9px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
-  cursor: pointer; font-family: inherit; white-space: nowrap;
-}
-.exp-fullidx:hover:not(:disabled) { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.24); }
-.exp-fullidx:disabled { opacity: 0.5; cursor: not-allowed; }
+.exp-fullidx { white-space: nowrap; }
 .exp-upload {
   background: transparent; color: var(--accent-soft); border: 1px solid rgba(47,134,214,0.5);
   padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
