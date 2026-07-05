@@ -62,6 +62,11 @@ public class ExperienceOntologyService {
     private final com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo;
     private final com.tuiyan.backend.repository.OntologyModelRepository modelRepo;
     private final com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex;
+    private final com.tuiyan.backend.repository.GraphBuildCheckpointRepository checkpointRepo;
+    /** 建图缓存版本：prompt/后处理逻辑变更时改此值使旧 checkpoint 自然失效。 */
+    private static final String BUILD_CACHE_VERSION = "v1";
+    /** checkpoint 孤儿保留期(3 天)：作业成功即清理，此为崩溃/预览残留的兜底上限。 */
+    private static final long CHECKPOINT_TTL_MS = 3L * 24 * 60 * 60 * 1000;
     /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
     private final ExecutorService batchExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_BATCHES, r -> {
         Thread t = new Thread(r, "exp-ontology-batch");
@@ -78,7 +83,8 @@ public class ExperienceOntologyService {
                                      com.tuiyan.backend.repository.ExperienceFolderRepository folderRepo,
                                      com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo,
                                      com.tuiyan.backend.repository.OntologyModelRepository modelRepo,
-                                     com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex) {
+                                     com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex,
+                                     com.tuiyan.backend.repository.GraphBuildCheckpointRepository checkpointRepo) {
         this.repo = repo;
         this.extractionLlmService = extractionLlmService;
         this.merger = merger;
@@ -89,6 +95,7 @@ public class ExperienceOntologyService {
         this.buildSourceRepo = buildSourceRepo;
         this.modelRepo = modelRepo;
         this.nodeIndex = nodeIndex;
+        this.checkpointRepo = checkpointRepo;
     }
 
     /** 进度回调，用于 SSE 上报「读经验库 / 调 LLM / 后处理」等阶段。 */
@@ -448,6 +455,11 @@ public class ExperienceOntologyService {
         }
         if (!manifest.isEmpty()) buildSourceRepo.upsertAll(m.getId(), manifest);
 
+        // 作业成功落库：清理本作业的批 checkpoint（断点续跑数据已完成使命；失败则由按龄清理兜底）
+        try {
+            checkpointRepo.deleteJob(buildJobSig(WorkspaceContext.get(), modelOverride, configId));
+        } catch (Exception ignore) { /* 清理失败不影响本次结果 */ }
+
         step.emit("saved", "已落成模型「" + modelTitle + "」：" + nodeMaps.size() + " 节点 / " + edgeMaps.size() + " 边");
         return new BuildIntoModelResult(m.getId(), modelTitle, r.sourceCount(), nodeMaps.size(), edgeMaps.size());
     }
@@ -499,6 +511,10 @@ public class ExperienceOntologyService {
         final String vocabPreface = vocabService.preface(vocab);
         final OntologyVocabService.Vocab vocabRef = vocab;
         final ExistingGraphContextService.Context ctxRef = graphCtx;
+        // 断点续跑：本作业签名(工作空间+模型+prompt版本)下，每批产出按批哈希落盘/复用
+        final String jobSig = buildJobSig(workspaceId, modelOverride, configId);
+        checkpointRepo.pruneOlderThan(System.currentTimeMillis() - CHECKPOINT_TTL_MS);  // 清理 extract 预览/崩溃残留的孤儿
+        final java.util.concurrent.atomic.AtomicInteger reused = new java.util.concurrent.atomic.AtomicInteger();
         List<CompletableFuture<JsonNode>> futures = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
             final Batch batch = batches.get(i);
@@ -515,6 +531,21 @@ public class ExperienceOntologyService {
                     String preface = vocabPreface;
                     if (ctxRef != null && !ctxRef.isEmpty()) {
                         preface = preface + ctxRef.prefaceFor(batch.text());
+                    }
+                    // 批哈希覆盖本批「完整 LLM 输入 + 后处理决定因素」(序号/域/来源标题)：
+                    // 命中即输入完全一致，缓存的处理后产出可直接复用，跳过 LLM + 后处理
+                    final String batchHash = sha256Hex(idx + " " + batch.ddl() + " "
+                            + batch.domain() + " " + String.join(",", batch.titles())
+                            + " " + preface + " " + batch.text());
+                    String cached = checkpointRepo.find(jobSig, batchHash);
+                    if (cached != null) {
+                        try {
+                            JsonNode hit = objectMapper.readTree(cached);
+                            reused.incrementAndGet();
+                            return hit;
+                        } catch (Exception badCache) {
+                            log.warn("[exp-ontology] 第 {} 批 checkpoint 解析失败，改为重算：{}", idx + 1, badCache.toString());
+                        }
                     }
                     JsonNode part = extractBatchWithRetry(batch, preface, modelOverride, configId, idx, n);
                     if (part == null) return null;
@@ -535,6 +566,13 @@ public class ExperienceOntologyService {
                     // 领域标记：本批不跨域，故本批产出的每个节点/边都归属该域(供前端分组/着色/折叠)
                     stampDomainWhenBlank(part.path("add_nodes"), batch.domain());
                     stampDomainWhenBlank(part.path("add_edges"), batch.domain());
+                    // 成功一批即落盘 checkpoint：崩溃/断连后重跑可复用（失败批不缓存，重跑自动重试）
+                    try {
+                        checkpointRepo.save(jobSig, batchHash, workspaceId == null ? "" : workspaceId,
+                                objectMapper.writeValueAsString(part));
+                    } catch (Exception saveErr) {
+                        log.warn("[exp-ontology] 第 {} 批 checkpoint 落盘失败(不影响本轮)：{}", idx + 1, saveErr.toString());
+                    }
                     return part;
                 } finally {
                     if (ctxSet) WorkspaceContext.clear();
@@ -555,6 +593,7 @@ public class ExperienceOntologyService {
                 failedExpIds.addAll(batches.get(i).expIds());
             }
             step.emit("llm_batch", "本体抽取进度 " + done + "/" + n + " 批"
+                    + (reused.get() > 0 ? "（断点续跑复用 " + reused.get() + " 批）" : "")
                     + (failed > 0 ? "（" + failed + " 批失败）" : "") + "…");
             if (part == null) continue;
             merged = (merged == null) ? part : merger.mergeExtractionByLabel(merged, part);
@@ -714,6 +753,16 @@ public class ExperienceOntologyService {
         } catch (java.security.NoSuchAlgorithmException e) {
             throw new IllegalStateException(e); // JVM 必带 SHA-256
         }
+    }
+
+    /**
+     * 建图作业签名：同一 (工作空间 + 模型 + configId + 缓存版本) 归为一个作业,
+     * 其批产出 checkpoint 可跨重跑复用;换模型/换 prompt 版本自然隔离,不会误用旧缓存。
+     */
+    private static String buildJobSig(String workspaceId, String modelOverride, String configId) {
+        return sha256Hex((workspaceId == null ? "" : workspaceId) + " "
+                + (modelOverride == null ? "" : modelOverride) + " "
+                + (configId == null ? "" : configId) + " " + BUILD_CACHE_VERSION);
     }
 
     /** 本批的来源标记：单篇 → 「经验：标题」；多篇 → 「经验：首篇 等 N 篇」；空批 → null。 */

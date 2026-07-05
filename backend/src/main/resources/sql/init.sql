@@ -467,6 +467,20 @@ CREATE TABLE IF NOT EXISTS model_build_source (
     PRIMARY KEY (model_id, experience_id)
 );
 
+-- 建图作业断点续跑：每批抽取的「处理后产出」按 (作业签名, 批哈希) 落盘。
+-- 万篇建图 = 成千上万次 LLM 调用/几小时，中途崩溃/断连可重跑复用已完成批，跳过重复 LLM。
+-- job_sig=hash(工作空间+模型+configId+prompt版本)；batch_hash=hash(批全量 LLM 输入+序号+域)。
+-- 命中即输入完全一致 → 缓存产出可直接复用；作业成功落库后清理，孤儿按龄清理。
+CREATE TABLE IF NOT EXISTS graph_build_checkpoint (
+    job_sig        VARCHAR(64)  NOT NULL,
+    batch_hash     VARCHAR(64)  NOT NULL,
+    workspace_id   VARCHAR(64)  NOT NULL,
+    fragment_json  TEXT         NOT NULL,                    -- 该批处理后产出(可直接 merge)
+    created_at     BIGINT       NOT NULL,
+    PRIMARY KEY (job_sig, batch_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_graph_build_checkpoint_age ON graph_build_checkpoint (created_at);
+
 -- 本体词表骨架（Schema-First 建图的规约产物）：每工作空间一份受控词表
 -- {vocab:[{canonical,type,aliases[]}]}。批抽取时作为命名规约注入，消除跨批命名漂移；
 -- 增量建图直接复用，全量建图重建并覆盖。
