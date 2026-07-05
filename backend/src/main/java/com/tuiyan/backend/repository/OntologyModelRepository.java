@@ -225,6 +225,23 @@ public class OntologyModelRepository {
                 }).toList();
     }
 
+    /** 取任一端在 id 集内的边(id/from/to/rel_type/label)，用于取相关节点的一跳邻居；不加载整图。 */
+    public List<Map<String, Object>> edgesIncident(String modelId, java.util.Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return edgeMapper.selectList(new LambdaQueryWrapper<OntologyEdgePO>()
+                        .eq(OntologyEdgePO::getModelId, modelId)
+                        .and(w -> w.in(OntologyEdgePO::getFromNodeId, ids).or().in(OntologyEdgePO::getToNodeId, ids)))
+                .stream().map(p -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", p.getId());
+                    m.put("from", p.getFromNodeId());
+                    m.put("to", p.getToNodeId());
+                    m.put("rel_type", p.getRelType());
+                    m.put("label", p.getLabel());
+                    return m;
+                }).toList();
+    }
+
     /** 取两端都在 id 集内的边(id/from/to/rel_type/label)，不加载整图。 */
     public List<Map<String, Object>> edgesAmongIds(String modelId, java.util.Collection<String> ids) {
         if (ids == null || ids.size() < 2) return List.of();

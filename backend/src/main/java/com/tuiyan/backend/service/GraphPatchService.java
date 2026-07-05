@@ -18,9 +18,12 @@ import java.util.Map;
 public class GraphPatchService {
 
     private final OntologyModelRepository modelRepo;
+    private final com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex;
 
-    public GraphPatchService(OntologyModelRepository modelRepo) {
+    public GraphPatchService(OntologyModelRepository modelRepo,
+                             com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex) {
         this.modelRepo = modelRepo;
+        this.nodeIndex = nodeIndex;
     }
 
     /** patch 应用结果：实际应用的操作数 + 应用后模型的节点/边计数。 */
@@ -49,8 +52,18 @@ public class GraphPatchService {
             try {
                 String kind = str(op.get("op"));
                 switch (kind) {
-                    case "add_node", "update_node" -> { modelRepo.patchUpsertNode(modelId, asMap(op.get("node"))); applied++; }
-                    case "delete_node" -> { modelRepo.patchDeleteNode(modelId, str(op.get("id"))); applied++; }
+                    case "add_node", "update_node" -> {
+                        Map<String, Object> node = asMap(op.get("node"));
+                        modelRepo.patchUpsertNode(modelId, node);
+                        nodeIndex.upsertNode(modelId, str(node.get("id")), str(node.get("label")));  // 同步向量索引
+                        applied++;
+                    }
+                    case "delete_node" -> {
+                        String nid = str(op.get("id"));
+                        modelRepo.patchDeleteNode(modelId, nid);
+                        nodeIndex.deleteNode(modelId, nid);
+                        applied++;
+                    }
                     case "add_edge", "update_edge" -> { modelRepo.patchUpsertEdge(modelId, asMap(op.get("edge"))); applied++; }
                     case "delete_edge" -> { modelRepo.patchDeleteEdge(modelId, str(op.get("id"))); applied++; }
                     default -> skipped++;

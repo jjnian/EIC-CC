@@ -57,14 +57,17 @@ public class GraphChatEditService {
 
     private final ExtractionLlmService extractionLlmService;
     private final com.tuiyan.backend.service.indexing.EmbeddingClient embeddingClient;
+    private final com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex;
 
     public GraphChatEditService(OntologyModelRepository modelRepo, GraphPatchService patchService,
                                 ExtractionLlmService extractionLlmService,
-                                com.tuiyan.backend.service.indexing.EmbeddingClient embeddingClient) {
+                                com.tuiyan.backend.service.indexing.EmbeddingClient embeddingClient,
+                                com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex) {
         this.modelRepo = modelRepo;
         this.extractionLlmService = extractionLlmService;
         this.patchService = patchService;
         this.embeddingClient = embeddingClient;
+        this.nodeIndex = nodeIndex;
     }
 
     /** 改图结果：LLM 说明 + 应用统计 + 实际应用的 ops（供前端局部反映，不必重载整图）+ 最新计数。 */
@@ -87,12 +90,15 @@ public class GraphChatEditService {
             List<Map<String, Object>> edges = modelRepo.edgesAmongIds(modelId, scopeNodeIds);
             context = formatContext(nodes, edges);
         } else {
-            OntologyModelRepository.NodesAndEdges g = modelRepo.loadGraphForVersion(modelId);
-            // 无可见范围时：配了 embedding 就用向量语义检索(认同义/模糊,能找到与请求语义相关但字面不匹配的节点)，
-            // 否则退回关键词检索。向量失败也降级到关键词，不阻断。
-            context = embeddingClient.isConfigured()
-                    ? buildContextVector(g, message)
-                    : buildContext(g, message);
+            // 无可见范围(全图检索)：优先用「持久化节点向量索引」——纯索引级检索，不加载整图。
+            context = buildContextFromIndex(modelId, message);
+            if (context == null) {
+                // 索引未建/未命中：退回读整图 + 向量(配了 embedding)或关键词检索。
+                OntologyModelRepository.NodesAndEdges g = modelRepo.loadGraphForVersion(modelId);
+                context = embeddingClient.isConfigured()
+                        ? buildContextVector(g, message)
+                        : buildContext(g, message);
+            }
         }
 
         String user = "【当前相关子图】\n" + context + "\n\n【用户请求】\n" + message.trim()
@@ -183,6 +189,27 @@ public class GraphChatEditService {
             if (keep.contains(str(e.get("from"))) && keep.contains(str(e.get("to")))) selEdges.add(e);
         }
         return formatContext(selNodes, selEdges);
+    }
+
+    /**
+     * 用持久化节点向量索引取相关子图上下文：语义检索命中的节点 id（+一跳邻居）→ 按 id 取头/边，
+     * <b>全程不加载整图</b>，任意规模都是索引级。索引未建/未命中/未配置 → 返回 null(调用方降级)。
+     */
+    private String buildContextFromIndex(String modelId, String message) {
+        if (!nodeIndex.isConfigured()) return null;
+        List<String> hits = nodeIndex.search(modelId, message, CONTEXT_NODES);
+        if (hits == null || hits.isEmpty()) return null;
+        LinkedHashSet<String> keep = new LinkedHashSet<>(hits);
+        // 一跳邻居：让 LLM 看到命中节点的现有连接（改方向/连边更准）
+        List<Map<String, Object>> incident = modelRepo.edgesIncident(modelId, hits);
+        for (Map<String, Object> e : incident) {
+            if (keep.size() >= CONTEXT_NODES) break;
+            keep.add(str(e.get("from")));
+            keep.add(str(e.get("to")));
+        }
+        List<Map<String, Object>> nodes = modelRepo.nodeHeadsByIds(modelId, keep);
+        List<Map<String, Object>> edges = modelRepo.edgesAmongIds(modelId, keep);
+        return formatContext(nodes, edges);
     }
 
     /**

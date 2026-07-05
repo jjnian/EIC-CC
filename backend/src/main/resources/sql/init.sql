@@ -425,6 +425,19 @@ CREATE TABLE IF NOT EXISTS exp_embedding (
 );
 CREATE INDEX IF NOT EXISTS idx_exp_embedding_chunk ON exp_embedding (chunk_id);
 
+-- 8.1b 图节点向量索引：把本体图节点的 label 向量化，供「对话改图」在大图上做语义检索定位相关节点，
+--      无需把整图拉进内存/上下文。embedding(TEXT) 为真值来源，embedding_vec 由 PgVectorSupport 建 HNSW 加速。
+CREATE TABLE IF NOT EXISTS graph_node_embedding (
+    id          VARCHAR(160) PRIMARY KEY,   -- model_id + '|' + node_id
+    model_id    VARCHAR(64)  NOT NULL,
+    node_id     VARCHAR(64)  NOT NULL,
+    label       TEXT,
+    embedding   TEXT         NOT NULL,
+    dimension   INT          DEFAULT 0,
+    created_at  BIGINT       NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_graph_node_embedding_model ON graph_node_embedding (model_id);
+
 -- 8.2 节点数据供血绑定：把「已建好的本体血缘图节点」绑定到数据源的表/列，运行时取数供血。
 --   一个节点可有多条绑定（不同数据源/表）；column_map 把表列映射到节点属性，便于解读取数结果。
 CREATE TABLE IF NOT EXISTS node_data_binding (

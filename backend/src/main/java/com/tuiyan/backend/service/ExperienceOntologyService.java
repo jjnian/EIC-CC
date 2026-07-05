@@ -61,6 +61,7 @@ public class ExperienceOntologyService {
     private final com.tuiyan.backend.repository.ExperienceFolderRepository folderRepo;
     private final com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo;
     private final com.tuiyan.backend.repository.OntologyModelRepository modelRepo;
+    private final com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex;
     /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
     private final ExecutorService batchExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_BATCHES, r -> {
         Thread t = new Thread(r, "exp-ontology-batch");
@@ -76,7 +77,8 @@ public class ExperienceOntologyService {
                                      ExistingGraphContextService graphContextService,
                                      com.tuiyan.backend.repository.ExperienceFolderRepository folderRepo,
                                      com.tuiyan.backend.repository.ModelBuildSourceRepository buildSourceRepo,
-                                     com.tuiyan.backend.repository.OntologyModelRepository modelRepo) {
+                                     com.tuiyan.backend.repository.OntologyModelRepository modelRepo,
+                                     com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex) {
         this.repo = repo;
         this.extractionLlmService = extractionLlmService;
         this.merger = merger;
@@ -86,6 +88,7 @@ public class ExperienceOntologyService {
         this.folderRepo = folderRepo;
         this.buildSourceRepo = buildSourceRepo;
         this.modelRepo = modelRepo;
+        this.nodeIndex = nodeIndex;
     }
 
     /** 进度回调，用于 SSE 上报「读经验库 / 调 LLM / 后处理」等阶段。 */
@@ -434,6 +437,7 @@ public class ExperienceOntologyService {
         g.setEdges(edgeMaps);
         m.setGraphData(g);
         modelRepo.save(m);
+        nodeIndex.reindex(m.getId(), nodeMaps);   // 异步建节点向量索引，供对话改图语义检索
 
         // 回写构建记录（manifest：本轮扫过的经验 id → 内容哈希），供后续增量建图跳过未变化经验
         Map<String, String> manifest = new java.util.LinkedHashMap<>();

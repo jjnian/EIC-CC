@@ -58,6 +58,11 @@ public class PgVectorSupport {
             jdbc.execute("CREATE INDEX IF NOT EXISTS idx_ds_embedding_vec "
                     + "ON ds_embedding USING hnsw (embedding_vec vector_cosine_ops)");
 
+            // 图节点向量索引：graph_node_embedding（供对话改图语义检索）
+            jdbc.execute("ALTER TABLE graph_node_embedding ADD COLUMN IF NOT EXISTS embedding_vec vector(" + dim + ")");
+            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_graph_node_embedding_vec "
+                    + "ON graph_node_embedding USING hnsw (embedding_vec vector_cosine_ops)");
+
             available = true;
             log.info("[pgvector] 已启用 ANN 检索 (HNSW, dim={})", dim);
         } catch (Exception e) {

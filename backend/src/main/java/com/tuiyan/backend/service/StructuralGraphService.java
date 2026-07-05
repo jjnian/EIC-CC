@@ -39,10 +39,13 @@ public class StructuralGraphService {
 
     private final DataSourceService dataSourceService;
     private final OntologyModelService modelService;
+    private final com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex;
 
-    public StructuralGraphService(DataSourceService dataSourceService, OntologyModelService modelService) {
+    public StructuralGraphService(DataSourceService dataSourceService, OntologyModelService modelService,
+                                  com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex) {
         this.dataSourceService = dataSourceService;
         this.modelService = modelService;
+        this.nodeIndex = nodeIndex;
     }
 
     /** 结构建图结果摘要。 */
@@ -82,6 +85,7 @@ public class StructuralGraphService {
                 + built.graph().getNodes().size() + " 表/视图 · " + built.graph().getEdges().size() + " 外键血缘）");
         m.setGraphData(built.graph());
         OntologyModel saved = modelService.save(m);
+        nodeIndex.reindex(saved.getId(), built.graph().getNodes());   // 异步建节点向量索引，供对话改图语义检索
 
         log.info("[structural-graph] 建图完成 model={} 表={} 视图={} 列={} 外键={} 节点={} 边={}",
                 saved.getId(), built.tableCount(), built.viewCount(), built.columnCount(), built.fkCount(),
