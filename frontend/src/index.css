@@ -1267,6 +1267,92 @@ select:focus-visible {
 }
 .tb-title-text { animation: premium-breathe 6s var(--ease-out) infinite; }
 
+/* ══════════════════════════════════════════════════════════════════
+   按钮系统 —— 统一全站共享 <Button>(shadcn/reka)的质感:Foundry Blue 玻璃拟态。
+   用 [data-slot=button] 属性选择器覆盖 cva 基础类,不改组件 API;默认(primary)按钮
+   不带 variant 属性,故用 :not([data-variant]) 命中。玻璃顶高光 + 悬浮上浮 + 按压回弹。
+   ══════════════════════════════════════════════════════════════════ */
+[data-slot="button"] {
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  transition: transform .14s var(--ease-out), box-shadow .2s var(--ease-out),
+              background .2s var(--ease-out), border-color .2s var(--ease-out);
+}
+
+/* Primary(默认):蓝色垂直渐变 + 顶部玻璃高光内影 + 柔光投影 */
+[data-slot="button"]:not([data-variant]),
+[data-slot="button"][data-variant="default"] {
+  background: linear-gradient(180deg, var(--accent-soft), var(--accent) 56%, var(--accent-deep));
+  color: #fff;
+  border: 1px solid var(--accent-deep);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 1px 2px rgba(4,18,44,.28), 0 3px 12px var(--accent-glow);
+  text-shadow: 0 1px 1px rgba(2,16,48,.35);
+}
+[data-slot="button"]:not([data-variant]):hover,
+[data-slot="button"][data-variant="default"]:hover {
+  background: linear-gradient(180deg, #82c0ff, var(--accent-soft) 56%, var(--accent));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.38), 0 2px 4px rgba(4,18,44,.28), 0 7px 22px var(--accent-glow);
+  transform: translateY(-1px);
+}
+[data-slot="button"]:not([data-variant]):active,
+[data-slot="button"][data-variant="default"]:active {
+  transform: translateY(.5px);
+  box-shadow: inset 0 2px 6px rgba(2,16,48,.45), 0 1px 3px var(--accent-glow);
+}
+
+/* Secondary / Outline:玻璃底 —— 悬浮提亮 + 强化描边 + 轻微上浮 */
+[data-slot="button"][data-variant="secondary"],
+[data-slot="button"][data-variant="outline"] {
+  background: var(--bg-elev);
+  border: 1px solid var(--glass-border);
+  color: var(--text-main);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+}
+[data-slot="button"][data-variant="secondary"]:hover,
+[data-slot="button"][data-variant="outline"]:hover {
+  background: var(--bg-elev-hi);
+  border-color: var(--glass-border-strong);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 5px 16px rgba(4,12,28,.35);
+}
+[data-slot="button"][data-variant="secondary"]:active,
+[data-slot="button"][data-variant="outline"]:active {
+  transform: translateY(.5px);
+  box-shadow: inset 0 2px 5px rgba(2,10,26,.4);
+}
+
+/* Ghost:静默 —— 悬浮才浮出蓝色微底 */
+[data-slot="button"][data-variant="ghost"]:hover {
+  background: var(--accent-tint);
+  color: var(--accent-soft);
+}
+[data-slot="button"][data-variant="ghost"]:active { transform: translateY(.5px); }
+
+/* Destructive:红色渐变,与 primary 同一套质感语言 */
+[data-slot="button"][data-variant="destructive"] {
+  background: linear-gradient(180deg, #ff6f6f, #e5484d 56%, #c0343a);
+  color: #fff;
+  border: 1px solid #a72b31;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.26), 0 1px 2px rgba(44,4,8,.3), 0 3px 12px rgba(229,72,77,.34);
+  text-shadow: 0 1px 1px rgba(48,4,8,.35);
+}
+[data-slot="button"][data-variant="destructive"]:hover {
+  background: linear-gradient(180deg, #ff8585, #ff5a5f 56%, #d43a40);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.34), 0 7px 22px rgba(229,72,77,.4);
+}
+[data-slot="button"][data-variant="destructive"]:active { transform: translateY(.5px); }
+
+/* 焦点:品牌蓝发光环(键盘可达);各变体统一 */
+[data-slot="button"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(61,155,255,.4);
+}
+[data-slot="button"]:not([data-variant]):focus-visible,
+[data-slot="button"][data-variant="default"]:focus-visible {
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 3px 12px var(--accent-glow), 0 0 0 3px rgba(61,155,255,.45);
+}
+
 /* ── 降噪:用户偏好减少动效时,关闭装饰性循环动画并大幅缩短过渡 ── */
 @media (prefers-reduced-motion: reduce) {
   .tb-btn.hi::after, .send-btn::after { transition: none; }

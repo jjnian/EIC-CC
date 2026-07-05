@@ -273,7 +273,7 @@ const exportImpactReport = () => {
 .gap-td.node-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .gap-chip {
-  display: inline-block; font-size: 11px; padding: 1px 7px;
+  display: inline-block; font-size: 11px; padding: 4px 11px; line-height: 1.4;
   border: 1px solid rgba(255,255,255,.15); border-radius: 100px;
 }
 .gap-chip-click { cursor: pointer; }

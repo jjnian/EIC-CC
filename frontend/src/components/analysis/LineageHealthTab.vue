@@ -412,7 +412,7 @@ const runDrift = async () => {
 .lh-sub { font-size: 11px; color: #77808f; }
 .lh-chip-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .lh-chip { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
-  color: #c0c4cf; font-size: 11.5px; padding: 2px 9px; border-radius: 10px; cursor: pointer;
+  color: #c0c4cf; font-size: 11.5px; padding: 5px 11px; line-height: 1.3; border-radius: 8px; cursor: pointer;
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lh-chip:hover { border-color: rgba(47,134,214,.5); color: #fff; }
 .lh-more { font-size: 11px; color: #77808f; align-self: center; }
