@@ -60,7 +60,11 @@ public class OntologyModelRepository {
                 new LambdaQueryWrapper<OntologyModelPO>().eq(OntologyModelPO::getWorkspaceId, WorkspaceContext.required()));
     }
 
-    /** 列表，按 updated_at 倒序。 */
+    /**
+     * 列表，按 updated_at 倒序。<b>只返模型元信息，不加载节点/边</b>——列表/侧边栏只用
+     * id/title/updated，无需整图；万节点、多模型时避免 O(全部节点) 的列表加载卡顿。
+     * 打开某个模型看图仍走 {@link #get(String)} 全量加载。
+     */
     public List<OntologyModel> list() {
         List<OntologyModelPO> pos = modelMapper.selectList(
                 new LambdaQueryWrapper<OntologyModelPO>()
@@ -68,7 +72,7 @@ public class OntologyModelRepository {
                         .orderByDesc(OntologyModelPO::getUpdatedAt));
         List<OntologyModel> out = new ArrayList<>(pos.size());
         for (OntologyModelPO po : pos) {
-            out.add(loadModel(po));
+            out.add(loadModelMeta(po));
         }
         return out;
     }
@@ -104,20 +108,10 @@ public class OntologyModelRepository {
         // 2. 删除旧的节点 / props / 边（外键级联会清 props，但显式删除更直观）
         deleteAllChildren(m.getId());
 
-        // 3. 插入新的节点
+        // 3. 批量插入新的节点/边（万节点逐行 insert 往返开销极大，改批量；仍在本 @Transactional 内）
         if (m.getGraphData() != null) {
-            List<Map<String, Object>> nodes = m.getGraphData().getNodes();
-            if (nodes != null) {
-                for (Map<String, Object> n : nodes) {
-                    rowMapper.insertNode(m.getId(), n);
-                }
-            }
-            List<Map<String, Object>> edges = m.getGraphData().getEdges();
-            if (edges != null) {
-                for (Map<String, Object> e : edges) {
-                    rowMapper.insertEdge(m.getId(), e);
-                }
-            }
+            rowMapper.insertNodesBatch(m.getId(), m.getGraphData().getNodes());
+            rowMapper.insertEdgesBatch(m.getId(), m.getGraphData().getEdges());
         }
     }
 
@@ -274,7 +268,8 @@ public class OntologyModelRepository {
         return po;
     }
 
-    private OntologyModel loadModel(OntologyModelPO po) {
+    /** 仅标量元信息 + 空图（列表/侧边栏用，不打节点/边表）。 */
+    private OntologyModel loadModelMeta(OntologyModelPO po) {
         OntologyModel m = new OntologyModel();
         m.setId(po.getId());
         m.setTitle(po.getTitle());
@@ -282,11 +277,18 @@ public class OntologyModelRepository {
         m.setUpdated(po.getUpdatedLabel());
         m.setCreatedAt(po.getCreatedAt() == null ? 0L : po.getCreatedAt());
         m.setUpdatedAt(po.getUpdatedAt() == null ? 0L : po.getUpdatedAt());
-
         OntologyModel.GraphData g = new OntologyModel.GraphData();
-        g.setNodes(rowMapper.loadNodes(po.getId()));
-        g.setEdges(rowMapper.loadEdges(po.getId()));
+        g.setNodes(new ArrayList<>());
+        g.setEdges(new ArrayList<>());
         m.setGraphData(g);
+        return m;
+    }
+
+    /** 元信息 + 整图（打开单个模型用）。 */
+    private OntologyModel loadModel(OntologyModelPO po) {
+        OntologyModel m = loadModelMeta(po);
+        m.getGraphData().setNodes(rowMapper.loadNodes(po.getId()));
+        m.getGraphData().setEdges(rowMapper.loadEdges(po.getId()));
         return m;
     }
 

@@ -8,6 +8,7 @@ import com.tuiyan.backend.entity.OntologyNodePropPO;
 import com.tuiyan.backend.mapper.OntologyEdgeMapper;
 import com.tuiyan.backend.mapper.OntologyNodeMapper;
 import com.tuiyan.backend.mapper.OntologyNodePropMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -31,15 +32,18 @@ public class OntologyRowMapper {
     private final OntologyNodeMapper nodeMapper;
     private final OntologyNodePropMapper propMapper;
     private final OntologyEdgeMapper edgeMapper;
+    private final JdbcTemplate jdbc;
     private final JsonCodec codec;
 
     public OntologyRowMapper(OntologyNodeMapper nodeMapper,
                              OntologyNodePropMapper propMapper,
                              OntologyEdgeMapper edgeMapper,
+                             JdbcTemplate jdbc,
                              ObjectMapper objectMapper) {
         this.nodeMapper = nodeMapper;
         this.propMapper = propMapper;
         this.edgeMapper = edgeMapper;
+        this.jdbc = jdbc;
         this.codec = new JsonCodec(objectMapper);
     }
 
@@ -143,6 +147,69 @@ public class OntologyRowMapper {
     // ---------- insert（行映射 + props 拆行） ----------
 
     public void insertNode(String modelId, Map<String, Object> n) {
+        OntologyNodePO po = buildNodePO(modelId, n);
+        nodeMapper.insert(po);
+        for (OntologyNodePropPO ppo : buildPropPOs(modelId, po.getId(), n)) {
+            propMapper.insert(ppo);
+        }
+    }
+
+    public void insertEdge(String modelId, Map<String, Object> e) {
+        edgeMapper.insert(buildEdgePO(modelId, e));
+    }
+
+    // ---------- 批量写入（覆盖式全量保存：万节点逐行 insert 往返开销极大，改 JdbcTemplate.batchUpdate；
+    //            在调用方 @Transactional 内、走事务绑定连接，与其它写入同一事务，原子性不变） ----------
+
+    private static final String NODE_INSERT_SQL =
+            "INSERT INTO ontology_node (id, model_id, label, type, source, derived_tables_json, derived_source, " +
+            "derived_database, derived_sources_json, domain, attributes_json, constraints_json, x, y, confidence, evidence) " +
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    private static final String PROP_INSERT_SQL =
+            "INSERT INTO ontology_node_prop (model_id, node_id, prop_key, prop_value, value_type, source, sort_no) " +
+            "VALUES (?,?,?,?,?,?,?)";
+    private static final String EDGE_INSERT_SQL =
+            "INSERT INTO ontology_edge (id, model_id, from_node_id, to_node_id, label, source, derived_tables_json, " +
+            "derived_source, derived_database, derived_sources_json, domain, constraints_json, rule_driven, rule_id, " +
+            "rel_type, evidence, confidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+    /** 单批行数上限：控制单条 batch 的报文体积/内存，超大图分批 flush。 */
+    private static final int BATCH_CHUNK = 1000;
+
+    /** 批量插入节点 + 其 props（列/编码与 {@link #insertNode} 完全一致，仅换成一次批量往返）。 */
+    public void insertNodesBatch(String modelId, List<Map<String, Object>> nodes) {
+        if (nodes == null || nodes.isEmpty()) return;
+        List<Object[]> nodeArgs = new ArrayList<>(nodes.size());
+        List<Object[]> propArgs = new ArrayList<>();
+        for (Map<String, Object> n : nodes) {
+            OntologyNodePO po = buildNodePO(modelId, n);
+            nodeArgs.add(toNodeArgs(po));
+            for (OntologyNodePropPO pp : buildPropPOs(modelId, po.getId(), n)) {
+                propArgs.add(toPropArgs(pp));
+            }
+        }
+        batchInChunks(NODE_INSERT_SQL, nodeArgs);
+        batchInChunks(PROP_INSERT_SQL, propArgs);
+    }
+
+    /** 批量插入边（列/编码与 {@link #insertEdge} 完全一致）。 */
+    public void insertEdgesBatch(String modelId, List<Map<String, Object>> edges) {
+        if (edges == null || edges.isEmpty()) return;
+        List<Object[]> args = new ArrayList<>(edges.size());
+        for (Map<String, Object> e : edges) {
+            args.add(toEdgeArgs(buildEdgePO(modelId, e)));
+        }
+        batchInChunks(EDGE_INSERT_SQL, args);
+    }
+
+    private void batchInChunks(String sql, List<Object[]> args) {
+        for (int i = 0; i < args.size(); i += BATCH_CHUNK) {
+            jdbc.batchUpdate(sql, args.subList(i, Math.min(i + BATCH_CHUNK, args.size())));
+        }
+    }
+
+    // ---------- PO 构建（单插/批插共用同一份映射，杜绝编码分叉） ----------
+
+    private OntologyNodePO buildNodePO(String modelId, Map<String, Object> n) {
         OntologyNodePO po = new OntologyNodePO();
         po.setId(asString(n.get("id")));
         po.setModelId(modelId);
@@ -160,31 +227,34 @@ public class OntologyRowMapper {
         po.setY(asDouble(n.get("y")));
         po.setConfidence(asDouble(n.get("confidence")));
         po.setEvidence(asString(n.get("evidence")));
-        nodeMapper.insert(po);
-
-        // 节点的 props 数组拆为多行写入子表；保留 sortNo 用于回读时还原顺序
-        Object propsObj = n.get("props");
-        if (propsObj instanceof List<?> list) {
-            int sortNo = 0;
-            for (Object item : list) {
-                if (!(item instanceof Map)) continue;
-                @SuppressWarnings("unchecked")
-                Map<String, Object> p = (Map<String, Object>) item;
-                OntologyNodePropPO ppo = new OntologyNodePropPO();
-                ppo.setModelId(modelId);
-                ppo.setNodeId(po.getId());
-                ppo.setPropKey(asString(p.get("key")));
-                JsonCodec.ValueAndType vt = codec.encode(p.get("value"));
-                ppo.setPropValue(vt.value());
-                ppo.setValueType(vt.valueType());
-                ppo.setSource(asString(p.get("source")));
-                ppo.setSortNo(sortNo++);
-                propMapper.insert(ppo);
-            }
-        }
+        return po;
     }
 
-    public void insertEdge(String modelId, Map<String, Object> e) {
+    /** 节点的 props 数组拆为多行；保留 sortNo 用于回读时还原顺序。 */
+    private List<OntologyNodePropPO> buildPropPOs(String modelId, String nodeId, Map<String, Object> n) {
+        Object propsObj = n.get("props");
+        if (!(propsObj instanceof List<?> list) || list.isEmpty()) return List.of();
+        List<OntologyNodePropPO> out = new ArrayList<>(list.size());
+        int sortNo = 0;
+        for (Object item : list) {
+            if (!(item instanceof Map)) continue;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> p = (Map<String, Object>) item;
+            OntologyNodePropPO ppo = new OntologyNodePropPO();
+            ppo.setModelId(modelId);
+            ppo.setNodeId(nodeId);
+            ppo.setPropKey(asString(p.get("key")));
+            JsonCodec.ValueAndType vt = codec.encode(p.get("value"));
+            ppo.setPropValue(vt.value());
+            ppo.setValueType(vt.valueType());
+            ppo.setSource(asString(p.get("source")));
+            ppo.setSortNo(sortNo++);
+            out.add(ppo);
+        }
+        return out;
+    }
+
+    private OntologyEdgePO buildEdgePO(String modelId, Map<String, Object> e) {
         OntologyEdgePO po = new OntologyEdgePO();
         po.setId(asString(e.get("id")));
         po.setModelId(modelId);
@@ -204,6 +274,26 @@ public class OntologyRowMapper {
         po.setRelType(asString(e.get("rel_type")));
         po.setEvidence(asString(e.get("evidence")));
         po.setConfidence(asDouble(e.get("confidence")));
-        edgeMapper.insert(po);
+        return po;
+    }
+
+    // 列顺序与上面的 *_INSERT_SQL 一一对应，改一处必须同步改另一处。
+    private Object[] toNodeArgs(OntologyNodePO p) {
+        return new Object[]{ p.getId(), p.getModelId(), p.getLabel(), p.getType(), p.getSource(),
+                p.getDerivedTablesJson(), p.getDerivedSource(), p.getDerivedDatabase(), p.getDerivedSourcesJson(),
+                p.getDomain(), p.getAttributesJson(), p.getConstraintsJson(), p.getX(), p.getY(),
+                p.getConfidence(), p.getEvidence() };
+    }
+
+    private Object[] toPropArgs(OntologyNodePropPO p) {
+        return new Object[]{ p.getModelId(), p.getNodeId(), p.getPropKey(), p.getPropValue(),
+                p.getValueType(), p.getSource(), p.getSortNo() };
+    }
+
+    private Object[] toEdgeArgs(OntologyEdgePO p) {
+        return new Object[]{ p.getId(), p.getModelId(), p.getFromNodeId(), p.getToNodeId(), p.getLabel(),
+                p.getSource(), p.getDerivedTablesJson(), p.getDerivedSource(), p.getDerivedDatabase(),
+                p.getDerivedSourcesJson(), p.getDomain(), p.getConstraintsJson(), p.getRuleDriven(),
+                p.getRuleId(), p.getRelType(), p.getEvidence(), p.getConfidence() };
     }
 }
