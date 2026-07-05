@@ -3,6 +3,8 @@ import { ref, computed, onBeforeUnmount, watch } from 'vue';
 import { extractOntologyFromExperiences, type BuildManifestEntry } from '../api/experiences';
 import type { SseHandle } from '../api/http';
 import type { OntologyNode, OntologyEdge } from '../types';
+import { analyzeLineageHealth } from '../utils/lineageHealth';
+import { detectConflicts } from '../utils/lineageConflicts';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import BaseInput from './form/BaseInput.vue';
@@ -207,6 +209,27 @@ const relStats = computed(() => {
   return [...m.entries()].map(([rel, count]) => ({ rel, count }))
     .sort((a, b) => b.count - a.count);
 });
+
+// 合并前结构体检：在抽取结果上先跑一遍血缘环/方向矛盾/孤立节点检查，把抽取错误挡在合并进模型之前。
+const HEALTH_SCHEMA_ONLY = new Set(['attribute', 'constraint']);
+const healthCheck = computed(() => {
+  if (!result.value) return null;
+  const biz = result.value.nodes.filter(n => !HEALTH_SCHEMA_ONLY.has(n.type));
+  const h = analyzeLineageHealth(biz, result.value.edges);
+  const c = detectConflicts(result.value.nodes, result.value.edges);
+  return {
+    isolated: h.isolatedIds.length,
+    components: h.componentCount,
+    cycles: c.cycles.length,
+    directionConflicts: c.directionConflicts.length,
+    duplicateLabels: c.duplicateLabels.length,
+  };
+});
+// 需人工核对的强信号（环/方向矛盾/重复/孤立）；碎片化只作提示，不算“问题”。
+const hasQualityIssue = computed(() => {
+  const h = healthCheck.value;
+  return !!h && (h.cycles > 0 || h.directionConflicts > 0 || h.duplicateLabels > 0 || h.isolated > 0);
+});
 </script>
 
 <template>
@@ -310,6 +333,20 @@ const relStats = computed(() => {
             </div>
           </div>
 
+          <div v-if="healthCheck" class="dbo-health" :class="{ warn: hasQualityIssue }">
+            <div class="dbo-health-title">{{ hasQualityIssue ? '⚠ 合并前建议核对' : '✓ 结构体检通过' }}</div>
+            <div v-if="hasQualityIssue" class="dbo-health-items">
+              <span v-if="healthCheck.cycles" class="dbo-h-item bad">血缘环 {{ healthCheck.cycles }}</span>
+              <span v-if="healthCheck.directionConflicts" class="dbo-h-item bad">方向矛盾 {{ healthCheck.directionConflicts }}</span>
+              <span v-if="healthCheck.duplicateLabels" class="dbo-h-item warn">疑似重复 {{ healthCheck.duplicateLabels }}</span>
+              <span v-if="healthCheck.isolated" class="dbo-h-item warn">孤立节点 {{ healthCheck.isolated }}</span>
+              <span v-if="healthCheck.components > 1" class="dbo-h-item">血缘 {{ healthCheck.components }} 块</span>
+            </div>
+            <div v-if="hasQualityIssue" class="dbo-health-note">
+              环 / 方向矛盾多为抽取把血缘方向标反；合并后可在「体检」页逐项定位修正。仍可继续合并。
+            </div>
+          </div>
+
           <div class="dbo-mode-pick">
             <label>
               <input type="radio" v-model="mode" value="merge" :disabled="!hasCurrentModel" />
@@ -395,6 +432,17 @@ const relStats = computed(() => {
 .dbo-summary-row { font-size: 13.5px; color: #e8eaed; margin-bottom: 6px; }
 .dbo-summary-row strong { color: #5aa6ee; font-weight: 600; }
 .dbo-reply { font-size: 12px; color: #aaa; line-height: 1.6; }
+
+.dbo-health { border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;
+  background: rgba(34,221,136,.08); border: 1px solid rgba(34,221,136,.25); }
+.dbo-health.warn { background: rgba(255,180,60,.08); border-color: rgba(255,180,60,.3); }
+.dbo-health-title { font-size: 12.5px; color: #e8eaed; margin-bottom: 6px; }
+.dbo-health-items { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.dbo-h-item { font-size: 11.5px; padding: 2px 8px; border-radius: 10px;
+  background: rgba(255,255,255,.06); color: #cbd0d6; }
+.dbo-h-item.warn { color: #ffcc66; background: rgba(255,180,60,.14); }
+.dbo-h-item.bad { color: #ff8866; background: rgba(255,90,60,.16); }
+.dbo-health-note { font-size: 11.5px; color: #999; line-height: 1.5; }
 
 .dbo-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
   margin-bottom: 14px; }

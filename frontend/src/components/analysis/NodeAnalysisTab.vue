@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { NT } from '../../constants';
 import type { OntologyNode, OntologyEdge } from '../../types';
 import { traceLineage } from '../../composables/useLineageTrace';
+import { buildImpactReport } from '../../utils/lineageReport';
 import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
@@ -71,6 +72,19 @@ const highlightLineage = () => {
   });
 };
 const clearLineage = () => emit('highlight-diff', null);
+
+// 导出《血缘影响分析报告》Markdown：把当前节点的上下游影响(按跳数分层)+直接关系落成可评审/归档的文档。
+const exportImpactReport = () => {
+  if (!selNode.value) return;
+  const md = buildImpactReport(selNode.value, props.nodes, props.edges);
+  const blob = new Blob([md], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `血缘影响-${(selNode.value.label || 'node').replace(/[^\w一-龥-]+/g, '_')}.md`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 </script>
 
 <template>
@@ -140,6 +154,9 @@ const clearLineage = () => emit('highlight-diff', null);
                 :disabled="!upstreamNodes.length && !downstreamNodes.length"
                 @click="highlightLineage">🩸 在图上高亮血缘</Button>
         <Button variant="secondary" size="sm" @click="clearLineage">清除</Button>
+        <Button variant="outline" size="sm"
+                :disabled="!upstreamNodes.length && !downstreamNodes.length"
+                @click="exportImpactReport">📄 导出影响分析报告</Button>
       </div>
       <div class="gap-lineage-legend">
         <span><i class="lg-dot" style="background:#3b82f6"></i>上游来源</span>

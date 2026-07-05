@@ -6,6 +6,7 @@ import { verifyContainment, type ContainmentCheckResult } from '../../api/dataSo
 import { detectSchemaDrift, type SchemaDriftResult } from '../../api/ontology';
 import { parseContainmentTarget, verdictConfidence, verdictEvidence, hasVerification, type ContainmentTarget } from '../../utils/lineageVerify';
 import { detectConflicts } from '../../utils/lineageConflicts';
+import { analyzeLineageHealth } from '../../utils/lineageHealth';
 import { useWorkspaces } from '../../composables/useWorkspaces';
 import { useSidebarTree } from '../../composables/useSidebarTree';
 import { toast } from '../../composables/useToast';
@@ -132,6 +133,15 @@ const applyAll = () => {
   if (n) toast.success(`已写回 ${n} 条边的验证结果（rejected 的建议删除该边）`);
 };
 
+// A · 一键佐证引导：有未验证推断边 + 可用数据库数据源时，把「解析→验证」两步并成一次引导动作
+// （prepare 同步写 rows，可紧接 runAll）。仍是只读、逐条串行、用户主动触发，不静默打库。
+const canGuideVerify = computed(() => unverifiedInferred.value.length > 0 && dbSources.value.length > 0);
+const verifyGuided = async () => {
+  if (running.value) return;
+  prepare();
+  await runAll();
+};
+
 const verdictView = (v: ContainmentCheckResult['verdict']) => ({
   confirmed: { text: '✓ 证实', color: '#22dd88' },
   likely:    { text: '≈ 大概率', color: '#ffcc44' },
@@ -142,11 +152,31 @@ const verdictView = (v: ContainmentCheckResult['verdict']) => ({
 const edgeLabel = (e: OntologyEdge) =>
   `${nmap.value[e.from]?.label || e.from} → ${nmap.value[e.to]?.label || e.to}`;
 
+// ── 结构体检：孤立节点 + 血缘碎片化（纯内存计算，补充冲突检测未覆盖的结构问题）──
+const health = computed(() => analyzeLineageHealth(bizNodes.value, props.edges));
+const isolatedNodes = computed(() =>
+  health.value.isolatedIds.map(id => nmap.value[id]).filter((n): n is OntologyNode => !!n));
+
 // ── 冲突检测（纯内存计算，随图变化实时更新）───────────────
 const conflicts = computed(() => detectConflicts(props.nodes, props.edges));
 const conflictCount = computed(() =>
   conflicts.value.directionConflicts.length + conflicts.value.duplicateLabels.length + conflicts.value.cycles.length);
 const nodeName = (id: string) => nmap.value[id]?.label || id;
+
+// C · 方向矛盾修正建议：可信度 inferred(0) < 未标(1) < derived(2) < manual(3)，同级再比置信度。
+// 冲突的两个流向里，可信度最低的那条最可能是「方向标反」的疑点边——给出定位建议，不自动改（方向对错需人判）。
+const edgeById = computed(() => Object.fromEntries(props.edges.map(e => [e.id, e])) as Record<string, OntologyEdge>);
+const trustRank = (e?: OntologyEdge) =>
+  e?.source === 'manual' ? 3 : e?.source === 'derived' ? 2 : e?.source === 'inferred' ? 0 : 1;
+/** 从一对方向矛盾的边里挑出最可能标反的疑点边（可信度最低→置信度最低）。 */
+const conflictSuspect = (edgeIds: string[]): OntologyEdge | null => {
+  const es = edgeIds.map(id => edgeById.value[id]).filter((e): e is OntologyEdge => !!e);
+  if (es.length < 2) return null;
+  return [...es].sort((a, b) =>
+    trustRank(a) - trustRank(b) || (a.confidence ?? 0.5) - (b.confidence ?? 0.5))[0];
+};
+const sourceTag = (e?: OntologyEdge) =>
+  e?.source === 'inferred' ? '推断' : e?.source === 'derived' ? '派生' : e?.source === 'manual' ? '手工' : '未标来源';
 
 // ── Schema 漂移检测 ─────────────────────────────────────
 const driftDsId = ref('');
@@ -203,6 +233,19 @@ const runDrift = async () => {
           <div class="lh-n">{{ bindingCoverage }}%</div>
           <div class="lh-l">供血绑定覆盖率<span class="lh-sub">节点绑定到真实数据源的比例</span></div>
         </div>
+        <div class="lh-stat">
+          <div class="lh-n" :class="{ warn: isolatedNodes.length }">{{ isolatedNodes.length }}</div>
+          <div class="lh-l">孤立节点<span class="lh-sub">不连任何血缘的业务节点{{ health.componentCount > 1 ? ` · 血缘分 ${health.componentCount} 块` : '' }}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 孤立节点清单 -->
+    <div v-if="isolatedNodes.length" class="gap-section">
+      <div class="gap-sec-title">孤立节点（点击定位）——未连入任何血缘流向，多为噪声或漏抽，建议补边或删除</div>
+      <div class="lh-chip-list">
+        <button v-for="n in isolatedNodes.slice(0, 30)" :key="n.id" class="lh-chip" @click="emit('focus-node', n.id)">{{ n.label }}</button>
+        <span v-if="isolatedNodes.length > 30" class="lh-more">…共 {{ isolatedNodes.length }} 个</span>
       </div>
     </div>
 
@@ -229,7 +272,12 @@ const runDrift = async () => {
         对未验证的推断血缘边（{{ unverifiedInferred.length }} 条）批量做值包含检验：子表列的值应都能在父表列中找到。
         只读、逐条串行、自动采样。
       </div>
+      <div v-if="canGuideVerify" class="lh-guide">
+        <span class="lh-guide-txt">🩺 发现 {{ unverifiedInferred.length }} 条推断血缘边、{{ dbSources.length }} 个数据库数据源，可用真实数据佐证</span>
+        <Button size="sm" :disabled="running" @click="verifyGuided">{{ running ? '佐证中…' : '一键数据佐证' }}</Button>
+      </div>
       <div class="lh-actions">
+        <span class="lh-note" style="margin:0 4px 0 0">或分步：</span>
         <Button size="sm" variant="outline" :disabled="!unverifiedInferred.length || running" @click="prepare">1️⃣ 解析验证目标</Button>
         <Button size="sm" :disabled="!rows.length || running" @click="runAll">{{ running ? '验证中…' : '2️⃣ 开始批量验证' }}</Button>
         <Button v-if="doneRows.length" size="sm" variant="outline" @click="applyAll">3️⃣ 全部采信写回</Button>
@@ -271,6 +319,13 @@ const runDrift = async () => {
             <span class="lh-more">⇄</span>
             <button class="lh-chip" @click="emit('focus-node', dc.b)">{{ nodeName(dc.b) }}</button>
             <span class="lh-more">{{ dc.edgeIds.length }} 条边</span>
+          </span>
+          <span v-if="conflictSuspect(dc.edgeIds)" class="lh-suggest">
+            建议核对疑点边
+            <button class="lh-chip lh-chip-suspect" @click="emit('focus-node', conflictSuspect(dc.edgeIds)!.from)">
+              {{ edgeLabel(conflictSuspect(dc.edgeIds)!) }}（{{ sourceTag(conflictSuspect(dc.edgeIds)!) }}）
+            </button>
+            —— 可信度最低，最可能方向标反
           </span>
         </div>
       </div>
@@ -362,7 +417,15 @@ const runDrift = async () => {
 .lh-chip:hover { border-color: rgba(47,134,214,.5); color: #fff; }
 .lh-more { font-size: 11px; color: #77808f; align-self: center; }
 .lh-note { font-size: 11.5px; color: #8a93a5; line-height: 1.6; }
-.lh-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.lh-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.lh-guide { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: rgba(47,134,214,.1); border: 1px solid rgba(47,134,214,.3);
+  border-radius: 6px; padding: 8px 12px; margin-bottom: 8px; }
+.lh-guide-txt { font-size: 12px; color: #cfe0f5; flex: 1; }
+.lh-suggest { font-size: 11px; color: #9aa2b0; display: inline-flex; align-items: center;
+  gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.lh-chip-suspect { border-color: rgba(255,119,85,.5); color: #ffb499; }
+.lh-chip-suspect:hover { border-color: rgba(255,119,85,.8); color: #fff; }
 .lh-rows { display: flex; flex-direction: column; gap: 3px; max-height: 260px; overflow-y: auto; }
 .lh-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #c0c4cf;
   background: rgba(255,255,255,.02); border-radius: 6px; padding: 4px 8px; }
