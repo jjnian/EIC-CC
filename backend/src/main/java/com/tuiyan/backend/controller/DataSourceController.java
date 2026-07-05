@@ -4,10 +4,19 @@ import com.tuiyan.backend.entity.DataSourceFetchLogPO;
 import com.tuiyan.backend.model.dto.*;
 import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.repository.NodeDataBindingRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.service.DataSourceService;
+import com.tuiyan.backend.service.StructuralGraphService;
+import com.tuiyan.backend.support.SsePushUtils;
 import com.tuiyan.backend.support.WorkspaceContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -23,17 +32,89 @@ import java.util.Map;
 @RequestMapping("/api/data-sources")
 public class DataSourceController {
 
+    private static final Logger log = LoggerFactory.getLogger(DataSourceController.class);
+
     private final DataSourceRepository repo;
     private final DataSourceService service;
     private final NodeDataBindingRepository bindingRepo;
+    private final StructuralGraphService structuralGraphService;
+    private final AsyncTaskExecutor taskExecutor;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DataSourceController(DataSourceRepository repo,
                                 DataSourceService service,
-                                NodeDataBindingRepository bindingRepo) {
+                                NodeDataBindingRepository bindingRepo,
+                                StructuralGraphService structuralGraphService,
+                                @Qualifier("appTaskExecutor") AsyncTaskExecutor taskExecutor) {
         this.repo = repo;
         this.service = service;
         this.bindingRepo = bindingRepo;
+        this.structuralGraphService = structuralGraphService;
+        this.taskExecutor = taskExecutor;
     }
+
+    /**
+     * 确定性结构建图：从本数据源全库内省，把 表→节点、列→属性、外键→depends_on 血缘边
+     * 直出为一个<b>新本体模型</b>（绕过 LLM，面向千张/万张表）。请求体：{@code {title?}}。
+     * <p>这是「数据源直出图」的受控例外——仅结构层、确定性、可事后用 LLM 按域增量叠加业务语义。
+     * 大库内省 + 落库可能耗时较长（同步返回）。
+     */
+    @PostMapping("/{id}/build-structural-graph")
+    public ResponseEntity<StructuralGraphService.BuildResult> buildStructuralGraph(
+            @PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
+        String title = body == null ? null : asString(body.get("title"));
+        return ResponseEntity.ok(structuralGraphService.buildFromDataSource(id, title));
+    }
+
+    /**
+     * 结构建图（SSE 流式）：与上面同能力，但把内省+落库丢到后台线程、流式回进度，避免万张表大库
+     * 同步请求 HTTP 超时。事件：{@code step}（进度）→ {@code complete}（BuildResult）/ {@code error}。
+     */
+    @PostMapping(value = "/{id}/build-structural-graph/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter buildStructuralGraphStream(@PathVariable String id,
+                                                 @RequestBody(required = false) Map<String, Object> body) {
+        String title = body == null ? null : asString(body.get("title"));
+        String workspaceId = WorkspaceContext.get();
+        // 大库内省 + 落库可能几十分钟，给足超时
+        SsePushUtils.CancellableEmitter ce = SsePushUtils.newCancellableEmitter(
+                1_800_000L, "结构建图超时（>30min），请对超大库分 schema 建图或稍后重试");
+        SseEmitter emitter = ce.emitter();
+        taskExecutor.execute(() -> {
+            if (workspaceId != null) WorkspaceContext.set(workspaceId);
+            try {
+                java.util.function.BiConsumer<String, String> step = (key, label) -> {
+                    try {
+                        String json = objectMapper.writeValueAsString(Map.of("key", key, "label", label));
+                        SsePushUtils.safeSend(emitter, ce.cancelled(), "step", json);
+                    } catch (Exception ignore) {}
+                };
+                StructuralGraphService.BuildResult r = structuralGraphService.buildFromDataSource(id, title, step);
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "complete", objectMapper.writeValueAsString(r));
+                emitter.complete();
+            } catch (Exception e) {
+                SsePushUtils.safeSend(emitter, ce.cancelled(), "error", clientSafeError(e, "结构建图失败，请稍后重试"));
+                emitter.complete();
+            } finally {
+                WorkspaceContext.clear();
+            }
+        });
+        return emitter;
+    }
+
+    /**
+     * SSE 错误文案：受控业务异常原样回传，未预期异常回退通用文案并只记服务端日志
+     * （与 {@code GlobalExceptionHandler} 同策略，避免经 SSE error 事件泄露内部细节）。
+     */
+    private static String clientSafeError(Throwable e, String fallback) {
+        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException) {
+            String msg = e.getMessage();
+            if (msg != null && !msg.isBlank()) return msg;
+        }
+        log.warn("[data-source] SSE 任务未预期异常: {}", e.toString(), e);
+        return fallback;
+    }
+
+    private static String asString(Object v) { return v == null ? null : String.valueOf(v); }
 
     // ---------- 列表 / CRUD ----------
 

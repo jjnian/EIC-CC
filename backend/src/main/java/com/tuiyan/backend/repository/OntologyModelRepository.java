@@ -171,6 +171,12 @@ public class OntologyModelRepository {
         return m;
     }
 
+    /** 轻量归属校验：模型存在且属于当前工作空间（只查主行，不加载整图；供大图查询接口防 IDOR）。 */
+    public boolean existsInWorkspace(String id) {
+        OntologyModelPO po = modelMapper.selectById(id);
+        return po != null && WorkspaceContext.required().equals(po.getWorkspaceId());
+    }
+
     /** 工具：取 model 子节点的工具方法供 OntologyVersionRepository 共用（按 modelId 拉节点 + props + 边）。 */
     public NodesAndEdges loadGraphForVersion(String modelId) {
         return new NodesAndEdges(rowMapper.loadNodes(modelId), rowMapper.loadEdges(modelId));

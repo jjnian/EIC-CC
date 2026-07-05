@@ -3,6 +3,7 @@ package com.tuiyan.backend.controller;
 import com.tuiyan.backend.model.OntologyModel;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.service.DocumentExtractionService;
+import com.tuiyan.backend.service.GraphQueryService;
 import com.tuiyan.backend.service.LineageTraversalService;
 import com.tuiyan.backend.repository.ModelBuildSourceRepository;
 import com.tuiyan.backend.service.OntologyModelService;
@@ -29,17 +30,50 @@ public class OntologyModelController {
     private final LineageTraversalService lineageService;
     private final ModelBuildSourceRepository buildSourceRepo;
     private final SchemaDriftService schemaDriftService;
+    private final com.tuiyan.backend.service.GraphQueryService graphQueryService;
 
     public OntologyModelController(OntologyModelService svc,
                                    DocumentExtractionService extractionService,
                                    LineageTraversalService lineageService,
                                    ModelBuildSourceRepository buildSourceRepo,
-                                   SchemaDriftService schemaDriftService) {
+                                   SchemaDriftService schemaDriftService,
+                                   com.tuiyan.backend.service.GraphQueryService graphQueryService) {
         this.svc = svc;
         this.extractionService = extractionService;
         this.lineageService = lineageService;
         this.buildSourceRepo = buildSourceRepo;
         this.schemaDriftService = schemaDriftService;
+        this.graphQueryService = graphQueryService;
+    }
+
+    /**
+     * 大图规模摘要：{nodeCount, edgeCount, domainCount}。前端据此判定是否进「大图模式」
+     * （不整图渲染），避免万节点 SVG 卡死浏览器。含归属校验，不加载整图。
+     */
+    @GetMapping("/{id}/summary")
+    public ResponseEntity<Map<String, Object>> summary(@PathVariable String id) {
+        return ResponseEntity.ok(graphQueryService.summary(id));
+    }
+
+    /**
+     * 聚焦子图：从 {@code node} 出发取 {@code depth} 跳邻域（节点封顶 {@code limit}），供大图按节点浏览。
+     * {@code node} 为空时返回度数最高的入口枢纽。{@code dir}: up/down/both（默认 both）。
+     */
+    @GetMapping("/{id}/subgraph")
+    public ResponseEntity<Map<String, Object>> subgraph(@PathVariable String id,
+                                                        @RequestParam(required = false) String node,
+                                                        @RequestParam(defaultValue = "2") int depth,
+                                                        @RequestParam(defaultValue = "both") String dir,
+                                                        @RequestParam(defaultValue = "300") int limit) {
+        GraphQueryService.Dir d = "up".equalsIgnoreCase(dir) ? GraphQueryService.Dir.UP
+                : "down".equalsIgnoreCase(dir) ? GraphQueryService.Dir.DOWN : GraphQueryService.Dir.BOTH;
+        return ResponseEntity.ok(graphQueryService.subgraph(id, node, depth, d, limit));
+    }
+
+    /** 领域汇总：把节点按 domain 聚成超级节点 + 跨领域流向计数，供大图的领域总览/钻取。 */
+    @GetMapping("/{id}/domains")
+    public ResponseEntity<Map<String, Object>> domains(@PathVariable String id) {
+        return ResponseEntity.ok(graphQueryService.domainRollup(id));
     }
 
     @GetMapping

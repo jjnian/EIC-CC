@@ -196,6 +196,18 @@ public class DataSourceService {
         return jdbc.introspectSchema(po.getKind(), repo.readConfig(po), 500);
     }
 
+    /** 全库内省（放开 500 上限，含归属校验）：面向「千张/万张表」的确定性结构建图。 */
+    public JdbcConnectorService.DatabaseSchemaInfo introspectSchemaInfoFull(String id) {
+        DataSourcePO po = ensureOwnership(id);
+        requireJdbc(po);
+        return jdbc.introspectSchemaFull(po.getKind(), repo.readConfig(po));
+    }
+
+    /** 数据源展示名（供结构建图给模型/节点标注来源）。 */
+    public String sourceName(String id) {
+        return ensureOwnership(id).getName();
+    }
+
     /** 采样的最大表数与每表最大行数：防大库打太多查询 / 经验正文过长。 */
     private static final int SAMPLE_MAX_TABLES = 60;
     private static final int SAMPLE_MAX_PER_TABLE = 10;

@@ -182,8 +182,23 @@ public class JdbcConnectorService {
      * <p>实现要点：所有元数据查 information_schema（MySQL）/ pg_catalog（PgSQL），
      * 单次连接一次性查完，避免对每张表打 N 次 query。
      */
+    /** 交互式内省（schema 预览 / 提取本体）的表数硬上限：防大库把 UI/上下文撑爆。 */
+    public static final int PREVIEW_MAX_TABLES = 500;
+    /** 结构建图内省的表数硬上限：面向「千张/万张表」确定性建图，仅作安全兜底，不再收 500。 */
+    public static final int STRUCTURAL_MAX_TABLES = 50_000;
+
     public DatabaseSchemaInfo introspectSchema(String kind, Map<String, Object> cfg, int tableLimit) {
-        int safeLimit = tableLimit <= 0 ? 200 : Math.min(tableLimit, 500);
+        return introspectSchema(kind, cfg, tableLimit, PREVIEW_MAX_TABLES);
+    }
+
+    /** 结构建图专用：内省全库（放开 500 上限，仅保留 {@link #STRUCTURAL_MAX_TABLES} 安全兜底）。 */
+    public DatabaseSchemaInfo introspectSchemaFull(String kind, Map<String, Object> cfg) {
+        return introspectSchema(kind, cfg, STRUCTURAL_MAX_TABLES, STRUCTURAL_MAX_TABLES);
+    }
+
+    /** 内省 schema，表数按 {@code min(tableLimit, hardMax)} 夹取（hardMax 由调用场景决定）。 */
+    private DatabaseSchemaInfo introspectSchema(String kind, Map<String, Object> cfg, int tableLimit, int hardMax) {
+        int safeLimit = tableLimit <= 0 ? Math.min(200, hardMax) : Math.min(tableLimit, hardMax);
         String dbName = strOf(cfg, "database", "");
         SqlDialect dialect = dialects.resolve(kind);
         try (HikariDataSource ds = (HikariDataSource) buildTempDataSource(kind, cfg);
