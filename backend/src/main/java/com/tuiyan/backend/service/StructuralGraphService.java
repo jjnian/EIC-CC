@@ -5,6 +5,7 @@ import com.tuiyan.backend.service.connector.JdbcConnectorService.ColumnInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
+import com.tuiyan.backend.support.SqlLineageExtractor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -187,6 +188,41 @@ public class StructuralGraphService {
         }
         if (dangling > 0) {
             log.info("[structural-graph] {} 条外键的父表不在内省范围内，已跳过", dangling);
+        }
+
+        // 视图血缘 → flows_to 边：视图定义(SQL)是血缘 ground truth，用 SqlLineageExtractor 确定性解析
+        // 「来源表 → 视图」的表级数据流（不过 LLM，confidence=1.0）。like-Cursor：解析真实结构而非猜。
+        int viewLineage = 0;
+        for (TableInfo t : tables) {
+            if (!t.isView() || t.definition() == null || t.definition().isBlank()) continue;
+            String viewId = nodeIdByTable.get(norm(t.name()));
+            if (viewId == null) continue;
+            SqlLineageExtractor.Result r;
+            try {
+                r = SqlLineageExtractor.parse("CREATE VIEW " + t.name() + " AS " + t.definition());
+            } catch (RuntimeException ex) {
+                continue;   // 解析失败静默跳过，不影响其余
+            }
+            for (SqlLineageExtractor.Flow flow : r.flows()) {
+                String srcId = nodeIdByTable.get(norm(flow.source()));
+                if (srcId == null) srcId = nodeIdByTable.get(bare(norm(flow.source())));
+                if (srcId == null || srcId.equals(viewId)) continue;   // 来源不在库内 / 自引用，跳过
+                Map<String, Object> edge = new LinkedHashMap<>();
+                edge.put("id", "vw" + (ei++));
+                edge.put("from", srcId);        // 来源表 → 视图（flows_to 正向：表=上游，视图=下游派生）
+                edge.put("to", viewId);
+                edge.put("rel_type", "flows_to");
+                edge.put("source", "derived");
+                edge.put("confidence", 1.0);
+                edge.put("label", "视图来源 " + flow.source());
+                edge.put("evidence", "视图定义(SQL)");
+                edge.put("domain", domainOf(t.name(), database));
+                edges.add(edge);
+                viewLineage++;
+            }
+        }
+        if (viewLineage > 0) {
+            log.info("[structural-graph] 从视图定义确定性解析出 {} 条视图血缘边", viewLineage);
         }
 
         OntologyModel.GraphData g = new OntologyModel.GraphData();
