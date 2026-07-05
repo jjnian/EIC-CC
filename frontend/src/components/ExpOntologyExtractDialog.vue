@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, watch } from 'vue';
-import { extractOntologyFromExperiences, type BuildManifestEntry } from '../api/experiences';
+import { extractOntologyFromExperiences, buildFullGraph, type BuildManifestEntry } from '../api/experiences';
 import type { SseHandle } from '../api/http';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { analyzeLineageHealth } from '../utils/lineageHealth';
@@ -30,6 +30,8 @@ const emit = defineEmits<{
     /** 建图来源清单：合并入模型后回写构建记录，供下次增量建图跳过未变更经验 */
     manifest?: BuildManifestEntry[];
   }): void;
+  /** 全量建图：服务端已落成新模型，通知父级刷新并打开（不经前端合并）。 */
+  (e: 'built-model', payload: { modelId: string; title: string; nodeCount: number; edgeCount: number; sourceCount: number }): void;
 }>();
 
 const phase = ref<'idle' | 'running' | 'done' | 'error'>('idle');
@@ -145,6 +147,42 @@ const start = () => {
       sseHandle = null;
     },
     // 流意外关闭(无 complete/error 事件,如后端重启/网络断开)时不能让进度永远转圈
+    onClose: () => {
+      sseHandle = null;
+      if (phase.value === 'running') {
+        markRunningAs('error');
+        errMsg.value = '连接中断,未收到完整结果,请重试';
+        phase.value = 'error';
+      }
+    },
+  });
+};
+
+// 全量建图（海量经验：千个/万个）：不封顶、服务端落成新模型；不经前端合并，完成后由父级刷新并打开。
+const startFull = () => {
+  phase.value = 'running';
+  steps.value = [{ key: 'init', label: '正在准备全量建图（海量经验会较慢，请耐心等待）…', status: 'running' }];
+  errMsg.value = '';
+  result.value = null;
+  sseHandle = buildFullGraph({ hint: hint.value.trim() || undefined }, {
+    onStep: (key, label) => {
+      const last = steps.value[steps.value.length - 1];
+      if (key === 'llm_batch' && last && last.key === 'llm_batch') { last.label = label; return; }
+      markRunningAs('done');
+      steps.value.push({ key, label, status: 'running' });
+    },
+    onComplete: (r) => {
+      markRunningAs('done');
+      sseHandle = null;
+      emit('built-model', r);   // 服务端已落库，父级刷新并打开（超阈值自动进大图浏览器）
+      emit('close');
+    },
+    onError: (msg) => {
+      markRunningAs('error');
+      errMsg.value = msg || '全量建图失败';
+      phase.value = 'error';
+      sseHandle = null;
+    },
     onClose: () => {
       sseHandle = null;
       if (phase.value === 'running') {
@@ -277,7 +315,13 @@ const hasQualityIssue = computed(() => {
           </label>
           <div class="dbo-actions">
             <Button size="sm" :disabled="!canStart" @click="start">开始构建</Button>
+            <Button size="sm" variant="secondary"
+                    title="面向千个/万个经验：不封顶经验数、分域分批处理全部经验，服务端直接落成新模型（不经前端合并、不受 500 上限与 300s 超时限制）。海量经验会较慢。"
+                    @click="startFull">🏭 全量建图（海量经验）</Button>
             <Button variant="secondary" size="sm" @click="emit('close')">取消</Button>
+          </div>
+          <div class="dbo-hint-sm">
+            提示：经验超过数百篇时用「全量建图」——它不受单次 500 篇上限限制，服务端分域落成新模型；建好若超 1500 节点会自动进大图浏览模式。
           </div>
         </div>
 
@@ -479,4 +523,5 @@ const hasQualityIssue = computed(() => {
 .dbo-mode-pick label { display: flex; align-items: center; gap: 6px;
   cursor: pointer; }
 .dbo-muted { color: #666; font-size: 11.5px; }
+.dbo-hint-sm { margin-top: 8px; font-size: 11px; color: #7f8796; line-height: 1.5; }
 </style>

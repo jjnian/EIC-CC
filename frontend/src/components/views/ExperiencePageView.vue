@@ -38,6 +38,8 @@ const emit = defineEmits<{
     nodes: OntologyNode[];
     edges: OntologyEdge[];
   }): void;
+  /** 全量建图：服务端已落成新模型，通知父级刷新并打开。 */
+  (e: 'built-model', payload: { modelId: string; title: string; nodeCount: number; edgeCount: number; sourceCount: number }): void;
 }>();
 
 const ws = useWorkspaces();
@@ -798,6 +800,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
       :experiences="items"
       @close="extractDialogOpen = false"
       @commit="onExtractCommit"
+      @built-model="(p) => emit('built-model', p)"
     />
 
     <!-- 接入 Web 系统：保存连接 → 探索生成业务文档 -->

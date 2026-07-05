@@ -270,3 +270,42 @@ export function extractOntologyFromExperiences(
     onClose: () => handlers.onClose?.(),
   });
 }
+
+/** 全量建图落库摘要（服务端建成新模型）。 */
+export interface FullBuildResult {
+  modelId: string;
+  title: string;
+  sourceCount: number;
+  nodeCount: number;
+  edgeCount: number;
+}
+
+/**
+ * 全量建图（SSE 流式，面向海量经验：千个/万个）：不封顶经验数、分域分批处理全部经验，
+ * 服务端直接落成新模型并回写构建记录，返回摘要（不把整图回传前端合并）。
+ */
+export function buildFullGraph(
+  body: { modelOverride?: string; configId?: string; hint?: string; title?: string },
+  handlers: {
+    onStep?: (key: string, label: string) => void;
+    onComplete?: (r: FullBuildResult) => void;
+    onError?: (msg: string) => void;
+    onClose?: () => void;
+  },
+): SseHandle {
+  return sse('/api/experiences/build-full', body, {
+    onEvent: (event, data) => {
+      if (event === 'step') {
+        try { const j = JSON.parse(data) as { key: string; label: string }; handlers.onStep?.(j.key, j.label); }
+        catch { /* ignore */ }
+      } else if (event === 'complete') {
+        try { handlers.onComplete?.(JSON.parse(data)); }
+        catch (e) { handlers.onError?.((e as Error).message); }
+      } else if (event === 'error') {
+        handlers.onError?.(data);
+      }
+    },
+    onError: (err) => handlers.onError?.(err.message),
+    onClose: () => handlers.onClose?.(),
+  });
+}

@@ -503,6 +503,15 @@ const onNewConversation = async () => {
 const LARGE_GRAPH_THRESHOLD = 1500;
 const largeGraphModel = ref<{ id: string; title: string; nodeCount: number; edgeCount: number } | null>(null);
 
+// 全量建图完成：服务端已落成新模型 → 刷新模型列表并打开（超阈值自动进大图浏览器）
+const onFullBuildDone = async (p: { modelId: string; title: string; nodeCount: number; edgeCount: number; sourceCount: number }) => {
+  toast.success(`全量建图完成：${p.nodeCount} 节点 / ${p.edgeCount} 边（${p.sourceCount} 篇经验）→ 模型「${p.title}」`);
+  const wsId = wsManager.currentId.value;
+  if (wsId) await sidebarTree.loadOntologies(wsId, true);   // 刷新侧栏
+  await loadOntologyModels();                                 // 刷新模型列表(含 graphData)
+  await onOpenOntologyModel(p.modelId);                       // 打开(大图则进只读浏览器)
+};
+
 const onOpenOntologyModel = async (id: string) => {
   const m = findModel(id);
   if (!m) return;
@@ -744,6 +753,7 @@ const formatFileSize = (bytes: number) => {
         :has-current-model="!!currentModelId"
         :current-model-id="currentModelId"
         @ontology-extracted="onImportCommit"
+        @built-model="onFullBuildDone"
       />
 
       <!-- Graph View -->
