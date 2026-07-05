@@ -57,6 +57,37 @@ export function getModelDomains(id: string) {
   return request<DomainRollup>(`/api/ontology-models/${encodeURIComponent(id)}/domains`);
 }
 
+/** 外科手术式局部编辑结果。 */
+export interface PatchResult { applied: number; skipped: number; nodeCount: number; edgeCount: number; }
+/** 一条局部操作：增/删/改 单节点或单边。 */
+export type GraphPatchOp = Record<string, unknown>;
+
+/** 对已落库的大模型只改动指定节点/边（不加载/不重存整图）。 */
+export function patchModel(id: string, ops: GraphPatchOp[]) {
+  return request<PatchResult>(`/api/ontology-models/${encodeURIComponent(id)}/patch`, {
+    method: 'POST',
+    body: JSON.stringify({ ops }),
+  });
+}
+
+/** 对话驱动改图结果。 */
+export interface GraphEditResult {
+  reply: string;
+  applied: number;
+  skipped: number;
+  ops: GraphPatchOp[];
+  nodeCount: number;
+  edgeCount: number;
+}
+
+/** 对话驱动精准改图：自然语言 → 检索相关子图 → LLM 产 patch → 局部应用（大图也能改）。 */
+export function chatEditModel(id: string, message: string, opts?: { modelOverride?: string; configId?: string }) {
+  return request<GraphEditResult>(`/api/ontology-models/${encodeURIComponent(id)}/chat-edit`, {
+    method: 'POST',
+    body: JSON.stringify({ message, ...(opts || {}) }),
+  });
+}
+
 export interface ExtractResult {
   nodes: OntologyNode[];
   edges: OntologyEdge[];

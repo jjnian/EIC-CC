@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import type { OntologyNode, OntologyEdge } from '../types';
-import { getModelSubgraph, getModelDomains, type DomainRollup } from '../api/ontology';
+import { getModelSubgraph, getModelDomains, chatEditModel, type DomainRollup } from '../api/ontology';
 import { toast } from '../composables/useToast';
 import GraphCanvas from './GraphCanvas.vue';
 
@@ -51,6 +51,34 @@ const onSelect = (id: string | null) => {
   load(id, n?.label);
 };
 
+// ── 对话驱动精准改图：自然语言 → 服务端检索相关子图 → LLM 产 patch → 局部应用 ──
+const editMsg = ref('');
+const editing = ref(false);
+const nodeCountLive = ref(props.nodeCount);
+const edgeCountLive = ref(props.edgeCount);
+const submitEdit = async () => {
+  const msg = editMsg.value.trim();
+  if (!msg || editing.value) return;
+  editing.value = true;
+  try {
+    const r = await chatEditModel(props.modelId, msg);
+    nodeCountLive.value = r.nodeCount;
+    edgeCountLive.value = r.edgeCount;
+    if (r.applied > 0) {
+      toast.success(`${r.reply || '已修改'}（应用 ${r.applied} 处${r.skipped ? `，跳过 ${r.skipped}` : ''}）`);
+      editMsg.value = '';
+      // 局部改动已落库：重载当前中心子图以反映变化
+      await load(subSel.value || undefined, centerLabel.value === '入口枢纽' ? undefined : centerLabel.value);
+    } else {
+      toast.warn(r.reply || '未做修改（可换个说法，或先点到相关节点附近再改）');
+    }
+  } catch (e) {
+    toast.error(`改图失败：${(e as Error).message}`);
+  } finally {
+    editing.value = false;
+  }
+};
+
 onMounted(async () => {
   load();
   try {
@@ -68,7 +96,7 @@ onMounted(async () => {
         <b>{{ title }}</b>
         <span class="lgb-badge">大图模式 · 只读浏览</span>
       </div>
-      <div class="lgb-meta">共 {{ nodeCount }} 节点 · {{ edgeCount }} 边 · {{ domainCount }} 领域</div>
+      <div class="lgb-meta">共 {{ nodeCountLive }} 节点 · {{ edgeCountLive }} 边 · {{ domainCount }} 领域</div>
       <button class="lgb-close" @click="emit('close')">✕ 关闭</button>
     </header>
 
@@ -97,6 +125,21 @@ onMounted(async () => {
         readonly
         @select="onSelect"
       />
+    </div>
+
+    <!-- 对话驱动精准改图：只发相关子图给 LLM，局部落库，大图也能改 -->
+    <div class="lgb-edit">
+      <span class="lgb-edit-ico">✏️</span>
+      <input
+        v-model="editMsg"
+        class="lgb-edit-input"
+        :disabled="editing"
+        placeholder="用一句话修改这张图：如「把订单连到发票，关系 produces」「删除孤立的备注节点」「客户和订单的血缘方向标反了，改过来」"
+        @keydown.enter="submitEdit"
+      />
+      <button class="lgb-edit-btn" :disabled="editing || !editMsg.trim()" @click="submitEdit">
+        {{ editing ? '修改中…' : '发送' }}
+      </button>
     </div>
   </div>
 </template>
@@ -131,4 +174,15 @@ onMounted(async () => {
 .lgb-trunc { color: #ffcc66; font-size: 11.5px; }
 .lgb-loading { color: #8a93a5; font-size: 11.5px; }
 .lgb-canvas { flex: 1; position: relative; overflow: hidden; }
+.lgb-edit { display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+  border-top: 1px solid rgba(255,255,255,.08); background: #0d1017; }
+.lgb-edit-ico { font-size: 14px; }
+.lgb-edit-input { flex: 1; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.14);
+  border-radius: 8px; padding: 8px 12px; color: #e8eaed; font-size: 12.5px; }
+.lgb-edit-input:focus { outline: none; border-color: rgba(47,134,214,.6); }
+.lgb-edit-input:disabled { opacity: .6; }
+.lgb-edit-btn { background: rgba(47,134,214,.2); border: 1px solid rgba(47,134,214,.45);
+  color: #cfe0f5; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 12.5px; }
+.lgb-edit-btn:hover:not(:disabled) { border-color: rgba(47,134,214,.8); }
+.lgb-edit-btn:disabled { opacity: .5; cursor: default; }
 </style>
