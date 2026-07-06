@@ -400,6 +400,13 @@ ALTER TABLE experience ADD COLUMN IF NOT EXISTS storage_path VARCHAR(1024);
 --   在条目上点「探索」即按此配置运行自动探索，每次生成一篇 origin=explore 的业务说明经验。
 ALTER TABLE experience ADD COLUMN IF NOT EXISTS source_config TEXT;
 
+-- 8.1.3 探索产物溯源：origin=explore 的经验记录它来自哪个 websystem 源(该源经验的 id)。
+--   在 websystem 源条目上点「探索」生成的业务文档据此回链到源，前端把同源产物聚合展示。
+--   /run 即席探索(无保存源)与其它 origin 均为 NULL。
+ALTER TABLE experience ADD COLUMN IF NOT EXISTS source_experience_id VARCHAR(64);
+CREATE INDEX IF NOT EXISTS idx_experience_source_exp
+    ON experience (source_experience_id);
+
 CREATE TABLE IF NOT EXISTS exp_chunk (
     id             VARCHAR(64) PRIMARY KEY,
     experience_id  VARCHAR(64) NOT NULL REFERENCES experience(id) ON DELETE CASCADE,

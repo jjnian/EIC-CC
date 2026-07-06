@@ -176,6 +176,12 @@ public class ExperienceController {
         return ResponseEntity.ok(repo.distinctWorkspaceIds());
     }
 
+    /** 某 websystem 源的全部探索产物（origin=explore），供源行展开查看同源产物。 */
+    @GetMapping("/{id}/explorations")
+    public ResponseEntity<List<Map<String, Object>>> explorations(@PathVariable String id) {
+        return ResponseEntity.ok(repo.listBySource(id));
+    }
+
     /** 当前工作空间「尚未引用」的公共经验（引用选择器列出可引入的经验）。 */
     @GetMapping("/referencable")
     public ResponseEntity<List<Map<String, Object>>> referencable() {

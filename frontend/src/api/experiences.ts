@@ -81,6 +81,8 @@ export interface Experience {
   origin?: 'manual' | 'upload' | 'ddl' | 'websystem' | 'explore';
   /** DDL 抽取经验的来源数据源 id（origin=ddl 时返回），前端据此实时解析「来自哪个数据库」。 */
   sourceDataSourceId?: string;
+  /** 探索产物的来源 websystem 源经验 id（origin=explore 且由已保存 web 系统触发时返回），据此聚合到该源之下。 */
+  sourceExperienceId?: string;
   /** 接入 web 系统的连接配置（origin=websystem 时返回，密码已遮蔽、storageState 仅返回是否已配置）。 */
   connection?: WebSystemConnection;
   /** 上传文件的原始文件名（origin=upload） */
@@ -126,6 +128,11 @@ export function listExperiencesPaged(opts: { page: number; size: number; workspa
 /** 有经验存在的归属工作空间 id（供列表筛选条，避免为此拉全量经验）。 */
 export function listExperienceWorkspaces() {
   return request<string[]>('/api/experiences/workspaces');
+}
+
+/** 某 websystem 源的全部探索产物（origin=explore），供源行展开查看同源产物。 */
+export function listSourceExplorations(sourceId: string) {
+  return request<Experience[]>(`/api/experiences/${encodeURIComponent(sourceId)}/explorations`);
 }
 
 /** 当前工作空间「尚未引用」的公共经验（引用选择器列出可引入的经验）。 */

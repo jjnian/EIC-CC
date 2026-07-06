@@ -76,7 +76,8 @@ public class ExplorationAgentService {
     public Map<String, Object> explore(String baseUrl, String storageState, String username, String password,
                                        int maxSteps, boolean readOnly,
                                        String modelOverride, String configId, StepSink step,
-                                       BooleanSupplier cancelled, Consumer<String> onStorageState) {
+                                       BooleanSupplier cancelled, Consumer<String> onStorageState,
+                                       String sourceExperienceId) {
         BooleanSupplier isCancelled = cancelled != null ? cancelled : () -> false;
         int pageBudget = Math.max(1, Math.min(maxSteps <= 0 ? DEFAULT_PAGE_BUDGET : maxSteps, PAGE_CAP_MAX));
         LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(modelOverride, configId);
@@ -192,7 +193,7 @@ public class ExplorationAgentService {
             content = embedGraphFragment(content, buildGraphFragment(pages));
 
             step.emit("save", "正在把业务文档写入经验库…");
-            Map<String, Object> exp = expRepo.create(titleFor(baseUrl), content, "探索,业务文档,explore", "explore");
+            Map<String, Object> exp = expRepo.createExplore(titleFor(baseUrl), content, "探索,业务文档,explore", sourceExperienceId);
             try { indexService.reindexAsync(String.valueOf(exp.get("id"))); } catch (RuntimeException ignore) {}
             step.emit("done", "已生成业务文档「" + exp.get("title") + "」,覆盖 " + pages.size() + " 个页面。");
             return exp;

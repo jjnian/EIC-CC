@@ -103,6 +103,15 @@ public class ExperienceRepository {
         return mapper.selectCount(w);
     }
 
+    /** 某 websystem 源的全部探索产物（origin=explore，按创建时间倒序），供源行展开查看同源产物。 */
+    public List<Map<String, Object>> listBySource(String sourceExperienceId) {
+        if (sourceExperienceId == null || sourceExperienceId.isBlank()) return List.of();
+        return mapper.selectList(new LambdaQueryWrapper<ExperiencePO>()
+                        .eq(ExperiencePO::getSourceExperienceId, sourceExperienceId)
+                        .orderByDesc(ExperiencePO::getCreatedAt))
+                .stream().map(this::toMap).toList();
+    }
+
     /** 有经验存在的归属工作空间 id 集合（供列表筛选条，避免为此加载全量经验）。 */
     public List<String> distinctWorkspaceIds() {
         return mapper.selectObjs(new QueryWrapper<ExperiencePO>().select("DISTINCT workspace_id"))
@@ -126,6 +135,20 @@ public class ExperienceRepository {
     @Transactional
     public Map<String, Object> create(String title, String content, String tags, String origin) {
         ExperiencePO po = newPo(title, content, tags, origin);
+        mapper.insert(po);
+        return toMap(po);
+    }
+
+    /**
+     * web 探索产物经验（origin=explore）。sourceExperienceId 为触发本次探索的 websystem 源经验 id
+     * （/run-saved 传入）；即席 /run 探索无保存源，传 null。据此把同源产物聚合、回链到源。
+     */
+    @Transactional
+    public Map<String, Object> createExplore(String title, String content, String tags, String sourceExperienceId) {
+        ExperiencePO po = newPo(title, content, tags, "explore");
+        if (sourceExperienceId != null && !sourceExperienceId.isBlank()) {
+            po.setSourceExperienceId(sourceExperienceId);
+        }
         mapper.insert(po);
         return toMap(po);
     }
@@ -364,6 +387,10 @@ public class ExperienceRepository {
             if (dsId != null && !String.valueOf(dsId).isBlank()) {
                 out.put("sourceDataSourceId", String.valueOf(dsId));
             }
+        }
+        // 探索产物：回传来源 websystem 源经验 id，供前端把同源产物聚合到该源之下
+        if (po.getSourceExperienceId() != null && !po.getSourceExperienceId().isBlank()) {
+            out.put("sourceExperienceId", po.getSourceExperienceId());
         }
         return out;
     }

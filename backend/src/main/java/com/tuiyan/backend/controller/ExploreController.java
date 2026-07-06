@@ -113,7 +113,8 @@ public class ExploreController {
                     catch (RuntimeException e) { log.warn("[explore] 回存 storageState 失败: {}", e.toString()); }
                 };
                 Map<String, Object> exp = agent.explore(entryUrl, storageState, username, password,
-                        maxSteps, readOnly, modelOverride, configId, step, ce.cancelled()::get, onStorageState);
+                        maxSteps, readOnly, modelOverride, configId, step, ce.cancelled()::get, onStorageState,
+                        sourceExperienceId);
                 Map<String, Object> payload = new LinkedHashMap<>(exp);
                 SsePushUtils.safeSend(emitter, ce.cancelled(), "complete",
                         objectMapper.writeValueAsString(payload));

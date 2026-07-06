@@ -37,6 +37,8 @@ public class ExperiencePO {
     private String storagePath;
     /** 接入 web 系统的连接配置 JSON（origin=websystem 时有值：入口地址/账号/密码/步数/只读/storageState） */
     private String sourceConfig;
+    /** 探索产物溯源：origin=explore 时记录来源 websystem 源经验 id（供同源产物聚合/回链），其它为 null */
+    private String sourceExperienceId;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -68,4 +70,6 @@ public class ExperiencePO {
     public void setStoragePath(String storagePath) { this.storagePath = storagePath; }
     public String getSourceConfig() { return sourceConfig; }
     public void setSourceConfig(String sourceConfig) { this.sourceConfig = sourceConfig; }
+    public String getSourceExperienceId() { return sourceExperienceId; }
+    public void setSourceExperienceId(String sourceExperienceId) { this.sourceExperienceId = sourceExperienceId; }
 }

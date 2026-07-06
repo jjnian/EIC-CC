@@ -8,7 +8,7 @@ import { ApiError } from '../../api/http';
 import {
   createExperience, updateExperience, reindexExperience, uploadExperienceFile,
   experienceFileUrl, listExperiencesPaged, listExperienceWorkspaces, listAllExperiences, listExperiences, deleteExperience,
-  reindexAllExperiences, getExperienceIndexSummary, type Experience,
+  listSourceExplorations, reindexAllExperiences, getExperienceIndexSummary, type Experience,
 } from '../../api/experiences';
 import { listAllDataSources, type DataSource } from '../../api/dataSources';
 import { useWebSystemExplore } from '../../composables/useWebSystemExplore';
@@ -89,6 +89,35 @@ const allExperiences = computed<Experience[]>(() =>
 const visibleExperiences = computed<Experience[]>(() =>
   filterWs.value ? allExperiences.value.filter(e => e.workspaceId === filterWs.value) : allExperiences.value);
 
+// ── 探索产物溯源 + 同源聚合 ──────────────────────────────
+// 已加载项 id→经验，供探索产物解析「来自哪个源」的标题（源与产物可能分处不同页，解析不到则退化为通用文案）
+const itemById = computed<Record<string, Experience>>(() => {
+  const m: Record<string, Experience> = {};
+  for (const e of items.value) m[e.id] = e;
+  return m;
+});
+const sourceTitleOf = (x: Experience): string | null =>
+  x.sourceExperienceId ? (itemById.value[x.sourceExperienceId]?.title || null) : null;
+
+// websystem 源行展开查看其探索产物（点击现拉，不依赖分页）
+const expandedSource = ref<string | null>(null);
+const sourceProducts = ref<Record<string, Experience[]>>({});
+const loadingProducts = ref<string | null>(null);
+const toggleSourceProducts = async (sourceId: string) => {
+  if (expandedSource.value === sourceId) { expandedSource.value = null; return; }
+  expandedSource.value = sourceId;
+  if (!sourceProducts.value[sourceId]) {
+    loadingProducts.value = sourceId;
+    try {
+      sourceProducts.value = { ...sourceProducts.value, [sourceId]: await listSourceExplorations(sourceId) };
+    } catch {
+      sourceProducts.value = { ...sourceProducts.value, [sourceId]: [] };
+    } finally {
+      loadingProducts.value = null;
+    }
+  }
+};
+
 // 当前工作空间「引用」的经验数（「构建本体血缘图」按当前工作空间引用的经验聚合，故据此判断可用）
 const currentWsCount = ref(0);
 
@@ -100,6 +129,11 @@ const upsertItem = (exp: Experience) => {
   else { arr.unshift(exp); total.value += 1; }
   items.value = arr;
   extractScopeItems.value = [];   // 使建图范围选择器缓存失效，下次打开重取含新增项的全量
+  // 新探索产物：使其来源的「探索产物」缓存失效，展开时重取以显示这一篇
+  if (exp.origin === 'explore' && exp.sourceExperienceId) {
+    const { [exp.sourceExperienceId]: _drop, ...rest } = sourceProducts.value;
+    sourceProducts.value = rest;
+  }
 };
 const removeItem = (id: string) => {
   const before = items.value.length;
@@ -664,9 +698,8 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
           <Button size="sm" @click="newDraft">新建第一条经验</Button>
         </div>
         <template v-else>
+          <template v-for="x in visibleExperiences" :key="x.id">
           <button
-            v-for="x in visibleExperiences"
-            :key="x.id"
             :class="['exp-row', { active: activeId === x.id }]"
             @click="selectExperience(x)"
           >
@@ -679,6 +712,12 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
               <div class="exp-row-meta">
                 <span class="exp-ws-badge" :title="`归属工作空间：${wsName(x.workspaceId)}`">◆ {{ wsName(x.workspaceId) }}</span>
                 <span :class="['exp-origin', originMeta(x).cls]">{{ originMeta(x).icon }} 来源：{{ originMeta(x).label }}</span>
+                <!-- 探索产物溯源：回链到它来自哪个 web 系统源 -->
+                <span
+                  v-if="x.origin === 'explore' && x.sourceExperienceId"
+                  class="exp-source exp-source-explore"
+                  :title="sourceTitleOf(x) ? `探索自 web 系统「${sourceTitleOf(x)}」` : '探索自某个 web 系统（源未在当前页加载）'"
+                >🧭 来自：{{ sourceTitleOf(x) || 'Web 系统' }}</span>
                 <span
                   v-if="sourceExtra(x)"
                   class="exp-source"
@@ -698,6 +737,11 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
               </div>
             </div>
             <template v-if="x.origin === 'websystem'">
+              <button
+                class="exp-row-btn"
+                :title="expandedSource === x.id ? '收起探索产物' : '查看此系统历次探索生成的业务文档'"
+                @click.stop="toggleSourceProducts(x.id)"
+              >{{ expandedSource === x.id ? '收起 ▾' : '探索产物 ▸' }}</button>
               <button class="exp-row-btn" title="编辑接入信息" :disabled="exploringId === x.id" @click.stop="editWebSystem(x)">编辑</button>
               <button
                 v-if="exploringId === x.id"
@@ -715,6 +759,33 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
             </template>
             <span class="exp-row-del" title="删除" @click.stop="remove(x)">×</span>
           </button>
+          <!-- 同源聚合：web 系统源展开后内嵌其历次探索产物 -->
+          <template v-if="x.origin === 'websystem' && expandedSource === x.id">
+            <div v-if="loadingProducts === x.id" class="exp-sub-hint">加载探索产物…</div>
+            <div v-else-if="(sourceProducts[x.id] || []).length === 0" class="exp-sub-hint">该系统还没有探索产物，点右侧「探索」生成一篇</div>
+            <button
+              v-for="c in (sourceProducts[x.id] || [])"
+              :key="c.id"
+              :class="['exp-row', 'exp-row-child', { active: activeId === c.id }]"
+              @click="selectExperience(c)"
+            >
+              <span class="exp-row-ico explore">🧭</span>
+              <div class="exp-row-main">
+                <div class="exp-row-top">
+                  <span class="exp-row-name">{{ rowName(c) }}</span>
+                  <span class="exp-row-time">{{ fmtTime(c.updatedAt || c.createdAt) }}</span>
+                </div>
+                <div class="exp-row-meta">
+                  <span :class="['exp-idx', idxMeta(c.indexStatus).cls]" :title="`向量索引：${idxMeta(c.indexStatus).label}`">
+                    {{ idxMeta(c.indexStatus).label }}
+                  </span>
+                  <span v-for="t in tagList(c.tags)" :key="t" class="exp-tag">{{ t }}</span>
+                </div>
+              </div>
+              <span class="exp-row-del" title="删除" @click.stop="remove(c)">×</span>
+            </button>
+          </template>
+          </template>
         </template>
         <div v-if="hasMore && !loading" class="exp-more">
           <Button variant="secondary" size="sm" :disabled="loadingMore" @click="loadMore">
@@ -1026,6 +1097,19 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 }
 .exp-source.gone { color: #c9a08a; background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.14); }
 .exp-source-gone { opacity: .75; }
+/* 探索产物溯源标签：回链到来源 web 系统（用探索的青绿色调，与 DDL 金色区分） */
+.exp-source-explore {
+  color: #7fe3c0; background: rgba(34,221,136,.10); border-color: rgba(34,221,136,.28); max-width: 260px;
+}
+/* 同源产物展开的子行：缩进 + 竖向引导线，视觉从属于上方的 web 系统源 */
+.exp-row-child {
+  margin-left: 26px; border-left: 2px solid rgba(34,221,136,.28);
+  background: rgba(255,255,255,.015);
+}
+.exp-sub-hint {
+  margin-left: 26px; padding: 8px 12px; font-size: 12px; color: var(--text-dim);
+  border-left: 2px solid rgba(34,221,136,.28);
+}
 .exp-new {
   flex-shrink: 0; background: linear-gradient(135deg, var(--accent-soft), var(--accent)); color: #fff; border: none;
   padding: 9px 16px; border-radius: 9px; font-size: 13px; font-weight: 600;
