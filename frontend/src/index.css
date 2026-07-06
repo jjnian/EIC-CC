@@ -559,6 +559,15 @@ body::after { display: none; }
   pointer-events: none;
   stroke-linecap: round;
 }
+/* 流光降级态：静态实线，无 dash 动画（可见边过多 / 减弱动画偏好时用），去掉持续重绘开销 */
+.line-static {
+  pointer-events: none;
+  stroke-linecap: round;
+}
+/* 系统「减弱动画」偏好：连流光也停，纯静态（无障碍 + 省电/省 GPU） */
+@media (prefers-reduced-motion: reduce) {
+  .line-flow, .line-flow-fast { animation: none; stroke-dasharray: none; }
+}
 
 /* ── Node Info Panel ── */
 .node-info {

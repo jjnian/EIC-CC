@@ -8,7 +8,7 @@
  *   <li>拖拽 / 缩放都基于 zoom 反算，避免在缩放时累计漂移。</li>
  * </ul>
  */
-import { reactive, onMounted, onUnmounted } from 'vue';
+import { reactive, computed, onMounted, onUnmounted } from 'vue';
 import { NW, getPath } from '../constants';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { useGraphSearch } from '../composables/useGraphSearch';
@@ -73,6 +73,36 @@ const fitView = viewport.fitView;
 const onWheel = viewport.onWheel;
 const focusNode = viewport.focusNode;
 const onScroll = viewport.onScroll;
+
+/**
+ * 可见边的预计算路径：每条可见边的贝塞尔路径此前在模板里被 getPath() 重复调用 6 次/边、
+ * selId 端点判定算 8 次/边，每次平移/缩放/选中/筛选都全量重算——中等规模图卡顿主因。
+ * 这里一次性算好 {d, mx, my, sel}，模板直接读，把每边的重复计算从 ~14 次降到 1 次。
+ * 依赖 visibleEdges（已视口裁剪）、nmap、selId，任一变化才重算，与原渲染逐字节等价。
+ */
+const visibleEdgePaths = computed(() => {
+  const m = nmap.value;
+  const sel = props.selId;
+  const out = [];
+  for (const e of visibleEdges.value) {
+    const fn = m[e.from], tn = m[e.to];
+    if (!fn || !tn) continue;              // 缺端点的边不渲染（等价于原 v-if）
+    const p = getPath(fn, tn);
+    out.push({ e, d: p.d, mx: p.mx, my: p.my, sel: sel === e.from || sel === e.to });
+  }
+  return out;
+});
+
+/**
+ * 流光动画降级：line-flow 是每条边持续跑的 stroke-dashoffset 无限动画，几百条边时是持续的
+ * GPU/重绘开销（即使不操作）。可见边超阈值时关流光、退化为静态实线；选中边通常极少，保留其
+ * 快速流光作反馈。系统「减弱动画」偏好下一律关（无障碍 + 省电）。
+ */
+const FLOW_MAX_EDGES = 120;
+const prefersReducedMotion = typeof window !== 'undefined'
+  && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const flowEnabled = computed(() =>
+  !prefersReducedMotion && visibleEdgePaths.value.length <= FLOW_MAX_EDGES);
 
 /* ── 搜索（useGraphSearch composable） ── */
 const search = useGraphSearch({
@@ -296,19 +326,19 @@ defineExpose({ fitView, focusNode });
               </marker>
             </defs>
             <g>
-              <template v-for="e in visibleEdges" :key="e.id">
-                <g v-if="nmap[e.from] && nmap[e.to]" :style="{ opacity: !edgeMatchesFilter(e) ? 0.15 : (selId && selId !== e.from && selId !== e.to ? 0.25 : 1), transition: 'opacity .2s' }">
+              <template v-for="ep in visibleEdgePaths" :key="ep.e.id">
+                <g :style="{ opacity: !edgeMatchesFilter(ep.e) ? 0.15 : (selId && !ep.sel ? 0.25 : 1), transition: 'opacity .2s' }">
                   <!-- 不可见点击热区：左键查看抽屉，右键编辑输入输出 -->
-                  <path v-if="!readonly" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" @click.stop="emit('select-edge', e.id)" @contextmenu.prevent.stop="emit('edit-edge-relation', e.id)" />
-                  <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? '#ff3399' : '#3d9bff'" :stroke-width="8" opacity="0.1"/>
-                  <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
-                        :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (selId === e.from || selId === e.to ? '#3d9bff' : 'rgba(255, 255, 255, 0.3)')"
-                        :stroke-width="selId === e.from || selId === e.to ? 2 : 1.4"/>
-                  <path :class="selId === e.from || selId === e.to ? 'line-flow-fast' : 'line-flow'" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (selId === e.from || selId === e.to ? '#9ecbff' : 'rgba(61, 155, 255, 0.55)')" :stroke-width="selId === e.from || selId === e.to ? 2.5 : 1.5"/>
-                  <g v-if="e.label">
-                    <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 20" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="40" height="14" rx="3" fill="#050810" opacity="0.85"/>
-                    <text :x="getPath(nmap[e.from], nmap[e.to]).mx" :y="getPath(nmap[e.from], nmap[e.to]).my - 6" text-anchor="middle" :style="{fill: e.rule_driven ? '#ff3399' : (selId === e.from || selId === e.to ? '#7ab8f0' : 'rgba(197, 216, 235, 0.65)'), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
-                      <tspan v-if="e.rule_driven">⚡</tspan>{{ e.label }}
+                  <path v-if="!readonly" :d="ep.d" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" @click.stop="emit('select-edge', ep.e.id)" @contextmenu.prevent.stop="emit('edit-edge-relation', ep.e.id)" />
+                  <path v-if="ep.sel" :d="ep.d" fill="none" :stroke="ep.e.rule_driven ? '#ff3399' : '#3d9bff'" :stroke-width="8" opacity="0.1"/>
+                  <path :d="ep.d" fill="none"
+                        :stroke="ep.e.rule_driven ? (ep.sel ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (ep.sel ? '#3d9bff' : 'rgba(255, 255, 255, 0.3)')"
+                        :stroke-width="ep.sel ? 2 : 1.4"/>
+                  <path :class="ep.sel ? 'line-flow-fast' : (flowEnabled ? 'line-flow' : 'line-static')" :d="ep.d" fill="none" :stroke="ep.e.rule_driven ? (ep.sel ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (ep.sel ? '#9ecbff' : 'rgba(61, 155, 255, 0.55)')" :stroke-width="ep.sel ? 2.5 : 1.5"/>
+                  <g v-if="ep.e.label">
+                    <rect :x="ep.mx - 20" :y="ep.my - 17" width="40" height="14" rx="3" fill="#050810" opacity="0.85"/>
+                    <text :x="ep.mx" :y="ep.my - 6" text-anchor="middle" :style="{fill: ep.e.rule_driven ? '#ff3399' : (ep.sel ? '#7ab8f0' : 'rgba(197, 216, 235, 0.65)'), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
+                      <tspan v-if="ep.e.rule_driven">⚡</tspan>{{ ep.e.label }}
                     </text>
                   </g>
                 </g>
