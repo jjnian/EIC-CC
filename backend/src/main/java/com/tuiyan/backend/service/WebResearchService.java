@@ -32,28 +32,35 @@ public class WebResearchService {
 
     private static final Logger log = LoggerFactory.getLogger(WebResearchService.class);
 
-    /** 默认/最大抓取页数：太多会撑爆 LLM 上下文，也拖慢整轮调研。 */
-    private static final int DEFAULT_PAGES = 4;
-    private static final int MAX_PAGES = 6;
-    /** 单页正文喂给 LLM 的字符上限（WebPageFetcher 已有 60k 上限，这里再收紧控总量）。 */
-    private static final int PAGE_CHAR_BUDGET = 18_000;
-    /** 搜索候选数：多于抓取页数，留出抓取失败的替补。 */
-    private static final int SEARCH_HITS = 10;
+    /** 默认/最大抓取页数：多角度拓展后候选更丰富，页数上调以扩大覆盖（总量另受 TOTAL_CHAR_BUDGET 约束）。 */
+    private static final int DEFAULT_PAGES = 8;
+    private static final int MAX_PAGES = 12;
+    /** 单页正文喂给 LLM 的字符上限（页数增多，单页收紧，避免撑爆上下文）。 */
+    private static final int PAGE_CHAR_BUDGET = 14_000;
+    /** 喂给归纳 LLM 的材料总字符上限：超出则少喂几篇，护住上下文与成本。 */
+    private static final int TOTAL_CHAR_BUDGET = 120_000;
+    /** 每条子查询取的候选数。 */
+    private static final int HITS_PER_QUERY = 6;
+    /** 查询拓展的最大子查询数（含原主题兜底）。 */
+    private static final int MAX_SUBQUERIES = 6;
 
     private final LlmHttpClient http;
     private final LlmCallLogger callLogger;
     private final ExperienceRepository repo;
     private final ExperienceIndexService indexService;
+    private final WebSearchClient searchClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public WebResearchService(LlmHttpClient http,
                               LlmCallLogger callLogger,
                               ExperienceRepository repo,
-                              ExperienceIndexService indexService) {
+                              ExperienceIndexService indexService,
+                              WebSearchClient searchClient) {
         this.http = http;
         this.callLogger = callLogger;
         this.repo = repo;
         this.indexService = indexService;
+        this.searchClient = searchClient;
     }
 
     /** 已抓到的一篇材料。 */
@@ -73,35 +80,37 @@ public class WebResearchService {
         }
         String q = topic.strip();
         int pages = maxPages <= 0 ? DEFAULT_PAGES : Math.min(maxPages, MAX_PAGES);
+        LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(modelOverride, configId);
+        boolean anthropic = http.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
 
-        step.emit("searching", "正在联网搜索「" + q + "」…");
-        List<WebSearchClient.SearchHit> hits = WebSearchClient.search(q, SEARCH_HITS);
-        if (hits.isEmpty()) {
-            throw new IllegalStateException("没有搜到相关结果，请换个关键词（建议：业务域 + 流程/规则，如「汽车金融 贷后管理 流程」）");
-        }
+        // 1) 多角度查询拓展：单条查询覆盖太窄是"探索不出来"的主因，拆成多侧面子查询扩大信息面
+        List<String> queries = expandQueries(q, cfg, anthropic);
+        step.emit("searching", "正在从 " + queries.size() + " 个角度联网搜索「" + q + "」…");
 
-        // 逐条抓取，失败跳过用后面的候选顶上，直到抓满 pages 篇
-        List<PageDoc> docs = new ArrayList<>();
-        for (WebSearchClient.SearchHit hit : hits) {
-            if (docs.size() >= pages) break;
-            step.emit("fetching", "正在抓取（" + (docs.size() + 1) + "/" + pages + "）" + hit.url() + " …");
+        // 2) 逐条子查询搜索，跨查询按 URL 去重后合并候选（同一页只保留一次）
+        List<WebSearchClient.SearchHit> candidates = new ArrayList<>();
+        java.util.Set<String> seenUrls = new java.util.HashSet<>();
+        for (String sub : queries) {
             try {
-                WebPageFetcher.Result r = WebPageFetcher.fetch(hit.url());
-                if (r.text == null || r.text.isBlank()) continue;
-                String text = r.text.length() > PAGE_CHAR_BUDGET
-                        ? r.text.substring(0, PAGE_CHAR_BUDGET) + "\n[…truncated…]" : r.text;
-                String title = (r.title != null && !r.title.isBlank()) ? r.title : hit.title();
-                docs.add(new PageDoc(docs.size() + 1, title, hit.url(), text));
-            } catch (Exception e) {
-                log.warn("[web-research] 抓取失败 {} : {}", hit.url(), e.toString());
+                for (WebSearchClient.SearchHit h : searchClient.search(sub, HITS_PER_QUERY)) {
+                    if (seenUrls.add(h.url())) candidates.add(h);
+                }
+            } catch (RuntimeException e) {
+                log.warn("[web-research] 子查询搜索失败「{}」: {}", sub, e.toString());
             }
         }
+        if (candidates.isEmpty()) {
+            throw new IllegalStateException("搜索服务返回 0 条结果，请换个关键词（建议：业务域 + 流程/规则，如「汽车金融 贷后管理 流程」）");
+        }
+
+        // 3) 并行抓取候选正文（有界并发；SPA 页会回退 Playwright 渲染，串行太慢），直到抓满 pages 篇
+        List<PageDoc> docs = fetchPages(candidates, pages, step);
         if (docs.isEmpty()) {
             throw new IllegalStateException("搜索命中的页面均抓取失败，请稍后重试或直接用「文档导入」贴入网址");
         }
 
-        step.emit("synthesizing", "已抓取 " + docs.size() + " 篇材料，正在归纳为业务知识文档…");
-        String markdown = synthesize(q, docs, modelOverride, configId);
+        step.emit("synthesizing", "已从 " + queries.size() + " 个角度抓取 " + docs.size() + " 篇材料，正在归纳为业务知识文档…");
+        String markdown = synthesize(q, docs, cfg, anthropic);
 
         // 追加参考来源（LLM 正文里是 [n] 编号，这里给编号落地成链接）
         StringBuilder md = new StringBuilder(markdown.strip());
@@ -131,10 +140,7 @@ public class WebResearchService {
 
     /** 调 LLM 把抓到的材料归纳成 markdown（非 JSON 模式、低温度）。 */
     private String synthesize(String topic, List<PageDoc> docs,
-                              String modelOverride, String configId) throws IOException {
-        LlmHttpClient.ResolvedConfig cfg = http.resolveConfig(modelOverride, configId);
-        boolean anthropic = http.isAnthropic(cfg.baseURL(), cfg.modelName(), cfg.protocol());
-
+                              LlmHttpClient.ResolvedConfig cfg, boolean anthropic) throws IOException {
         StringBuilder user = new StringBuilder();
         user.append("业务主题：").append(topic).append("\n\n以下是联网搜索到的材料：\n\n");
         for (PageDoc d : docs) {
@@ -143,11 +149,68 @@ public class WebResearchService {
                 .append(d.text()).append("\n\n");
         }
         user.append("请按 system 要求归纳输出《业务知识文档》。");
+        String content = callLlm(cfg, anthropic, ResearchPrompts.WEB_RESEARCH_SYSTEM, user.toString());
+        if (content == null || content.isBlank()) {
+            throw new IllegalStateException("LLM 返回空内容，请重试");
+        }
+        return content;
+    }
 
-        callLogger.logConversation("LLM-research", cfg.modelName(),
-                ResearchPrompts.WEB_RESEARCH_SYSTEM, null, user.toString(), null);
-        String body = http.buildBody(cfg, ResearchPrompts.WEB_RESEARCH_SYSTEM, user.toString(),
-                null, null, false, false, LlmHttpClient.EXTRACT_TEMPERATURE);
+    /**
+     * 多角度查询拓展：让 LLM 把主题拆成多条互补子查询（含原主题兜底）。任何失败都退化为 [原主题]，
+     * 保证联网调研不因拓展失败而中断。
+     */
+    private List<String> expandQueries(String topic, LlmHttpClient.ResolvedConfig cfg, boolean anthropic) {
+        List<String> out = new ArrayList<>();
+        out.add(topic);   // 原主题始终参与，作兜底
+        try {
+            String raw = callLlm(cfg, anthropic, ResearchPrompts.QUERY_EXPANSION_SYSTEM, "业务主题：" + topic);
+            if (raw != null) {
+                String json = raw.substring(raw.indexOf('['), raw.lastIndexOf(']') + 1);  // 容忍前后杂字
+                for (JsonNode n : objectMapper.readTree(json)) {
+                    String s = n.asText("").strip();
+                    if (!s.isBlank() && out.stream().noneMatch(x -> x.equalsIgnoreCase(s))) out.add(s);
+                    if (out.size() >= MAX_SUBQUERIES) break;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[web-research] 查询拓展失败，退化为单查询: {}", e.toString());
+        }
+        return out;
+    }
+
+    /**
+     * 串行抓取候选页正文，抓满 {@code pages} 篇或候选耗尽即止；受 {@link #TOTAL_CHAR_BUDGET} 总量约束。
+     * <p>不并行的原因：{@link WebPageFetcher} 的 SPA 回退走全局共享的 Playwright Browser，
+     * 而 Playwright-java 有单线程约束（并发碰同一 Browser 会崩），故按序抓取以保正确。
+     */
+    private List<PageDoc> fetchPages(List<WebSearchClient.SearchHit> candidates, int pages,
+                                     ExperienceOntologyService.StepSink step) {
+        List<PageDoc> docs = new ArrayList<>();
+        int total = 0;
+        for (WebSearchClient.SearchHit hit : candidates) {
+            if (docs.size() >= pages || total >= TOTAL_CHAR_BUDGET) break;
+            step.emit("fetching", "正在抓取（" + (docs.size() + 1) + "/" + pages + "）" + hit.url() + " …");
+            try {
+                WebPageFetcher.Result r = WebPageFetcher.fetch(hit.url());
+                if (r.text == null || r.text.isBlank()) continue;
+                String text = r.text.length() > PAGE_CHAR_BUDGET
+                        ? r.text.substring(0, PAGE_CHAR_BUDGET) + "\n[…truncated…]" : r.text;
+                String title = (r.title != null && !r.title.isBlank()) ? r.title : hit.title();
+                docs.add(new PageDoc(docs.size() + 1, title, hit.url(), text));
+                total += text.length();
+            } catch (Exception e) {
+                log.warn("[web-research] 抓取失败 {} : {}", hit.url(), e.toString());
+            }
+        }
+        return docs;
+    }
+
+    /** 统一的 LLM 文本调用（非 JSON、低温度）：查询拓展与归纳共用，收敛 HTTP/日志/计量样板。 */
+    private String callLlm(LlmHttpClient.ResolvedConfig cfg, boolean anthropic,
+                           String system, String user) throws IOException {
+        callLogger.logConversation("LLM-research", cfg.modelName(), system, null, user, null);
+        String body = http.buildBody(cfg, system, user, null, null, false, false, LlmHttpClient.EXTRACT_TEMPERATURE);
         HttpRequest req = http.buildHttpRequest(cfg.baseURL(), cfg.apiKey(), anthropic, body, cfg.rawUrl());
         long t0 = System.currentTimeMillis();
         HttpResponse<String> resp = http.sendHttp(req, HttpResponse.BodyHandlers.ofString());
@@ -161,9 +224,6 @@ public class WebResearchService {
         JsonNode root = objectMapper.readTree(resp.body());
         String content = http.extractContent(root, anthropic);
         callLogger.logLlmResponse("LLM-research", cfg.modelName(), elapsed, content);
-        if (content == null || content.isBlank()) {
-            throw new IllegalStateException("LLM 返回空内容，请重试");
-        }
         return content;
     }
 }
