@@ -161,9 +161,13 @@ onMounted(async () => {
 .lgb-badge { font-size: 11px; color: #ffcc66; background: rgba(255,180,60,.14);
   padding: 2px 8px; border-radius: 10px; }
 .lgb-meta { color: #8a93a5; font-size: 12px; margin-left: auto; }
-.lgb-close { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12);
-  color: #cbd0d6; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
-.lgb-close:hover { color: #fff; border-color: rgba(255,255,255,.25); }
+/* → 对齐 button-preview 的 secondary(玻璃)，紧凑 */
+.lgb-close { background: var(--bg-elev); border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+  color: #cbd0d6; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px;
+  transition: transform .14s var(--ease-out), box-shadow .2s var(--ease-out), background .2s var(--ease-out), border-color .2s var(--ease-out), color .2s var(--ease-out); }
+.lgb-close:hover { color: #fff; background: var(--bg-elev-hi); border-color: var(--glass-border-strong); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 5px 16px rgba(4,12,28,.35); }
+.lgb-close:active { transform: translateY(.5px); box-shadow: inset 0 2px 5px rgba(2,10,26,.4); }
 .lgb-note { padding: 8px 16px; font-size: 11.5px; color: #8a93a5; line-height: 1.5;
   border-bottom: 1px solid rgba(255,255,255,.05); }
 .lgb-domains { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
@@ -173,9 +177,13 @@ onMounted(async () => {
   padding: 2px 8px; border-radius: 10px; }
 .lgb-more { font-size: 11px; color: #77808f; }
 .lgb-toolbar { display: flex; align-items: center; gap: 14px; padding: 8px 16px; font-size: 12px; color: #cbd0d6; }
-.lgb-btn { background: rgba(47,134,214,.14); border: 1px solid rgba(47,134,214,.35);
-  color: #cfe0f5; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
-.lgb-btn:hover:not(:disabled) { border-color: rgba(47,134,214,.7); }
+/* → secondary(玻璃)，紧凑 */
+.lgb-btn { background: var(--bg-elev); border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+  color: #cbd0d6; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px;
+  transition: transform .14s var(--ease-out), box-shadow .2s var(--ease-out), background .2s var(--ease-out), border-color .2s var(--ease-out), color .2s var(--ease-out); }
+.lgb-btn:hover:not(:disabled) { color: #fff; background: var(--bg-elev-hi); border-color: var(--glass-border-strong); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 5px 16px rgba(4,12,28,.35); }
+.lgb-btn:active:not(:disabled) { transform: translateY(.5px); box-shadow: inset 0 2px 5px rgba(2,10,26,.4); }
 .lgb-btn:disabled { opacity: .5; cursor: default; }
 .lgb-center { color: #8a93a5; }
 .lgb-center b { color: #9ecbff; }
@@ -189,9 +197,15 @@ onMounted(async () => {
   border-radius: 8px; padding: 8px 12px; color: #e8eaed; font-size: 12.5px; }
 .lgb-edit-input:focus { outline: none; border-color: rgba(47,134,214,.6); }
 .lgb-edit-input:disabled { opacity: .6; }
-.lgb-edit-btn { background: rgba(47,134,214,.2); border: 1px solid rgba(47,134,214,.45);
-  color: #cfe0f5; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 12.5px; }
-.lgb-edit-btn:hover:not(:disabled) { border-color: rgba(47,134,214,.8); }
+/* 改图提交 = 主操作 → 对齐 button-preview 的 primary(竖向蓝渐变) */
+.lgb-edit-btn { background: linear-gradient(180deg, var(--accent-soft), var(--accent) 56%, var(--accent-deep));
+  border: 1px solid var(--accent-deep); color: #fff; font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.26), 0 1px 2px rgba(4,18,44,.3), 0 2px 8px rgba(47,134,214,.22);
+  text-shadow: 0 1px 1px rgba(2,16,48,.35);
+  border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 12.5px;
+  transition: transform .14s var(--ease-out), box-shadow .2s var(--ease-out), background .2s var(--ease-out); }
+.lgb-edit-btn:hover:not(:disabled) { background: linear-gradient(180deg, #82c0ff, var(--accent-soft) 56%, var(--accent)); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.36), 0 2px 4px rgba(4,18,44,.3), 0 5px 15px rgba(47,134,214,.32); }
+.lgb-edit-btn:active:not(:disabled) { transform: translateY(.5px); box-shadow: inset 0 2px 6px rgba(2,16,48,.45), 0 1px 3px var(--accent-glow); }
 .lgb-edit-btn:disabled { opacity: .5; cursor: default; }
 .lgb-edit-toggle { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: #9aa2b0;
   white-space: nowrap; cursor: pointer; }
