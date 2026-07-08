@@ -5,6 +5,7 @@ import com.tuiyan.backend.service.connector.JdbcConnectorService.ColumnInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
+import com.tuiyan.backend.support.ImplicitRefInferencer;
 import com.tuiyan.backend.support.SchemaSqlLineage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +25,10 @@ import java.util.Map;
  *   <li><b>每张表（含视图）</b> → 一个 {@code entity} 节点，表注释做业务名、列做属性、schema 做领域(domain)；</li>
  *   <li><b>每个外键</b> → 一条 {@code depends_on} 血缘边（父表=上游，{@code confidence=1.0}）；</li>
  *   <li><b>视图定义 / 存储过程源码</b> → {@code flows_to} 数据流边（来源表 → 视图 / 写入目标表，
- *       经 {@link SchemaSqlLineage} 语句级确定性解析）。</li>
+ *       经 {@link SchemaSqlLineage} 语句级确定性解析）；</li>
+ *   <li><b>隐式引用（命名约定）</b> → {@code depends_on} 推断边（{@code inferred/0.5}，经
+ *       {@link ImplicitRefInferencer}）——生产库普遍不建外键，命名约定是引用血缘的最后线索，
+ *       证据按 child.col → parent.col 格式给出，可被值包含检验一键佐证、进人工审核队列。</li>
  * </ul>
  * 产物是一张<b>完整且正确</b>的结构血缘图（任意表数、零 token），直接落成新本体模型。
  * LLM 语义增强（业务命名、跨系统推断血缘）可事后按域增量叠加，不阻塞结构建图。
@@ -227,6 +231,36 @@ public class StructuralGraphService {
         }
         if (routineLineage > 0) {
             log.info("[structural-graph] 从存储过程/函数源码确定性解析出 {} 条数据流血缘边", routineLineage);
+        }
+
+        // 隐式引用血缘 → depends_on 推断边：生产库普遍不建外键，命名约定是引用关系的最后线索。
+        // inferred/0.5 直出候选（不混入确定性血缘），证据按 child.col → parent.col 格式，
+        // 可被「值包含检验」一键佐证升级为数据证实，也自动进入人工审核队列。
+        int implicitRefs = 0;
+        for (ImplicitRefInferencer.ImplicitRef ref : ImplicitRefInferencer.infer(schema)) {
+            String childId = resolveNode(nodeIdByTable, ref.childTable());
+            String parentId = resolveNode(nodeIdByTable, ref.parentTable());
+            if (childId == null || parentId == null || childId.equals(parentId)) continue;
+            String childBare = ImplicitRefInferencer.bareName(ref.childTable());
+            String parentBare = ImplicitRefInferencer.bareName(ref.parentTable());
+            Map<String, Object> edge = new LinkedHashMap<>();
+            edge.put("id", "nr" + (ei++));
+            edge.put("from", childId);          // 子表依赖父表：与 FK 通路同向（父=上游）
+            edge.put("to", parentId);
+            edge.put("rel_type", "depends_on");
+            edge.put("source", "inferred");
+            edge.put("confidence", 0.5);
+            edge.put("label", "命名推断 " + ref.childColumn() + " → " + parentBare + "." + ref.parentColumn());
+            edge.put("evidence", "命名约定(无外键声明) " + childBare + "." + ref.childColumn()
+                    + " → " + parentBare + "." + ref.parentColumn() + "，建议值包含检验");
+            edge.put("derived_source", sourceName);
+            edge.put("derived_tables", List.of(childBare, parentBare));
+            edge.put("domain", domainOf(ref.childTable(), database));
+            edges.add(edge);
+            implicitRefs++;
+        }
+        if (implicitRefs > 0) {
+            log.info("[structural-graph] 按命名约定推断出 {} 条隐式引用血缘边（inferred/0.5，待佐证）", implicitRefs);
         }
 
         OntologyModel.GraphData g = new OntologyModel.GraphData();

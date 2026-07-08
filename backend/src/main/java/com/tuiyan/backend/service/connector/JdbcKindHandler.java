@@ -51,15 +51,16 @@ public class JdbcKindHandler implements SourceKindHandler {
         }
         String ddl = ddlRenderer.render(info, samples);
         // 外键/视图定义/存储过程 = 血缘 ground truth：确定性直出结构化片段
-        // （source=derived/confidence=1.0），建图时免 LLM 重抽。
-        String graphBlock = schemaFragmentRenderer.renderEmbeddedBlock(info);
+        // （source=derived/confidence=1.0），建图时免 LLM 重抽；
+        // 隐式引用（命名约定，生产库常无 FK）以 inferred/0.5 候选并入，走佐证/审核闭环。
+        String graphBlock = schemaFragmentRenderer.renderEmbeddedBlock(info, po.getName());
 
         String title = "「" + po.getName() + "」数据库 DDL";
         String content = "# " + title + "\n\n"
                 + "> 库: `" + info.database() + "` · 对象数: " + info.tables().size()
                 + (info.routines().isEmpty() ? "" : " · 存储过程/函数: " + info.routines().size())
                 + (!samples.isEmpty() ? " · 含样例数据" : "")
-                + (graphBlock.isBlank() ? "" : " · 含确定性血缘(外键/视图/存储过程)")
+                + (graphBlock.isBlank() ? "" : " · 含结构血缘(外键/视图/存储过程/命名推断)")
                 + " · 由数据源结构内省自动生成\n\n"
                 + "```sql\n" + ddl + "\n```\n"
                 // 确定性血缘的结构化图片段（隐藏注释）：建图时直连合并，人读 markdown 不受影响

@@ -7,6 +7,7 @@ import com.tuiyan.backend.service.agent.ExplorationAgentService;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
+import com.tuiyan.backend.support.ImplicitRefInferencer;
 import com.tuiyan.backend.support.SchemaSqlLineage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,12 +23,15 @@ import java.util.Map;
  *   <li><b>外键</b>：{@code 子表.列 → 父表.列} 即子表依赖父表(父=主数据/上游) → {@code depends_on} 边；</li>
  *   <li><b>视图定义</b>：FROM/JOIN 的来源表 → 视图 → {@code flows_to} 边；</li>
  *   <li><b>存储过程/函数源码</b>：INSERT…SELECT / MERGE / UPDATE…FROM 的来源表 → 写入目标表
- *       → {@code flows_to} 边(经 {@link SchemaSqlLineage} 语句级解析)。</li>
+ *       → {@code flows_to} 边(经 {@link SchemaSqlLineage} 语句级解析)；</li>
+ *   <li><b>隐式引用（命名约定）</b>：生产库普遍不建外键,{@code xxx_id} 形态列 → 对应表
+ *       → {@code depends_on} 推断边({@code inferred/0.5},经 {@link ImplicitRefInferencer},
+ *       证据格式兼容值包含检验,可一键佐证升级)。</li>
  * </ul>
- * 三者都是数据库里现成的血缘 ground truth。与其把 DDL 文本丢给 LLM 让它「重新猜」(可能漏、置信度不确定),
+ * 前三者是数据库里现成的血缘 ground truth。与其把 DDL 文本丢给 LLM 让它「重新猜」(可能漏、置信度不确定),
  * 不如据元数据<b>确定性</b>直出为 {@code source=derived、confidence=1.0} 的血缘边,建图时经既有的
  * 「结构化片段直连合并」通路({@code ExperienceOntologyService.extractGraphFragment})免 LLM 重抽直接并入,
- * LLM 只做业务语义增强。
+ * LLM 只做业务语义增强;隐式引用是唯一的推断项,以低置信候选身份并入,走数据佐证/人工审核闭环。
  * <p>产出格式与探索文档的 {@code EXPLORE_GRAPH} 片段一致:{@code {"nodes":[…],"edges":[…]}};
  * 无任何确定性血缘时返回空串(不产片段,库表实体仍由 LLM 从 DDL 抽取)。
  */
@@ -44,7 +48,12 @@ public class SchemaGraphFragmentRenderer {
      * 会解析此块并结构化合并、从正文剥离,LLM 不再重抽这层关系。
      */
     public String renderEmbeddedBlock(DatabaseSchemaInfo schema) {
-        String json = render(schema);
+        return renderEmbeddedBlock(schema, null);
+    }
+
+    /** 同上，附带数据源名（写进推断边 derived_source，供值包含检验自动定位数据源）。 */
+    public String renderEmbeddedBlock(DatabaseSchemaInfo schema, String sourceName) {
+        String json = render(schema, sourceName);
         if (json.isBlank()) return "";
         String marker = ExplorationAgentService.GRAPH_MARKER;
         return "\n\n<!-- " + marker + "\n" + json + "\n" + marker + " -->\n";
@@ -56,6 +65,11 @@ public class SchemaGraphFragmentRenderer {
      * 表名作为别名 —— 让它能与 LLM 抽出的同名业务实体自然折叠。
      */
     public String render(DatabaseSchemaInfo schema) {
+        return render(schema, null);
+    }
+
+    /** 同上，附带数据源名（可空）。 */
+    public String render(DatabaseSchemaInfo schema, String sourceName) {
         if (schema == null || schema.tables() == null || schema.tables().isEmpty()) return "";
 
         // 表名(标准化) → TableInfo,用于给外键端点解析注释/规范名
@@ -115,7 +129,33 @@ public class SchemaGraphFragmentRenderer {
             e.put("evidence", f.evidence());
         }
 
-        if (edges.isEmpty()) return "";               // 没有确定性血缘,不产片段
+        // 隐式引用（命名约定推断）：无 FK 声明的 xxx_id 形态引用 → inferred/0.5 候选边。
+        // 证据按 child.col → parent.col 格式给出，前端「一键数据佐证」可直接解析验证。
+        for (ImplicitRefInferencer.ImplicitRef ref : ImplicitRefInferencer.infer(schema)) {
+            String childId = nodeFor(ref.childTable(), byName, nodes, nodeIdByTable, seq, m);
+            String parentId = nodeFor(ref.parentTable(), byName, nodes, nodeIdByTable, seq, m);
+            if (childId == null || parentId == null || childId.equals(parentId)) continue;
+            String sig = childId + "->" + parentId + "#nr#" + ref.childColumn().toLowerCase(Locale.ROOT);
+            if (!edgeSeen.add(sig)) continue;
+            String childBare = ImplicitRefInferencer.bareName(ref.childTable());
+            String parentBare = ImplicitRefInferencer.bareName(ref.parentTable());
+            ObjectNode e = edges.addObject();
+            e.put("id", "sfk_e" + (seq[0]++));
+            e.put("from", childId);               // 子表依赖父表：与 FK 通路同向
+            e.put("to", parentId);
+            e.put("rel_type", "depends_on");
+            e.put("label", "命名推断 " + ref.childColumn() + " → " + parentBare + "." + ref.parentColumn());
+            e.put("source", "inferred");
+            e.put("confidence", 0.5);
+            e.put("evidence", "命名约定(无外键声明) " + childBare + "." + ref.childColumn()
+                    + " → " + parentBare + "." + ref.parentColumn() + "，建议值包含检验");
+            if (sourceName != null && !sourceName.isBlank()) e.put("derived_source", sourceName);
+            ArrayNode dt = e.putArray("derived_tables");
+            dt.add(childBare);
+            dt.add(parentBare);
+        }
+
+        if (edges.isEmpty()) return "";               // 没有可直出的血缘,不产片段
         ObjectNode root = m.createObjectNode();
         root.set("nodes", nodes);
         root.set("edges", edges);
