@@ -87,7 +87,7 @@ public class OracleDialect extends AbstractSqlDialect {
             }
         }
 
-        // 2) 视图（定义体为 LONG，避免流错误暂不取，仅登记为视图对象）+ 视图注释
+        // 2) 视图 + 视图注释
         String viewsSql = """
                 SELECT v.view_name, NVL(tc.comments, '') AS comments
                 FROM user_views v
@@ -103,6 +103,25 @@ public class OracleDialect extends AbstractSqlDialect {
                 tb.kind = "view";
                 tables.put(name, tb);
             }
+        }
+
+        // 2.5) 视图定义体（血缘 ground truth）。TEXT 为 LONG 列：放在 SELECT 末位、按列序即读、
+        //      fetchSize=1，规避「流已关闭」问题；仍失败则整体降级为无定义体（与旧行为一致）。
+        String viewDefSql = "SELECT view_name, text FROM user_views";
+        try (PreparedStatement ps = conn.prepareStatement(viewDefSql)) {
+            ps.setFetchSize(1);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String name = rs.getString(1);
+                    String def = rs.getString(2);
+                    TableBuilder tb = tables.get(name);
+                    if (tb != null && "view".equals(tb.kind) && def != null && !def.isBlank()) {
+                        tb.definition = def;
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            // 部分驱动/版本对 LONG 流读取受限：视图仍登记，只是没有定义体
         }
 
         if (tables.isEmpty()) {
@@ -220,6 +239,40 @@ public class OracleDialect extends AbstractSqlDialect {
             }
         }
 
-        return build(dbName, tables);
+        // 7) 存储过程/函数/包体源码：user_source 按行存储，聚合成整段定义体（ETL 血缘 ground truth）。
+        //    无权限时整体降级；行数极多的对象按 MAX_ROUTINE_DEF_CHARS 截断。
+        List<JdbcConnectorService.RoutineInfo> routines = new ArrayList<>();
+        String srcSql = """
+                SELECT name, type, text
+                FROM user_source
+                WHERE type IN ('PROCEDURE', 'FUNCTION', 'PACKAGE BODY')
+                ORDER BY name, type, line
+                """;
+        Map<String, StringBuilder> srcByRoutine = new LinkedHashMap<>();   // name type → 源码聚合
+        try (PreparedStatement ps = conn.prepareStatement(srcSql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String key = rs.getString(1) + " " + rs.getString(2);
+                StringBuilder b = srcByRoutine.get(key);
+                if (b == null) {
+                    if (srcByRoutine.size() >= MAX_ROUTINES) continue;
+                    b = new StringBuilder();
+                    srcByRoutine.put(key, b);
+                }
+                String line = rs.getString(3);
+                if (line == null || b.length() >= MAX_ROUTINE_DEF_CHARS) continue;
+                b.append(line);
+                if (!line.endsWith("\n")) b.append('\n');   // 行注释依赖换行终止，保证解析安全
+            }
+        } catch (SQLException e) {
+            // 无权限：跳过存储过程，表结构照常返回
+        }
+        for (Map.Entry<String, StringBuilder> en : srcByRoutine.entrySet()) {
+            int sep = en.getKey().indexOf(' ');
+            routines.add(routineOf(en.getKey().substring(0, sep),
+                    en.getKey().substring(sep + 1), "", en.getValue().toString()));
+        }
+
+        return build(dbName, tables, routines);
     }
 }

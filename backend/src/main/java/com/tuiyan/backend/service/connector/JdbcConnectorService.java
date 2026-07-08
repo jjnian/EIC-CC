@@ -82,10 +82,27 @@ public class JdbcConnectorService {
         public boolean isView() { return "view".equalsIgnoreCase(kind); }
     }
 
-    /** 整库 schema：kind + database + 全表 */
+    /**
+     * 存储过程 / 函数元信息：名称 + 类型(procedure/function/package body) + 注释 + 定义体源码。
+     * <p>过程源码是 ETL 血缘的 ground truth（INSERT…SELECT / MERGE / UPDATE…FROM 的目标与
+     * 来源语法可判定），与视图定义同为「SQL 定义体血缘」的确定性来源。
+     */
+    public record RoutineInfo(String name, String kind, String comment, String definition) {}
+
+    /** 整库 schema：kind + database + 全表 + 存储过程/函数 */
     public record DatabaseSchemaInfo(String kind,
                                      String database,
-                                     List<TableInfo> tables) {}
+                                     List<TableInfo> tables,
+                                     List<RoutineInfo> routines) {
+        public DatabaseSchemaInfo {
+            routines = routines == null ? List.of() : routines;
+        }
+
+        /** 兼容构造：无存储过程信息（方言未内省 / 权限不足时降级）。 */
+        public DatabaseSchemaInfo(String kind, String database, List<TableInfo> tables) {
+            this(kind, database, tables, List.of());
+        }
+    }
 
     /** 按 kind + config 构造一个独立、最小化的 HikariDataSource，调用方负责关。 */
     private DataSource buildTempDataSource(String kind, Map<String, Object> cfg) {

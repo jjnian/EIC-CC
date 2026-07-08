@@ -188,6 +188,27 @@ public class MysqlDialect extends AbstractSqlDialect {
             }
         }
 
-        return build(dbName, tables);
+        // 5) 存储过程/函数定义体（ETL 血缘 ground truth）。ROUTINE_DEFINITION 无权限时为 NULL；
+        //    GBase 8a 等兼容库可能缺 routines 字典——整体失败静默降级，不影响表内省。
+        List<JdbcConnectorService.RoutineInfo> routines = new ArrayList<>();
+        String routineSql = """
+                SELECT ROUTINE_NAME, ROUTINE_TYPE, IFNULL(ROUTINE_COMMENT,''), IFNULL(ROUTINE_DEFINITION,'')
+                FROM information_schema.routines
+                WHERE ROUTINE_SCHEMA = DATABASE()
+                ORDER BY ROUTINE_NAME
+                LIMIT ?
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(routineSql)) {
+            ps.setInt(1, MAX_ROUTINES);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    routines.add(routineOf(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)));
+                }
+            }
+        } catch (SQLException e) {
+            // 无权限 / 方言不支持：跳过存储过程，表结构照常返回
+        }
+
+        return build(dbName, tables, routines);
     }
 }

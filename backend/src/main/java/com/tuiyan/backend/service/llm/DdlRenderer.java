@@ -3,6 +3,7 @@ package com.tuiyan.backend.service.llm;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.ColumnInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
+import com.tuiyan.backend.service.connector.JdbcConnectorService.RoutineInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableSample;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.UniqueKeyInfo;
@@ -13,13 +14,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 把内省得到的 {@link DatabaseSchemaInfo} 渲染成可读的 DDL（CREATE TABLE / VIEW）。
+ * 把内省得到的 {@link DatabaseSchemaInfo} 渲染成可读的 DDL（CREATE TABLE / VIEW + 存储过程源码节选）。
  * <p>用于「导出数据库结构到经验库」：产出一份人可读、也利于 RAG 召回的结构文档。
+ * 存储过程/函数源码是 ETL 逻辑的第一手资料——确定性血缘边由结构化片段直出，
+ * 源码节选则供 LLM 做业务语义增强（过程在做什么业务）。
  * <p>注意：这是基于内省元数据「尽力还原」的 DDL（类型/默认值取自系统表），
  * 主要面向阅读与检索，不保证可直接在目标库原样执行。
  */
 @Component
 public class DdlRenderer {
+
+    /** 最多渲染的存储过程/函数个数与单个源码节选长度：控制经验正文体积。 */
+    private static final int MAX_ROUTINES_RENDERED = 50;
+    private static final int ROUTINE_DEF_RENDER_CHARS = 4_000;
 
     /** 渲染整库 DDL（不含样例数据）。 */
     public String render(DatabaseSchemaInfo s) {
@@ -39,6 +46,9 @@ public class DdlRenderer {
         sb.append("-- 数据库类型: ").append(s.kind()).append('\n');
         sb.append("-- 数据库名:   ").append(s.database()).append('\n');
         sb.append("-- 对象数量:   ").append(s.tables().size()).append('\n');
+        if (!s.routines().isEmpty()) {
+            sb.append("-- 存储过程/函数: ").append(s.routines().size()).append('\n');
+        }
         sb.append("-- 说明: 以下 DDL 由 schema 内省元数据还原，面向阅读与检索，不保证可原样执行。\n");
         if (!samples.isEmpty()) {
             sb.append("-- 含样例数据: 真实抽样,已对疑似敏感字段(密码/手机/邮箱/证件/卡号/地址等)自动脱敏。\n");
@@ -56,7 +66,36 @@ public class DdlRenderer {
             }
             sb.append('\n');
         }
+        appendRoutines(sb, s.routines());
         return sb.toString();
+    }
+
+    /** 存储过程/函数源码节选：限量 + 截断，供 LLM 理解 ETL 业务语义（确定性血缘边另由结构化片段直出）。 */
+    private static void appendRoutines(StringBuilder sb, List<RoutineInfo> routines) {
+        if (routines == null || routines.isEmpty()) return;
+        sb.append("-- ══ 存储过程 / 函数（源码节选，ETL 逻辑参考）══\n\n");
+        int shown = 0;
+        for (RoutineInfo r : routines) {
+            if (shown >= MAX_ROUTINES_RENDERED) {
+                sb.append("-- …其余 ").append(routines.size() - shown).append(" 个存储过程/函数略\n");
+                break;
+            }
+            sb.append("-- ").append(r.kind().isBlank() ? "routine" : r.kind()).append(' ').append(r.name());
+            if (r.comment() != null && !r.comment().isBlank()) sb.append(": ").append(r.comment());
+            sb.append('\n');
+            String def = r.definition() == null ? "" : r.definition().strip();
+            if (def.isEmpty()) {
+                sb.append("-- （源码不可用）\n");
+            } else {
+                boolean truncated = def.length() > ROUTINE_DEF_RENDER_CHARS;
+                if (truncated) def = def.substring(0, ROUTINE_DEF_RENDER_CHARS);
+                sb.append(def);
+                if (!def.endsWith("\n")) sb.append('\n');
+                if (truncated) sb.append("-- …（源码过长，已截断）\n");
+            }
+            sb.append('\n');
+            shown++;
+        }
     }
 
     /** 把样例行渲染成 INSERT 语句(多行 VALUES);疑似敏感列按列名自动脱敏,其余按类型转字面量。 */

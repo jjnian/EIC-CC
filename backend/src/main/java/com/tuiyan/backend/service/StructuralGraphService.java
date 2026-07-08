@@ -5,7 +5,7 @@ import com.tuiyan.backend.service.connector.JdbcConnectorService.ColumnInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
-import com.tuiyan.backend.support.SqlLineageExtractor;
+import com.tuiyan.backend.support.SchemaSqlLineage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -23,6 +23,8 @@ import java.util.Map;
  * <ul>
  *   <li><b>每张表（含视图）</b> → 一个 {@code entity} 节点，表注释做业务名、列做属性、schema 做领域(domain)；</li>
  *   <li><b>每个外键</b> → 一条 {@code depends_on} 血缘边（父表=上游，{@code confidence=1.0}）；</li>
+ *   <li><b>视图定义 / 存储过程源码</b> → {@code flows_to} 数据流边（来源表 → 视图 / 写入目标表，
+ *       经 {@link SchemaSqlLineage} 语句级确定性解析）。</li>
  * </ul>
  * 产物是一张<b>完整且正确</b>的结构血缘图（任意表数、零 token），直接落成新本体模型。
  * LLM 语义增强（业务命名、跨系统推断血缘）可事后按域增量叠加，不阻塞结构建图。
@@ -194,39 +196,37 @@ public class StructuralGraphService {
             log.info("[structural-graph] {} 条外键的父表不在内省范围内，已跳过", dangling);
         }
 
-        // 视图血缘 → flows_to 边：视图定义(SQL)是血缘 ground truth，用 SqlLineageExtractor 确定性解析
-        // 「来源表 → 视图」的表级数据流（不过 LLM，confidence=1.0）。like-Cursor：解析真实结构而非猜。
-        int viewLineage = 0;
-        for (TableInfo t : tables) {
-            if (!t.isView() || t.definition() == null || t.definition().isBlank()) continue;
-            String viewId = nodeIdByTable.get(norm(t.name()));
-            if (viewId == null) continue;
-            SqlLineageExtractor.Result r;
-            try {
-                r = SqlLineageExtractor.parse("CREATE VIEW " + t.name() + " AS " + t.definition());
-            } catch (RuntimeException ex) {
-                continue;   // 解析失败静默跳过，不影响其余
-            }
-            for (SqlLineageExtractor.Flow flow : r.flows()) {
-                String srcId = nodeIdByTable.get(norm(flow.source()));
-                if (srcId == null) srcId = nodeIdByTable.get(bare(norm(flow.source())));
-                if (srcId == null || srcId.equals(viewId)) continue;   // 来源不在库内 / 自引用，跳过
-                Map<String, Object> edge = new LinkedHashMap<>();
-                edge.put("id", "vw" + (ei++));
-                edge.put("from", srcId);        // 来源表 → 视图（flows_to 正向：表=上游，视图=下游派生）
-                edge.put("to", viewId);
-                edge.put("rel_type", "flows_to");
-                edge.put("source", "derived");
-                edge.put("confidence", 1.0);
-                edge.put("label", "视图来源 " + flow.source());
-                edge.put("evidence", "视图定义(SQL)");
-                edge.put("domain", domainOf(t.name(), database));
-                edges.add(edge);
-                viewLineage++;
-            }
+        // SQL 定义体血缘 → flows_to 边：视图定义与存储过程/函数源码是血缘 ground truth，
+        // 经 SchemaSqlLineage 确定性解析「来源表 → 视图 / 写入目标表」的表级数据流（不过 LLM，confidence=1.0）。
+        int viewLineage = 0, routineLineage = 0;
+        java.util.Set<String> flowSeen = new java.util.HashSet<>();
+        List<SchemaSqlLineage.ObjectFlow> defFlows = new ArrayList<>();
+        defFlows.addAll(SchemaSqlLineage.viewFlows(schema));
+        defFlows.addAll(SchemaSqlLineage.routineFlows(schema));
+        for (SchemaSqlLineage.ObjectFlow f : defFlows) {
+            boolean isView = f.via().startsWith("视图");
+            String srcId = resolveNode(nodeIdByTable, f.source());
+            String dstId = resolveNode(nodeIdByTable, f.target());
+            if (srcId == null || dstId == null || srcId.equals(dstId)) continue;   // 端点不在库内 / 自引用，跳过
+            if (!flowSeen.add(srcId + "->" + dstId + "@" + f.via())) continue;     // 同一载体重复数据流去重
+            Map<String, Object> edge = new LinkedHashMap<>();
+            edge.put("id", (isView ? "vw" : "rt") + (ei++));
+            edge.put("from", srcId);        // 来源表 → 视图/目标表（flows_to 正向：来源=上游，产物=下游）
+            edge.put("to", dstId);
+            edge.put("rel_type", "flows_to");
+            edge.put("source", "derived");
+            edge.put("confidence", 1.0);
+            edge.put("label", f.via());
+            edge.put("evidence", f.evidence());
+            edge.put("domain", domainOf(f.target(), database));
+            edges.add(edge);
+            if (isView) viewLineage++; else routineLineage++;
         }
         if (viewLineage > 0) {
             log.info("[structural-graph] 从视图定义确定性解析出 {} 条视图血缘边", viewLineage);
+        }
+        if (routineLineage > 0) {
+            log.info("[structural-graph] 从存储过程/函数源码确定性解析出 {} 条数据流血缘边", routineLineage);
         }
 
         OntologyModel.GraphData g = new OntologyModel.GraphData();
@@ -242,6 +242,12 @@ public class StructuralGraphService {
             if (dot > 0) return tableName.substring(0, dot);
         }
         return database == null || database.isBlank() ? "未分域" : database;
+    }
+
+    /** 按「全名 → 裸名」两级解析表引用到节点 id；都不在库内返回 null。 */
+    private static String resolveNode(Map<String, String> nodeIdByTable, String tableRef) {
+        String id = nodeIdByTable.get(norm(tableRef));
+        return id != null ? id : nodeIdByTable.get(bare(norm(tableRef)));
     }
 
     private static String norm(String s) { return s == null ? "" : s.trim().toLowerCase(Locale.ROOT); }

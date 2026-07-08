@@ -60,10 +60,34 @@ public abstract class AbstractSqlDialect implements SqlDialect {
         }
     }
 
+    /** 单库最多内省的存储过程/函数数：防过程极多的库拖慢内省、撑爆经验正文。 */
+    protected static final int MAX_ROUTINES = 200;
+    /** 单个过程定义体的截断长度：血缘解析与 DDL 节选都用不到更长的源码。 */
+    protected static final int MAX_ROUTINE_DEF_CHARS = 60_000;
+
+    /** 构造 RoutineInfo：kind 统一小写，定义体按 {@link #MAX_ROUTINE_DEF_CHARS} 截断，null 安全。 */
+    protected static JdbcConnectorService.RoutineInfo routineOf(String name, String kind,
+                                                                String comment, String definition) {
+        String def = definition == null ? "" : definition;
+        if (def.length() > MAX_ROUTINE_DEF_CHARS) def = def.substring(0, MAX_ROUTINE_DEF_CHARS);
+        return new JdbcConnectorService.RoutineInfo(
+                name,
+                kind == null ? "" : kind.trim().toLowerCase(java.util.Locale.ROOT),
+                comment == null ? "" : comment,
+                def);
+    }
+
     /** 把 TableBuilder map 收尾成不可变的 DatabaseSchemaInfo，kind 取本方言的 {@link #kind()}。 */
     protected JdbcConnectorService.DatabaseSchemaInfo build(String database, Map<String, TableBuilder> tables) {
+        return build(database, tables, List.of());
+    }
+
+    /** 同上，附带内省到的存储过程/函数。 */
+    protected JdbcConnectorService.DatabaseSchemaInfo build(String database, Map<String, TableBuilder> tables,
+                                                            List<JdbcConnectorService.RoutineInfo> routines) {
         return new JdbcConnectorService.DatabaseSchemaInfo(
                 kind(), database,
-                tables.values().stream().map(TableBuilder::build).toList());
+                tables.values().stream().map(TableBuilder::build).toList(),
+                routines);
     }
 }

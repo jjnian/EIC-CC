@@ -219,7 +219,39 @@ public class PgsqlDialect extends AbstractSqlDialect {
             }
         }
 
-        return build(dbName, tables);
+        // 5) 存储过程/函数定义体（仅 sql/plpgsql，pg_get_functiondef 还原完整源码；PG 11+ 有 prokind）。
+        //    版本差异 / 权限不足整体失败时静默降级，不影响表内省。
+        java.util.List<JdbcConnectorService.RoutineInfo> routines = new java.util.ArrayList<>();
+        String routineSql = """
+                SELECT n.nspname,
+                       p.proname,
+                       p.prokind,
+                       COALESCE(d.description, '') AS comment,
+                       pg_get_functiondef(p.oid) AS definition
+                FROM pg_proc p
+                JOIN pg_namespace n ON n.oid = p.pronamespace
+                JOIN pg_language l ON l.oid = p.prolang
+                LEFT JOIN pg_description d ON d.objoid = p.oid AND d.objsubid = 0
+                WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+                  AND p.prokind IN ('f', 'p')
+                  AND l.lanname IN ('sql', 'plpgsql')
+                ORDER BY n.nspname, p.proname
+                LIMIT ?
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(routineSql)) {
+            ps.setInt(1, MAX_ROUTINES);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String kind = "p".equals(rs.getString(3)) ? "procedure" : "function";
+                    routines.add(routineOf(displayName(rs.getString(1), rs.getString(2)), kind,
+                            rs.getString(4), rs.getString(5)));
+                }
+            }
+        } catch (SQLException e) {
+            // 老版本无 prokind / 无权限：跳过存储过程，表结构照常返回
+        }
+
+        return build(dbName, tables, routines);
     }
 
     /** 对外展示名:public 下省略 schema 前缀,其余 schema.table。 */

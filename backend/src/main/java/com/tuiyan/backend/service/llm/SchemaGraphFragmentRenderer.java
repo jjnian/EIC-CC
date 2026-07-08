@@ -7,6 +7,7 @@ import com.tuiyan.backend.service.agent.ExplorationAgentService;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
+import com.tuiyan.backend.support.SchemaSqlLineage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -16,13 +17,19 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 把内省得到的 {@link DatabaseSchemaInfo} 里的<b>外键</b>渲染成一份「结构化图片段」({nodes,edges})。
- * <p>外键是引用血缘的 ground truth：{@code 子表.列 → 父表.列} 表示子表依赖父表(父=主数据/上游)。
- * 与其把 DDL 文本丢给 LLM 让它「重新猜」这层关系(可能漏、置信度不确定),不如据元数据<b>确定性</b>
- * 直出为 {@code source=derived、confidence=1.0} 的血缘边,建图时经既有的「结构化片段直连合并」通路
- * ({@code ExperienceOntologyService.extractGraphFragment})免 LLM 重抽直接并入,LLM 只做业务语义增强。
+ * 把内省得到的 {@link DatabaseSchemaInfo} 里的<b>确定性血缘</b>渲染成一份「结构化图片段」({nodes,edges})：
+ * <ul>
+ *   <li><b>外键</b>：{@code 子表.列 → 父表.列} 即子表依赖父表(父=主数据/上游) → {@code depends_on} 边；</li>
+ *   <li><b>视图定义</b>：FROM/JOIN 的来源表 → 视图 → {@code flows_to} 边；</li>
+ *   <li><b>存储过程/函数源码</b>：INSERT…SELECT / MERGE / UPDATE…FROM 的来源表 → 写入目标表
+ *       → {@code flows_to} 边(经 {@link SchemaSqlLineage} 语句级解析)。</li>
+ * </ul>
+ * 三者都是数据库里现成的血缘 ground truth。与其把 DDL 文本丢给 LLM 让它「重新猜」(可能漏、置信度不确定),
+ * 不如据元数据<b>确定性</b>直出为 {@code source=derived、confidence=1.0} 的血缘边,建图时经既有的
+ * 「结构化片段直连合并」通路({@code ExperienceOntologyService.extractGraphFragment})免 LLM 重抽直接并入,
+ * LLM 只做业务语义增强。
  * <p>产出格式与探索文档的 {@code EXPLORE_GRAPH} 片段一致:{@code {"nodes":[…],"edges":[…]}};
- * 无外键时返回空串(不产片段,库表实体仍由 LLM 从 DDL 抽取)。
+ * 无任何确定性血缘时返回空串(不产片段,库表实体仍由 LLM 从 DDL 抽取)。
  */
 @Component
 public class SchemaGraphFragmentRenderer {
@@ -32,8 +39,8 @@ public class SchemaGraphFragmentRenderer {
     private final ObjectMapper om = new ObjectMapper();
 
     /**
-     * 把 FK 血缘片段包装成建图侧可识别的隐藏注释块({@code <!-- EXPLORE_GRAPH … -->}),供直接附到
-     * DDL 文档末尾;无外键(空片段)返回空串。建图时 {@code ExperienceOntologyService.extractGraphFragment}
+     * 把确定性血缘片段包装成建图侧可识别的隐藏注释块({@code <!-- EXPLORE_GRAPH … -->}),供直接附到
+     * DDL 文档末尾;无确定性血缘(空片段)返回空串。建图时 {@code ExperienceOntologyService.extractGraphFragment}
      * 会解析此块并结构化合并、从正文剥离,LLM 不再重抽这层关系。
      */
     public String renderEmbeddedBlock(DatabaseSchemaInfo schema) {
@@ -44,8 +51,8 @@ public class SchemaGraphFragmentRenderer {
     }
 
     /**
-     * 渲染 FK 血缘片段 JSON;无外键返回空串。
-     * <p>只为「参与外键的表」建节点(避免用全部库表淹没图);表节点 label 优先取表注释(业务名),
+     * 渲染确定性血缘片段 JSON(外键 + 视图定义 + 存储过程数据流);无任何血缘返回空串。
+     * <p>只为「参与血缘的表/视图」建节点(避免用全部库表淹没图);表节点 label 优先取表注释(业务名),
      * 表名作为别名 —— 让它能与 LLM 抽出的同名业务实体自然折叠。
      */
     public String render(DatabaseSchemaInfo schema) {
@@ -87,14 +94,35 @@ public class SchemaGraphFragmentRenderer {
             }
         }
 
-        if (edges.isEmpty()) return "";               // 没有外键血缘可确定,不产片段
+        // 视图定义 + 存储过程源码里的确定性数据流：来源表 → 视图/写入目标表
+        java.util.List<SchemaSqlLineage.ObjectFlow> flows = new java.util.ArrayList<>();
+        flows.addAll(SchemaSqlLineage.viewFlows(schema));
+        flows.addAll(SchemaSqlLineage.routineFlows(schema));
+        for (SchemaSqlLineage.ObjectFlow f : flows) {
+            String srcId = nodeFor(f.source(), byName, nodes, nodeIdByTable, seq, m);
+            String dstId = nodeFor(f.target(), byName, nodes, nodeIdByTable, seq, m);
+            if (srcId == null || dstId == null || srcId.equals(dstId)) continue;
+            String sig = srcId + "->" + dstId + "@" + f.via();
+            if (!edgeSeen.add(sig)) continue;         // 同一载体下的重复数据流去重
+            ObjectNode e = edges.addObject();
+            e.put("id", "sfk_e" + (seq[0]++));
+            e.put("from", srcId);                     // 来源表=上游，视图/目标表=下游派生
+            e.put("to", dstId);
+            e.put("rel_type", "flows_to");
+            e.put("label", f.via());
+            e.put("source", "derived");
+            e.put("confidence", 1.0);
+            e.put("evidence", f.evidence());
+        }
+
+        if (edges.isEmpty()) return "";               // 没有确定性血缘,不产片段
         ObjectNode root = m.createObjectNode();
         root.set("nodes", nodes);
         root.set("edges", edges);
         try {
             return om.writeValueAsString(root);
         } catch (Exception e) {
-            log.warn("[schema-fragment] 序列化 FK 片段失败(忽略): {}", e.toString());
+            log.warn("[schema-fragment] 序列化确定性血缘片段失败(忽略): {}", e.toString());
             return "";
         }
     }
