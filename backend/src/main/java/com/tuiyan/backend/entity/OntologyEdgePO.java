@@ -30,6 +30,14 @@ public class OntologyEdgePO {
     private String evidence;
     /** 置信度（derived≈1.0，inferred≈0.4）。 */
     private Double confidence;
+    /** 多源证据列表 JSON：["…"]。同一条边被多个来源（访谈/DDL/探索…）佐证时聚合，evidence 保留首条作兼容。 */
+    private String evidencesJson;
+    /** 人工审核状态：null=未审 / confirmed=专家已确认。否决即删边，不留状态。 */
+    private String reviewStatus;
+    /** 审核批注。 */
+    private String reviewNote;
+    /** 审核时间（毫秒）。 */
+    private Long reviewedAt;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -65,4 +73,12 @@ public class OntologyEdgePO {
     public void setEvidence(String evidence) { this.evidence = evidence; }
     public Double getConfidence() { return confidence; }
     public void setConfidence(Double confidence) { this.confidence = confidence; }
+    public String getEvidencesJson() { return evidencesJson; }
+    public void setEvidencesJson(String evidencesJson) { this.evidencesJson = evidencesJson; }
+    public String getReviewStatus() { return reviewStatus; }
+    public void setReviewStatus(String reviewStatus) { this.reviewStatus = reviewStatus; }
+    public String getReviewNote() { return reviewNote; }
+    public void setReviewNote(String reviewNote) { this.reviewNote = reviewNote; }
+    public Long getReviewedAt() { return reviewedAt; }
+    public void setReviewedAt(Long reviewedAt) { this.reviewedAt = reviewedAt; }
 }

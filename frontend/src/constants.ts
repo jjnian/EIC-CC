@@ -10,6 +10,8 @@ export const NT = {
   relation_type: {color:'#22dd88',bg:'#002418',label:'关系类型'},
   attribute:     {color:'#ffaa22',bg:'#221500',label:'属性'},
   constraint:    {color:'#ff3399',bg:'#2a0515',label:'约束'},
+  // 领域折叠产生的超级节点（useDomainCollapse 渲染层派生，非真实节点）
+  domain:        {color:'#a78bfa',bg:'#1d1440',label:'领域'},
 };
 
 export const NW = 172;

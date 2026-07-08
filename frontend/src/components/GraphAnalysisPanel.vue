@@ -5,6 +5,8 @@ import GraphStatsTab from './analysis/GraphStatsTab.vue';
 import NodeAnalysisTab from './analysis/NodeAnalysisTab.vue';
 import PathQueryTab from './analysis/PathQueryTab.vue';
 import LineageHealthTab from './analysis/LineageHealthTab.vue';
+import CoverageAuditTab from './analysis/CoverageAuditTab.vue';
+import ReviewQueueTab from './analysis/ReviewQueueTab.vue';
 import { Button } from '@/components/ui/button';
 
 const props = defineProps<{
@@ -19,10 +21,11 @@ const emit = defineEmits<{
   (e: 'focus-node', id: string): void;
   (e: 'highlight-diff', data: { sharedIds: string[]; uniqueAIds: string[]; uniqueBIds: string[] } | null): void;
   (e: 'update-edge-schema', id: string, patch: any): void;
+  (e: 'delete-edge', edgeId: string): void;
 }>();
 
 // ── 标签页 ──────────────────────────────────────────
-// 0=全图统计  1=节点分析  2=路径查询  3=血缘体检
+// 0=全图统计  1=节点分析  2=路径查询  3=血缘体检  4=覆盖度  5=审核
 const tab = ref(0);
 
 watch(() => props.selectedId, (id) => {
@@ -38,6 +41,8 @@ watch(() => props.selectedId, (id) => {
         <button :class="['gap-tab', { on: tab === 1 }]" @click="tab = 1">节点分析</button>
         <button :class="['gap-tab', { on: tab === 2 }]" @click="tab = 2">路径查询</button>
         <button :class="['gap-tab', { on: tab === 3 }]" @click="tab = 3">体检</button>
+        <button :class="['gap-tab', { on: tab === 4 }]" @click="tab = 4">覆盖度</button>
+        <button :class="['gap-tab', { on: tab === 5 }]" @click="tab = 5">审核</button>
       </div>
       <Button variant="ghost" size="icon-sm" @click="emit('close')">×</Button>
     </div>
@@ -49,6 +54,12 @@ watch(() => props.selectedId, (id) => {
       <LineageHealthTab v-else-if="tab === 3" :nodes="nodes" :edges="edges" :model-id="modelId"
                         @focus-node="(id) => emit('focus-node', id)"
                         @update-edge-schema="(id, patch) => emit('update-edge-schema', id, patch)" />
+      <CoverageAuditTab v-else-if="tab === 4" :nodes="nodes" :edges="edges"
+                        @focus-node="(id) => emit('focus-node', id)" />
+      <ReviewQueueTab v-else-if="tab === 5" :nodes="nodes" :edges="edges"
+                      @focus-node="(id) => emit('focus-node', id)"
+                      @update-edge-schema="(id, patch) => emit('update-edge-schema', id, patch)"
+                      @delete-edge="(id) => emit('delete-edge', id)" />
     </div>
   </div>
 </template>

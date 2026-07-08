@@ -26,6 +26,10 @@ public class OntologyVersionEdgePO {
     private String relType;
     private String evidence;
     private Double confidence;
+    private String evidencesJson;
+    private String reviewStatus;
+    private String reviewNote;
+    private Long reviewedAt;
 
     public Long getVersionId() { return versionId; }
     public void setVersionId(Long versionId) { this.versionId = versionId; }
@@ -61,4 +65,12 @@ public class OntologyVersionEdgePO {
     public void setEvidence(String evidence) { this.evidence = evidence; }
     public Double getConfidence() { return confidence; }
     public void setConfidence(Double confidence) { this.confidence = confidence; }
+    public String getEvidencesJson() { return evidencesJson; }
+    public void setEvidencesJson(String evidencesJson) { this.evidencesJson = evidencesJson; }
+    public String getReviewStatus() { return reviewStatus; }
+    public void setReviewStatus(String reviewStatus) { this.reviewStatus = reviewStatus; }
+    public String getReviewNote() { return reviewNote; }
+    public void setReviewNote(String reviewNote) { this.reviewNote = reviewNote; }
+    public Long getReviewedAt() { return reviewedAt; }
+    public void setReviewedAt(Long reviewedAt) { this.reviewedAt = reviewedAt; }
 }

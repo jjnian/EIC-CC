@@ -106,7 +106,11 @@ ALTER TABLE ontology_edge
     ADD COLUMN IF NOT EXISTS evidence   TEXT,           -- 该边的证据(FK 列/视图名/命名依据等，粒度尽量细)
     ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS derived_sources_json TEXT, -- 多数据源血缘：[{source,database,tables[]}]
-    ADD COLUMN IF NOT EXISTS domain VARCHAR(255);        -- 业务领域（经验来源文件夹名）
+    ADD COLUMN IF NOT EXISTS domain VARCHAR(255),        -- 业务领域（经验来源文件夹名）
+    ADD COLUMN IF NOT EXISTS evidences_json TEXT,        -- 多源证据列表 JSON:["…"]（同一条边被多来源佐证时聚合）
+    ADD COLUMN IF NOT EXISTS review_status VARCHAR(16),  -- 人工审核状态：空=未审 / confirmed=已确认
+    ADD COLUMN IF NOT EXISTS review_note   TEXT,         -- 审核批注
+    ADD COLUMN IF NOT EXISTS reviewed_at   BIGINT;       -- 审核时间(毫秒)
 CREATE INDEX IF NOT EXISTS idx_ontology_edge_model
     ON ontology_edge (model_id);
 CREATE INDEX IF NOT EXISTS idx_ontology_edge_from
@@ -200,7 +204,11 @@ ALTER TABLE ontology_version_edge
     ADD COLUMN IF NOT EXISTS evidence TEXT,
     ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS derived_sources_json TEXT,
-    ADD COLUMN IF NOT EXISTS domain VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS domain VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS evidences_json TEXT,
+    ADD COLUMN IF NOT EXISTS review_status VARCHAR(16),
+    ADD COLUMN IF NOT EXISTS review_note   TEXT,
+    ADD COLUMN IF NOT EXISTS reviewed_at   BIGINT;
 
 -- ---------------------------------------------------------------------------
 -- 4. 对话历史

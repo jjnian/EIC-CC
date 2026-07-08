@@ -33,4 +33,14 @@ final class RepoValueUtils {
             return null;
         }
     }
+
+    static Long asLong(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.longValue();
+        try {
+            return Long.parseLong(v.toString());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
 }

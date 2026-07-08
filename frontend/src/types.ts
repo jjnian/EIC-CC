@@ -42,7 +42,15 @@ export interface OntologyEdge {
   derived_database?: string;
   /** 血缘证据：该关系所依据的 FK列/原文引文/命名依据（≤30字）。 */
   evidence?: string;
+  /** 多源证据列表：同一条边被多个来源（访谈/DDL/探索…）佐证时聚合，evidence 为首条。 */
+  evidences?: string[];
   confidence?: number;
+  /** 人工审核状态：undefined=未审 / 'confirmed'=专家已确认（否决即删边，不留状态）。 */
+  review_status?: string;
+  /** 审核批注。 */
+  review_note?: string;
+  /** 审核时间（毫秒）。 */
+  reviewed_at?: number;
   isNew?: boolean;
   [k: string]: any;
 }

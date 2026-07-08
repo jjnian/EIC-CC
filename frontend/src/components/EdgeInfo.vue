@@ -331,6 +331,13 @@ const startResize = (e: MouseEvent) => {
                       <td class="ni-kv-v">
                         <span class="ei-conf" :style="{ color: confColor(edge.confidence) }">{{ (edge.confidence * 100).toFixed(0) }}%</span>
                         <span class="ei-conf-hint">{{ confHint(edge.confidence) }}</span>
+                        <span v-if="(edge.evidences || []).length > 1" class="ni-chip" style="color:#34d399;background:rgba(52,211,153,0.12)" :title="`该关系被 ${edge.evidences!.length} 条独立证据佐证`">🔗 多源佐证 ×{{ edge.evidences!.length }}</span>
+                      </td>
+                    </tr>
+                    <tr v-if="edge.review_status === 'confirmed'">
+                      <td class="ni-kv-k">人工审核</td>
+                      <td class="ni-kv-v">
+                        <span class="ni-chip" style="color:#34d399;background:rgba(52,211,153,0.12)" :title="edge.review_note || ''">✅ 专家已确认{{ edge.reviewed_at ? ' · ' + new Date(edge.reviewed_at).toLocaleDateString() : '' }}</span>
                       </td>
                     </tr>
                     <tr>
@@ -343,8 +350,14 @@ const startResize = (e: MouseEvent) => {
                     <tr><td class="ni-kv-k">约束数</td><td class="ni-kv-v strong">{{ (edge.constraints || []).length }} <span class="ni-unit">条</span></td></tr>
                   </tbody>
                 </table>
-                <!-- 血缘证据：该关系所依据的 FK列/原文引文/命名依据 -->
-                <div v-if="edge.evidence" class="ei-evidence">
+                <!-- 血缘证据：多源佐证时逐条列出，否则展示单条 -->
+                <template v-if="(edge.evidences || []).length > 1">
+                  <div v-for="(ev, i) in edge.evidences" :key="'ev'+i" class="ei-evidence">
+                    <span class="ei-evidence-icon" :title="`证据 ${i + 1}/${edge.evidences!.length}`">❝</span>
+                    <span class="ei-evidence-text">{{ ev }}</span>
+                  </div>
+                </template>
+                <div v-else-if="edge.evidence" class="ei-evidence">
                   <span class="ei-evidence-icon" title="血缘证据">❝</span>
                   <span class="ei-evidence-text">{{ edge.evidence }}</span>
                 </div>

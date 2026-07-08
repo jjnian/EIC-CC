@@ -214,7 +214,10 @@ public class ExtractionGraphMerger {
      *   <li>丢弃 id 为空或 id 重复的节点（保留首个）—— 重复 id 在加盐后依旧同 id，会让前端渲染/合并错乱；</li>
      *   <li>丢弃 from/to 指向不存在节点的悬空边；</li>
      *   <li>丢弃自环（from == to）；</li>
-     *   <li>按 (from,to,rel_type|label) 去重，避免同一关系被多段重复抽出。</li>
+     *   <li>按 (from,to,rel_type|label) 去重，避免同一关系被多段重复抽出。
+     *       去重<b>不是简单丢弃</b>：重复边往往来自不同来源（访谈/DDL/探索各说了一遍），其证据会被
+     *       聚合进保留边的 {@code evidences} 列表，并按独立证据数提升置信度（多源佐证 = 更可信，
+     *       封顶 0.9；确定性 1.0 不受影响）——见 {@link #aggregateDuplicateEdge}。</li>
      * </ol>
      */
     public JsonNode sanitizeGraph(JsonNode graph) {
@@ -241,8 +244,8 @@ public class ExtractionGraphMerger {
         if (!edges.isArray()) return out;
 
         ArrayNode cleaned = objectMapper.createArrayNode();
-        Set<String> seenEdge = new HashSet<>();
-        int dropped = 0;
+        Map<String, ObjectNode> keptBySig = new HashMap<>();
+        int dropped = 0, corroborated = 0;
         for (JsonNode e : edges) {
             String f = e.path("from").asText("");
             String t = e.path("to").asText("");
@@ -253,15 +256,99 @@ public class ExtractionGraphMerger {
             if (f.equals(t)) { dropped++; continue; } // 自环
             String relKey = e.path("rel_type").asText(e.path("label").asText(""));
             String sig = f + "->" + t + "#" + relKey;
-            if (!seenEdge.add(sig)) { dropped++; continue; } // 重复边
-            cleaned.add(e);
+            ObjectNode kept = keptBySig.get(sig);
+            if (kept != null) {
+                // 重复边 = 多源佐证：证据并入保留边、置信度按独立证据数提升
+                if (aggregateDuplicateEdge(kept, e)) corroborated++;
+                dropped++;
+                continue;
+            }
+            if (!(e instanceof ObjectNode obj)) { dropped++; continue; } // 非对象形状的脏数据
+            keptBySig.put(sig, obj);
+            cleaned.add(obj);
         }
         if (dropped > 0) {
-            log.info("[LLM-extract] 图校验：丢弃 {} 条非法/重复边（悬空/自环/重复），保留 {} 条",
-                    dropped, cleaned.size());
+            log.info("[LLM-extract] 图校验：折叠 {} 条非法/重复边（其中 {} 条证据聚合为多源佐证），保留 {} 条",
+                    dropped, corroborated, cleaned.size());
         }
         out.set("add_edges", cleaned);
         return out;
+    }
+
+    /** 单条边最多聚合的证据条数。 */
+    private static final int MAX_EVIDENCES = 6;
+    /** 多源佐证的置信度封顶：再多的间接证据也不等于确定性(1.0 只留给 FK/SQL 定义体等 ground truth)。 */
+    private static final double CORROBORATED_CAP = 0.9;
+    /** 每多一条独立证据的置信度增量。 */
+    private static final double CORROBORATION_STEP = 0.1;
+
+    /**
+     * 把重复边 dup 的证据/来源/置信度聚合进保留边 kept：
+     * <ul>
+     *   <li><b>证据</b>：kept 与 dup 的 evidence + evidences 全部去重合并进 {@code evidences}（上限
+     *       {@value #MAX_EVIDENCES} 条），{@code evidence} 保留首条作兼容展示；</li>
+     *   <li><b>置信度</b>：取两者较高者；若独立证据 &gt; 1 条，再按每条 +{@value #CORROBORATION_STEP}
+     *       提升、封顶 {@value #CORROBORATED_CAP}——多源互证的推断边比孤证可信；已是 1.0 的确定性边不动；</li>
+     *   <li><b>来源</b>：derived &gt; manual &gt; preset &gt; inferred，取更强者。</li>
+     * </ul>
+     * @return 是否发生了实际的证据聚合（dup 带来了新证据）
+     */
+    private static boolean aggregateDuplicateEdge(ObjectNode kept, JsonNode dup) {
+        // 1) 证据合并（按标准化文本去重，保序：kept 在前）
+        List<String> evidences = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        collectEvidences(kept, evidences, seen);
+        int before = evidences.size();
+        collectEvidences(dup, evidences, seen);
+        boolean gained = evidences.size() > before;
+        if (evidences.size() > MAX_EVIDENCES) evidences = evidences.subList(0, MAX_EVIDENCES);
+        if (evidences.size() > 1) {
+            ArrayNode arr = kept.putArray("evidences");
+            evidences.forEach(arr::add);
+            kept.put("evidence", evidences.get(0));
+        } else if (evidences.size() == 1 && kept.path("evidence").asText("").isBlank()) {
+            kept.put("evidence", evidences.get(0));
+        }
+
+        // 2) 置信度：较高者 + 多源佐证增量（1.0 的确定性边保持不动）
+        double kc = kept.path("confidence").asDouble(0);
+        double dc = dup.path("confidence").asDouble(0);
+        double max = Math.max(kc, dc);
+        if (max < 1.0 && evidences.size() > 1) {
+            double boosted = Math.min(CORROBORATED_CAP, max + CORROBORATION_STEP * (evidences.size() - 1));
+            kept.put("confidence", Math.round(boosted * 100) / 100.0);
+        } else if (dc > kc) {
+            kept.put("confidence", dc);
+        }
+
+        // 3) 来源取更强者
+        if (sourceRank(dup.path("source").asText("")) > sourceRank(kept.path("source").asText(""))) {
+            kept.put("source", dup.path("source").asText(""));
+        }
+        return gained;
+    }
+
+    /** 收集一条边的全部证据文本（evidence 单值 + evidences 列表），按标准化去重追加。 */
+    private static void collectEvidences(JsonNode edge, List<String> out, Set<String> seen) {
+        List<String> cands = new ArrayList<>();
+        cands.add(edge.path("evidence").asText(""));
+        JsonNode list = edge.path("evidences");
+        if (list.isArray()) for (JsonNode ev : list) cands.add(ev.asText(""));
+        for (String c : cands) {
+            String v = c == null ? "" : c.strip();
+            if (v.isEmpty()) continue;
+            if (seen.add(normalizeLabel(v))) out.add(v);
+        }
+    }
+
+    /** 来源强度：derived(有据) > manual(人工) > preset > inferred/其它。 */
+    private static int sourceRank(String source) {
+        return switch (source == null ? "" : source) {
+            case "derived" -> 3;
+            case "manual" -> 2;
+            case "preset" -> 1;
+            default -> 0;
+        };
     }
 
     /** 合并节点 props：以 a 为基准，从 b 加入 a 没有的 key（同 key 取 a 的优先）。 */

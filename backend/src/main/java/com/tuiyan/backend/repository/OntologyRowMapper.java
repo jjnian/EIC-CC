@@ -18,6 +18,7 @@ import java.util.Map;
 
 import static com.tuiyan.backend.repository.RepoValueUtils.asDouble;
 import static com.tuiyan.backend.repository.RepoValueUtils.asInt;
+import static com.tuiyan.backend.repository.RepoValueUtils.asLong;
 import static com.tuiyan.backend.repository.RepoValueUtils.asString;
 
 /**
@@ -141,6 +142,12 @@ public class OntologyRowMapper {
         if (e.getRelType() != null) m.put("rel_type", e.getRelType());
         if (e.getEvidence() != null) m.put("evidence", e.getEvidence());
         if (e.getConfidence() != null) m.put("confidence", e.getConfidence());
+        if (e.getEvidencesJson() != null && !e.getEvidencesJson().isBlank()) {
+            m.put("evidences", codec.readStringList(e.getEvidencesJson()));
+        }
+        if (e.getReviewStatus() != null && !e.getReviewStatus().isBlank()) m.put("review_status", e.getReviewStatus());
+        if (e.getReviewNote() != null && !e.getReviewNote().isBlank()) m.put("review_note", e.getReviewNote());
+        if (e.getReviewedAt() != null) m.put("reviewed_at", e.getReviewedAt());
         return m;
     }
 
@@ -171,7 +178,8 @@ public class OntologyRowMapper {
     private static final String EDGE_INSERT_SQL =
             "INSERT INTO ontology_edge (id, model_id, from_node_id, to_node_id, label, source, derived_tables_json, " +
             "derived_source, derived_database, derived_sources_json, domain, constraints_json, rule_driven, rule_id, " +
-            "rel_type, evidence, confidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+            "rel_type, evidence, confidence, evidences_json, review_status, review_note, reviewed_at) " +
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     /** 单批行数上限：控制单条 batch 的报文体积/内存，超大图分批 flush。 */
     private static final int BATCH_CHUNK = 1000;
 
@@ -274,6 +282,10 @@ public class OntologyRowMapper {
         po.setRelType(asString(e.get("rel_type")));
         po.setEvidence(asString(e.get("evidence")));
         po.setConfidence(asDouble(e.get("confidence")));
+        po.setEvidencesJson(codec.toJson(e.get("evidences")));
+        po.setReviewStatus(asString(e.get("review_status")));
+        po.setReviewNote(asString(e.get("review_note")));
+        po.setReviewedAt(asLong(e.get("reviewed_at")));
         return po;
     }
 
@@ -294,6 +306,7 @@ public class OntologyRowMapper {
         return new Object[]{ p.getId(), p.getModelId(), p.getFromNodeId(), p.getToNodeId(), p.getLabel(),
                 p.getSource(), p.getDerivedTablesJson(), p.getDerivedSource(), p.getDerivedDatabase(),
                 p.getDerivedSourcesJson(), p.getDomain(), p.getConstraintsJson(), p.getRuleDriven(),
-                p.getRuleId(), p.getRelType(), p.getEvidence(), p.getConfidence() };
+                p.getRuleId(), p.getRelType(), p.getEvidence(), p.getConfidence(),
+                p.getEvidencesJson(), p.getReviewStatus(), p.getReviewNote(), p.getReviewedAt() };
     }
 }

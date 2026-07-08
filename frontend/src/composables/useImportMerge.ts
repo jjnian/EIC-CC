@@ -1,6 +1,7 @@
 import { type Ref, nextTick } from 'vue';
 import type { OntologyNode, OntologyEdge, GraphMutation } from '../types';
 import { toast } from './useToast';
+import { mergeDuplicateEdgeEvidence } from '../utils/evidenceMerge';
 
 export interface ImportMergeCtx {
   nodes: Ref<OntologyNode[]>;
@@ -39,24 +40,36 @@ export function useImportMerge(ctx: ImportMergeCtx) {
       byKey.set(k, n);
     }
 
-    const edgeKey = new Set(ctx.edges.value.map(e => e.from + '→' + e.to + '|' + norm(e.label)));
+    // 现有边索引：key → 边下标。重复边不简单丢弃：算出证据聚合 patch（多源佐证提置信），
+    // 由调用方在 snapshotHistory 之后统一应用——本函数保持纯函数，不直接改边。
+    const edgeIndexByKey = new Map<string, number>();
+    ctx.edges.value.forEach((e, i) => edgeIndexByKey.set(e.from + '→' + e.to + '|' + norm(e.label), i));
     const edgeIdSet = new Set(ctx.edges.value.map(e => e.id));
     const acceptedEdges: OntologyEdge[] = [];
+    const corroborations: { index: number; patch: Partial<OntologyEdge> }[] = [];
     for (const e of addEdges) {
       if (!e) continue;
       const from = idRemap[e.from] || e.from;
       const to = idRemap[e.to] || e.to;
       if (!byId.has(from) || !byId.has(to)) continue;
       const k = from + '→' + to + '|' + norm(e.label);
-      if (edgeKey.has(k)) continue;
+      const hitIdx = edgeIndexByKey.get(k);
+      if (hitIdx !== undefined) {
+        const hit = hitIdx >= 0 ? ctx.edges.value[hitIdx] : undefined;
+        if (hit) {
+          const patch = mergeDuplicateEdgeEvidence(hit, e);
+          if (patch) corroborations.push({ index: hitIdx, patch });
+        }
+        continue;
+      }
       let id = e.id;
       if (!id || edgeIdSet.has(id)) id = 'e_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
       acceptedEdges.push({ ...e, id, from, to });
-      edgeKey.add(k);
+      edgeIndexByKey.set(k, -1);   // 本批内部重复折叠（-1 占位：后端 sanitize 已聚合过批内证据）
       edgeIdSet.add(id);
     }
 
-    return { nodes: acceptedNodes, edges: acceptedEdges, skipped: {
+    return { nodes: acceptedNodes, edges: acceptedEdges, corroborations, skipped: {
       nodes: addNodes.length - acceptedNodes.length,
       edges: addEdges.length - acceptedEdges.length,
     }};
@@ -123,12 +136,13 @@ export function useImportMerge(ctx: ImportMergeCtx) {
   const onUpdate = (m: GraphMutation) => {
     const addNodes = m.addNodes || [];
     const addEdges = m.addEdges || [];
-    const { nodes: newNodes, edges: newEdges, skipped } = dedupeIncoming(addNodes, addEdges);
+    const { nodes: newNodes, edges: newEdges, corroborations, skipped } = dedupeIncoming(addNodes, addEdges);
     const { nodeIds: delNodeIds, edgeIds: delEdgeIds } = resolveRemovals(m.removeNodeIds || [], m.removeEdgeIds || []);
     const hasRemoval = delNodeIds.size > 0 || delEdgeIds.size > 0;
     const hasUpdate = (m.updateNodes?.length || 0) > 0 || (m.updateEdges?.length || 0) > 0;
 
-    if (newNodes.length === 0 && newEdges.length === 0 && !hasRemoval && !hasUpdate) {
+    if (newNodes.length === 0 && newEdges.length === 0 && !hasRemoval && !hasUpdate
+        && corroborations.length === 0) {
       if (skipped.nodes || skipped.edges) {
         toast.info(`已忽略 ${skipped.nodes} 个重复节点 / ${skipped.edges} 条重复关系`);
       }
@@ -136,6 +150,15 @@ export function useImportMerge(ctx: ImportMergeCtx) {
     }
 
     ctx.snapshotHistory();
+
+    // 重复关系的多源证据聚合：不新增边，但把新来源的证据并入已有边并提升置信度
+    if (corroborations.length > 0) {
+      for (const { index, patch } of corroborations) {
+        const cur = ctx.edges.value[index];
+        if (cur) ctx.edges.value[index] = { ...cur, ...patch };
+      }
+      toast.info(`已为 ${corroborations.length} 条已有关系聚合新证据（多源佐证）`);
+    }
 
     // 先删:移除指定节点(连带其相关边)与指定边
     if (hasRemoval) {

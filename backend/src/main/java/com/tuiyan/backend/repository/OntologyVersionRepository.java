@@ -193,6 +193,11 @@ public class OntologyVersionRepository {
         po.setRelType(asString(e.get("rel_type")));
         po.setEvidence(asString(e.get("evidence")));
         po.setConfidence(asDouble(e.get("confidence")));
+        po.setEvidencesJson(codec.toJson(e.get("evidences")));
+        po.setReviewStatus(asString(e.get("review_status")));
+        po.setReviewNote(asString(e.get("review_note")));
+        Object ra = e.get("reviewed_at");
+        po.setReviewedAt(ra instanceof Number n ? n.longValue() : null);
         edgeMapper.insert(po);
     }
 
@@ -278,6 +283,12 @@ public class OntologyVersionRepository {
             if (e.getRelType() != null) m.put("rel_type", e.getRelType());
             if (e.getEvidence() != null) m.put("evidence", e.getEvidence());
             if (e.getConfidence() != null) m.put("confidence", e.getConfidence());
+            if (e.getEvidencesJson() != null && !e.getEvidencesJson().isBlank()) {
+                m.put("evidences", codec.readStringList(e.getEvidencesJson()));
+            }
+            if (e.getReviewStatus() != null && !e.getReviewStatus().isBlank()) m.put("review_status", e.getReviewStatus());
+            if (e.getReviewNote() != null && !e.getReviewNote().isBlank()) m.put("review_note", e.getReviewNote());
+            if (e.getReviewedAt() != null) m.put("reviewed_at", e.getReviewedAt());
             out.add(m);
         }
         return out;
