@@ -60,6 +60,44 @@ public class NodeDataBindingRepository {
         return po;
     }
 
+    /**
+     * 按 id 取一行，<b>不做工作空间校验</b>——仅供态势调度器等无请求上下文的后台线程使用
+     * （与 HttpScheduler 直查数据源同一模式），用户可达的端点一律走 {@link #findScoped}。
+     */
+    public NodeDataBindingPO findAnyById(String id) {
+        return mapper.selectById(id);
+    }
+
+    /** 全部启用了状态刷新的绑定（跨工作空间）：态势调度器启动时批量注册。 */
+    public List<NodeDataBindingPO> listStatusEnabled() {
+        return mapper.selectList(new LambdaQueryWrapper<NodeDataBindingPO>()
+                .eq(NodeDataBindingPO::getStatusEnabled, Boolean.TRUE));
+    }
+
+    /** 更新态势层状态源配置（含归属校验）；不存在/不归属返回 null。 */
+    @Transactional
+    public Map<String, Object> updateStatusConfig(String id, String statusQuery, String statusRulesJson,
+                                                  Boolean statusEnabled, Integer statusIntervalSec) {
+        NodeDataBindingPO po = findScoped(id);
+        if (po == null) return null;
+        po.setStatusQuery(statusQuery);
+        po.setStatusRulesJson(statusRulesJson);
+        po.setStatusEnabled(statusEnabled != null && statusEnabled);
+        po.setStatusIntervalSec(statusIntervalSec);
+        po.setUpdatedAt(System.currentTimeMillis());
+        mapper.updateById(po);
+        return toMap(po);
+    }
+
+    /** 后台线程停用某绑定的状态刷新（连续失败自动停用用，无工作空间上下文）。 */
+    @Transactional
+    public void disableStatusAny(String id) {
+        NodeDataBindingPO po = mapper.selectById(id);
+        if (po == null) return;
+        po.setStatusEnabled(Boolean.FALSE);
+        mapper.updateById(po);
+    }
+
     @Transactional
     public Map<String, Object> create(String modelId, String nodeId, String dataSourceId,
                                       String tableName, String columnMap, String filterSql) {
@@ -134,6 +172,10 @@ public class NodeDataBindingRepository {
         if (po.getTableName() != null) out.put("tableName", po.getTableName());
         if (po.getColumnMap() != null) out.put("columnMap", po.getColumnMap());
         if (po.getFilterSql() != null) out.put("filterSql", po.getFilterSql());
+        if (po.getStatusQuery() != null) out.put("statusQuery", po.getStatusQuery());
+        if (po.getStatusRulesJson() != null) out.put("statusRules", po.getStatusRulesJson());
+        out.put("statusEnabled", Boolean.TRUE.equals(po.getStatusEnabled()));
+        if (po.getStatusIntervalSec() != null) out.put("statusIntervalSec", po.getStatusIntervalSec());
         out.put("createdAt", po.getCreatedAt());
         if (po.getUpdatedAt() != null) out.put("updatedAt", po.getUpdatedAt());
         return out;

@@ -26,6 +26,14 @@ public class NodeDataBindingPO {
     private String columnMap;
     /** 可选只读 WHERE 片段（不含 where 关键字），用于过滤取数 */
     private String filterSql;
+    /** 态势层·状态查询：只读 SQL，首行首列作为节点状态值（如 SELECT count(*) FROM orders WHERE status='blocked'）。 */
+    private String statusQuery;
+    /** 态势层·阈值规则 JSON：[{level,op,value}]，按序首个命中生效，都不命中为 normal。 */
+    private String statusRulesJson;
+    /** 态势层·是否纳入定时刷新。 */
+    private Boolean statusEnabled;
+    /** 态势层·刷新间隔（秒，最小 60）。 */
+    private Integer statusIntervalSec;
     private Long createdAt;
     private Long updatedAt;
 
@@ -45,6 +53,14 @@ public class NodeDataBindingPO {
     public void setColumnMap(String columnMap) { this.columnMap = columnMap; }
     public String getFilterSql() { return filterSql; }
     public void setFilterSql(String filterSql) { this.filterSql = filterSql; }
+    public String getStatusQuery() { return statusQuery; }
+    public void setStatusQuery(String statusQuery) { this.statusQuery = statusQuery; }
+    public String getStatusRulesJson() { return statusRulesJson; }
+    public void setStatusRulesJson(String statusRulesJson) { this.statusRulesJson = statusRulesJson; }
+    public Boolean getStatusEnabled() { return statusEnabled; }
+    public void setStatusEnabled(Boolean statusEnabled) { this.statusEnabled = statusEnabled; }
+    public Integer getStatusIntervalSec() { return statusIntervalSec; }
+    public void setStatusIntervalSec(Integer statusIntervalSec) { this.statusIntervalSec = statusIntervalSec; }
     public Long getCreatedAt() { return createdAt; }
     public void setCreatedAt(Long createdAt) { this.createdAt = createdAt; }
     public Long getUpdatedAt() { return updatedAt; }

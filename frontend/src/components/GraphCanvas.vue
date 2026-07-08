@@ -30,6 +30,8 @@ const props = defineProps<{
   /** 撤销/重做按钮的可用状态(由父级图谱历史栈决定) */
   canUndo?: boolean;
   canRedo?: boolean;
+  /** 态势层·节点状态（nodeId → 最严重状态）：非空时节点渲染状态徽标（值 + 级别配色） */
+  nodeStates?: Record<string, { value?: string | null; level?: string }> | null;
 }>();
 
 const emit = defineEmits<{
@@ -362,6 +364,12 @@ defineExpose({ fitView, focusNode });
               <div class="node-label">{{ n.label }}</div>
               <div class="node-type">{{ getT(n).label }}</div>
               <div v-if="(n.constraints?.length || 0) > 0" class="node-lock-badge" :title="n.constraints.map((c: any) => (c.kind || '约束') + ': ' + c.note).join('\n')">🔒</div>
+              <!-- 态势徽标：状态查询的最新值 + 级别配色（正常绿/关注黄/告警红闪/失联灰） -->
+              <div v-if="nodeStates && nodeStates[n.id]"
+                   :class="['node-state-badge', 'nsb-' + (nodeStates[n.id].level || 'normal')]"
+                   :title="`节点状态: ${nodeStates[n.id].value ?? '∅'}（${nodeStates[n.id].level || 'normal'}）`">
+                {{ nodeStates[n.id].value ?? '·' }}
+              </div>
             </div>
           </div>
 
@@ -559,3 +567,29 @@ defineExpose({ fitView, focusNode });
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 态势徽标：挂在节点右上角的状态值胶囊，颜色 = 阈值判级 */
+.node-state-badge {
+  position: absolute;
+  top: -9px; right: -6px;
+  max-width: 90px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; font-family: 'JetBrains Mono', monospace; font-weight: 600;
+  line-height: 1; padding: 3px 7px; border-radius: 100px;
+  border: 1px solid transparent;
+  pointer-events: none;
+}
+.nsb-normal { background: rgba(34,221,136,.18); color: #22dd88; border-color: rgba(34,221,136,.45); }
+.nsb-warn   { background: rgba(255,204,68,.18);  color: #ffcc44; border-color: rgba(255,204,68,.5); }
+.nsb-alert  { background: rgba(255,85,85,.22);   color: #ff7777; border-color: rgba(255,85,85,.6);
+              animation: nsb-pulse 1.2s ease-in-out infinite; }
+.nsb-error  { background: rgba(255,255,255,.08); color: #9aa3b2; border-color: rgba(255,255,255,.2); }
+@keyframes nsb-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255,85,85,.5); }
+  50%      { box-shadow: 0 0 0 5px rgba(255,85,85,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nsb-alert { animation: none; }
+}
+</style>

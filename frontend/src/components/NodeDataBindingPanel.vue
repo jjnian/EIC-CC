@@ -3,7 +3,8 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { listDataSources, listTables, type DataSource } from '../api/dataSources';
 import {
   listNodeBindings, createNodeBinding, deleteNodeBinding, fetchNodeBindingData,
-  type NodeBinding, type BindingFetchResult,
+  updateBindingStatusConfig, refreshBindingStatus,
+  type NodeBinding, type BindingFetchResult, type NodeState, type StatusRule,
 } from '../api/nodeBindings';
 import { ApiError } from '../api/http';
 import { toast } from '../composables/useToast';
@@ -121,6 +122,92 @@ const runFetch = async (b: NodeBinding) => {
     fetching.value = null;
   }
 };
+
+// ── 态势层：状态监测配置（状态查询 SQL → 阈值判级 → 定时刷新节点状态）──
+interface StatusForm { query: string; alertOp: string; alertVal: string; warnOp: string; warnVal: string;
+  interval: number; enabled: boolean }
+const statusOpen = ref<Record<string, boolean>>({});
+const statusForms = ref<Record<string, StatusForm>>({});
+const statusSaving = ref<string | null>(null);
+const statusRefreshing = ref<string | null>(null);
+const statusResults = ref<Record<string, NodeState>>({});
+
+const OP_OPTIONS = [
+  { value: 'gt', label: '＞' }, { value: 'gte', label: '≥' },
+  { value: 'lt', label: '＜' }, { value: 'lte', label: '≤' },
+  { value: 'eq', label: '=' }, { value: 'ne', label: '≠' },
+  { value: 'contains', label: '包含' },
+];
+
+/** 从绑定的 statusRules JSON 解析出 alert/warn 两行（超出两条的规则原样保留在首两条外会丢失——UI 简化取舍）。 */
+const toStatusForm = (b: NodeBinding): StatusForm => {
+  const f: StatusForm = { query: b.statusQuery || '', alertOp: 'gt', alertVal: '', warnOp: 'gt', warnVal: '',
+    interval: b.statusIntervalSec || 60, enabled: !!b.statusEnabled };
+  try {
+    const rules: StatusRule[] = JSON.parse(b.statusRules || '[]');
+    for (const r of rules) {
+      if (r.level === 'alert' && !f.alertVal) { f.alertOp = r.op; f.alertVal = r.value; }
+      if (r.level === 'warn' && !f.warnVal) { f.warnOp = r.op; f.warnVal = r.value; }
+    }
+  } catch { /* 规则损坏时从空白开始 */ }
+  return f;
+};
+
+const toggleStatus = (b: NodeBinding) => {
+  const open = !statusOpen.value[b.id];
+  statusOpen.value = { ...statusOpen.value, [b.id]: open };
+  if (open && !statusForms.value[b.id]) {
+    statusForms.value = { ...statusForms.value, [b.id]: toStatusForm(b) };
+  }
+};
+
+const saveStatusConfig = async (b: NodeBinding) => {
+  const f = statusForms.value[b.id];
+  if (!f) return;
+  if (f.enabled && !f.query.trim()) { toast.warn('启用定时刷新前请先填写状态查询 SQL'); return; }
+  const rules: StatusRule[] = [];
+  if (f.alertVal.trim()) rules.push({ level: 'alert', op: f.alertOp, value: f.alertVal.trim() });
+  if (f.warnVal.trim()) rules.push({ level: 'warn', op: f.warnOp, value: f.warnVal.trim() });
+  statusSaving.value = b.id;
+  try {
+    const updated = await updateBindingStatusConfig(b.id, {
+      statusQuery: f.query.trim() || undefined,
+      statusRules: rules.length ? JSON.stringify(rules) : undefined,
+      statusEnabled: f.enabled,
+      statusIntervalSec: Math.max(60, f.interval || 60),
+    });
+    bindings.value = bindings.value.map(x => x.id === b.id ? updated : x);
+    toast.success(f.enabled ? '状态源已保存并纳入定时刷新' : '状态源配置已保存');
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '保存失败');
+  } finally {
+    statusSaving.value = null;
+  }
+};
+
+const runStatusRefresh = async (b: NodeBinding) => {
+  const f = statusForms.value[b.id];
+  if (f && f.query.trim() && f.query.trim() !== (b.statusQuery || '')) {
+    await saveStatusConfig(b);   // 未保存的查询先落库再刷新，避免"刷的是旧 SQL"
+  }
+  statusRefreshing.value = b.id;
+  try {
+    const st = await refreshBindingStatus(b.id);
+    statusResults.value = { ...statusResults.value, [b.id]: st };
+    if (st.level === 'error') toast.warn(`采集失败：${st.message || '未知错误'}`);
+  } catch (e) {
+    toast.warn(e instanceof ApiError ? e.message : '刷新失败');
+  } finally {
+    statusRefreshing.value = null;
+  }
+};
+
+const levelView = (level?: string) => ({
+  normal: { text: '正常', color: '#22dd88' },
+  warn:   { text: '关注', color: '#ffcc44' },
+  alert:  { text: '告警', color: '#ff5555' },
+  error:  { text: '失联', color: '#999' },
+}[level || 'normal'] || { text: level || '—', color: '#999' });
 </script>
 
 <template>
@@ -171,11 +258,59 @@ const runFetch = async (b: NodeBinding) => {
           <span class="ndb-item-ds">{{ dsName(b.dataSourceId) }}</span>
           <span class="ndb-item-table">· {{ b.tableName || '(未指定表)' }}</span>
           <span v-if="b.filterSql" class="ndb-item-filter">WHERE {{ b.filterSql }}</span>
+          <span v-if="b.statusEnabled" class="ndb-status-on" title="已纳入定时状态刷新">📡</span>
           <span class="ndb-spacer" />
           <Button variant="outline" size="sm" :disabled="fetching === b.id" @click="runFetch(b)">
             {{ fetching === b.id ? '取数中…' : '取数预览' }}
           </Button>
+          <Button variant="outline" size="sm" @click="toggleStatus(b)">
+            {{ statusOpen[b.id] ? '收起监测' : '状态监测' }}
+          </Button>
           <Button variant="ghost" size="icon-sm" class="text-destructive" title="删除绑定" @click="removeBinding(b)">✕</Button>
+        </div>
+
+        <!-- 态势层：状态监测配置 -->
+        <div v-if="statusOpen[b.id] && statusForms[b.id]" class="ndb-status">
+          <p class="ndb-desc" style="margin:0">
+            状态查询（只读 SQL，<b>首行首列</b>作为节点状态值）定时执行，按阈值给节点判级着色——供血让世界活起来。
+          </p>
+          <label class="ndb-row">
+            <span>状态查询</span>
+            <div class="ndb-ctl"><BaseInput v-model="statusForms[b.id].query" placeholder="如 SELECT count(*) FROM orders WHERE status = 'blocked'" /></div>
+          </label>
+          <div class="ndb-row">
+            <span style="color:#ff5555">告警阈值</span>
+            <div class="ndb-ctl ndb-rule">
+              <BaseSelect v-model="statusForms[b.id].alertOp" :options="OP_OPTIONS" />
+              <BaseInput v-model="statusForms[b.id].alertVal" placeholder="值（留空=不启用）" />
+            </div>
+          </div>
+          <div class="ndb-row">
+            <span style="color:#ffcc44">关注阈值</span>
+            <div class="ndb-ctl ndb-rule">
+              <BaseSelect v-model="statusForms[b.id].warnOp" :options="OP_OPTIONS" />
+              <BaseInput v-model="statusForms[b.id].warnVal" placeholder="值（留空=不启用）" />
+            </div>
+          </div>
+          <div class="ndb-row">
+            <span>定时刷新</span>
+            <div class="ndb-ctl ndb-rule">
+              <label class="ndb-check"><input type="checkbox" v-model="statusForms[b.id].enabled" /> 启用</label>
+              <BaseInput v-model.number="statusForms[b.id].interval" type="number" placeholder="间隔秒(≥60)" style="max-width:120px" />
+            </div>
+          </div>
+          <div class="ndb-form-actions">
+            <Button size="sm" :disabled="statusSaving === b.id" @click="saveStatusConfig(b)">
+              {{ statusSaving === b.id ? '保存中…' : '保存配置' }}
+            </Button>
+            <Button variant="outline" size="sm" :disabled="statusRefreshing === b.id || !statusForms[b.id].query.trim()" @click="runStatusRefresh(b)">
+              {{ statusRefreshing === b.id ? '采集中…' : '立即刷新' }}
+            </Button>
+            <span v-if="statusResults[b.id]" class="ndb-status-val">
+              <span :style="{ color: levelView(statusResults[b.id].level).color }">● {{ levelView(statusResults[b.id].level).text }}</span>
+              <span class="ndb-status-num">{{ statusResults[b.id].value ?? '∅' }}</span>
+            </span>
+          </div>
         </div>
 
         <div v-if="fetchResults[b.id]" class="ndb-result">
@@ -232,6 +367,15 @@ const runFetch = async (b: NodeBinding) => {
 .ndb-mini:hover { background: rgba(255,255,255,.12); }
 .ndb-mini.del { color: #ff8a6f; }
 .ndb-mini:disabled { opacity: .5; cursor: default; }
+
+.ndb-status { margin-top: 8px; padding: 10px 12px; border-radius: 8px;
+  background: rgba(255,255,255,.03); border: 1px dashed rgba(255,255,255,.12);
+  display: flex; flex-direction: column; gap: 8px; }
+.ndb-status-on { font-size: 12px; }
+.ndb-rule { display: flex; gap: 8px; align-items: center; }
+.ndb-check { display: flex; align-items: center; gap: 5px; color: #c0c4cf; font-size: 12px; white-space: nowrap; }
+.ndb-status-val { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-left: 4px; }
+.ndb-status-num { font-family: 'JetBrains Mono', monospace; color: #dde3ee; }
 
 .ndb-result { margin-top: 8px; }
 .ndb-result-meta { font-size: 11px; color: #888; margin-bottom: 4px; }

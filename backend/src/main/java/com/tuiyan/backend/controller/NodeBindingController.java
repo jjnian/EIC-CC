@@ -7,6 +7,8 @@ import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.model.dto.TablePreviewResponse;
 import com.tuiyan.backend.repository.NodeDataBindingRepository;
 import com.tuiyan.backend.service.DataSourceService;
+import com.tuiyan.backend.service.NodeStateScheduler;
+import com.tuiyan.backend.service.NodeStateService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,7 +17,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 节点数据供血绑定端点：把已建好的本体血缘图节点绑定到数据源的表/列，并按绑定取数供血。
+ * 节点数据供血绑定端点：把已建好的本体血缘图节点绑定到数据源的表/列，并按绑定取数供血；
+ * 态势层在此之上——绑定可配置「状态查询 + 阈值规则」成为状态源，定时刷新节点运行状态。
  * <p>这是新数据流的第二阶段——本体血缘图由经验库文件构建后，数据源在这里只负责
  * 为图节点绑定真实数据来源（table/column 映射）并取数，不再参与建图。
  */
@@ -25,10 +28,15 @@ public class NodeBindingController {
 
     private final NodeDataBindingRepository repo;
     private final DataSourceService dataSourceService;
+    private final NodeStateService stateService;
+    private final NodeStateScheduler stateScheduler;
 
-    public NodeBindingController(NodeDataBindingRepository repo, DataSourceService dataSourceService) {
+    public NodeBindingController(NodeDataBindingRepository repo, DataSourceService dataSourceService,
+                                 NodeStateService stateService, NodeStateScheduler stateScheduler) {
         this.repo = repo;
         this.dataSourceService = dataSourceService;
+        this.stateService = stateService;
+        this.stateScheduler = stateScheduler;
     }
 
     /** 列出某模型（可选某节点）下的供血绑定。 */
@@ -63,7 +71,58 @@ public class NodeBindingController {
     @DeleteMapping("/{id}")
     public ResponseEntity<SuccessCountResponse> delete(@PathVariable String id) {
         boolean ok = repo.delete(id);
+        if (ok) {
+            stateScheduler.cancel(id);
+            stateService.deleteByBinding(id);
+        }
         return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+    }
+
+    // ---------- 态势层：状态源配置 / 刷新 / 查询 ----------
+
+    /**
+     * 配置绑定的状态源：{statusQuery, statusRules, statusEnabled, statusIntervalSec}。
+     * statusQuery 为只读 SQL（首行首列作为状态值）；启用即注册定时刷新。
+     */
+    @PutMapping("/{id}/status-config")
+    public ResponseEntity<Map<String, Object>> statusConfig(@PathVariable String id,
+                                                            @RequestBody Map<String, Object> body) {
+        String query = strOrNull(body.get("statusQuery"));
+        String rules = strOrNull(body.get("statusRules"));
+        boolean enabled = Boolean.TRUE.equals(body.get("statusEnabled"));
+        Integer interval = body.get("statusIntervalSec") instanceof Number n
+                ? Math.max(NodeStateScheduler.MIN_INTERVAL_SEC, n.intValue()) : null;
+        if (enabled && (query == null || query.isBlank())) {
+            return ResponseEntity.badRequest().body(Map.of("error", "启用状态刷新前请先填写状态查询 SQL"));
+        }
+        Map<String, Object> updated = repo.updateStatusConfig(id, query, rules, enabled, interval);
+        if (updated == null) return ResponseEntity.notFound().build();
+        if (enabled) {
+            stateScheduler.register(id, interval == null ? NodeStateScheduler.MIN_INTERVAL_SEC : interval);
+        } else {
+            stateScheduler.cancel(id);
+        }
+        return ResponseEntity.ok(updated);
+    }
+
+    /** 手动刷新一次状态（含归属校验），返回最新状态。 */
+    @PostMapping("/{id}/status/refresh")
+    public ResponseEntity<Map<String, Object>> refreshStatus(@PathVariable String id) {
+        if (repo.findScoped(id) == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(stateService.refresh(id));
+    }
+
+    /** 某模型下全部节点的当前状态（态势画布轮询用）。 */
+    @GetMapping("/states")
+    public ResponseEntity<List<Map<String, Object>>> states(@RequestParam String modelId) {
+        return ResponseEntity.ok(stateService.statesOfModel(modelId));
+    }
+
+    /** 某绑定的状态历史（新→旧）。 */
+    @GetMapping("/{id}/status/history")
+    public ResponseEntity<List<Map<String, Object>>> statusHistory(@PathVariable String id,
+                                                                   @RequestParam(defaultValue = "100") int limit) {
+        return ResponseEntity.ok(stateService.history(id, limit));
     }
 
     /**

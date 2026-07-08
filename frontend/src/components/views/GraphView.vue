@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch, type PropType } from 'vue';
+import { computed, onUnmounted, ref, watch, type PropType } from 'vue';
+import { listNodeStates } from '../../api/nodeBindings';
 import GraphCanvas from '../GraphCanvas.vue';
 import NodeInfo from '../NodeInfo.vue';
 import EdgeInfo from '../EdgeInfo.vue';
@@ -121,6 +122,40 @@ watch(() => props.edges, (list) => {
 
 // 图分析面板
 const analysisOpen = ref(false);
+
+// ── 态势模式：轮询节点状态给画布着色（供血让世界活起来）──
+const SITUATION_POLL_MS = 30_000;
+const LEVEL_SEVERITY: Record<string, number> = { alert: 3, warn: 2, error: 1, normal: 0 };
+const situationOn = ref(false);
+const nodeStates = ref<Record<string, { value?: string | null; level?: string }>>({});
+let situationTimer: ReturnType<typeof setInterval> | null = null;
+
+const loadStates = async () => {
+  if (!props.modelId) return;
+  try {
+    const list = await listNodeStates(props.modelId);
+    // 节点可有多个状态源：着色取最严重级别
+    const byNode: Record<string, { value?: string | null; level?: string }> = {};
+    for (const st of list) {
+      const cur = byNode[st.nodeId];
+      if (!cur || (LEVEL_SEVERITY[st.level || 'normal'] ?? 0) > (LEVEL_SEVERITY[cur.level || 'normal'] ?? 0)) {
+        byNode[st.nodeId] = { value: st.value, level: st.level };
+      }
+    }
+    nodeStates.value = byNode;
+  } catch { /* 轮询失败静默，下轮重试 */ }
+};
+
+const toggleSituation = () => {
+  situationOn.value = !situationOn.value;
+  if (situationTimer) { clearInterval(situationTimer); situationTimer = null; }
+  if (situationOn.value) {
+    loadStates();
+    situationTimer = setInterval(loadStates, SITUATION_POLL_MS);
+  }
+};
+watch(() => props.modelId, () => { if (situationOn.value) loadStates(); });
+onUnmounted(() => { if (situationTimer) clearInterval(situationTimer); });
 </script>
 
 <template>
@@ -135,6 +170,7 @@ const analysisOpen = ref(false);
         :diffHighlight="diffHighlight"
         :canUndo="canUndo"
         :canRedo="canRedo"
+        :nodeStates="situationOn ? nodeStates : null"
         @move="onMove"
         @undo="emit('undo')"
         @redo="emit('redo')"
@@ -198,6 +234,14 @@ const analysisOpen = ref(false);
         @click="analysisOpen = !analysisOpen"
         title="图谱分析：节点/关系精确统计与路径查询"
       >📊 分析</Button>
+      <!-- 态势模式：轮询节点状态，画布按级别着色（正常绿/关注黄/告警红闪/失联灰） -->
+      <Button
+        :variant="situationOn ? 'default' : 'outline'"
+        size="sm"
+        class="situation-btn"
+        @click="toggleSituation"
+        title="态势模式：定时拉取各节点状态源的最新值并按阈值级别着色（需先在节点供血绑定里配置状态监测）"
+      >📡 态势</Button>
       <!-- 领域折叠按钮 + 面板：大图按域折叠成超级节点，复杂而不混乱 -->
       <Button
         v-if="collapse.hasDomains.value"
@@ -272,6 +316,12 @@ const analysisOpen = ref(false);
 .domain-btn {
   position: absolute;
   top: 12px; right: 92px;
+  z-index: 15;
+  backdrop-filter: blur(8px);
+}
+.situation-btn {
+  position: absolute;
+  top: 12px; right: 230px;
   z-index: 15;
   backdrop-filter: blur(8px);
 }

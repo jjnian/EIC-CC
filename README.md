@@ -45,6 +45,7 @@
 | **血缘分析** | 上下游追溯、路径查询、结构体检（血缘环 / 方向矛盾 / 孤立节点 / 重复节点）、**覆盖度审计（缺口→调研任务清单）**、影响分析报告导出 |
 | **可解释** | 节点 / 边标注来源（derived / inferred / manual）、置信度、**多源证据聚合（evidences，重复来源互证提置信）**、所属领域（domain），全程可审计 |
 | **人工审核** | 低置信 / 孤证的推断边进审核队列，专家确认（标记 + 提置信）或否决（删边），把「贴合实际」的最后一公里交给懂业务的人 |
+| **实时态势** | 供血绑定升级为状态源：状态查询（只读 SQL）定时执行 → 阈值判级（正常/关注/告警/失联）→ 画布态势模式实时着色——建图是画世界，供血让世界活起来 |
 | **多 LLM** | OpenAI / Anthropic 双协议，多模型即时切换；内建 ASR（语音转写）与 Vision（图片识别）专用模型槽位 |
 
 **适用场景**：业务血缘梳理、跨系统数据流盘点、数据资产治理、流程与规则建模、内网系统功能反推、知识资产沉淀。
@@ -263,6 +264,8 @@ PostgreSQL(27 表) · MinIO(对象存储) · 外部数据源(用户库表/HTTP) 
 ### 7.6 数据源与供血
 数据源 CRUD（密码 / 鉴权头输出脱敏）；连接测试；schema 内省；只读 SQL 执行（白名单 + 危险函数黑名单 + 强制 LIMIT）；HTTP 接口执行与定时调度；节点供血绑定；**值包含检验**把推断血缘升级为数据证实。
 
+**态势层（状态源）**：绑定可配置「状态查询（只读 SQL，首行首列为状态值）+ 阈值规则（`[{level,op,value}]` 首个命中生效）+ 刷新间隔」。`NodeStateScheduler` 定时执行（连续失败 5 次自动停用），结果落 `node_state`（当前）与 `node_state_history`（时序，每绑定保留 500 条）。画布「📡 态势」模式每 30s 轮询各节点最严重级别并着色：正常绿 / 关注黄 / 告警红闪 / 失联灰。
+
 ### 7.7 系统探索 Agent
 用 Playwright 无头 Chromium 像人一样「用」一个内网 web 系统（可账号密码自动登录），把页面编码成文本快照交 LLM 理解，代码维护 frontier 做覆盖式爬取，产出《业务说明文档》落经验库。**纵深只读护栏**：危险元素标记 + 拒点写操作/登出 + 网络层拦非幂等请求 + 锁定同站，防误改数据、防跑偏第三方站。**LLM 只做页面理解、不驱动动作**，天然抗页面提示注入。
 
@@ -335,7 +338,7 @@ PostgreSQL(27 表) · MinIO(对象存储) · 外部数据源(用户库表/HTTP) 
 | 版本快照 | `ontology_model_version`、`ontology_version_node`、`ontology_version_node_prop`、`ontology_version_edge` |
 | 经验库 | `experience`、`experience_folder`、`experience_ref`、`exp_chunk`、`exp_embedding`（RAG） |
 | 数据源 | `data_source`、`data_source_folder`、`data_source_ref`、`data_source_fetch_log`、`ds_chunk`、`ds_embedding` |
-| 绑定 / 建图 | `node_data_binding`（节点供血）、`model_build_source`（增量建图记录） |
+| 绑定 / 建图 | `node_data_binding`（节点供血 + 状态源配置）、`node_state`（节点当前状态）、`node_state_history`（状态时序）、`model_build_source`（增量建图记录） |
 | 对话 / 模板 | `conversation`、`conversation_message`、`graph_template` |
 
 ### 10.2 对象存储（MinIO）
@@ -377,7 +380,9 @@ PostgreSQL(27 表) · MinIO(对象存储) · 外部数据源(用户库表/HTTP) 
 
 **数据源** `/api/data-sources`：CRUD · `POST{id}/test` · `POST /test-inline` · `GET{id}/tables` · `GET{id}/introspect` · `POST{id}/sql` · `POST{id}/verify-containment`（值包含检验）· `POST{id}/execute`（HTTP）· `POST{id}/schedule` · `GET{id}/logs`。
 
-**其他**：`/api/node-bindings`（供血绑定）· `/api/extract`（文档/音频抽取）· `/api/conversations` · `/api/templates` · `/api/index`（RAG）· `/api/models`（LLM 配置/测试）· `/api/config` · `/api/prefs` · `/api/system`（监控/健康）。
+**供血绑定 / 态势** `/api/node-bindings`：CRUD · `POST{id}/fetch` 取数 · `PUT{id}/status-config` 状态源配置 · `POST{id}/status/refresh` 手动刷新 · `GET /states?modelId` 全模型当前状态 · `GET{id}/status/history` 状态历史。
+
+**其他**：· `/api/extract`（文档/音频抽取）· `/api/conversations` · `/api/templates` · `/api/index`（RAG）· `/api/models`（LLM 配置/测试）· `/api/config` · `/api/prefs` · `/api/system`（监控/健康）。
 
 ---
 

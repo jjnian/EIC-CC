@@ -469,6 +469,37 @@ CREATE TABLE IF NOT EXISTS node_data_binding (
 );
 CREATE INDEX IF NOT EXISTS idx_ndb_model_node ON node_data_binding (model_id, node_id);
 CREATE INDEX IF NOT EXISTS idx_ndb_ws ON node_data_binding (workspace_id);
+-- 态势层：绑定升级为「状态源」——供血不只佐证，还持续给节点回填运行状态
+ALTER TABLE node_data_binding
+    ADD COLUMN IF NOT EXISTS status_query        TEXT,                  -- 状态查询(只读 SQL，首行首列为状态值)
+    ADD COLUMN IF NOT EXISTS status_rules_json   TEXT,                  -- 阈值规则 JSON:[{level,op,value}]，首个命中生效，默认 normal
+    ADD COLUMN IF NOT EXISTS status_enabled      BOOLEAN NOT NULL DEFAULT FALSE,  -- 是否纳入定时刷新
+    ADD COLUMN IF NOT EXISTS status_interval_sec INTEGER;               -- 刷新间隔(秒，最小 60)
+
+-- 节点当前状态（每绑定一行；节点可有多绑定=多状态源，前端取最严重级别着色）
+CREATE TABLE IF NOT EXISTS node_state (
+    binding_id   VARCHAR(64)  PRIMARY KEY,
+    workspace_id VARCHAR(64)  NOT NULL,
+    model_id     VARCHAR(64)  NOT NULL,
+    node_id      VARCHAR(128) NOT NULL,
+    value        TEXT,                        -- 状态查询结果(首行首列，文本化)
+    level        VARCHAR(16),                 -- normal / warn / alert / error(采集失败)
+    message      TEXT,                        -- 采集错误信息等
+    updated_at   BIGINT       NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_node_state_model ON node_state (model_id);
+
+-- 节点状态历史（时序，供趋势/回放；按绑定保留最近 500 条）
+CREATE TABLE IF NOT EXISTS node_state_history (
+    id           BIGSERIAL    PRIMARY KEY,
+    binding_id   VARCHAR(64)  NOT NULL,
+    model_id     VARCHAR(64)  NOT NULL,
+    node_id      VARCHAR(128) NOT NULL,
+    value        TEXT,
+    level        VARCHAR(16),
+    collected_at BIGINT       NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_nsh_binding ON node_state_history (binding_id, collected_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- 8.4 建图来源记录：某模型由「哪些经验的哪个内容版本」构建。
