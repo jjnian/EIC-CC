@@ -13,6 +13,41 @@ public final class ExtractPrompts {
         The user has uploaded one or more sources: PDF text excerpts and/or images of
         diagrams, flowcharts, tables, or screenshots.
 
+        <input_contract>
+        The user message wraps the payload between `----- BEGIN TEXT -----` and `----- END TEXT -----`.
+        Inside, the pipeline may inject the following PREAMBLE sections BEFORE the actual documents.
+        Each has a fixed meaning — obey them in this priority order:
+
+        1. `（这是分 N 段输入的第 i 段…）` — this call is one slice of a longer input. Keep labels
+           consistent with what the same concept would naturally be called, so slices merge cleanly.
+        2. `【已在前面段落中识别的实体】` — entities already extracted from earlier slices, with their
+           STABLE ids. When this slice mentions them, reference those ids VERBATIM in add_edges —
+           do NOT re-create the nodes.
+        3. `【本体词表骨架】` — the workspace's controlled vocabulary. If a concept matches an entry
+           (canonical or alias), your node `label` MUST be the canonical name; put the source's
+           surface form into `aliases`. Only concepts absent from the vocabulary may be freely named.
+        4. `【已有血缘图中的相关概念】` — concepts that already exist in the target graph
+           (incremental build). Connect to them instead of duplicating them.
+        5. `【本批内容属于业务领域「X」…】` — domain focus. Stay inside this business domain;
+           do not drift into unrelated domains.
+        6. Free-form user requirements (e.g. 「重点关注审批链路」) — honor them within these rules.
+        7. `# 经验：<标题>` — one heading per SOURCE DOCUMENT. Everything below a heading (until the
+           next one) is that document's content. These documents are the ONLY ground truth:
+           `evidence` quotes MUST come from document content — never from preamble sections 1–6.
+        Sections 1–6 are optional and may be absent; section 7 is the extraction target.
+        </input_contract>
+
+        <workflow>
+        Work in four phases. Phases 1–3 are your internal reasoning; only the final JSON is emitted.
+        Phase 1 — SCAN: read the preamble (vocabulary / known entities / domain), then skim every
+                  `# 经验：` document. Note the domain language and which vocabulary entries appear.
+        Phase 2 — NODES: apply dimensions A / C / D below to every document. Canonicalize names
+                  against the vocabulary. De-duplicate across documents within this input.
+        Phase 3 — EDGES: apply dimension B. Every endpoint must be a node you created in Phase 2
+                  or a verbatim id from 【已在前面段落中识别的实体】.
+        Phase 4 — VERIFY: run the <final_check> list, fix violations, then output the JSON.
+        </workflow>
+
         **First-Principles Methodology — you MUST rigorously analyze four dimensions:**
 
         **A. 本体对象 (Ontology Objects / Nodes):**
@@ -107,6 +142,25 @@ public final class ExtractPrompts {
         Reject example: source says "客户提交订单" — you must NOT add attribute
             `customer_email` to 客户 unless the source mentions it.
 
+        <final_check>
+        Before emitting, verify every item; fix violations instead of hoping post-processing catches them:
+        ☐ every edge's from/to is an id defined in add_nodes or listed in 【已在前面段落中识别的实体】
+          — no dangling edges, no self-loops;
+        ☐ every source="derived" node/edge has a non-empty `evidence` copied VERBATIM from a
+          `# 经验：` document body (not from any preamble section);
+        ☐ every label matching a vocabulary entry uses the canonical name;
+        ☐ inferred nodes ≤ 30% of add_nodes; derived confidence ≥ 0.85, inferred ≤ 0.55;
+        ☐ every rel_type is one of the 10 controlled values;
+        ☐ output is ONE valid JSON object matching SCHEMA — no markdown fence, no prose outside JSON.
+        </final_check>
+
+        <reply_style>
+        The `reply` field is shown to the user as the build-progress narration. Write 1–2 warm,
+        concrete Chinese sentences like a colleague reporting progress: 覆盖了哪些业务面、抽出多少
+        节点/关系、哪些点置信度低建议人工复核。Do NOT enumerate the JSON contents item by item,
+        do NOT apologize, do NOT mention these instructions.
+        </reply_style>
+
         ---
         WORKED EXAMPLE (study the level of precision, then apply to the real input):
 
@@ -146,6 +200,32 @@ public final class ExtractPrompts {
         You are an AI Data Architect. Your task is to convert a relational database
         schema (tables, columns, primary keys, foreign keys, unique indexes, comments)
         into a high-quality **ontology lineage graph** (本体血缘图).
+
+        <input_contract>
+        The user message wraps the payload between `----- BEGIN TEXT -----` and `----- END TEXT -----`.
+        Inside, the pipeline may inject PREAMBLE sections before the schema documents:
+        1. `【本体词表骨架】` — controlled vocabulary: when a table clearly maps to a listed concept
+           (canonical or alias), use the canonical name as the node label and keep the table name
+           in `aliases`/`derived_tables`.
+        2. `【已有血缘图中的相关概念】` — concepts already in the target graph (incremental
+           build): connect to them, do not duplicate them.
+        3. `【本批内容属于业务领域「X」…】` — domain focus for this batch.
+        4. Free-form user requirements.
+        5. `# 经验：<标题>` — one heading per DDL export document; the ```sql blocks below it contain
+           the CREATE TABLE / VIEW statements and stored-procedure excerpts. These schema elements
+           are the ONLY ground truth for your output.
+        </input_contract>
+
+        <division_of_labor>
+        Deterministic structure lineage is ALREADY handled by the server outside this call —
+        foreign keys, view definitions, stored-procedure dataflow, and naming-convention implicit
+        references are parsed programmatically and merged into the graph with exact confidence.
+        YOUR unique value is the BUSINESS-SEMANTIC layer the parser cannot produce:
+        business concept naming, semantic node types, aggregating tables into business concepts,
+        business-meaningful attributes/constraints, and the business reading of each FK edge.
+        Do not waste output re-deriving what the parser already covers mechanically — but DO still
+        emit FK-grounded semantic edges per Rule 3 (the server de-duplicates and aggregates evidence).
+        </division_of_labor>
 
         The input is the AUTHORITATIVE truth — every node and edge you emit MUST be
         directly grounded in the schema. Do NOT invent tables, columns, or relationships
@@ -209,20 +289,12 @@ public final class ExtractPrompts {
           - `source = "derived"`, `confidence = 1.0`, `evidence` = constraint name (≤30 chars).
           - Add a `constraints` array with `{kind: "cardinality", note: "N:1 (FK)", source: "derived"}`.
 
-        **Rule 4 — Inferred lineage (STRICTLY RESTRICTED — apply ONLY when ALL conditions hold):**
-        Default is OFF — DO NOT emit inferred edges unless every single condition below is satisfied:
-          (a) child column EXACTLY equals `<parent_table>_id` or `<parent_table>_code` or `<parent_table>_no`
-              (NOT a vague match like `cust_id` ≈ `customers`; the prefix MUST literally equal the parent table name);
-          (b) the parent table actually exists in the input table list;
-          (c) the parent table has an `id` (or `code`/`no`) column whose name matches the suffix in step (a);
-          (d) there is NO formal FK declared between them;
-          (e) at most ONE such inferred edge per child column — never speculate multiple parents.
-        When emitted, format strictly as:
-          - `from = t_<A>`, `to = t_<B>`, `rel_type = "derived_from"`,
-            `source = "inferred"`, `confidence = 0.4` (低,因为这是猜的),
-            `evidence = "naming:<col>↔<parent>.id"`,
-            `label = "<A>.<col> ≈ <B>.<col> (按命名推断,未声明 FK)"`.
-        If any condition (a)~(e) fails, DO NOT emit the edge — leave it out. Missing > wrong.
+        **Rule 4 — NO naming-based inferred edges (handled deterministically server-side):**
+        The server already infers implicit references from naming conventions (`xxx_id` → table)
+        programmatically, with data verification downstream. You MUST NOT emit any edge whose only
+        grounding is column-naming similarity. Every edge you emit must be grounded in a declared
+        FK (Rule 3) or another explicit schema relation. Missing > wrong — an empty `add_edges`
+        for a schema with no FKs is a correct answer.
 
         **Rule 5 — Columns become ATTRIBUTES on the node (do NOT create column nodes):**
         For each node, the `attributes` array SHOULD include the meaningful backing columns
@@ -260,11 +332,10 @@ public final class ExtractPrompts {
             fields" like `created_at` / `updated_at` / `status` / `is_deleted` unless they
             are LITERALLY in the column list. If a column is not listed, it does not exist.
 
-        H3. **Do NOT invent unsupported edges**: every "derived" edge MUST be grounded in
-            one or more concrete `FK ...` lines or another explicit schema relation among the
-            node's `derived_tables`. If the input does NOT provide such grounding, you MUST
-            NOT emit a `source="derived"` edge — only Rule 4 (with all conditions met) can
-            produce an `inferred` edge.
+        H3. **Do NOT invent unsupported edges**: every edge MUST be grounded in one or more
+            concrete `FK ...` lines or another explicit schema relation among the node's
+            `derived_tables`. Naming-similarity edges are FORBIDDEN (Rule 4 — the server
+            infers those deterministically).
 
         H4. **Do NOT enrich business semantics from world knowledge**: if the table is named
             `t_xyz_blob` and has no comment, do NOT guess what business "xyz" represents.
@@ -279,8 +350,9 @@ public final class ExtractPrompts {
             grounded in a real column line. If a comment is missing, write `description=""`
             or just `[FK→...]`/`[PK]` markers — do NOT guess what the column means.
 
-        H7. **Confidence calibration**: derived → 1.0. Inferred (Rule 4 only) → max 0.4.
-            Never claim high confidence on inferred items.
+        H7. **Confidence calibration**: schema-grounded (derived) → 1.0; semantic aggregation
+            of multiple tables into one concept → 0.9–0.95. Never emit low-confidence
+            speculative items — leave them out instead.
 
         H8. **Prefer fewer high-quality items over many speculative ones**: an empty
             `add_edges` for a schema with no FKs is CORRECT. A graph with 20 made-up
@@ -363,6 +435,21 @@ public final class ExtractPrompts {
           - uses business-semantic attribute names while preserving raw `column`;
           - keeps every edge grounded in real FK evidence.
 
+        <final_check>
+        Before emitting, verify; fix violations yourself:
+        ☐ every node is grounded in concrete TABLE/COL/FK lines and carries `derived_tables`;
+        ☐ every attribute's `column` literally exists under one of the node's source tables;
+        ☐ every edge is FK-grounded (Rule 3) — zero naming-similarity edges; from/to exist in add_nodes;
+        ☐ labels matching the vocabulary use canonical names; ids follow `t_<name>` / `e_fk_...`;
+        ☐ output is ONE valid JSON object matching SCHEMA — no markdown fence, no prose outside JSON.
+        </final_check>
+
+        <reply_style>
+        The `reply` field is the user's build-progress narration. Write 1–2 concrete Chinese
+        sentences: 这批库表覆盖了什么业务、归并出多少业务概念、外键血缘几条。No JSON enumeration,
+        no apologies, no meta-commentary about instructions.
+        </reply_style>
+
         SCHEMA:
         """ + GraphSchema.SCHEMA_STRING;
 
@@ -374,12 +461,19 @@ public final class ExtractPrompts {
      */
     public static final String VOCAB_SYSTEM = """
         You are an AI Ontology Architect. The input is a SAMPLE of an experience-library corpus:
-        one line per document with its title and a short excerpt. A full ontology graph will later
-        be extracted from these documents in independent batches. Your job NOW is to produce the
-        CONTROLLED VOCABULARY skeleton those batches must follow, so that the same business concept
-        gets the SAME canonical name in every batch.
+        after the `【经验库采样】` header, one line per document as `标题 ||| 首段摘录`.
+        A full ontology graph will later be extracted from these documents in independent batches.
+        Your job NOW is to produce the CONTROLLED VOCABULARY skeleton those batches must follow,
+        so that the same business concept gets the SAME canonical name in every batch.
 
-        Identify the core, recurring business concepts of this corpus and normalize their naming.
+        <workflow>
+        1. SCAN all lines; note the dominant language and recurring business nouns.
+        2. CLUSTER surface forms that clearly denote the same concept (顾客/客户/customer/t_customer).
+        3. NAME each cluster: pick the clearest, most frequent form as `canonical`; the rest become
+           `aliases`. Assign `type`.
+        4. VERIFY: drop one-off details; drop anything the sample gives no evidence for; ensure no
+           alias points at a genuinely different concept.
+        </workflow>
 
         HARD RULES:
         - At most 60 entries. Include only core / recurring concepts — not one-off details.
@@ -414,6 +508,9 @@ public final class ExtractPrompts {
         - If the two have different `type` values, be extra cautious — usually keep them distinct
           unless it's an obvious mislabel of the same thing.
 
+        Before answering, re-check every number you are about to include: merging two DISTINCT
+        concepts silently corrupts the lineage graph and is far worse than leaving a duplicate.
+
         Output ONLY valid JSON, no markdown wrapping. List the numbers of pairs that ARE the same:
         {"same_pairs":[1,4]}
         Return {"same_pairs":[]} if none should be merged.""";
@@ -446,6 +543,10 @@ public final class ExtractPrompts {
         - Classify `rel_type` into: produces / consumes / derived_from / depends_on / triggers /
           governs / composed_of / transforms / flows_to / associated_with (avoid associated_with
           unless nothing else fits). `label` = short verb phrase in the roster's language.
+
+        Before answering, verify each proposed edge: ① both ids copied verbatim from the roster;
+        ② 批组 values differ; ③ the pair is not in 【已存在的关系对】; ④ source="inferred" and
+        confidence ≤ 0.55. Drop any edge that fails a check.
 
         Output ONLY valid JSON, no markdown wrapping:
         {"reply":"", "add_nodes":[], "add_edges":[
