@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>业务血缘图构建 · 代码实现文档</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#161c2b; --panel2:#1c2436; --ink:#e6ecf5; --mut:#9aa7bd;
+    --line:#2a3346; --acc:#5b9dff; --acc2:#7c5cff; --ok:#3fbf7f; --warn:#f0b429;
+    --bad:#f2665e; --chip:#22304a;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:linear-gradient(180deg,#0d121c,#0f1420 40%);color:var(--ink);
+    font:15px/1.72 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft Yahei",sans-serif;}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{display:grid;grid-template-columns:280px 1fr;max-width:1340px;margin:0 auto;gap:0}
+  nav{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:26px 18px;border-right:1px solid var(--line);background:#0d121c}
+  nav h1{font-size:15px;margin:0 0 4px;color:#fff;letter-spacing:.5px}
+  nav .sub{color:var(--mut);font-size:12px;margin-bottom:18px}
+  nav ol{list-style:none;margin:0;padding:0;counter-reset:s}
+  nav li{counter-increment:s;margin:2px 0}
+  nav li a{display:block;padding:6px 10px;border-radius:8px;color:var(--mut);font-size:13.5px}
+  nav li a::before{content:counter(s) ". ";color:var(--acc2);font-weight:600}
+  nav li a:hover{background:var(--panel);color:var(--ink);text-decoration:none}
+  main{padding:38px 46px 120px;min-width:0}
+  header.hero{border:1px solid var(--line);background:radial-gradient(1200px 300px at 10% -10%,rgba(124,92,255,.18),transparent),var(--panel);
+    border-radius:18px;padding:30px 32px;margin-bottom:30px}
+  header.hero .tag{display:inline-block;background:var(--chip);color:var(--acc);border:1px solid var(--line);
+    padding:3px 10px;border-radius:999px;font-size:12px;margin-bottom:12px}
+  header.hero h1{margin:.1em 0 .2em;font-size:28px;color:#fff;letter-spacing:.3px}
+  header.hero p{color:var(--mut);margin:.2em 0;max-width:80ch}
+  section{margin:0 0 42px;scroll-margin-top:20px}
+  h2{font-size:21px;color:#fff;border-left:4px solid var(--acc2);padding-left:12px;margin:34px 0 14px}
+  h3{font-size:16.5px;color:#cfe0ff;margin:22px 0 8px}
+  h4{font-size:14px;color:#bcd0f0;margin:16px 0 6px}
+  p{margin:.5em 0}
+  code{background:#0c1119;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:12.8px;
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;color:#e3b7ff}
+  pre{background:#0a0e16;border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow:auto;font-size:12.6px;
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;color:#cdd8ea;line-height:1.62}
+  pre code{background:none;border:none;padding:0;color:inherit}
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}
+  @media(max-width:1050px){.g2,.g3{grid-template-columns:1fr}.wrap{grid-template-columns:1fr}nav{display:none}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .card h3{margin-top:0}
+  .muted{color:var(--mut)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13.4px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#cfe0ff;font-weight:600}
+  tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;border:1px solid var(--line);background:var(--chip)}
+  .pill.ok{color:var(--ok);border-color:#1f5c3f}.pill.warn{color:var(--warn);border-color:#6b5411}
+  .pill.bad{color:var(--bad);border-color:#6b2b27}.pill.acc{color:var(--acc)}
+  .step{display:flex;gap:12px;align-items:flex-start;margin:10px 0}
+  .step .n{flex:0 0 26px;height:26px;border-radius:50%;background:var(--acc2);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:700}
+  .note{border-left:3px solid var(--acc);background:rgba(91,157,255,.08);padding:10px 14px;border-radius:0 10px 10px 0;margin:12px 0}
+  .warnbox{border-left:3px solid var(--warn);background:rgba(240,180,41,.08);padding:10px 14px;border-radius:0 10px 10px 0;margin:12px 0}
+  ul.tight{margin:.3em 0;padding-left:20px}ul.tight li{margin:3px 0}
+  footer{color:var(--mut);font-size:12.5px;border-top:1px solid var(--line);padding-top:16px;margin-top:40px}
+  .file{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#8fd3a0}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h1>业务血缘图构建</h1>
+  <div class="sub">EIC-CC · 基于当前代码的实现盘点</div>
+  <ol>
+    <li><a href="#overview">总览：三段式范式</a></li>
+    <li><a href="#pipeline">建图主流水线</a></li>
+    <li><a href="#input">输入准备与增量建图</a></li>
+    <li><a href="#deterministic">确定性血缘四通路</a></li>
+    <li><a href="#naming">命名统一三阶段</a></li>
+    <li><a href="#batch">分批并行与断点续跑</a></li>
+    <li><a href="#merge">合并·跨批连边·图校验</a></li>
+    <li><a href="#explain">可解释性与置信度谱系</a></li>
+    <li><a href="#direction">血缘方向语义</a></li>
+    <li><a href="#verify">佐证与人工审核闭环</a></li>
+    <li><a href="#binding">供血绑定与实时态势</a></li>
+    <li><a href="#params">关键参数速查</a></li>
+    <li><a href="#codemap">代码地图</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <span class="tag">依据 main 分支当前源码逐文件盘点生成</span>
+  <h1>业务血缘图构建 · 代码实现文档</h1>
+  <p>本文完全依据当前代码（后端 <span class="file">com.tuiyan.backend</span> 建图链路 + 前端合并/佐证/审核组件）梳理业务血缘图从<strong>经验库输入</strong>到<strong>可佐证、可审核、可实时观测</strong>的血缘图的完整构建过程：确定性血缘直出、LLM 分批抽取、三阶段命名统一、证据聚合、数据佐证与人工审核闭环。</p>
+</header>
+
+<!-- ============ 1 总览 ============ -->
+<section id="overview">
+<h2>总览：三段式范式</h2>
+<p>建图唯一入口是 <span class="file">ExperienceOntologyService</span>（类注释明言「数据库 schema 直出图的旧链路已移除」）。数据流分三段：</p>
+<pre><code>① 沉淀：五类来源 → 经验库（Markdown 文档，origin: chat/upload/ddl/explore/websearch）
+                     DDL 导出时确定性血缘已渲染成隐藏片段内嵌在文档里
+② 建图：经验库 → 词表骨架 → 分域分批并行 LLM 抽取 → 归一/去重/对齐 → 跨批连边
+                     → 结构化片段直连合并 → 图校验+证据聚合 → 加盐 → {nodes, edges}
+③ 供血：图节点绑定真实库表/接口；推断边做值包含检验；低置信边进人工审核队列；
+                     绑定升级为状态源，定时刷新节点态势</code></pre>
+<div class="grid g3">
+  <div class="card"><h3>确定性优先</h3><p class="muted">外键、视图定义、存储过程源码是数据库里现成的血缘 ground truth，正则/元数据级解析直出 <code>confidence=1.0</code> 的边，不让 LLM 重新猜。</p></div>
+  <div class="card"><h3>LLM 只做语义</h3><p class="muted">散文经验的实体/关系抽取、跨批关系补全、同义仲裁交给 LLM；其产出一律带来源与置信度标记，可被数据和人复核。</p></div>
+  <div class="card"><h3>推断必须闭环</h3><p class="muted">命名推断、跨批连边等低置信边不直接可信：值包含检验用真实数据升级/否决，审核队列交业务专家把关。</p></div>
+</div>
+</section>
+
+<!-- ============ 2 主流水线 ============ -->
+<section id="pipeline">
+<h2>建图主流水线</h2>
+<p>核心方法 <code>ExperienceOntologyService.extractFromWorkspace(...)</code>（SSE 流式上报每步进度），按代码执行顺序：</p>
+<div class="step"><div class="n">1</div><div><strong>读经验库</strong> — 列出工作空间全部经验；文件夹名即业务领域（<code>domain</code>，无文件夹归「未分域」）；可按 <code>experienceIds</code> 圈定范围。</div></div>
+<div class="step"><div class="n">2</div><div><strong>增量过滤 + 孤儿检测</strong> — 增量模式按目标模型构建记录的内容哈希（SHA-256(title+content)）跳过未变化经验；检测「上次建图引用、现已删除」的孤儿来源，只报告不代删。</div></div>
+<div class="step"><div class="n">3</div><div><strong>结构化片段直采</strong> — 正文里 <code>&lt;!-- EXPLORE_GRAPH {json} --&gt;</code> 注释块（探索文档、DDL 确定性血缘共用同一标记）被解析成 <code>{add_nodes,add_edges}</code> 直连合并，并从正文剥离，LLM 不再重抽。</div></div>
+<div class="step"><div class="n">4</div><div><strong>受控词表骨架</strong> — 分域分层采样（标题+首段 300 字），一次 LLM 归纳「规范名+别名+类型」词表入库；增量复用、全量重建；失败降级为无骨架。</div></div>
+<div class="step"><div class="n">5</div><div><strong>既有图回灌</strong>（仅增量） — 从目标模型检索与本批相关的既有概念注入 prompt，让新内容连回旧图，不在每次增量时断链。</div></div>
+<div class="step"><div class="n">6</div><div><strong>域感知分批并行抽取</strong> — 按领域分组、组内按 30k 字符预算打包（批不跨域）；DDL 批走 schema 专用 system prompt；4 线程并行、单批失败重试一次；批产出落 checkpoint 支持断点续跑。</div></div>
+<div class="step"><div class="n">7</div><div><strong>服务端归一 + 批内去重</strong> — LLM 对词表遵循不可靠，服务端把命中别名的 label 强制改写为规范名（<code>normalize</code>）；<code>dedupeWithin</code> 折叠批内同名重复；加批前缀 <code>b0_</code>/<code>ex0_</code> 防 id 冲突；按 label(+aliases)+type 跨批合并。</div></div>
+<div class="step"><div class="n">8</div><div><strong>向量兜底同义对齐</strong> — 词表没收录的同义词（收款/回款）用 embedding 两两余弦召回 + LLM 批量仲裁 + 并查集折叠；发现的同义反哺词表。embedding 未配置整体 no-op。</div></div>
+<div class="step"><div class="n">9</div><div><strong>跨批连边</strong> — 并行各批互相看不见，跨批关系天然缺失；把实体清单（度数排序 + 分域轮转取样）+ 已有关系对喂给 LLM 只补跨批边，强制 <code>source=inferred</code>、置信度封顶 0.55、打 <code>cross_batch</code> 标记。</div></div>
+<div class="step"><div class="n">10</div><div><strong>图校验 + 证据聚合</strong> — <code>sanitizeGraph</code> 丢空 id/重复 id 节点、悬空边、自环；(from,to,rel_type) 重复边不是丢弃而是把证据聚合进 <code>evidences</code>，按独立证据数提置信（封顶 0.9）。</div></div>
+<div class="step"><div class="n">11</div><div><strong>加盐 + 来源/领域兜底标记</strong> — 全部 id 加 36 进制时间戳 salt 防多次导入冲突；<code>derived_source</code>/<code>domain</code> 空白处兜底回填。</div></div>
+<div class="step"><div class="n">12</div><div><strong>产出 + 构建清单</strong> — 返回 <code>{nodes, edges, reply, salt, manifest, removedSources}</code>；前端「合并进模型」前先跑结构体检，确认后回写 manifest 为构建记录，供下次增量。</div></div>
+<div class="note">两种落地方式：常规建图结果回传前端合并（<code>POST /api/experiences/extract-ontology</code>，SSE）；海量经验走 <code>buildFullIntoNewModel</code> 全量建图（<code>expCap=MAX_VALUE</code>），服务端直接落成新模型并回写构建记录，避免把万节点 payload 回传前端。</div>
+</section>
+
+<!-- ============ 3 输入 ============ -->
+<section id="input">
+<h2>输入准备与增量建图</h2>
+<h3>经验即输入</h3>
+<ul class="tight">
+  <li>单次建图默认上限 <code>MAX_EXPERIENCES=500</code> 篇，单篇正文截断 40,000 字符；超上限经验跳过并上报。</li>
+  <li>DDL 导出经验（<code>origin=ddl</code>）单独分批，用 <code>SCHEMA_TO_ONTOLOGY_SYSTEM</code> 专用抽取规则（映射确定、反幻觉更严）。</li>
+  <li>用户额外提示（如「重点关注审批链路」）作为前缀注入每一批。</li>
+</ul>
+<h3>增量建图（内容哈希 manifest）</h3>
+<ul class="tight">
+  <li>目标模型必须存在且属于当前工作空间（防跨空间读构建记录）。</li>
+  <li>哈希 = <code>sha256(title + "\0" + content)</code>；命中旧哈希 → 跳过；失败批的经验从 manifest 剔除，下次仍会重抽，不漏。</li>
+  <li>孤儿来源（构建记录里有、经验库已删）持续提醒直到用户处理；其贡献的节点/边保留在图中，清理与否是用户决策。</li>
+  <li>全部经验均未变化时直接报错提示「无需重建」，不空跑 LLM。</li>
+</ul>
+</section>
+
+<!-- ============ 4 确定性血缘 ============ -->
+<section id="deterministic">
+<h2>确定性血缘四通路（<span class="file">SchemaGraphFragmentRenderer</span>）</h2>
+<p>数据源「导出结构到经验库」时，内省 schema 里的确定性血缘被渲染成结构化片段内嵌进 DDL 文档，建图时免 LLM 直连合并。只为「参与血缘的表/视图」建节点；表节点 label 优先取表注释（业务名）、表名作别名——让它与 LLM 抽出的同名业务实体自然折叠。</p>
+<table>
+  <tr><th>通路</th><th>解析来源</th><th>产出边</th><th>source / confidence</th></tr>
+  <tr><td><strong>① 外键</strong></td><td>内省元数据 <code>ForeignKeyInfo</code></td><td>子表 <code>depends_on</code> 父表（父=上游）</td><td><span class="pill ok">derived / 1.0</span>，evidence 带约束名</td></tr>
+  <tr><td><strong>② 视图定义</strong></td><td><code>SchemaSqlLineage.viewFlows</code>：视图 definition 包成 <code>CREATE VIEW … AS</code> 后解析 FROM/JOIN</td><td>来源表 <code>flows_to</code> 视图</td><td><span class="pill ok">derived / 1.0</span></td></tr>
+  <tr><td><strong>③ 存储过程/函数</strong></td><td><code>SchemaSqlLineage.routineFlows</code>：源码经 <code>SqlLineageExtractor</code> 语句级解析（INSERT…SELECT / CTAS / CREATE VIEW / MERGE / UPDATE…FROM）</td><td>来源表 <code>flows_to</code> 写入目标表</td><td><span class="pill ok">derived / 1.0</span>，evidence 带过程名+语句类型</td></tr>
+  <tr><td><strong>④ 隐式引用</strong></td><td><code>ImplicitRefInferencer</code> 命名约定推断（生产库普遍不建 FK）</td><td>子表 <code>depends_on</code> 父表（候选）</td><td><span class="pill warn">inferred / 0.5</span>，证据格式兼容值包含检验</td></tr>
+</table>
+<h3>SQL 语句级解析要点（<span class="file">SqlLineageExtractor</span>）</h3>
+<ul class="tight">
+  <li>正则级而非完整 parser：只认「写入目标 + FROM/JOIN/USING 来源表」，表级粒度，列级映射交 LLM 语义补充；置信度 1.0、不会幻觉。</li>
+  <li>先剥块注释/行注释/字符串字面量再按 <code>;</code> 分句，防字符串里的关键字误报；CTE 名与函数调用（<code>FROM unnest(…)</code>）不算来源表。</li>
+  <li>上限：单脚本 800 语句 / 500 条数据流；同 (源,目标) 去重保首条证据。</li>
+  <li>该解析被两条建图路径共享（StructuralGraphService 与 DDL 经验片段），保证确定性血缘口径一致。</li>
+</ul>
+<h3>隐式引用推断规则（<span class="file">ImplicitRefInferencer</span>）</h3>
+<ul class="tight">
+  <li>列名形如 <code>xxx_id / xxxId / xxx_no / xxx_code / xxx_key</code>（snake 与 camel 两套正则），前缀能对上某张表。</li>
+  <li>表名匹配支持：复数（s/es/y→ies）、驼峰归一、剥 <code>t_/tb_/tbl_/sys_/biz_</code> 常见修饰前缀。</li>
+  <li>父表侧列选择：单列主键 &gt; 与子列同名列 &gt; 与后缀同名列（id/no/code），列必须真实存在，否则不产出——宁缺毋滥。</li>
+  <li>已被声明 FK 覆盖的列、自引用（parent_id 型）一律跳过；单库上限 500 条防组合爆炸。</li>
+  <li>证据按 <code>child.col → parent.col</code> 格式给出并带 <code>derived_tables</code>/<code>derived_source</code>，前端「一键数据佐证」可直接解析定位数据源验证。</li>
+</ul>
+</section>
+
+<!-- ============ 5 命名统一 ============ -->
+<section id="naming">
+<h2>命名统一三阶段（Schema-First）</h2>
+<p>大库分批抽取的根本矛盾：各批 LLM 独立看 30k 字，同一概念在不同批被叫成「客户/顾客/Customer」→ 假性重复节点、血缘链断裂。代码用三阶段解决：</p>
+<div class="grid g3">
+  <div class="card"><h3>① 受控词表</h3><p class="muted"><span class="file">OntologyVocabService</span> — 分域分层采样（每篇标题+首段 300 字，60~240 篇自适应），一次 LLM 归纳受控词表入库（每工作空间一份，上限 200 条）。preface 注入各批 prompt（控 token 只带 80 条）；LLM 遵循不可靠，服务端 <code>normalize</code> 再做确定性改写：命中别名 → 规范名、原名回填 aliases、空 type 补齐。</p></div>
+  <div class="card"><h3>② 向量兜底对齐</h3><p class="muted"><span class="file">EntityAlignmentService</span> — 词表没收录的同义词在合并阶段兜底：全部节点 label 嵌入（上限 1200 个，按度数优先），两两余弦 ≥0.88 召回异名对（上限 150 对），交便宜模型一次批量保守仲裁，并查集折叠到高度数规范节点，重映射边端点。发现的同义映射反哺词表，下次走确定性快路径。</p></div>
+  <div class="card"><h3>③ 既有图回灌</h3><p class="muted"><span class="file">ExistingGraphContextService</span> — 仅增量建图：embed 既有节点 label（上限 600，按度数），per-batch 用批文本向量检索 top-30 相关既有概念注入 prompt「请复用这些名字连接过去」；embedding 未配置回退注入度数最高的枢纽概念。失败返回空 context 不阻塞。</p></div>
+</div>
+<div class="note">三阶段全部失败容忍：词表构建失败 → 无骨架建图；对齐失败 → 原图返回；回灌失败 → 不回灌。质量增强永不阻塞主流程。</div>
+</section>
+
+<!-- ============ 6 分批并行 ============ -->
+<section id="batch">
+<h2>分批并行与断点续跑</h2>
+<h3>域感知分批</h3>
+<ul class="tight">
+  <li>先按领域（文件夹）分组、散文与 DDL 分开，组内按 <code>BATCH_CHAR_BUDGET=30,000</code> 字符贪心打包，<strong>批不跨域</strong> → 抽取域内聚焦、每个节点/边可精确打 <code>domain</code> 标。</li>
+  <li>非「未分域」批前缀领域聚焦提示，让 LLM 少漂到无关领域。</li>
+  <li>专用有界线程池（<code>MAX_PARALLEL_BATCHES=4</code>，守护线程），后台线程手动透传 <code>WorkspaceContext</code>。</li>
+</ul>
+<h3>断点续跑（checkpoint）</h3>
+<ul class="tight">
+  <li>作业签名 = sha256(工作空间 + 模型 + configId + 缓存版本 <code>v1</code>)；换模型/prompt 版本自然隔离。</li>
+  <li>批哈希覆盖「完整 LLM 输入 + 后处理决定因素」（序号/域/来源标题/preface/正文），命中即直接复用缓存产出，跳过 LLM 与后处理。</li>
+  <li>成功一批落盘一批；失败批不缓存（重跑自动重试）；作业成功落库后清理，孤儿按 3 天 TTL 兜底清理。</li>
+</ul>
+<h3>部分失败语义</h3>
+<ul class="tight">
+  <li>单批失败自动重试一次；两次都失败该批记 null，用成功批次继续合并，SSE 上报「N/M 批失败，结果可能不完整」。</li>
+  <li>全部批失败才抛错终止。失败批经验从 manifest 剔除，下次增量必重抽。</li>
+</ul>
+</section>
+
+<!-- ============ 7 合并与校验 ============ -->
+<section id="merge">
+<h2>合并 · 跨批连边 · 图校验（<span class="file">ExtractionGraphMerger</span>）</h2>
+<h3>id 契约与按 label 合并</h3>
+<ul class="tight">
+  <li><code>prefixChunkIds</code>：各批内部 LLM 都用 n1/n2 命名，统一加批前缀（<code>b0_n1</code>）并同步重写边端点。</li>
+  <li><code>mergeExtractionByLabel</code>：按标准化 label(+全部 aliases) 判等去重；<strong>同时看 type</strong>——同名但 type 明确不同（rule「风险」vs metric「风险」）不折叠，任一方 type 为空作通配。重复节点的 props/aliases 合并、边端点重映射。</li>
+  <li><code>dedupeWithin</code>：用空图作基底走同一套折叠逻辑，兜住「单批内部重复」（词表归一把同批『顾客/客户』都改成『客户』的情形）。</li>
+</ul>
+<h3>跨批连边 pass</h3>
+<ul class="tight">
+  <li>批组取节点 id 前缀（b0_/b1_/ex0_），组数 &lt;2 直接跳过。</li>
+  <li>实体清单上限 500：按度数降序（枢纽承载跨批关系最多）+ <strong>分域轮转取样</strong>（保证各领域枢纽都进清单，跨域血缘正是最缺、最有价值的）；已有关系对上限 800 防重复提出。</li>
+  <li>服务端二次过滤：只收两端都在清单、且分属不同批组的边；强制 <code>source=inferred</code>、confidence 封顶 <strong>0.55</strong>、打 <code>cross_batch</code> 标记、重编 id。失败只记日志不影响主结果。</li>
+</ul>
+<h3>sanitizeGraph：校验 + 多源证据聚合</h3>
+<ul class="tight">
+  <li>丢弃：空 id / 重复 id 节点（保首个）、from/to 指向不存在节点的悬空边、自环。</li>
+  <li>(from,to,rel_type) 重复边 <strong>不是简单丢弃</strong>：重复往往是访谈/DDL/探索各说了一遍 = 多源互证。证据去重合并进 <code>evidences</code>（上限 6 条，<code>evidence</code> 保留首条兼容展示）；置信度取较高者，独立证据 &gt;1 时每条 +0.1、封顶 <strong>0.9</strong>（确定性 1.0 不动）；来源取更强者（derived &gt; manual &gt; preset &gt; inferred）。</li>
+  <li>前端 <span class="file">evidenceMerge.ts</span> 实现同一套规则——「合并进模型」遇到已有重复边时口径与后端一致。</li>
+</ul>
+</section>
+
+<!-- ============ 8 可解释性 ============ -->
+<section id="explain">
+<h2>可解释性与置信度谱系</h2>
+<h3>每个节点/边携带的解释字段</h3>
+<table>
+  <tr><th>字段</th><th>含义</th></tr>
+  <tr><td><code>source</code></td><td><code>derived</code>（有据派生）/ <code>inferred</code>（推断）/ <code>manual</code>（人工）/ <code>preset</code>（预置）</td></tr>
+  <tr><td><code>confidence</code></td><td>0–1 置信度，见下方谱系</td></tr>
+  <tr><td><code>evidence</code> / <code>evidences</code></td><td>证据文本（原文引文 / FK 约束名 / SQL 载体 / 数据验证结论），多源聚合列表上限 6 条</td></tr>
+  <tr><td><code>derived_source</code></td><td>来自哪篇经验（「经验：标题」/「经验：首篇 等 N 篇」）或哪个数据源；批级精确标注，空白兜底「经验库」</td></tr>
+  <tr><td><code>domain</code></td><td>业务领域 = 经验所在文件夹；批不跨域保证归属精确，供前端分组/着色/折叠</td></tr>
+  <tr><td><code>cross_batch</code> / <code>review_status</code></td><td>跨批连边标记 / 人工审核状态（confirmed 等）</td></tr>
+</table>
+<h3>置信度谱系（代码里的实际取值）</h3>
+<table>
+  <tr><th>值</th><th>来源</th><th>出处</th></tr>
+  <tr><td><span class="pill ok">1.0</span></td><td>外键 / 视图定义 / 存储过程 SQL 解析（确定性 ground truth，任何聚合不再改动）</td><td>SchemaGraphFragmentRenderer</td></tr>
+  <tr><td><span class="pill ok">0.95</span></td><td>值包含检验 verdict=confirmed（数据证实）</td><td>lineageVerify.verdictConfidence</td></tr>
+  <tr><td><span class="pill ok">0.9</span></td><td>专家审核确认下限（CONFIRM_CONF）；多源佐证聚合封顶</td><td>ReviewQueueTab / ExtractionGraphMerger</td></tr>
+  <tr><td><span class="pill acc">0.8</span></td><td>值包含检验 verdict=likely</td><td>lineageVerify</td></tr>
+  <tr><td><span class="pill warn">≤0.55</span></td><td>跨批连边（inferred，封顶值）</td><td>crossBatchLinkPass</td></tr>
+  <tr><td><span class="pill warn">0.5</span></td><td>隐式引用命名推断候选</td><td>ImplicitRefInferencer 通路</td></tr>
+  <tr><td><span class="pill bad">0.2</span></td><td>值包含检验否决（refuted）</td><td>lineageVerify</td></tr>
+</table>
+</section>
+
+<!-- ============ 9 方向语义 ============ -->
+<section id="direction">
+<h2>血缘方向语义（<span class="file">EdgeSemantics</span> ↔ <span class="file">useLineageTrace</span>）</h2>
+<p>边的存储方向 <code>from→to</code> 由抽取映射规则决定，与数据流向不总一致。上下游遍历（<span class="file">LineageTraversalService</span> BFS）按 <code>rel_type</code> 判定真实流向：</p>
+<table>
+  <tr><th>rel_type</th><th>存储含义</th><th>血缘流向</th></tr>
+  <tr><td><code>produces / transforms / flows_to / triggers / governs</code> 及未知</td><td>from=来源/施动</td><td>正向 from→to</td></tr>
+  <tr><td><code>derived_from / composed_of / depends_on / consumes</code></td><td>from=结果/依赖方/整体/消费方</td><td><strong>反向</strong> to→from（上游源在 to 端）</td></tr>
+  <tr><td><code>associated_with</code></td><td>纯关联</td><td>不参与血缘遍历（可选 includeAssociations 纳入）</td></tr>
+</table>
+<div class="warnbox">前后端各有一份该映射（后端 <code>EdgeSemantics.REVERSED</code> ↔ 前端 <code>useLineageTrace</code> 的 <code>REVERSE_RELS / NON_LINEAGE_RELS</code>），代码注释明确要求两处必须同步修改，否则后端 <code>/lineage</code> 遍历与画布血缘高亮会相互矛盾。</div>
+</section>
+
+<!-- ============ 10 佐证闭环 ============ -->
+<section id="verify">
+<h2>佐证与人工审核闭环</h2>
+<h3>值包含检验（数据佐证）</h3>
+<ul class="tight">
+  <li>前端 <span class="file">lineageVerify.ts</span> 从边 label/evidence 解析出 <code>child.col ⊆ parent.col</code> 四元组（兼容「a.col → b.col」与「naming:col↔parent.id」两种格式，配合 <code>derived_tables</code> 定位子表）。</li>
+  <li>后端 <code>POST /api/data-sources/{id}/verify-containment</code> 在绑定库上验证子表列值是否都能在父表列找到（只读 SQL 白名单约束）。</li>
+  <li>裁决写回：confirmed→0.95、likely→0.8、refuted→0.2；证据文本带匹配率与检验目标（可审计），<code>hasVerification</code> 防重复验证。</li>
+</ul>
+<h3>人工审核队列（<span class="file">ReviewQueueTab.vue</span>）</h3>
+<ul class="tight">
+  <li>队列 = 置信度 &lt; <strong>0.7</strong> 的低置信 / 孤证推断边（LLM 猜的、没被数据或多来源佐证的关系）。</li>
+  <li><strong>确认</strong>：<code>review_status=confirmed</code>、置信度提至 0.9（专家点头 ≥ 多源佐证，仍低于确定性 1.0）、可附批注；<strong>否决</strong>：删边（走编辑器快照，可撤销）。</li>
+</ul>
+<h3>覆盖度审计（<span class="file">CoverageAuditTab.vue</span>）</h3>
+<ul class="tight">
+  <li>把经验库（文件夹=领域，与建图口径一致）与图对照：每域节点/边规模、来源分布、推断占比、孤立聚集。</li>
+  <li>缺口规则纯计算、不依赖 LLM、永远可复现：无经验支撑域 / 单一来源域 / 推断占比过高 / 证据覆盖低 → 生成调研任务清单，可导出《覆盖度审计报告》。完整性靠「收集→建图→找缺口→再收集」迭代。</li>
+</ul>
+</section>
+
+<!-- ============ 11 供血态势 ============ -->
+<section id="binding">
+<h2>供血绑定与实时态势</h2>
+<ul class="tight">
+  <li>图节点经 <code>node_data_binding</code> 绑定真实库表 / HTTP 接口（数据源为全局资源，工作空间按引用纳入）。</li>
+  <li><strong>状态源</strong>（<span class="file">NodeStateService</span>）：绑定可配「状态查询（只读 SQL，首行首列为状态值）+ 阈值规则 + 刷新间隔」；采集失败不抛错，状态落为 <code>error</code> 级（态势图显示「探针失联」）。SQL 与取数供血同一套安全约束（只读白名单 + 危险函数黑名单 + 强制 LIMIT）。</li>
+  <li><strong>调度器</strong>（<span class="file">NodeStateScheduler</span>）：独立小线程池（2 线程），每绑定最多一个任务、最小间隔 60s、活跃任务上限 50、连续失败 5 次自动停用；当前状态落 <code>node_state</code>，时序落 <code>node_state_history</code>（每绑定保留 500 条）。</li>
+  <li>画布态势模式轮询 <code>GET /api/node-bindings/states?modelId</code> 按最严重级别着色——「建图是画世界，供血让世界活起来」。</li>
+</ul>
+</section>
+
+<!-- ============ 12 参数速查 ============ -->
+<section id="params">
+<h2>关键参数速查</h2>
+<table>
+  <tr><th>参数</th><th>值</th><th>位置</th></tr>
+  <tr><td>单次建图经验上限 / 单篇截断</td><td>500 篇 / 40,000 字符</td><td>ExperienceOntologyService</td></tr>
+  <tr><td>批字符预算 / 并行批数</td><td>30,000 / 4</td><td>ExperienceOntologyService</td></tr>
+  <tr><td>checkpoint TTL / 缓存版本</td><td>3 天 / v1</td><td>ExperienceOntologyService</td></tr>
+  <tr><td>跨批连边实体 / 关系对上限，置信封顶</td><td>500 / 800，0.55</td><td>crossBatchLinkPass</td></tr>
+  <tr><td>词表注册 / preface 条目，采样篇数</td><td>200 / 80，60~240 自适应（每篇首段 300 字）</td><td>OntologyVocabService</td></tr>
+  <tr><td>向量对齐节点 / 候选对 / 相似阈值</td><td>1200 / 150 / 0.88</td><td>EntityAlignmentService</td></tr>
+  <tr><td>既有图回灌索引节点 / 每批 topK</td><td>600 / 30</td><td>ExistingGraphContextService</td></tr>
+  <tr><td>证据聚合上限 / 佐证步进 / 封顶</td><td>6 条 / +0.1 / 0.9</td><td>ExtractionGraphMerger + evidenceMerge.ts</td></tr>
+  <tr><td>隐式引用单库上限</td><td>500 条</td><td>ImplicitRefInferencer</td></tr>
+  <tr><td>SQL 解析语句 / 数据流上限</td><td>800 / 500</td><td>SqlLineageExtractor</td></tr>
+  <tr><td>审核入队阈值 / 确认置信</td><td>&lt;0.7 / 0.9</td><td>ReviewQueueTab</td></tr>
+  <tr><td>态势最小间隔 / 任务上限 / 失败停用 / 历史保留</td><td>60s / 50 / 5 次 / 500 条</td><td>NodeStateScheduler + NodeStateService</td></tr>
+</table>
+</section>
+
+<!-- ============ 13 代码地图 ============ -->
+<section id="codemap">
+<h2>代码地图</h2>
+<table>
+  <tr><th>文件</th><th>职责</th></tr>
+  <tr><td class="file">service/ExperienceOntologyService.java</td><td>建图唯一入口与编排：增量、分域分批、并行、checkpoint、跨批连边、加盐、manifest</td></tr>
+  <tr><td class="file">service/ExtractionGraphMerger.java</td><td>纯函数图代数：切片、id 前缀、按 label 合并、批内去重、sanitize + 证据聚合</td></tr>
+  <tr><td class="file">service/OntologyVocabService.java</td><td>受控词表：分层采样构建、preface 注入、服务端确定性归一、别名反哺</td></tr>
+  <tr><td class="file">service/EntityAlignmentService.java</td><td>向量召回 + LLM 仲裁 + 并查集折叠的同义消解</td></tr>
+  <tr><td class="file">service/ExistingGraphContextService.java</td><td>增量建图的既有图检索回灌</td></tr>
+  <tr><td class="file">service/llm/SchemaGraphFragmentRenderer.java</td><td>确定性血缘四通路 → EXPLORE_GRAPH 结构化片段</td></tr>
+  <tr><td class="file">support/SchemaSqlLineage.java + SqlLineageExtractor.java</td><td>视图/存储过程/SQL 脚本的语句级表血缘解析</td></tr>
+  <tr><td class="file">support/ImplicitRefInferencer.java</td><td>命名约定隐式引用推断（inferred/0.5 候选）</td></tr>
+  <tr><td class="file">support/EdgeSemantics.java + service/LineageTraversalService.java</td><td>rel_type → 数据流方向映射；上下游 BFS 遍历</td></tr>
+  <tr><td class="file">service/llm/DdlRenderer.java</td><td>内省 schema → 可读 DDL 文档（含过程源码节选，供 LLM 语义增强）</td></tr>
+  <tr><td class="file">service/NodeStateService.java + NodeStateScheduler.java</td><td>态势层：状态查询执行、阈值判级、定时刷新</td></tr>
+  <tr><td class="file">frontend/src/utils/evidenceMerge.ts / lineageVerify.ts</td><td>前端同口径证据聚合；值包含检验目标解析与裁决写回</td></tr>
+  <tr><td class="file">frontend/src/composables/useImportMerge.ts / useLineageTrace.ts</td><td>合并进画布（两层去重+端点重映射）；前端血缘方向单一真源</td></tr>
+  <tr><td class="file">frontend/src/components/analysis/ReviewQueueTab.vue / CoverageAuditTab.vue</td><td>人工审核队列；覆盖度审计与调研任务清单</td></tr>
+</table>
+</section>
+
+<footer>
+  依据 EIC-CC main 分支当前源码生成 · 2026-07-09 · 置信度取值、参数上限、方向语义均直接摘自代码常量与注释，代码变更后以代码为准。
+</footer>
+</main>
+</div>
+</body>
+</html>
