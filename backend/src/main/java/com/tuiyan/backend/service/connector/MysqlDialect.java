@@ -209,6 +209,61 @@ public class MysqlDialect extends AbstractSqlDialect {
             // 无权限 / 方言不支持：跳过存储过程，表结构照常返回
         }
 
-        return build(dbName, tables, routines);
+        // 5.5) 事件调度器：EVENT_DEFINITION 是库内定时 ETL 的 ground truth。以 RoutineInfo(kind=event)
+        //      承载，comment 带调度周期——血缘解析与 DDL 节选完全复用存储过程通路。
+        //      GBase 8a 等兼容库可能缺 EVENTS 字典，整体失败静默降级。
+        String eventSql = """
+                SELECT EVENT_NAME,
+                       IFNULL(EVENT_COMMENT,''),
+                       IFNULL(EVENT_DEFINITION,''),
+                       IFNULL(EXECUTE_AT,''),
+                       IFNULL(CONCAT('每 ', INTERVAL_VALUE, ' ', INTERVAL_FIELD),''),
+                       STATUS
+                FROM information_schema.EVENTS
+                WHERE EVENT_SCHEMA = DATABASE()
+                ORDER BY EVENT_NAME
+                LIMIT ?
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(eventSql)) {
+            ps.setInt(1, MAX_ROUTINES);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String schedule = rs.getString(5) == null || rs.getString(5).isBlank()
+                            ? ("定时 " + rs.getString(4)) : rs.getString(5);
+                    String comment = schedule
+                            + ("ENABLED".equalsIgnoreCase(rs.getString(6)) ? "" : "（已停用）")
+                            + (rs.getString(2).isBlank() ? "" : "：" + rs.getString(2));
+                    routines.add(routineOf(rs.getString(1), "event", comment, rs.getString(3)));
+                }
+            }
+        } catch (SQLException e) {
+            // 无权限 / 无 EVENTS 字典：跳过事件调度器
+        }
+
+        // 6) 触发器：ACTION_STATEMENT 是完整触发器体，EVENT_OBJECT_TABLE 是挂载表——
+        //    审计/同步表的写入血缘由「挂载表 → 触发器体写入目标」推出。
+        List<JdbcConnectorService.TriggerInfo> triggers = new ArrayList<>();
+        String trgSql = """
+                SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE,
+                       CONCAT(ACTION_TIMING, ' ', EVENT_MANIPULATION),
+                       IFNULL(ACTION_STATEMENT,'')
+                FROM information_schema.TRIGGERS
+                WHERE TRIGGER_SCHEMA = DATABASE()
+                ORDER BY EVENT_OBJECT_TABLE, TRIGGER_NAME
+                LIMIT ?
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(trgSql)) {
+            ps.setInt(1, MAX_TRIGGERS);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    triggers.add(triggerOf(rs.getString(1), rs.getString(2),
+                            rs.getString(3), rs.getString(4)));
+                }
+            }
+        } catch (SQLException e) {
+            // 无权限：跳过触发器
+        }
+
+        return build(dbName, tables, routines, triggers, List.of());
     }
 }

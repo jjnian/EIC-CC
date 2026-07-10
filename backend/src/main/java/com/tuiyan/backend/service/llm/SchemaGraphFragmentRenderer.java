@@ -21,11 +21,16 @@ import java.util.Map;
  * 把内省得到的 {@link DatabaseSchemaInfo} 里的<b>确定性血缘</b>渲染成一份「结构化图片段」({nodes,edges})：
  * <ul>
  *   <li><b>外键</b>：{@code 子表.列 → 父表.列} 即子表依赖父表(父=主数据/上游) → {@code depends_on} 边；</li>
- *   <li><b>视图定义</b>：FROM/JOIN 的来源表 → 视图 → {@code flows_to} 边；</li>
- *   <li><b>存储过程/函数源码</b>：INSERT…SELECT / MERGE / UPDATE…FROM 的来源表 → 写入目标表
- *       → {@code flows_to} 边(经 {@link SchemaSqlLineage} 语句级解析)；</li>
+ *   <li><b>视图定义</b>：FROM/JOIN 的来源表 → 视图 → {@code flows_to} 边；目录级视图依赖
+ *       (PG view_table_usage / Oracle user_dependencies)兜底正则解析不了的嵌套/复杂定义，同口径去重；</li>
+ *   <li><b>存储过程/函数/定时任务源码</b>：INSERT…SELECT / MERGE / UPDATE…FROM 的来源表 → 写入目标表
+ *       → {@code flows_to} 边(经 {@link SchemaSqlLineage} 语句级解析；MySQL 事件/Oracle 调度作业
+ *       以 kind=event/job 走同一通路，调度周期写进证据)；</li>
+ *   <li><b>触发器体</b>：挂载表 → 触发器写入目标(审计/同步/汇总表) → {@code flows_to} 边
+ *       (NEW/OLD 行即来源，挂载表补作上游)；</li>
  *   <li><b>隐式引用（命名约定）</b>：生产库普遍不建外键,{@code xxx_id} 形态列 → 对应表
- *       → {@code depends_on} 推断边({@code inferred/0.5},经 {@link ImplicitRefInferencer},
+ *       → {@code depends_on} 推断边(经 {@link ImplicitRefInferencer} 多信号打分：命名 0.4 +
+ *       类型匹配/父列唯一/注释提示各 0.1、封顶 0.65，类型冲突剪枝；
  *       证据格式兼容值包含检验,可一键佐证升级)。</li>
  * </ul>
  * 前三者是数据库里现成的血缘 ground truth。与其把 DDL 文本丢给 LLM 让它「重新猜」(可能漏、置信度不确定),
@@ -108,10 +113,13 @@ public class SchemaGraphFragmentRenderer {
             }
         }
 
-        // 视图定义 + 存储过程源码里的确定性数据流：来源表 → 视图/写入目标表
+        // 视图定义 + 存储过程/定时任务源码 + 触发器体 + 依赖目录里的确定性数据流：
+        // 来源表 → 视图/写入目标表。依赖目录与正则解析的视图流 via 同格式，由 edgeSeen 自然去重。
         java.util.List<SchemaSqlLineage.ObjectFlow> flows = new java.util.ArrayList<>();
         flows.addAll(SchemaSqlLineage.viewFlows(schema));
+        flows.addAll(SchemaSqlLineage.catalogViewFlows(schema));
         flows.addAll(SchemaSqlLineage.routineFlows(schema));
+        flows.addAll(SchemaSqlLineage.triggerFlows(schema));
         for (SchemaSqlLineage.ObjectFlow f : flows) {
             String srcId = nodeFor(f.source(), byName, nodes, nodeIdByTable, seq, m);
             String dstId = nodeFor(f.target(), byName, nodes, nodeIdByTable, seq, m);
@@ -129,7 +137,8 @@ public class SchemaGraphFragmentRenderer {
             e.put("evidence", f.evidence());
         }
 
-        // 隐式引用（命名约定推断）：无 FK 声明的 xxx_id 形态引用 → inferred/0.5 候选边。
+        // 隐式引用（命名约定推断）：无 FK 声明的 xxx_id 形态引用 → inferred 候选边。
+        // 置信度由多信号打分给出（命名 0.4 起步，类型匹配/父列唯一/注释提示各 +0.1、封顶 0.65），
         // 证据按 child.col → parent.col 格式给出，前端「一键数据佐证」可直接解析验证。
         for (ImplicitRefInferencer.ImplicitRef ref : ImplicitRefInferencer.infer(schema)) {
             String childId = nodeFor(ref.childTable(), byName, nodes, nodeIdByTable, seq, m);
@@ -146,9 +155,10 @@ public class SchemaGraphFragmentRenderer {
             e.put("rel_type", "depends_on");
             e.put("label", "命名推断 " + ref.childColumn() + " → " + parentBare + "." + ref.parentColumn());
             e.put("source", "inferred");
-            e.put("confidence", 0.5);
+            e.put("confidence", ref.confidence());
             e.put("evidence", "命名约定(无外键声明) " + childBare + "." + ref.childColumn()
-                    + " → " + parentBare + "." + ref.parentColumn() + "，建议值包含检验");
+                    + " → " + parentBare + "." + ref.parentColumn()
+                    + "（信号：" + ref.signals() + "），建议值包含检验");
             if (sourceName != null && !sourceName.isBlank()) e.put("derived_source", sourceName);
             ArrayNode dt = e.putArray("derived_tables");
             dt.add(childBare);

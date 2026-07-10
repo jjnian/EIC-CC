@@ -273,6 +273,63 @@ public class OracleDialect extends AbstractSqlDialect {
                     en.getKey().substring(sep + 1), "", en.getValue().toString()));
         }
 
-        return build(dbName, tables, routines);
+        // 7.5) 调度作业：job_action 常是 PL/SQL 块或过程调用（库内定时 ETL 的入口），
+        //      以 RoutineInfo(kind=job) 承载，comment 带 repeat_interval。无权限/老版本静默降级。
+        String jobSql = """
+                SELECT job_name, NVL(repeat_interval, ''), NVL(job_action, '')
+                FROM user_scheduler_jobs
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(jobSql);
+             ResultSet rs = ps.executeQuery()) {
+            int jobs = 0;
+            while (rs.next() && jobs < MAX_ROUTINES) {
+                routines.add(routineOf(rs.getString(1), "job", rs.getString(2), rs.getString(3)));
+                jobs++;
+            }
+        } catch (SQLException e) {
+            // 无权限 / 无 scheduler 字典（老版本、达梦部分版本）：跳过调度作业
+        }
+
+        // 8) 触发器：TRIGGER_BODY 为 LONG 列——与视图定义体同样处理（LONG 放 SELECT 末位、
+        //    fetchSize=1 按序即读），失败整体降级。挂载表是触发器血缘的隐含数据来源。
+        List<JdbcConnectorService.TriggerInfo> triggers = new ArrayList<>();
+        String trgSql = """
+                SELECT trigger_name, table_name,
+                       trigger_type || ' ' || triggering_event AS timing,
+                       trigger_body
+                FROM user_triggers
+                WHERE table_name IS NOT NULL
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(trgSql)) {
+            ps.setFetchSize(1);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next() && triggers.size() < MAX_TRIGGERS) {
+                    triggers.add(triggerOf(rs.getString(1), rs.getString(2),
+                            rs.getString(3), rs.getString(4)));
+                }
+            }
+        } catch (SQLException e) {
+            // LONG 流受限 / 无权限：跳过触发器
+        }
+
+        // 9) 对象依赖目录：user_dependencies 是数据库自己维护的「视图 ← 表/视图」依赖，
+        //    兜底正则解析不了的嵌套/复杂视图定义。
+        List<JdbcConnectorService.DependencyInfo> deps = new ArrayList<>();
+        String depSql = """
+                SELECT name, referenced_name
+                FROM user_dependencies
+                WHERE type = 'VIEW' AND referenced_type IN ('TABLE', 'VIEW')
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(depSql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                deps.add(new JdbcConnectorService.DependencyInfo(
+                        rs.getString(1), "view", rs.getString(2)));
+            }
+        } catch (SQLException e) {
+            // 无权限：跳过依赖目录，视图血缘退回正则解析
+        }
+
+        return build(dbName, tables, routines, triggers, deps);
     }
 }

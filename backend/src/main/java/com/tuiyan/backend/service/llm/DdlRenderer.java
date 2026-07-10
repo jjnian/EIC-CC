@@ -6,6 +6,7 @@ import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.RoutineInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableSample;
+import com.tuiyan.backend.service.connector.JdbcConnectorService.TriggerInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.UniqueKeyInfo;
 import org.springframework.stereotype.Component;
 
@@ -47,7 +48,10 @@ public class DdlRenderer {
         sb.append("-- 数据库名:   ").append(s.database()).append('\n');
         sb.append("-- 对象数量:   ").append(s.tables().size()).append('\n');
         if (!s.routines().isEmpty()) {
-            sb.append("-- 存储过程/函数: ").append(s.routines().size()).append('\n');
+            sb.append("-- 存储过程/函数/定时任务: ").append(s.routines().size()).append('\n');
+        }
+        if (!s.triggers().isEmpty()) {
+            sb.append("-- 触发器: ").append(s.triggers().size()).append('\n');
         }
         sb.append("-- 说明: 以下 DDL 由 schema 内省元数据还原，面向阅读与检索，不保证可原样执行。\n");
         if (!samples.isEmpty()) {
@@ -67,7 +71,36 @@ public class DdlRenderer {
             sb.append('\n');
         }
         appendRoutines(sb, s.routines());
+        appendTriggers(sb, s.triggers());
         return sb.toString();
+    }
+
+    /** 触发器体节选：限量 + 截断。审计/同步逻辑的第一手资料（确定性血缘边另由结构化片段直出）。 */
+    private static void appendTriggers(StringBuilder sb, List<TriggerInfo> triggers) {
+        if (triggers == null || triggers.isEmpty()) return;
+        sb.append("-- ══ 触发器（体节选，审计/同步逻辑参考）══\n\n");
+        int shown = 0;
+        for (TriggerInfo t : triggers) {
+            if (shown >= MAX_ROUTINES_RENDERED) {
+                sb.append("-- …其余 ").append(triggers.size() - shown).append(" 个触发器略\n");
+                break;
+            }
+            sb.append("-- 触发器 ").append(t.name()).append(" ON ").append(t.table());
+            if (t.timing() != null && !t.timing().isBlank()) sb.append("（").append(t.timing()).append("）");
+            sb.append('\n');
+            String def = t.body() == null ? "" : t.body().strip();
+            if (def.isEmpty()) {
+                sb.append("-- （触发器体不可用）\n");
+            } else {
+                boolean truncated = def.length() > ROUTINE_DEF_RENDER_CHARS;
+                if (truncated) def = def.substring(0, ROUTINE_DEF_RENDER_CHARS);
+                sb.append(def);
+                if (!def.endsWith("\n")) sb.append('\n');
+                if (truncated) sb.append("-- …（触发器体过长，已截断）\n");
+            }
+            sb.append('\n');
+            shown++;
+        }
     }
 
     /** 存储过程/函数源码节选：限量 + 截断，供 LLM 理解 ETL 业务语义（确定性血缘边另由结构化片段直出）。 */

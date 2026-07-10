@@ -44,8 +44,25 @@ public final class ImplicitRefInferencer {
 
     private ImplicitRefInferencer() {}
 
-    /** 一条推断出的隐式引用：child.childColumn → parent.parentColumn（表名为内省原名）。 */
-    public record ImplicitRef(String childTable, String childColumn, String parentTable, String parentColumn) {}
+    /** 命名匹配的基础置信度。 */
+    private static final double BASE_CONF = 0.4;
+    /** 每命中一个佐证信号（类型匹配 / 父列唯一 / 注释提示）的置信增量。 */
+    private static final double SIGNAL_STEP = 0.1;
+    /**
+     * 多信号置信封顶：刻意压在审核队列阈值(0.7)之下——再多的静态信号也仍是推断，
+     * 升到 0.7 以上只能靠值包含检验（数据裁决）或专家确认。
+     */
+    private static final double CONF_CAP = 0.65;
+
+    /**
+     * 一条推断出的隐式引用：child.childColumn → parent.parentColumn（表名为内省原名）。
+     * @param confidence 多信号打分（{@value #BASE_CONF} 起步，类型匹配/父列唯一/注释提示各
+     *                   +{@value #SIGNAL_STEP}，封顶 {@value #CONF_CAP}）
+     * @param signals    命中的信号摘要（如「命名·类型匹配·父列唯一」），写进证据供审核参考
+     */
+    public record ImplicitRef(String childTable, String childColumn,
+                              String parentTable, String parentColumn,
+                              double confidence, String signals) {}
 
     /** 从内省 schema 推断隐式引用（确定性规则，无 LLM；解析不出即不产出，宁缺毋滥）。 */
     public static List<ImplicitRef> infer(DatabaseSchemaInfo schema) {
@@ -76,12 +93,76 @@ public final class ImplicitRefInferencer {
                 if (parsed == null) continue;
                 TableInfo parent = lookupParent(byKey, parsed[0]);
                 if (parent == null || parent == t) continue;   // 找不到父表 / 自引用跳过
-                String parentColumn = pickParentColumn(parent, c.name(), parsed[1]);
-                if (parentColumn == null) continue;
-                out.add(new ImplicitRef(t.name(), c.name(), parent.name(), parentColumn));
+                // 候选按优先级排列（主键 > 同名列 > 后缀列），取第一个类型不冲突的：
+                // 主键类型对不上时回退到同名/后缀列（product_code → products.code 而非 products.sku）
+                ImplicitRef ref = null;
+                for (ParentCol pick : parentColumnCandidates(parent, c.name(), parsed[1])) {
+                    ref = score(t, c, parent, pick);
+                    if (ref != null) break;
+                }
+                if (ref != null) out.add(ref);
             }
         }
         return out;
+    }
+
+    /**
+     * 多信号打分。命名匹配是入场券（{@value #BASE_CONF}），其上叠加内省元数据里的佐证信号：
+     * <ul>
+     *   <li><b>类型匹配</b>：子列与父列类型族一致 +{@value #SIGNAL_STEP}；
+     *       类型族明确冲突（如 bigint → varchar）直接剪掉——同名不同型基本是误报；</li>
+     *   <li><b>父列唯一</b>：父列是单列主键或有单列唯一索引 +{@value #SIGNAL_STEP}——
+     *       被引用列几乎必然唯一，无唯一性的候选很可疑；</li>
+     *   <li><b>注释提示</b>：子列注释里出现父表（裸名或业务注释名） +{@value #SIGNAL_STEP}。</li>
+     * </ul>
+     * @return 打分后的引用；类型冲突返回 null（剪枝）
+     */
+    private static ImplicitRef score(TableInfo child, ColumnInfo childCol,
+                                     TableInfo parent, ParentCol pick) {
+        double conf = BASE_CONF;
+        StringBuilder signals = new StringBuilder("命名");
+
+        String cf = typeFamily(childCol.dataType());
+        String pf = typeFamily(pick.col().dataType());
+        if (!cf.isEmpty() && !pf.isEmpty()) {
+            if (!cf.equals(pf)) return null;               // 类型族冲突：剪枝
+            conf += SIGNAL_STEP;
+            signals.append("·类型匹配");
+        }
+        if (pick.unique()) {
+            conf += SIGNAL_STEP;
+            signals.append("·父列唯一");
+        }
+        if (commentHintsParent(childCol.comment(), parent)) {
+            conf += SIGNAL_STEP;
+            signals.append("·注释提示");
+        }
+        return new ImplicitRef(child.name(), childCol.name(), parent.name(), pick.col().name(),
+                Math.min(CONF_CAP, Math.round(conf * 100) / 100.0), signals.toString());
+    }
+
+    /** 子列注释是否提到父表（裸表名去前缀 / 父表业务注释名，大小写不敏感）。 */
+    private static boolean commentHintsParent(String comment, TableInfo parent) {
+        if (comment == null || comment.isBlank()) return false;
+        String c = comment.toLowerCase(Locale.ROOT);
+        String bare = TABLE_PREFIX.matcher(bareName(parent.name())).replaceFirst("");
+        if (!bare.isBlank() && c.contains(bare)) return true;
+        String pc = parent.comment() == null ? "" : parent.comment().trim().toLowerCase(Locale.ROOT);
+        return pc.length() >= 2 && c.contains(pc);
+    }
+
+    /**
+     * 类型族归一：只求「明确冲突可判」，不求精确——未知类型返回空串（中立，不加分不剪枝）。
+     */
+    private static String typeFamily(String dataType) {
+        if (dataType == null) return "";
+        String t = dataType.toLowerCase(Locale.ROOT).replaceAll("\\(.*", "").trim();
+        if (t.contains("uuid")) return "uuid";
+        if (t.contains("int") || t.contains("serial") || t.contains("number")
+                || t.contains("numeric") || t.contains("decimal")) return "num";
+        if (t.contains("char") || t.contains("text") || t.contains("string") || t.contains("clob")) return "str";
+        if (t.contains("date") || t.contains("time")) return "time";
+        return "";
     }
 
     /** 解析引用形态的列名：返回 {前缀(小写下划线归一), 后缀(小写)}，非引用形态返回 null。 */
@@ -113,19 +194,51 @@ public final class ImplicitRefInferencer {
         return null;
     }
 
+    /** 选中的父表侧被引用列 + 是否具备唯一性（单列主键 / 单列唯一索引覆盖）。 */
+    private record ParentCol(ColumnInfo col, boolean unique) {}
+
     /**
-     * 选父表侧被引用列：单列主键 &gt; 与子列同名列 &gt; 与后缀同名列（如 id/no/code）。
-     * 列必须真实存在，否则返回 null（不猜）。
+     * 父表侧被引用列候选，按优先级排列：单列主键 &gt; 与子列同名列 &gt; 与后缀同名列（如 id/no/code）。
+     * 列必须真实存在（不猜）；同一列只出现一次。调用方取第一个类型不冲突的候选——
+     * 主键类型对不上（如 varchar 的 code 列指向 bigint 主键）时可回退到同名/后缀列。
      */
-    private static String pickParentColumn(TableInfo parent, String childColumn, String suffix) {
+    private static List<ParentCol> parentColumnCandidates(TableInfo parent, String childColumn, String suffix) {
         List<ColumnInfo> cols = parent.columns() == null ? List.of() : parent.columns();
-        List<String> pks = new ArrayList<>();
-        for (ColumnInfo c : cols) if (c.primaryKey()) pks.add(c.name());
-        if (pks.size() == 1) return pks.get(0);
+        List<ParentCol> out = new ArrayList<>(3);
+        Set<String> seen = new HashSet<>();
+        List<ColumnInfo> pks = new ArrayList<>();
+        for (ColumnInfo c : cols) if (c.primaryKey()) pks.add(c);
+        if (pks.size() == 1 && seen.add(pks.get(0).name().toLowerCase(Locale.ROOT))) {
+            out.add(new ParentCol(pks.get(0), true));
+        }
         String childLower = childColumn.toLowerCase(Locale.ROOT);
-        for (ColumnInfo c : cols) if (c.name() != null && c.name().toLowerCase(Locale.ROOT).equals(childLower)) return c.name();
-        for (ColumnInfo c : cols) if (c.name() != null && c.name().toLowerCase(Locale.ROOT).equals(suffix)) return c.name();
-        return null;
+        for (ColumnInfo c : cols) {
+            if (c.name() == null) continue;
+            String lower = c.name().toLowerCase(Locale.ROOT);
+            if ((lower.equals(childLower) || lower.equals(suffix)) && seen.add(lower)) {
+                out.add(new ParentCol(c, c.primaryKey() || hasSingleColUnique(parent, c.name())));
+            }
+        }
+        // 同名列优先于后缀列：上面的单循环按列序收集，这里把与子列同名的候选提前
+        out.sort((a, b) -> {
+            boolean an = a.col().name().toLowerCase(Locale.ROOT).equals(childLower);
+            boolean bn = b.col().name().toLowerCase(Locale.ROOT).equals(childLower);
+            boolean apk = a.col().primaryKey(), bpk = b.col().primaryKey();
+            if (apk != bpk) return apk ? -1 : 1;      // 主键最优先
+            if (an != bn) return an ? -1 : 1;         // 其次同名列
+            return 0;
+        });
+        return out;
+    }
+
+    /** 父表是否有仅覆盖该列的单列唯一索引。 */
+    private static boolean hasSingleColUnique(TableInfo parent, String column) {
+        if (parent.uniqueKeys() == null) return false;
+        for (var uk : parent.uniqueKeys()) {
+            if (uk.columns() != null && uk.columns().size() == 1
+                    && uk.columns().get(0).equalsIgnoreCase(column)) return true;
+        }
+        return false;
     }
 
     /** 裸表名：去 schema 前缀 + 小写。 */

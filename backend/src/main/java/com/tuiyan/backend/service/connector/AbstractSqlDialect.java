@@ -65,6 +65,9 @@ public abstract class AbstractSqlDialect implements SqlDialect {
     /** 单个过程定义体的截断长度：血缘解析与 DDL 节选都用不到更长的源码。 */
     protected static final int MAX_ROUTINE_DEF_CHARS = 60_000;
 
+    /** 单库最多内省的触发器数：防触发器极多的库拖慢内省。 */
+    protected static final int MAX_TRIGGERS = 200;
+
     /** 构造 RoutineInfo：kind 统一小写，定义体按 {@link #MAX_ROUTINE_DEF_CHARS} 截断，null 安全。 */
     protected static JdbcConnectorService.RoutineInfo routineOf(String name, String kind,
                                                                 String comment, String definition) {
@@ -77,6 +80,15 @@ public abstract class AbstractSqlDialect implements SqlDialect {
                 def);
     }
 
+    /** 构造 TriggerInfo：触发器体按 {@link #MAX_ROUTINE_DEF_CHARS} 截断，null 安全。 */
+    protected static JdbcConnectorService.TriggerInfo triggerOf(String name, String table,
+                                                                String timing, String body) {
+        String def = body == null ? "" : body;
+        if (def.length() > MAX_ROUTINE_DEF_CHARS) def = def.substring(0, MAX_ROUTINE_DEF_CHARS);
+        return new JdbcConnectorService.TriggerInfo(
+                name, table == null ? "" : table, timing == null ? "" : timing.trim(), def);
+    }
+
     /** 把 TableBuilder map 收尾成不可变的 DatabaseSchemaInfo，kind 取本方言的 {@link #kind()}。 */
     protected JdbcConnectorService.DatabaseSchemaInfo build(String database, Map<String, TableBuilder> tables) {
         return build(database, tables, List.of());
@@ -85,9 +97,17 @@ public abstract class AbstractSqlDialect implements SqlDialect {
     /** 同上，附带内省到的存储过程/函数。 */
     protected JdbcConnectorService.DatabaseSchemaInfo build(String database, Map<String, TableBuilder> tables,
                                                             List<JdbcConnectorService.RoutineInfo> routines) {
+        return build(database, tables, routines, List.of(), List.of());
+    }
+
+    /** 同上，附带触发器与目录级对象依赖。 */
+    protected JdbcConnectorService.DatabaseSchemaInfo build(String database, Map<String, TableBuilder> tables,
+                                                            List<JdbcConnectorService.RoutineInfo> routines,
+                                                            List<JdbcConnectorService.TriggerInfo> triggers,
+                                                            List<JdbcConnectorService.DependencyInfo> dependencies) {
         return new JdbcConnectorService.DatabaseSchemaInfo(
                 kind(), database,
                 tables.values().stream().map(TableBuilder::build).toList(),
-                routines);
+                routines, triggers, dependencies);
     }
 }

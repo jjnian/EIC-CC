@@ -83,24 +83,51 @@ public class JdbcConnectorService {
     }
 
     /**
-     * 存储过程 / 函数元信息：名称 + 类型(procedure/function/package body) + 注释 + 定义体源码。
+     * 存储过程 / 函数元信息：名称 + 类型(procedure/function/package body/event/job) + 注释 + 定义体源码。
      * <p>过程源码是 ETL 血缘的 ground truth（INSERT…SELECT / MERGE / UPDATE…FROM 的目标与
      * 来源语法可判定），与视图定义同为「SQL 定义体血缘」的确定性来源。
+     * <p>库内定时任务（MySQL 事件调度器 / Oracle scheduler 作业）也以本 record 承载
+     * （kind=event/job，comment 带调度周期）：其定义体同样是 SQL，血缘解析通路完全复用。
      */
     public record RoutineInfo(String name, String kind, String comment, String definition) {}
 
-    /** 整库 schema：kind + database + 全表 + 存储过程/函数 */
+    /**
+     * 触发器元信息：名称 + 挂载表 + 时机/事件(如 AFTER INSERT) + 触发器体源码。
+     * <p>审计表 / 同步表 / 汇总表大量靠触发器写入，这层数据流不体现在视图/过程定义里。
+     * 触发器体的 INSERT/UPDATE 目标语法可判定；来源常是 NEW/OLD 行（无 FROM），
+     * 此时挂载表即隐含的数据来源——所以必须带 {@code table}，光有函数体推不出来源。
+     */
+    public record TriggerInfo(String name, String table, String timing, String body) {}
+
+    /**
+     * 目录级对象依赖：数据库自己维护的「对象 → 被引用表/视图」关系
+     * （PG {@code information_schema.view_table_usage} / Oracle {@code user_dependencies}）。
+     * 用于兜底正则解析不了的嵌套/复杂视图定义——目录口径与正则口径在建图侧去重合并。
+     */
+    public record DependencyInfo(String objectName, String objectType, String referencedName) {}
+
+    /** 整库 schema：kind + database + 全表 + 存储过程/函数 + 触发器 + 目录依赖 */
     public record DatabaseSchemaInfo(String kind,
                                      String database,
                                      List<TableInfo> tables,
-                                     List<RoutineInfo> routines) {
+                                     List<RoutineInfo> routines,
+                                     List<TriggerInfo> triggers,
+                                     List<DependencyInfo> dependencies) {
         public DatabaseSchemaInfo {
             routines = routines == null ? List.of() : routines;
+            triggers = triggers == null ? List.of() : triggers;
+            dependencies = dependencies == null ? List.of() : dependencies;
         }
 
-        /** 兼容构造：无存储过程信息（方言未内省 / 权限不足时降级）。 */
+        /** 兼容构造：无存储过程/触发器/依赖信息（方言未内省 / 权限不足时降级）。 */
         public DatabaseSchemaInfo(String kind, String database, List<TableInfo> tables) {
-            this(kind, database, tables, List.of());
+            this(kind, database, tables, List.of(), List.of(), List.of());
+        }
+
+        /** 兼容构造：仅带存储过程。 */
+        public DatabaseSchemaInfo(String kind, String database, List<TableInfo> tables,
+                                  List<RoutineInfo> routines) {
+            this(kind, database, tables, routines, List.of(), List.of());
         }
     }
 

@@ -200,13 +200,16 @@ public class StructuralGraphService {
             log.info("[structural-graph] {} 条外键的父表不在内省范围内，已跳过", dangling);
         }
 
-        // SQL 定义体血缘 → flows_to 边：视图定义与存储过程/函数源码是血缘 ground truth，
+        // SQL 定义体血缘 → flows_to 边：视图定义、存储过程/定时任务源码、触发器体是血缘 ground truth，
         // 经 SchemaSqlLineage 确定性解析「来源表 → 视图 / 写入目标表」的表级数据流（不过 LLM，confidence=1.0）。
+        // 目录级视图依赖（catalogViewFlows）与正则解析 via 同格式，由 flowSeen 自然去重。
         int viewLineage = 0, routineLineage = 0;
         java.util.Set<String> flowSeen = new java.util.HashSet<>();
         List<SchemaSqlLineage.ObjectFlow> defFlows = new ArrayList<>();
         defFlows.addAll(SchemaSqlLineage.viewFlows(schema));
+        defFlows.addAll(SchemaSqlLineage.catalogViewFlows(schema));
         defFlows.addAll(SchemaSqlLineage.routineFlows(schema));
+        defFlows.addAll(SchemaSqlLineage.triggerFlows(schema));
         for (SchemaSqlLineage.ObjectFlow f : defFlows) {
             boolean isView = f.via().startsWith("视图");
             String srcId = resolveNode(nodeIdByTable, f.source());
@@ -234,7 +237,8 @@ public class StructuralGraphService {
         }
 
         // 隐式引用血缘 → depends_on 推断边：生产库普遍不建外键，命名约定是引用关系的最后线索。
-        // inferred/0.5 直出候选（不混入确定性血缘），证据按 child.col → parent.col 格式，
+        // inferred 候选直出（不混入确定性血缘），置信度由多信号打分（命名 0.4 + 类型匹配/父列唯一/
+        // 注释提示各 0.1、封顶 0.65），证据按 child.col → parent.col 格式，
         // 可被「值包含检验」一键佐证升级为数据证实，也自动进入人工审核队列。
         int implicitRefs = 0;
         for (ImplicitRefInferencer.ImplicitRef ref : ImplicitRefInferencer.infer(schema)) {
@@ -249,10 +253,11 @@ public class StructuralGraphService {
             edge.put("to", parentId);
             edge.put("rel_type", "depends_on");
             edge.put("source", "inferred");
-            edge.put("confidence", 0.5);
+            edge.put("confidence", ref.confidence());
             edge.put("label", "命名推断 " + ref.childColumn() + " → " + parentBare + "." + ref.parentColumn());
             edge.put("evidence", "命名约定(无外键声明) " + childBare + "." + ref.childColumn()
-                    + " → " + parentBare + "." + ref.parentColumn() + "，建议值包含检验");
+                    + " → " + parentBare + "." + ref.parentColumn()
+                    + "（信号：" + ref.signals() + "），建议值包含检验");
             edge.put("derived_source", sourceName);
             edge.put("derived_tables", List.of(childBare, parentBare));
             edge.put("domain", domainOf(ref.childTable(), database));
@@ -260,7 +265,7 @@ public class StructuralGraphService {
             implicitRefs++;
         }
         if (implicitRefs > 0) {
-            log.info("[structural-graph] 按命名约定推断出 {} 条隐式引用血缘边（inferred/0.5，待佐证）", implicitRefs);
+            log.info("[structural-graph] 按命名约定推断出 {} 条隐式引用血缘边（inferred，多信号打分，待佐证）", implicitRefs);
         }
 
         OntologyModel.GraphData g = new OntologyModel.GraphData();

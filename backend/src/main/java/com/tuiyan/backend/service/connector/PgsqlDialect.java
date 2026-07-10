@@ -103,6 +103,23 @@ public class PgsqlDialect extends AbstractSqlDialect {
                 }
             }
         }
+        // 1.5) 分区子表折叠：声明式分区的子分区不作为独立实体（按月分区会灌入几十个同构“表”，
+        //      每个都变成图上一个节点），统一折叠进分区父表(relkind='p')。PG10 之前无 relispartition，
+        //      查询失败静默跳过（老版本也没有声明式分区，无需折叠）。
+        String partSql = """
+                SELECT n.nspname, c.relname
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relispartition
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(partSql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                tables.remove(rs.getString(1) + "." + rs.getString(2));
+            }
+        } catch (SQLException e) {
+            // PG10 之前无 relispartition：无声明式分区，跳过折叠
+        }
         if (tables.isEmpty()) {
             return build(dbName, tables);
         }
@@ -251,7 +268,65 @@ public class PgsqlDialect extends AbstractSqlDialect {
             // 老版本无 prokind / 无权限：跳过存储过程，表结构照常返回
         }
 
-        return build(dbName, tables, routines);
+        // 6) 触发器：挂载表 + 触发器函数源码。审计/同步/汇总表的写入血缘藏在这里——函数体常写
+        //    INSERT INTO audit VALUES(NEW.*)（无 FROM），必须带挂载表才能推出「挂载表 → 写入目标」。
+        java.util.List<JdbcConnectorService.TriggerInfo> triggers = new java.util.ArrayList<>();
+        String trgSql = """
+                SELECT n.nspname,
+                       c.relname AS table_name,
+                       t.tgname,
+                       pg_get_triggerdef(t.oid, true) AS def,
+                       COALESCE(p.prosrc, '') AS func_body
+                FROM pg_trigger t
+                JOIN pg_class c ON c.oid = t.tgrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_proc p ON p.oid = t.tgfoid
+                WHERE NOT t.tgisinternal
+                  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY n.nspname, c.relname, t.tgname
+                LIMIT ?
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(trgSql)) {
+            ps.setInt(1, MAX_TRIGGERS);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    triggers.add(triggerOf(rs.getString(3),
+                            displayName(rs.getString(1), rs.getString(2)),
+                            timingOf(rs.getString(4)), rs.getString(5)));
+                }
+            }
+        } catch (SQLException e) {
+            // 无权限：跳过触发器，表结构照常返回
+        }
+
+        // 7) 视图依赖目录：数据库自己维护的「视图 ← 基表」依赖，兜底正则解析不了的嵌套/复杂视图定义。
+        java.util.List<JdbcConnectorService.DependencyInfo> deps = new java.util.ArrayList<>();
+        String depSql = """
+                SELECT DISTINCT view_schema, view_name, table_schema, table_name
+                FROM information_schema.view_table_usage
+                WHERE view_schema NOT IN ('pg_catalog', 'information_schema')
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(depSql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                deps.add(new JdbcConnectorService.DependencyInfo(
+                        displayName(rs.getString(1), rs.getString(2)), "view",
+                        displayName(rs.getString(3), rs.getString(4))));
+            }
+        } catch (SQLException e) {
+            // 无权限：跳过依赖目录，视图血缘退回正则解析
+        }
+
+        return build(dbName, tables, routines, triggers, deps);
+    }
+
+    /** 从 pg_get_triggerdef 的完整定义里摘出时机/事件（如 "AFTER INSERT OR UPDATE"），摘不出返回空串。 */
+    private static String timingOf(String triggerDef) {
+        if (triggerDef == null) return "";
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                "\\b(BEFORE|AFTER|INSTEAD OF)\\s+(INSERT|UPDATE|DELETE|TRUNCATE)((?:\\s+OR\\s+\\w+)*)",
+                java.util.regex.Pattern.CASE_INSENSITIVE).matcher(triggerDef);
+        return m.find() ? m.group().replaceAll("\\s+", " ") : "";
     }
 
     /** 对外展示名:public 下省略 schema 前缀,其余 schema.table。 */
