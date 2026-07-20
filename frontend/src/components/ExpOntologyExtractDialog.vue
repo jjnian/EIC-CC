@@ -213,10 +213,6 @@ const commit = () => {
   });
 };
 
-const onBackdrop = (e: MouseEvent) => {
-  if ((e.target as HTMLElement).classList.contains('dbo-backdrop')) emit('close');
-};
-
 const formattedReply = computed(() => {
   if (!result.value?.reply) return '';
   const escaped = result.value.reply
@@ -272,11 +268,11 @@ const hasQualityIssue = computed(() => {
 
 <template>
   <Dialog :open="open" @update:open="(v: boolean) => { if (!v) emit('close'); }">
-    <DialogContent class="flex max-h-[86vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[720px]">
-      <DialogHeader class="border-b border-border px-5 py-4">
-        <DialogTitle class="flex items-center gap-2">
+    <DialogContent class="dbo-content flex max-h-[86vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[720px]">
+      <DialogHeader class="dbo-head border-b border-border px-5 py-4">
+        <DialogTitle class="flex items-center gap-2.5">
           <span class="dbo-icon">🧬</span>
-          <span>从经验库构建本体血缘图</span>
+          <span class="dbo-title-text">从经验库构建本体血缘图</span>
           <span class="dbo-source">「{{ workspaceName || '当前工作空间' }}」</span>
         </DialogTitle>
       </DialogHeader>
@@ -421,99 +417,143 @@ const hasQualityIssue = computed(() => {
 </template>
 
 <style scoped>
-.dbo-backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,.45);
-  display: flex; align-items: center; justify-content: center; z-index: 1000;
+/* 玻璃对话框(作用于 shadcn DialogContent 根) */
+.dbo-content {
+  background: rgba(255, 255, 255, 0.90) !important;
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.65) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 32px 80px -20px rgba(15, 23, 42, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
 }
-.dbo-dialog {
-  width: min(720px, 92vw); max-height: 86vh; overflow: hidden;
-  background: var(--bg-base, #fff); border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
-  border-radius: 10px; display: flex; flex-direction: column;
-  color: var(--text-main, #18181b); box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,0.12));
+.dbo-head {
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.05), transparent);
+  padding: 18px 22px !important;
 }
-.dbo-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px;
-  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); }
-.dbo-icon { font-size: 18px; }
-.dbo-title { font-size: 15px; font-weight: 600; }
-.dbo-source { font-size: 12px; color: var(--text-dim, #52525b); }
-.dbo-close { margin-left: auto; background: none; border: none; color: var(--text-muted, #a1a1aa);
-  font-size: 22px; cursor: pointer; line-height: 1; }
-.dbo-close:hover { color: var(--text-main, #18181b); }
-.dbo-body { padding: 16px; overflow-y: auto; }
+.dbo-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  font-size: 17px;
+  background: var(--grad-accent);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.dbo-title-text { font-size: 15.5px; font-weight: 600; letter-spacing: 0.2px; }
+.dbo-source { font-size: 12.5px; color: var(--text-dim, #52525b); font-weight: 500; }
+
+.dbo-body { padding: 18px 22px; overflow-y: auto; }
 .dbo-section { margin-bottom: 16px; }
 .dbo-section:last-child { margin-bottom: 0; }
-.dbo-desc { color: var(--text-dim, #52525b); font-size: 13px; line-height: 1.7; margin-bottom: 12px; }
+
+/* 说明卡:蓝色信息条 */
+.dbo-desc {
+  color: var(--text-dim, #52525b);
+  font-size: 13px;
+  line-height: 1.75;
+  margin-bottom: 14px;
+  background: rgba(37, 99, 235, 0.05);
+  border: 1px solid rgba(37, 99, 235, 0.13);
+  border-left: 2px solid var(--accent-2);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
 .dbo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .dbo-row > span { min-width: 100px; font-size: 13px; color: var(--text-dim, #52525b); }
-.dbo-row > input { flex: 1; background: #fff;
-  border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); border-radius: 6px; padding: 6px 8px;
+.dbo-row > input { flex: 1; background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); border-radius: 8px; padding: 6px 10px;
   color: var(--text-main, #18181b); font-size: 13px; }
-.dbo-actions { display: flex; gap: 8px; margin-top: 14px; }
-.dbo-btn { padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer;
-  font-size: 13px; }
-.dbo-btn.primary { background: var(--accent, #18181b); color: #fff; font-weight: 600; }
-.dbo-btn.primary:disabled { opacity: .45; cursor: not-allowed; }
-.dbo-btn.ghost { background: transparent; color: var(--text-dim, #52525b);
-  border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); }
-.dbo-btn.ghost:hover { color: var(--text-main, #18181b); }
+.dbo-actions { display: flex; gap: 10px; margin-top: 16px; align-items: center; }
 
+/* 进度:玻璃面板 + 时间轴 */
 .dbo-steps { display: flex; flex-direction: column; gap: 4px;
-  background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07)); border-radius: 6px; padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  border-radius: 12px; padding: 12px 14px;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.7);
   max-height: 220px; overflow-y: auto; }
 .dbo-step { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
   color: var(--text-dim, #52525b); }
 .dbo-step-dot { width: 14px; text-align: center; font-weight: bold; }
 .dbo-step.done .dbo-step-dot { color: #059669; }
 .dbo-step.running .dbo-step-dot { color: #2563eb; animation: blink 1s infinite; }
+.dbo-step.running .dbo-step-label { color: var(--text-main); font-weight: 500; }
 .dbo-step.error .dbo-step-dot { color: #dc2626; }
 @keyframes blink { 50% { opacity: .35; } }
 
-.dbo-error { color: #dc2626; background: rgba(220,38,38,0.08);
-  padding: 10px 14px; border-radius: 6px; font-size: 13px; }
+.dbo-error { color: #dc2626; background: rgba(220,38,38,0.06);
+  border: 1px solid rgba(220,38,38,0.22);
+  padding: 10px 14px; border-radius: 10px; font-size: 13px; }
 
-.dbo-summary { background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.18); padding: 12px 14px;
-  border-radius: 6px; margin-bottom: 12px; }
+/* 结果摘要:蓝色渐变底卡 */
+.dbo-summary {
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.09), rgba(37, 99, 235, 0.045));
+  border: 1px solid rgba(37, 99, 235, 0.20);
+  padding: 14px 16px;
+  border-radius: 12px; margin-bottom: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
 .dbo-summary-row { font-size: 13.5px; color: var(--text-main, #18181b); margin-bottom: 6px; }
 .dbo-summary-row strong { color: #2563eb; font-weight: 600; }
 .dbo-reply { font-size: 12px; color: var(--text-dim, #52525b); line-height: 1.6; }
 
-.dbo-health { border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;
+.dbo-health { border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
   background: rgba(5,150,105,0.06); border: 1px solid rgba(5,150,105,0.25); }
 .dbo-health.warn { background: rgba(217,119,6,0.06); border-color: rgba(217,119,6,0.3); }
-.dbo-health-title { font-size: 12.5px; color: var(--text-main, #18181b); margin-bottom: 6px; }
+.dbo-health-title { font-size: 12.5px; color: var(--text-main, #18181b); margin-bottom: 6px; font-weight: 600; }
 .dbo-health-items { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-.dbo-h-item { font-size: 11.5px; padding: 2px 8px; border-radius: 10px;
-  background: var(--bg-elev, rgba(0,0,0,0.045)); color: var(--text-dim, #52525b); }
-.dbo-h-item.warn { color: #d97706; background: rgba(217,119,6,0.10); }
-.dbo-h-item.bad { color: #dc2626; background: rgba(220,38,38,0.08); }
+.dbo-h-item { font-size: 11.5px; padding: 2px 8px; border-radius: 100px;
+  background: rgba(255, 255, 255, 0.75); border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  color: var(--text-dim, #52525b); }
+.dbo-h-item.warn { color: #d97706; background: rgba(217,119,6,0.10); border-color: rgba(217,119,6,0.25); }
+.dbo-h-item.bad { color: #dc2626; background: rgba(220,38,38,0.08); border-color: rgba(220,38,38,0.25); }
 .dbo-health-note { font-size: 11.5px; color: var(--text-muted, #a1a1aa); line-height: 1.5; }
 
 .dbo-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
   margin-bottom: 14px; }
-.dbo-stat-block { background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07)); border-radius: 6px;
-  padding: 10px 12px; }
-.dbo-stat-title { font-size: 12px; color: var(--text-muted, #a1a1aa); margin-bottom: 6px; }
-.dbo-chip-row { display: flex; flex-wrap: wrap; gap: 4px; }
-.dbo-chip { font-size: 11.5px; color: var(--text-dim, #52525b); background: var(--bg-elev, rgba(0,0,0,0.045));
-  padding: 2px 8px; border-radius: 10px; }
-.dbo-chip.rel { background: rgba(37,99,235,0.10); color: #2563eb; }
+.dbo-stat-block {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+.dbo-stat-title { font-size: 12px; color: var(--text-muted, #a1a1aa); margin-bottom: 8px; font-weight: 500; }
+.dbo-chip-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.dbo-chip {
+  font-size: 11.5px; color: var(--text-dim, #52525b);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  padding: 2px 9px; border-radius: 100px;
+}
+.dbo-chip.rel { background: rgba(37,99,235,0.10); color: #2563eb; border-color: rgba(37,99,235,0.25); }
 
-.dbo-scope { background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07)); border-radius: 6px; padding: 10px 12px;
+/* 建图范围:玻璃卡 */
+.dbo-scope {
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  border-radius: 12px; padding: 12px 14px;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.7);
   margin-bottom: 12px; }
 .dbo-scope-head { display: flex; align-items: center; gap: 16px; font-size: 13px;
   color: var(--text-dim, #52525b); }
-.dbo-scope-head > span { color: var(--text-muted, #a1a1aa); font-size: 12px; }
+.dbo-scope-head > span { color: var(--text-muted, #a1a1aa); font-size: 12px; font-weight: 500; }
 .dbo-scope-head label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.dbo-scope-head input, .dbo-scope-item input, .dbo-incr input, .dbo-mode-pick input { accent-color: var(--accent); }
 .dbo-scope-list { margin-top: 8px; max-height: 180px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 4px; }
+  display: flex; flex-direction: column; gap: 3px; }
 .dbo-scope-item { display: flex; align-items: center; gap: 7px; font-size: 12.5px;
-  color: var(--text-dim, #52525b); cursor: pointer; padding: 2px 0; }
+  color: var(--text-dim, #52525b); cursor: pointer; padding: 4px 6px; border-radius: 6px;
+  transition: background 0.12s; }
+.dbo-scope-item:hover { background: rgba(37, 99, 235, 0.06); }
 .dbo-scope-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dbo-scope-badge { flex-shrink: 0; font-size: 10.5px; color: #2563eb;
   background: rgba(37,99,235,0.10); padding: 1px 6px; border-radius: 8px; }
 
 .dbo-incr { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px;
-  color: var(--text-dim, #52525b); margin-bottom: 10px; cursor: pointer; line-height: 1.5; }
+  color: var(--text-dim, #52525b); margin-bottom: 12px; cursor: pointer; line-height: 1.5;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  border-radius: 10px; padding: 10px 12px; }
 .dbo-incr input { margin-top: 2px; }
 .dbo-incr-tag { margin-left: 8px; font-size: 11.5px; color: #2563eb;
   background: rgba(37,99,235,0.10); padding: 1px 8px; border-radius: 10px; }
@@ -523,5 +563,5 @@ const hasQualityIssue = computed(() => {
 .dbo-mode-pick label { display: flex; align-items: center; gap: 6px;
   cursor: pointer; }
 .dbo-muted { color: var(--text-muted, #a1a1aa); font-size: 11.5px; }
-.dbo-hint-sm { margin-top: 8px; font-size: 11px; color: var(--text-muted, #a1a1aa); line-height: 1.5; }
+.dbo-hint-sm { margin-top: 10px; font-size: 11px; color: var(--text-muted, #a1a1aa); line-height: 1.5; }
 </style>
