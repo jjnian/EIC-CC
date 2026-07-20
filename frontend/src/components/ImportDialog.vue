@@ -128,7 +128,7 @@ const onBackdrop = (e: MouseEvent) => {
   <div v-if="open" class="imp-backdrop" @mousedown="onBackdrop">
     <div class="imp-dialog">
       <div class="imp-head">
-        <div class="imp-title"><span class="imp-icon"><Inbox :size="18" :stroke-width="1.75" /></span><span>从文档 / 网页抽取本体</span></div>
+        <div class="imp-title"><span class="imp-icon"><Inbox :size="17" :stroke-width="1.75" /></span><span>从文档 / 网页抽取本体</span></div>
         <Button variant="ghost" size="icon-sm" @click="emit('close')"><X :size="16" /></Button>
       </div>
 
@@ -151,7 +151,7 @@ const onBackdrop = (e: MouseEvent) => {
               @change="onPick"
             />
             <div class="imp-drop-msg">
-              <div class="imp-drop-ic"><Paperclip :size="26" :stroke-width="1.5" /></div>
+              <div class="imp-drop-ic"><Paperclip :size="24" :stroke-width="1.5" /></div>
               <div>点击或拖拽文件到此处 · 最多 8 个</div>
               <div class="imp-drop-hint">PDF / DOCX / Excel / 文本走抽取 · 图片走多模态视觉 · 音频/视频先转写成文本</div>
             </div>
@@ -340,61 +340,97 @@ https://another.site/page"
 </template>
 
 <style scoped>
+/* 遮罩:深色柔焦 + 背景模糊,衬托玻璃面板 */
 .imp-backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+  position: fixed; inset: 0;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(6px) saturate(1.1);
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
   z-index: 2000;
   display: flex; align-items: center; justify-content: center;
   animation: impFade 0.18s ease-out;
 }
 @keyframes impFade { from { opacity: 0; } to { opacity: 1; } }
+
+/* 玻璃对话框:半透明白 + 高斯模糊 + 顶部高光 + 弹出动画 */
 .imp-dialog {
   width: 720px; max-width: 94vw; max-height: 90vh;
-  background: var(--bg-base);
-  border: 1px solid var(--glass-border);
-  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 18px;
   display: flex; flex-direction: column;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 32px 80px -20px rgba(15, 23, 42, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.85);
   overflow: hidden;
+  animation: impPop 0.28s var(--ease-spring);
+}
+@keyframes impPop {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .imp-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 20px;
+  padding: 16px 22px;
   border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.05), transparent);
 }
-.imp-title { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; color: var(--text-main); }
-.imp-icon { display: inline-flex; align-items: center; color: var(--text-dim); }
+.imp-title { display: flex; align-items: center; gap: 12px; font-size: 15.5px; font-weight: 600; color: var(--text-main); letter-spacing: 0.2px; }
+.imp-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  background: var(--grad-accent);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
 .imp-close {
   background: transparent; border: none; color: var(--text-muted);
   width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 18px;
   display: flex; align-items: center; justify-content: center;
 }
 .imp-close:hover { background: rgba(220,38,38,0.08); color: #dc2626; }
-.imp-body { padding: 16px 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 16px; }
+.imp-body { padding: 18px 22px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 18px; }
 .imp-section { display: flex; flex-direction: column; gap: 8px; }
-.imp-label { font-size: 12px; color: var(--text-dim); letter-spacing: 0.5px; }
+.imp-label { font-size: 12px; color: var(--text-dim); letter-spacing: 0.5px; font-weight: 500; }
+
+/* 拖拽上传区:蓝色虚线 + 渐变底色 + 悬浮发光 */
 .imp-drop {
-  border: 2px dashed rgba(37,99,235,0.3);
-  background: rgba(37,99,235,0.03);
-  border-radius: 12px;
+  border: 1.5px dashed rgba(37, 99, 235, 0.35);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.055), rgba(37, 99, 235, 0.02));
+  border-radius: 14px;
   padding: 28px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color 0.18s var(--ease-out), background 0.18s var(--ease-out), box-shadow 0.18s var(--ease-out);
 }
-.imp-drop:hover { border-color: rgba(37,99,235,0.5); background: rgba(37,99,235,0.06); }
-.imp-drop-msg { text-align: center; font-size: 13px; color: var(--text-dim); display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.imp-drop-ic { display: flex; color: var(--text-muted); }
+.imp-drop:hover {
+  border-color: rgba(37, 99, 235, 0.6);
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.09), rgba(37, 99, 235, 0.04));
+  box-shadow: 0 10px 28px -12px rgba(37, 99, 235, 0.35);
+}
+.imp-drop-msg { text-align: center; font-size: 13px; color: var(--text-dim); display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.imp-drop-ic {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  background: rgba(37, 99, 235, 0.10);
+  color: var(--accent-2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
 .imp-drop-hint { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
-.imp-files { display: flex; flex-direction: column; gap: 4px; }
+
+.imp-files { display: flex; flex-direction: column; gap: 6px; }
 .imp-file {
   display: flex; align-items: center; gap: 8px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--hairline);
-  padding: 6px 10px;
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-sm);
+  padding: 7px 12px;
+  border-radius: 10px;
   font-size: 12px;
 }
-.imp-file-icon { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--text-dim); }
+.imp-file-icon { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--accent-2); }
 .imp-file-name { flex: 1; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-file-size { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
 .imp-file-x { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 2px 6px; font-size: 16px; line-height: 1; }
@@ -402,64 +438,67 @@ https://another.site/page"
 
 .imp-url-area {
   width: 100%; box-sizing: border-box;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.75);
   border: 1px solid var(--glass-border);
   color: var(--text-main);
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
   outline: none;
   resize: vertical;
   min-height: 56px;
 }
-.imp-url-area:focus { border-color: rgba(0,0,0,0.35); }
+.imp-url-area:focus { border-color: rgba(37, 99, 235, 0.45); box-shadow: var(--ring); }
 .imp-url-meta { font-size: 11px; color: var(--text-dim); }
 .imp-url-warn { color: #dc2626; margin-left: 6px; }
 
-.imp-tabs { display: flex; gap: 8px; }
+/* 模式选择卡:玻璃卡 + 选中蓝色渐变描边 */
+.imp-tabs { display: flex; gap: 10px; }
 .imp-tab {
   flex: 1;
   display: flex; flex-direction: column; gap: 3px; text-align: left;
-  padding: 10px 12px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
   color: var(--text-dim);
   cursor: pointer;
   font-family: inherit;
-  transition: all 0.15s;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.18s var(--ease-out);
 }
-.imp-tab:hover:not(:disabled) { background: var(--bg-elev); border-color: var(--glass-border-strong); }
+.imp-tab:hover:not(:disabled) { background: rgba(255, 255, 255, 0.9); border-color: var(--glass-border-strong); }
 .imp-tab:disabled { opacity: 0.4; cursor: not-allowed; }
 .imp-tab-on {
-  background: rgba(37,99,235,0.08);
-  border-color: rgba(37,99,235,0.45);
-  color: #2563eb;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.10), rgba(37, 99, 235, 0.05));
+  border-color: rgba(37, 99, 235, 0.5);
+  color: #1d4ed8;
+  box-shadow: 0 6px 16px -6px rgba(37, 99, 235, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 .imp-tab-title { font-size: 13px; font-weight: 600; }
 .imp-tab-sub { font-size: 10px; opacity: 0.7; }
 .imp-input {
   width: 100%;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.75);
   border: 1px solid var(--glass-border);
   color: var(--text-main);
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 13px;
   font-family: inherit;
   outline: none;
 }
-.imp-input:focus { border-color: rgba(0,0,0,0.35); }
+.imp-input:focus { border-color: rgba(37, 99, 235, 0.45); box-shadow: var(--ring); }
 
 .imp-reply {
   font-size: 12px;
   color: var(--text-dim);
-  background: rgba(37,99,235,0.05);
+  background: rgba(37, 99, 235, 0.06);
   border-left: 2px solid var(--accent-2);
-  padding: 8px 12px;
-  border-radius: 4px;
-  line-height: 1.5;
+  padding: 10px 14px;
+  border-radius: 8px;
+  line-height: 1.6;
 }
 .imp-sources { display: flex; flex-direction: column; gap: 4px; }
 .imp-source-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace; }
@@ -471,17 +510,17 @@ https://another.site/page"
   color: #2563eb; background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.3);
   border-radius: 4px; }
 .imp-source-toggle:hover { background: rgba(37,99,235,0.12); }
-.imp-transcript { margin: 0 0 4px 18px; padding: 8px 12px; max-height: 220px; overflow: auto;
+.imp-transcript { margin: 0 0 4px 18px; padding: 10px 14px; max-height: 220px; overflow: auto;
   white-space: pre-wrap; word-break: break-word; font-family: 'JetBrains Mono', monospace;
   font-size: 11px; line-height: 1.6; color: var(--text-main);
-  background: var(--bg-subtle); border: 1px solid var(--hairline); border-radius: 6px; }
+  background: rgba(255, 255, 255, 0.65); border: 1px solid var(--glass-border); border-radius: 8px; }
 
 .imp-dup-banner {
-  background: rgba(37,99,235,0.05);
-  border: 1px solid rgba(37,99,235,0.18);
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.18);
   border-left: 2px solid #2563eb;
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: 10px;
+  padding: 10px 14px;
   display: flex; flex-direction: column; gap: 6px;
 }
 .imp-dup-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #2563eb; }
@@ -490,8 +529,8 @@ https://another.site/page"
 .imp-dup-chip {
   font-size: 10px;
   color: var(--text-dim);
-  background: var(--bg-elev);
-  border: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--glass-border);
   padding: 2px 8px;
   border-radius: 100px;
 }
@@ -506,19 +545,20 @@ https://another.site/page"
   max-height: 220px;
   overflow-y: auto;
   display: flex; flex-direction: column; gap: 2px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--hairline);
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
   padding: 6px;
 }
 .imp-list-row {
   display: flex; align-items: center; gap: 6px;
-  padding: 4px 6px;
-  border-radius: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
   font-size: 12px;
   cursor: pointer;
+  transition: background 0.12s;
 }
-.imp-list-row:hover { background: var(--bg-elev); }
+.imp-list-row:hover { background: rgba(37, 99, 235, 0.06); }
 .imp-list-row input { accent-color: var(--accent); flex-shrink: 0; }
 .imp-row-label { color: var(--text-main); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .imp-row-tag {
@@ -540,14 +580,15 @@ https://another.site/page"
 .imp-edge-to { text-align: right; }
 .imp-edge-arrow { color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 11px; flex-shrink: 0; }
 
-.imp-error { color: #dc2626; font-size: 12px; background: rgba(220,38,38,0.06); border: 1px solid rgba(220,38,38,0.25); padding: 8px 12px; border-radius: 6px; }
+.imp-error { color: #dc2626; font-size: 12px; background: rgba(220,38,38,0.06); border: 1px solid rgba(220,38,38,0.25); padding: 10px 14px; border-radius: 10px; }
 
-/* 抽取过程分步展示 */
+/* 抽取过程分步展示:玻璃面板 + 时间轴 */
 .imp-steps {
-  background: var(--bg-subtle);
-  border: 1px solid var(--hairline);
-  border-radius: 12px;
-  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 .imp-steps-title {
   font-size: 13px;
@@ -563,7 +604,6 @@ https://another.site/page"
   line-height: 1.5;
   position: relative;
 }
-/* 步骤之间的竖线，营造时间轴感 */
 .imp-step:not(:last-child)::after {
   content: '';
   position: absolute;
@@ -583,7 +623,7 @@ https://another.site/page"
 .imp-step-done .imp-step-ico { color: #059669; }
 .imp-step-error .imp-step-ico { color: #dc2626; }
 .imp-step-label { color: var(--text-dim); }
-.imp-step-running .imp-step-label { color: var(--text-main); }
+.imp-step-running .imp-step-label { color: var(--text-main); font-weight: 500; }
 .imp-step-done .imp-step-label { color: var(--text-dim); }
 .imp-step-error .imp-step-label { color: #dc2626; }
 .imp-step-spin {
@@ -595,10 +635,13 @@ https://another.site/page"
   animation: impSpin 0.8s linear infinite;
 }
 
+/* 底栏:半透明磨砂 */
 .imp-foot {
   display: flex; gap: 10px; justify-content: flex-end;
-  padding: 14px 20px;
+  padding: 14px 22px;
   border-top: 1px solid var(--hairline);
+  background: rgba(247, 248, 250, 0.65);
+  backdrop-filter: blur(10px);
 }
 .imp-btn {
   padding: 9px 18px; border-radius: 10px; border: none;
@@ -607,8 +650,8 @@ https://another.site/page"
 }
 .imp-btn-cancel { background: var(--bg-elev); color: var(--text-dim); }
 .imp-btn-cancel:hover { background: var(--bg-elev-hi); color: var(--text-main); }
-.imp-btn-primary { background: var(--accent); color: #fff; }
-.imp-btn-primary:hover:not(:disabled) { background: var(--accent-soft); }
+.imp-btn-primary { background: var(--grad-accent); color: #fff; }
+.imp-btn-primary:hover:not(:disabled) { background: var(--grad-accent-hover); }
 .imp-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 .imp-spin {
   width: 12px; height: 12px;
