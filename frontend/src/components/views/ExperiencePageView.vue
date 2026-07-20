@@ -712,7 +712,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
               <div class="exp-row-meta">
                 <span class="exp-ws-badge" :title="`归属工作空间：${wsName(x.workspaceId)}`">◆ {{ wsName(x.workspaceId) }}</span>
                 <span :class="['exp-origin', originMeta(x).cls]">{{ originMeta(x).icon }} 来源：{{ originMeta(x).label }}</span>
-                <!-- 探索产物溯源：回链到它来自哪个 web 系统源 -->
+                <!-- 探索产物溯源：回链到它来自哪个源 -->
                 <span
                   v-if="x.origin === 'explore' && x.sourceExperienceId"
                   class="exp-source exp-source-explore"
@@ -1035,7 +1035,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 /* 新建 / 编辑经验：整页填写，覆盖整个经验库视图（含表头） */
 .exp-fullpage {
   position: absolute; inset: 0; z-index: 25;
-  background: var(--bg-base);
+  background: linear-gradient(180deg, #f8fafd 0%, #edf1f8 100%);
   display: flex; flex-direction: column;
   padding: 18px 28px 22px;
 }
@@ -1116,7 +1116,7 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-new:hover { background: var(--accent-soft); }
 .exp-header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
-/* 「新增」下拉 — 浅色扁平面板 */
+/* 「新增」下拉 — 玻璃浮层 */
 .exp-add { position: relative; }
 .exp-add-caret { font-size: 10px; opacity: 0.8; margin-left: 2px; display: inline-block; transition: transform .22s var(--ease-spring); }
 .exp-add-caret.open { transform: rotate(180deg); }
@@ -1124,7 +1124,9 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-add-menu {
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 50;
   min-width: 272px; padding: 8px;
-  background: var(--bg-base);
+  background: rgba(255,255,255,0.86);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px) saturate(1.6);
   border: 1px solid var(--glass-border); border-radius: 14px;
   box-shadow: var(--shadow-lg);
   display: flex; flex-direction: column; gap: 3px;
@@ -1205,7 +1207,9 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 /* 探索对话框 */
 .exp-modal-mask {
   position: fixed; inset: 0; z-index: 1500;
-  background: rgba(0,0,0,0.45);
+  background: rgba(15,23,42,0.38);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
   display: flex; align-items: center; justify-content: center;
   animation: expModalFade .2s var(--ease-out) both;
 }
@@ -1213,7 +1217,9 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-modal {
   position: relative; width: 580px; max-width: calc(100vw - 40px); max-height: 86vh; overflow: hidden;
   display: flex; flex-direction: column;
-  background: var(--bg-base);
+  background: rgba(255,255,255,0.9);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  backdrop-filter: blur(24px) saturate(1.6);
   border: 1px solid var(--glass-border); border-radius: 16px;
   box-shadow: var(--shadow-lg);
   animation: expModalPop .26s var(--ease-spring) both;
@@ -1356,13 +1362,15 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 .exp-card:hover .exp-card-del { opacity: 1; }
 .exp-card-del:hover { background: rgba(220,38,38,0.08); color: #dc2626; }
 
-/* 统一经验文件列表行 */
+/* 统一经验文件列表行 — 玻璃卡片 */
 .exp-row {
   position: relative; display: flex; align-items: center; gap: 12px; text-align: left;
-  background: var(--bg-base);
+  background: rgba(255,255,255,0.72);
+  -webkit-backdrop-filter: blur(8px) saturate(1.4);
+  backdrop-filter: blur(8px) saturate(1.4);
   border: 1px solid var(--hairline);
   border-radius: 12px; padding: 11px 14px; cursor: pointer; font-family: inherit;
-  transition: background .16s var(--ease-out), border-color .16s var(--ease-out), box-shadow .16s var(--ease-out);
+  transition: background .16s var(--ease-out), border-color .16s var(--ease-out), box-shadow .16s var(--ease-out), transform .16s var(--ease-out);
   overflow: hidden;
 }
 .exp-row::before {
@@ -1371,9 +1379,10 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
   opacity: 0; transition: opacity .16s var(--ease-out);
 }
 .exp-row:hover {
-  background: var(--bg-subtle);
+  background: rgba(255,255,255,0.9);
   border-color: var(--glass-border-strong);
   box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
 }
 .exp-row:hover::before, .exp-row.active::before { opacity: 1; }
 .exp-row.active {
@@ -1438,7 +1447,10 @@ const renderedDraft = computed(() => renderMarkdown(draft.value?.content || ''))
 
 .exp-editor {
   flex: 0 0 52%; max-width: 52%; display: flex; flex-direction: column; gap: 12px;
-  background: var(--bg-base); border: 1px solid var(--hairline);
+  background: rgba(255,255,255,0.78);
+  -webkit-backdrop-filter: blur(16px) saturate(1.5);
+  backdrop-filter: blur(16px) saturate(1.5);
+  border: 1px solid var(--hairline);
   border-radius: 14px; padding: 18px; overflow: hidden;
 }
 .exp-editor-placeholder {
