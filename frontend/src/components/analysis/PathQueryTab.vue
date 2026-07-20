@@ -135,49 +135,49 @@ const togglePath = (i: number) => {
 
 <style scoped>
 .gap-section { display: flex; flex-direction: column; gap: 8px; }
-.gap-section-title { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.gap-section-title { font-size: 11px; color: var(--text-muted, #a1a1aa); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 
-.gap-error { color: tomato; font-size: 12px; padding: 4px 0; }
+.gap-error { color: #dc2626; font-size: 12px; padding: 4px 0; }
 
 .gap-path-form { display: flex; flex-direction: column; gap: 8px; }
 .gap-path-row { display: flex; align-items: center; gap: 8px; }
-.gap-path-lbl { min-width: 56px; font-size: 12px; color: #888; }
+.gap-path-lbl { min-width: 56px; font-size: 12px; color: var(--text-dim, #52525b); }
 .gap-ctl { flex: 1; min-width: 0; }
 .gap-ctl-fixed { width: 80px; flex-shrink: 0; }
 .gap-btn-primary { flex-shrink: 0; }
 
 .gap-path-item {
-  background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.07);
+  background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07));
   border-radius: 6px; overflow: hidden;
 }
 .gap-path-head {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; cursor: pointer;
 }
-.gap-path-head:hover { background: rgba(255,255,255,.04); }
+.gap-path-head:hover { background: var(--bg-elev, rgba(0,0,0,0.045)); }
 .gap-path-len {
-  font-size: 11px; color: #4a8df0;
-  background: rgba(74,141,240,.12); border-radius: 4px; padding: 1px 6px;
+  font-size: 11px; color: #2563eb;
+  background: rgba(37,99,235,0.10); border-radius: 4px; padding: 1px 6px;
   flex-shrink: 0;
 }
 .gap-path-summary {
-  flex: 1; font-size: 12px; color: #ccc;
+  flex: 1; font-size: 12px; color: var(--text-dim, #52525b);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.gap-path-caret { color: #888; font-size: 11px; flex-shrink: 0; }
+.gap-path-caret { color: var(--text-muted, #a1a1aa); font-size: 11px; flex-shrink: 0; }
 
 .gap-path-detail {
   padding: 8px 10px;
-  border-top: 1px solid rgba(255,255,255,.06);
+  border-top: 1px solid var(--hairline, rgba(0,0,0,0.07));
   display: flex; flex-direction: column; gap: 6px;
 }
 .gap-path-step { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .gap-path-node {
-  font-size: 12px; color: #e8eaed; cursor: pointer;
-  padding: 2px 8px; background: rgba(255,255,255,.06);
+  font-size: 12px; color: var(--text-main, #18181b); cursor: pointer;
+  padding: 2px 8px; background: var(--bg-elev, rgba(0,0,0,0.045));
   border-radius: 4px;
 }
-.gap-path-node:hover { background: rgba(255,255,255,.12); }
-.gap-path-arrow { font-size: 12px; color: #fbbf24; }
+.gap-path-node:hover { background: rgba(0,0,0,0.08); }
+.gap-path-arrow { font-size: 12px; color: #d97706; }
 .gap-path-rel { font-size: 11px; padding: 0 4px; }
 </style>

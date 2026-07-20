@@ -92,9 +92,9 @@ const addOutputNode = (nodeId: string) => {
 };
 
 const typeColor = (n: OntologyNode | null) => {
-  if (!n) return '#2f86d6';
+  if (!n) return '#2563eb';
   const t = (NT as any)[n.type] || NT.class;
-  return t.color || '#2f86d6';
+  return t.color || '#2563eb';
 };
 const typeLabel = (n: OntologyNode | null) => {
   if (!n) return '—';
@@ -103,10 +103,10 @@ const typeLabel = (n: OntologyNode | null) => {
 };
 
 const sourceBadge = (s?: string) => {
-  if (s === 'inferred') return { text: 'AI推理', color: '#bb77ff', bg: 'rgba(187,119,255,0.12)' };
-  if (s === 'derived')  return { text: '文本提取', color: '#22dd88', bg: 'rgba(34,221,136,0.12)' };
-  if (s === 'manual')   return { text: '手动', color: '#3d9bff', bg: 'rgba(61,155,255,0.12)' };
-  return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
+  if (s === 'inferred') return { text: 'AI推理', color: '#7c3aed', bg: 'rgba(124,58,237,0.10)' };
+  if (s === 'derived')  return { text: '文本提取', color: '#059669', bg: 'rgba(5,150,105,0.10)' };
+  if (s === 'manual')   return { text: '手动', color: '#2563eb', bg: 'rgba(37,99,235,0.10)' };
+  return { text: '预置', color: '#a1a1aa', bg: 'rgba(0,0,0,0.05)' };
 };
 
 // 受控关系语义类型 → 中文（血缘可读）
@@ -124,7 +124,7 @@ const relTypeLabel = (t?: string) => ({
 } as Record<string, string>)[t || ''] || t || '关系';
 
 // 置信度配色 / 提示：高=绿、中=黄、低=红
-const confColor = (c: number) => (c >= 0.85 ? '#22dd88' : c >= 0.55 ? '#ffcc44' : '#ff7755');
+const confColor = (c: number) => (c >= 0.85 ? '#059669' : c >= 0.55 ? '#d97706' : '#dc2626');
 const confHint = (c: number) => (c >= 0.85 ? '高' : c >= 0.55 ? '中' : '低（多为推断，需复核）');
 
 const kindLabel = (k?: string) => ({
@@ -225,10 +225,10 @@ watch(verifyOpen, (open) => {
 });
 
 const verdictView = (v: ContainmentCheckResult['verdict']) => ({
-  confirmed: { text: '✓ 数据证实', color: '#22dd88' },
-  likely:    { text: '≈ 大概率成立', color: '#ffcc44' },
-  rejected:  { text: '✗ 数据不支持', color: '#ff7755' },
-  empty:     { text: '— 子表无数据', color: '#999' },
+  confirmed: { text: '✓ 数据证实', color: '#059669' },
+  likely:    { text: '≈ 大概率成立', color: '#d97706' },
+  rejected:  { text: '✗ 数据不支持', color: '#dc2626' },
+  empty:     { text: '— 子表无数据', color: '#a1a1aa' },
 }[v]);
 
 /** 采信验证结果：把匹配率写回边的置信度与证据，供后续复核追溯。 */
@@ -303,7 +303,7 @@ const startResize = (e: MouseEvent) => {
             </div>
             <div class="ni-header-r">
               <span class="ni-current">
-                <span class="ni-current-dot" style="background:#fbbf24" />
+                <span class="ni-current-dot" style="background:#d97706" />
                 <span class="ni-current-lb">{{ edge.label || '(未命名关系)' }}</span>
               </span>
               <Button variant="outline" size="sm" @click="emit('edit-relation', edge.id)" title="编辑输入/输出">编辑输入输出</Button>
@@ -343,7 +343,7 @@ const startResize = (e: MouseEvent) => {
                     <tr>
                       <td class="ni-kv-k">规则驱动</td>
                       <td class="ni-kv-v">
-                        <span v-if="edge.rule_driven" class="ni-chip" style="color:#ff3399;background:rgba(255,51,153,0.12)">⚡ 是</span>
+                        <span v-if="edge.rule_driven" class="ni-chip" style="color:#db2777;background:rgba(219,39,119,0.10)">⚡ 是</span>
                         <span v-else class="ni-chip">否</span>
                       </td>
                     </tr>
@@ -585,31 +585,31 @@ const startResize = (e: MouseEvent) => {
   padding: 4px 10px;
   font-size: 12px;
   background: transparent;
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #ef4444;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+  color: #dc2626;
   border-radius: 6px;
   cursor: pointer;
   font-family: inherit;
   transition: background-color .15s;
 }
-.ei-del-btn:hover { background: rgba(239, 68, 68, 0.12); }
+.ei-del-btn:hover { background: rgba(220, 38, 38, 0.08); }
 .ei-flow { display: flex; align-items: center; gap: 12px; padding: 12px 4px; }
-.ei-endpoint { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; }
+.ei-endpoint { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; background: rgba(0,0,0,0.02); border: 1px solid var(--hairline); border-radius: 8px; }
 .ei-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .ei-ep-meta { min-width: 0; }
 .ei-ep-label { font-size: 13px; color: var(--text-main); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ei-ep-type { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
-.ei-arrow { display: flex; align-items: center; gap: 6px; color: #fbbf24; font-size: 12px; flex-shrink: 0; }
-.ei-arrow-line { width: 28px; height: 1px; background: #fbbf24; }
-.ei-arrow-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 8px; background: rgba(251,191,36,0.1); border-radius: 100px; }
+.ei-arrow { display: flex; align-items: center; gap: 6px; color: #d97706; font-size: 12px; flex-shrink: 0; }
+.ei-arrow-line { width: 28px; height: 1px; background: #d97706; }
+.ei-arrow-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 8px; background: rgba(217,119,6,0.10); border-radius: 100px; }
 .ei-arrow-head { font-size: 10px; }
 .ei-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.ei-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 100px; font-size: 12px; color: var(--text-main); }
+.ei-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #ffffff; border: 1px solid var(--glass-border); border-radius: 100px; font-size: 12px; color: var(--text-main); }
 .ei-chip-type { color: var(--text-dim); font-size: 11px; }
 .ei-chip-btn { cursor: pointer; font-family: inherit; transition: background-color .15s, border-color .15s; }
-.ei-chip-btn:hover { background: rgba(255,255,255,0.08); }
+.ei-chip-btn:hover { background: rgba(0,0,0,0.05); }
 .ei-add-row { margin-top: 8px; }
-.ei-add-picker { background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,255,255,0.12); border-radius: 8px; padding: 8px 10px; }
+.ei-add-picker { background: rgba(0,0,0,0.02); border: 1px dashed rgba(0,0,0,0.14); border-radius: 8px; padding: 8px 10px; }
 .ei-add-picker-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .ei-add-picker-tt { font-size: 11px; color: var(--text-dim); }
 .ei-add-picker-x { background: transparent; border: none; color: var(--text-dim); font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px; }
@@ -619,12 +619,12 @@ const startResize = (e: MouseEvent) => {
   padding: 2px 8px;
   font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
-  color: #22dd88;
-  background: rgba(34, 221, 136, 0.12);
+  color: #059669;
+  background: rgba(5, 150, 105, 0.10);
   border-radius: 6px;
 }
 .ei-conf { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-.ei-conf-hint { margin-left: 8px; font-size: 11px; color: rgba(255,255,255,0.45); }
+.ei-conf-hint { margin-left: 8px; font-size: 11px; color: var(--text-muted); }
 .ei-evidence {
   display: flex;
   gap: 8px;
@@ -633,29 +633,29 @@ const startResize = (e: MouseEvent) => {
   font-size: 12px;
   line-height: 1.5;
   font-style: italic;
-  color: rgba(255,255,255,0.78);
-  background: rgba(34,221,136,0.06);
-  border-left: 2px solid rgba(34,221,136,0.5);
+  color: var(--text-dim);
+  background: rgba(5,150,105,0.05);
+  border-left: 2px solid rgba(5,150,105,0.40);
   border-radius: 4px;
 }
-.ei-evidence-icon { color: #22dd88; font-weight: 700; font-style: normal; flex-shrink: 0; }
+.ei-evidence-icon { color: #059669; font-weight: 700; font-style: normal; flex-shrink: 0; }
 .ei-kind-sel { width: 110px; flex-shrink: 0; }
 
 /* ── 数据验证卡片 ── */
-.ei-vf-toggle { float: right; background: none; border: none; color: #7ab8f0;
+.ei-vf-toggle { float: right; background: none; border: none; color: #2563eb;
   font-size: 11.5px; cursor: pointer; }
-.ei-vf-hint { font-size: 12px; color: #8a93a5; line-height: 1.6; }
+.ei-vf-hint { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
 .ei-vf-row { display: flex; align-items: center; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
-.ei-vf-k { font-size: 12px; color: #8a93a5; min-width: 52px; }
-.ei-vf-select { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.14);
-  border-radius: 6px; padding: 4px 8px; color: #e8eaed; font-size: 12.5px; max-width: 280px; }
-.ei-vf-input { width: 118px; background: rgba(255,255,255,.05);
-  border: 1px solid rgba(255,255,255,.14); border-radius: 6px; padding: 4px 8px;
-  color: #e8eaed; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
-.ei-vf-dot { color: #666; }
-.ei-vf-arrow { color: #7ab8f0; font-weight: 600; padding: 0 4px; }
+.ei-vf-k { font-size: 12px; color: var(--text-dim); min-width: 52px; }
+.ei-vf-select { background: #ffffff; border: 1px solid var(--glass-border);
+  border-radius: 6px; padding: 4px 8px; color: var(--text-main); font-size: 12.5px; max-width: 280px; }
+.ei-vf-input { width: 118px; background: #ffffff;
+  border: 1px solid var(--glass-border); border-radius: 6px; padding: 4px 8px;
+  color: var(--text-main); font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+.ei-vf-dot { color: var(--text-muted); }
+.ei-vf-arrow { color: #2563eb; font-weight: 600; padding: 0 4px; }
 .ei-vf-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
 .ei-vf-verdict { font-size: 12.5px; font-weight: 600; }
-.ei-vf-detail { font-size: 11.5px; color: #8a93a5; }
-.ei-vf-error { margin-top: 6px; color: tomato; font-size: 12px; }
+.ei-vf-detail { font-size: 11.5px; color: var(--text-dim); }
+.ei-vf-error { margin-top: 6px; color: #dc2626; font-size: 12px; }
 </style>

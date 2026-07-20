@@ -53,17 +53,17 @@ const run = async () => {
 <style scoped>
 .tab { padding: 12px; display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 320px; }
 .toolbar { display: flex; flex-direction: column; gap: 8px; }
-textarea { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 8px; color: #e8eaed; font-family: monospace; font-size: 13px; }
+textarea { background: #fff; border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); border-radius: 6px; padding: 8px; color: var(--text-main, #18181b); font-family: monospace; font-size: 13px; }
 .row { display: flex; align-items: center; gap: 12px; }
-.row label { color: #aaa; font-size: 12px; }
-.row input { width: 80px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 4px 8px; color: #e8eaed; }
-.primary { background: #4a8df0; border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; margin-left: auto; }
+.row label { color: var(--text-dim, #52525b); font-size: 12px; }
+.row input { width: 80px; background: #fff; border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); border-radius: 6px; padding: 4px 8px; color: var(--text-main, #18181b); }
+.primary { background: var(--accent, #18181b); border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; margin-left: auto; }
 .primary:disabled { opacity: .5; }
 .output { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
 .scroll { overflow: auto; flex: 1; }
-.meta { color: #aaa; font-size: 12px; margin-bottom: 8px; }
+.meta { color: var(--text-dim, #52525b); font-size: 12px; margin-bottom: 8px; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
-th, td { padding: 4px 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.06); color: #e8eaed; white-space: nowrap; }
-th { color: #aaa; position: sticky; top: 0; background: #1d1f24; }
-.msg.err { color: tomato; padding: 12px; }
+th, td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); color: var(--text-main, #18181b); white-space: nowrap; }
+th { color: var(--text-dim, #52525b); position: sticky; top: 0; background: var(--bg-subtle, #f7f8fa); }
+.msg.err { color: #dc2626; padding: 12px; }
 </style>

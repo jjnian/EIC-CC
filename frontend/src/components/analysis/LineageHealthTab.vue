@@ -143,10 +143,10 @@ const verifyGuided = async () => {
 };
 
 const verdictView = (v: ContainmentCheckResult['verdict']) => ({
-  confirmed: { text: '✓ 证实', color: '#22dd88' },
-  likely:    { text: '≈ 大概率', color: '#ffcc44' },
-  rejected:  { text: '✗ 不支持', color: '#ff7755' },
-  empty:     { text: '— 无数据', color: '#999' },
+  confirmed: { text: '✓ 证实', color: '#059669' },
+  likely:    { text: '≈ 大概率', color: '#d97706' },
+  rejected:  { text: '✗ 不支持', color: '#dc2626' },
+  empty:     { text: '— 无数据', color: '#a1a1aa' },
 }[v]);
 
 const edgeLabel = (e: OntologyEdge) =>
@@ -309,10 +309,10 @@ const runDrift = async () => {
       <div class="gap-sec-title">冲突检测</div>
       <div class="lh-note">
         多来源合并后的图级一致性检查：方向矛盾、疑似重复节点、血缘环路。冲突需人工裁决——点击定位后在图上修正。
-        <b v-if="!conflictCount" style="color:#22dd88">✓ 未发现冲突</b>
+        <b v-if="!conflictCount" style="color:#059669">✓ 未发现冲突</b>
       </div>
       <div v-if="conflicts.directionConflicts.length" class="lh-drift-group">
-        <div class="lh-drift-title" style="color:#ff7755">方向矛盾（{{ conflicts.directionConflicts.length }} 对）——同一对节点间存在两个流向的血缘边，通常是某条边的 rel_type 标反了</div>
+        <div class="lh-drift-title" style="color:#dc2626">方向矛盾（{{ conflicts.directionConflicts.length }} 对）——同一对节点间存在两个流向的血缘边，通常是某条边的 rel_type 标反了</div>
         <div v-for="dc in conflicts.directionConflicts" :key="dc.a + '⇄' + dc.b" class="lh-drift-item">
           <span class="lh-drift-refs">
             <button class="lh-chip" @click="emit('focus-node', dc.a)">{{ nodeName(dc.a) }}</button>
@@ -330,7 +330,7 @@ const runDrift = async () => {
         </div>
       </div>
       <div v-if="conflicts.duplicateLabels.length" class="lh-drift-group">
-        <div class="lh-drift-title" style="color:#ffcc44">疑似重复节点（{{ conflicts.duplicateLabels.length }} 组）——名称相同但未被合并，血缘会被分裂到多个节点上</div>
+        <div class="lh-drift-title" style="color:#d97706">疑似重复节点（{{ conflicts.duplicateLabels.length }} 组）——名称相同但未被合并，血缘会被分裂到多个节点上</div>
         <div v-for="dl in conflicts.duplicateLabels" :key="dl.label" class="lh-drift-item">
           <span class="lh-drift-key">{{ dl.label }}</span>
           <span class="lh-drift-refs">
@@ -340,7 +340,7 @@ const runDrift = async () => {
         </div>
       </div>
       <div v-if="conflicts.cycles.length" class="lh-drift-group">
-        <div class="lh-drift-title" style="color:#ff7755">血缘环路（{{ conflicts.cycles.length }} 条）——派生链成环，通常意味着某条边方向标错</div>
+        <div class="lh-drift-title" style="color:#dc2626">血缘环路（{{ conflicts.cycles.length }} 条）——派生链成环，通常意味着某条边方向标错</div>
         <div v-for="(cy, i) in conflicts.cycles" :key="i" class="lh-drift-item">
           <span class="lh-drift-refs">
             <template v-for="(id, j) in cy" :key="id + j">
@@ -374,10 +374,10 @@ const runDrift = async () => {
         <div class="lh-note">
           库「{{ driftResult.database }}」现有 {{ driftResult.schemaTables }} 张表；
           图上引用 {{ driftResult.referencedTables }} 张，其中 {{ driftResult.okTables }} 张仍存在。
-          <b v-if="!driftResult.missingTables.length && !driftResult.missingColumns.length" style="color:#22dd88">✓ 未发现漂移</b>
+          <b v-if="!driftResult.missingTables.length && !driftResult.missingColumns.length" style="color:#059669">✓ 未发现漂移</b>
         </div>
         <div v-if="driftResult.missingTables.length" class="lh-drift-group">
-          <div class="lh-drift-title" style="color:#ff7755">缺失的表（{{ driftResult.missingTables.length }}）</div>
+          <div class="lh-drift-title" style="color:#dc2626">缺失的表（{{ driftResult.missingTables.length }}）</div>
           <div v-for="mt in driftResult.missingTables" :key="mt.table" class="lh-drift-item">
             <span class="lh-drift-key">{{ mt.table }}</span>
             <span class="lh-drift-refs">
@@ -387,7 +387,7 @@ const runDrift = async () => {
           </div>
         </div>
         <div v-if="driftResult.missingColumns.length" class="lh-drift-group">
-          <div class="lh-drift-title" style="color:#ffcc44">缺失的列（{{ driftResult.missingColumns.length }}）</div>
+          <div class="lh-drift-title" style="color:#d97706">缺失的列（{{ driftResult.missingColumns.length }}）</div>
           <div v-for="mc in driftResult.missingColumns" :key="mc.table + '.' + mc.column" class="lh-drift-item">
             <span class="lh-drift-key">{{ mc.table }}.{{ mc.column }}</span>
             <span class="lh-drift-refs">
@@ -403,46 +403,46 @@ const runDrift = async () => {
 <style scoped>
 .lh-wrap { display: flex; flex-direction: column; gap: 14px; }
 .gap-section { display: flex; flex-direction: column; gap: 8px; }
-.gap-sec-title { font-size: 12px; color: #8a93a5; font-weight: 600; }
+.gap-sec-title { font-size: 12px; color: var(--text-dim, #52525b); font-weight: 600; }
 .lh-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.lh-stat { background: rgba(255,255,255,.03); border-radius: 8px; padding: 10px 12px; }
-.lh-n { font-size: 20px; font-weight: 700; color: #22dd88; }
-.lh-n.warn { color: #ffcc44; }
-.lh-l { font-size: 12px; color: #c0c4cf; display: flex; flex-direction: column; gap: 2px; }
-.lh-sub { font-size: 11px; color: #77808f; }
+.lh-stat { background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07)); border-radius: 8px; padding: 10px 12px; }
+.lh-n { font-size: 20px; font-weight: 700; color: #059669; }
+.lh-n.warn { color: #d97706; }
+.lh-l { font-size: 12px; color: var(--text-dim, #52525b); display: flex; flex-direction: column; gap: 2px; }
+.lh-sub { font-size: 11px; color: var(--text-muted, #a1a1aa); }
 .lh-chip-list { display: flex; flex-wrap: wrap; gap: 5px; }
-.lh-chip { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
-  color: #c0c4cf; font-size: 11.5px; padding: 5px 11px; line-height: 1.3; border-radius: 8px; cursor: pointer;
+.lh-chip { background: var(--bg-elev, rgba(0,0,0,0.045)); border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  color: var(--text-dim, #52525b); font-size: 11.5px; padding: 5px 11px; line-height: 1.3; border-radius: 8px; cursor: pointer;
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lh-chip:hover { border-color: rgba(47,134,214,.5); color: #fff; }
-.lh-more { font-size: 11px; color: #77808f; align-self: center; }
-.lh-note { font-size: 11.5px; color: #8a93a5; line-height: 1.6; }
+.lh-chip:hover { border-color: rgba(37,99,235,0.5); color: var(--text-main, #18181b); }
+.lh-more { font-size: 11px; color: var(--text-muted, #a1a1aa); align-self: center; }
+.lh-note { font-size: 11.5px; color: var(--text-dim, #52525b); line-height: 1.6; }
 .lh-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .lh-guide { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  background: rgba(47,134,214,.1); border: 1px solid rgba(47,134,214,.3);
+  background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.3);
   border-radius: 6px; padding: 8px 12px; margin-bottom: 8px; }
-.lh-guide-txt { font-size: 12px; color: #cfe0f5; flex: 1; }
-.lh-suggest { font-size: 11px; color: #9aa2b0; display: inline-flex; align-items: center;
+.lh-guide-txt { font-size: 12px; color: #2563eb; flex: 1; }
+.lh-suggest { font-size: 11px; color: var(--text-dim, #52525b); display: inline-flex; align-items: center;
   gap: 4px; flex-wrap: wrap; margin-top: 2px; }
-.lh-chip-suspect { border-color: rgba(255,119,85,.5); color: #ffb499; }
-.lh-chip-suspect:hover { border-color: rgba(255,119,85,.8); color: #fff; }
+.lh-chip-suspect { border-color: rgba(220,38,38,0.4); color: #dc2626; }
+.lh-chip-suspect:hover { border-color: rgba(220,38,38,0.65); color: #dc2626; }
 .lh-rows { display: flex; flex-direction: column; gap: 3px; max-height: 260px; overflow-y: auto; }
-.lh-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #c0c4cf;
-  background: rgba(255,255,255,.02); border-radius: 6px; padding: 4px 8px; }
+.lh-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim, #52525b);
+  background: var(--bg-subtle, #f7f8fa); border-radius: 6px; padding: 4px 8px; }
 .lh-row-status { width: 16px; text-align: center; flex-shrink: 0; }
-.lh-row-label { background: none; border: none; color: #9ecbff; cursor: pointer; font-size: 12px;
+.lh-row-label { background: none; border: none; color: #2563eb; cursor: pointer; font-size: 12px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; text-align: left; padding: 0; }
 .lh-verdict { font-weight: 600; font-size: 11.5px; flex-shrink: 0; }
-.lh-rate { font-size: 11px; color: #8a93a5; flex-shrink: 0; }
-.lh-err { font-size: 11px; color: tomato; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
-.lh-err-block { color: tomato; background: rgba(255,99,71,.12); padding: 8px 12px;
+.lh-rate { font-size: 11px; color: var(--text-muted, #a1a1aa); flex-shrink: 0; }
+.lh-err { font-size: 11px; color: #dc2626; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+.lh-err-block { color: #dc2626; background: rgba(220,38,38,0.08); padding: 8px 12px;
   border-radius: 6px; font-size: 12px; }
-.lh-select { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.14);
-  border-radius: 6px; padding: 4px 8px; color: #e8eaed; font-size: 12.5px; max-width: 220px; }
+.lh-select { background: #fff; border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  border-radius: 6px; padding: 4px 8px; color: var(--text-main, #18181b); font-size: 12.5px; max-width: 220px; }
 .lh-drift-group { display: flex; flex-direction: column; gap: 6px; }
 .lh-drift-title { font-size: 11.5px; font-weight: 600; }
 .lh-drift-item { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; }
-.lh-drift-key { font-family: 'JetBrains Mono', monospace; color: #e8b4b4; flex-shrink: 0;
-  background: rgba(255,255,255,.04); padding: 1px 7px; border-radius: 6px; }
+.lh-drift-key { font-family: 'JetBrains Mono', monospace; color: #dc2626; flex-shrink: 0;
+  background: var(--bg-elev, rgba(0,0,0,0.045)); padding: 1px 7px; border-radius: 6px; }
 .lh-drift-refs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 </style>

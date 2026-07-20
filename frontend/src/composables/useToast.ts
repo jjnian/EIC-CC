@@ -18,10 +18,10 @@ const STYLE_ID = 'eic-toast-style';
 const ROOT_ID = 'eic-toast-root';
 
 const KIND_STYLE: Record<ToastKind, { bg: string; fg: string; border: string; icon: string }> = {
-  success: { bg: 'rgba(34,221,136,0.16)', fg: '#22dd88', border: 'rgba(34,221,136,0.45)', icon: '✓' },
-  info:    { bg: 'rgba(99,179,237,0.16)', fg: '#63b3ed', border: 'rgba(99,179,237,0.45)', icon: 'ⓘ' },
-  warn:    { bg: 'rgba(251,191,36,0.16)', fg: '#fbbf24', border: 'rgba(251,191,36,0.45)', icon: '⚠' },
-  error:   { bg: 'rgba(255,99,99,0.16)',  fg: '#ff8a8a', border: 'rgba(255,99,99,0.45)',  icon: '✕' },
+  success: { bg: '#ffffff', fg: '#059669', border: 'rgba(5,150,105,0.30)', icon: '✓' },
+  info:    { bg: '#ffffff', fg: '#2563eb', border: 'rgba(37,99,235,0.30)', icon: 'ⓘ' },
+  warn:    { bg: '#ffffff', fg: '#d97706', border: 'rgba(217,119,6,0.30)', icon: '⚠' },
+  error:   { bg: '#ffffff', fg: '#dc2626', border: 'rgba(220,38,38,0.30)', icon: '✕' },
 };
 
 let mounted = false;
@@ -46,8 +46,7 @@ const ensureStyle = () => {
   border-radius: 10px;
   font-size: 13px;
   line-height: 1.4;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,0.12));
   animation: eicToastIn 0.18s ease-out;
   border: 1px solid;
 }
@@ -55,7 +54,7 @@ const ensureStyle = () => {
   flex-shrink: 0; font-weight: 700; font-family: 'JetBrains Mono', monospace;
   width: 16px; text-align: center;
 }
-.eic-toast-msg { flex: 1; white-space: pre-line; word-break: break-word; }
+.eic-toast-msg { flex: 1; white-space: pre-line; word-break: break-word; color: var(--text-main, #18181b); }
 .eic-toast-x {
   background: none; border: none; color: inherit; cursor: pointer; opacity: 0.6;
   padding: 0 2px; font-size: 14px; line-height: 1;

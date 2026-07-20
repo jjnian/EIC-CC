@@ -6,6 +6,7 @@ import com.tuiyan.backend.entity.ExperiencePO;
 import com.tuiyan.backend.repository.ExperienceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -17,8 +18,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
 
 /**
  * 经验库向量索引服务：经验正文 → 分块 → 嵌入 → 存储（exp_chunk / exp_embedding），并提供相似度检索。
@@ -38,11 +38,11 @@ public class ExperienceIndexService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper = new ObjectMapper();
     /**
-     * 自动索引专用有界线程池：并发度 = {@code app.embedding.concurrency}（默认 3）。
+     * 自动索引专用线程池（共享 Bean {@code indexExecutor}，并发度 = app.embedding.concurrency，默认 3）。
      * <p>大量文件一次性上传时，自动索引任务在此排队消化，避免瞬间打爆 embedding API 触发限流；
      * 公共 ForkJoinPool 不限并发，不适合这种外部限流敏感的场景。
      */
-    private final ExecutorService indexExecutor;
+    private final Executor indexExecutor;
 
     /** 检索命中片段：正文 + 所属经验标题 + 相似度。 */
     public record ChunkResult(String content, String experienceTitle, double score) {}
@@ -51,18 +51,14 @@ public class ExperienceIndexService {
                                   EmbeddingClient embeddingClient,
                                   EmbeddingProperties embeddingProps,
                                   PgVectorSupport pgVector,
-                                  JdbcTemplate jdbc) {
+                                  JdbcTemplate jdbc,
+                                  @Qualifier("indexExecutor") Executor indexExecutor) {
         this.expRepo = expRepo;
         this.embeddingClient = embeddingClient;
         this.embeddingProps = embeddingProps;
         this.pgVector = pgVector;
         this.jdbc = jdbc;
-        int n = Math.max(1, embeddingProps.getConcurrency());
-        this.indexExecutor = Executors.newFixedThreadPool(n, r -> {
-            Thread t = new Thread(r, "exp-index");
-            t.setDaemon(true);
-            return t;
-        });
+        this.indexExecutor = indexExecutor;
     }
 
     public boolean isConfigured() {
@@ -72,7 +68,7 @@ public class ExperienceIndexService {
     /** 保存后触发的异步重建索引；未配置 embedding 时静默跳过。提交到有界线程池排队，避免大量文件同时索引打爆 embedding API。 */
     public void reindexAsync(String experienceId) {
         if (!isConfigured()) return;
-        indexExecutor.submit(() -> {
+        indexExecutor.execute(() -> {
             try {
                 reindex(experienceId);
             } catch (Exception e) {

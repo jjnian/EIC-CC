@@ -154,59 +154,45 @@ onMounted(async () => {
 
 <style scoped>
 .lgb-overlay { position: absolute; inset: 0; display: flex; flex-direction: column;
-  background: #0b0e14; z-index: 40; }
+  background: var(--bg-base, #fff); z-index: 40; }
 .lgb-head { display: flex; align-items: center; gap: 14px; padding: 10px 16px;
-  border-bottom: 1px solid rgba(255,255,255,.08); }
-.lgb-title { display: flex; align-items: center; gap: 10px; color: #e8eaed; font-size: 14px; }
-.lgb-badge { font-size: 11px; color: #ffcc66; background: rgba(255,180,60,.14);
+  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); }
+.lgb-title { display: flex; align-items: center; gap: 10px; color: var(--text-main, #18181b); font-size: 14px; }
+.lgb-badge { font-size: 11px; color: #d97706; background: rgba(217,119,6,0.10);
   padding: 2px 8px; border-radius: 10px; }
-.lgb-meta { color: #8a93a5; font-size: 12px; margin-left: auto; }
-/* → 对齐 button-preview 的 secondary(玻璃)，紧凑 */
-.lgb-close { background: var(--bg-elev); border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
-  color: #cbd0d6; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px;
-  transition: transform .14s var(--ease-out), box-shadow .2s var(--ease-out), background .2s var(--ease-out), border-color .2s var(--ease-out), color .2s var(--ease-out); }
-.lgb-close:hover { color: #fff; background: var(--bg-elev-hi); border-color: var(--glass-border-strong); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 5px 16px rgba(4,12,28,.35); }
-.lgb-close:active { transform: translateY(.5px); box-shadow: inset 0 2px 5px rgba(2,10,26,.4); }
-.lgb-note { padding: 8px 16px; font-size: 11.5px; color: #8a93a5; line-height: 1.5;
-  border-bottom: 1px solid rgba(255,255,255,.05); }
+.lgb-meta { color: var(--text-dim, #52525b); font-size: 12px; margin-left: auto; }
+.lgb-close { background: var(--bg-elev, rgba(0,0,0,0.045)); border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  color: var(--text-dim, #52525b); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+.lgb-close:hover { color: var(--text-main, #18181b); border-color: rgba(0,0,0,0.2); }
+.lgb-note { padding: 8px 16px; font-size: 11.5px; color: var(--text-dim, #52525b); line-height: 1.5;
+  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); }
 .lgb-domains { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-  padding: 8px 16px; border-bottom: 1px solid rgba(255,255,255,.05); }
-.lgb-dl { font-size: 11.5px; color: #77808f; }
-.lgb-domain { font-size: 11px; color: #cbd0d6; background: rgba(255,255,255,.05);
+  padding: 8px 16px; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); }
+.lgb-dl { font-size: 11.5px; color: var(--text-muted, #a1a1aa); }
+.lgb-domain { font-size: 11px; color: var(--text-dim, #52525b); background: var(--bg-elev, rgba(0,0,0,0.045));
   padding: 2px 8px; border-radius: 10px; }
-.lgb-more { font-size: 11px; color: #77808f; }
-.lgb-toolbar { display: flex; align-items: center; gap: 14px; padding: 8px 16px; font-size: 12px; color: #cbd0d6; }
-/* → secondary(玻璃)，紧凑 */
-.lgb-btn { background: var(--bg-elev); border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
-  color: #cbd0d6; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px;
-  transition: transform .14s var(--ease-out), box-shadow .2s var(--ease-out), background .2s var(--ease-out), border-color .2s var(--ease-out), color .2s var(--ease-out); }
-.lgb-btn:hover:not(:disabled) { color: #fff; background: var(--bg-elev-hi); border-color: var(--glass-border-strong); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 5px 16px rgba(4,12,28,.35); }
-.lgb-btn:active:not(:disabled) { transform: translateY(.5px); box-shadow: inset 0 2px 5px rgba(2,10,26,.4); }
+.lgb-more { font-size: 11px; color: var(--text-muted, #a1a1aa); }
+.lgb-toolbar { display: flex; align-items: center; gap: 14px; padding: 8px 16px; font-size: 12px; color: var(--text-dim, #52525b); }
+.lgb-btn { background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.35);
+  color: #2563eb; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+.lgb-btn:hover:not(:disabled) { border-color: rgba(37,99,235,0.6); }
 .lgb-btn:disabled { opacity: .5; cursor: default; }
-.lgb-center { color: #8a93a5; }
-.lgb-center b { color: #9ecbff; }
-.lgb-trunc { color: #ffcc66; font-size: 11.5px; }
-.lgb-loading { color: #8a93a5; font-size: 11.5px; }
+.lgb-center { color: var(--text-dim, #52525b); }
+.lgb-center b { color: #2563eb; }
+.lgb-trunc { color: #d97706; font-size: 11.5px; }
+.lgb-loading { color: var(--text-dim, #52525b); font-size: 11.5px; }
 .lgb-canvas { flex: 1; position: relative; overflow: hidden; }
 .lgb-edit { display: flex; align-items: center; gap: 8px; padding: 10px 16px;
-  border-top: 1px solid rgba(255,255,255,.08); background: #0d1017; }
+  border-top: 1px solid var(--hairline, rgba(0,0,0,0.07)); background: var(--bg-subtle, #f7f8fa); }
 .lgb-edit-ico { font-size: 14px; }
-.lgb-edit-input { flex: 1; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.14);
-  border-radius: 8px; padding: 8px 12px; color: #e8eaed; font-size: 12.5px; }
-.lgb-edit-input:focus { outline: none; border-color: rgba(47,134,214,.6); }
+.lgb-edit-input { flex: 1; background: #fff; border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  border-radius: 8px; padding: 8px 12px; color: var(--text-main, #18181b); font-size: 12.5px; }
+.lgb-edit-input:focus { outline: none; border-color: rgba(0,0,0,0.35); }
 .lgb-edit-input:disabled { opacity: .6; }
-/* 改图提交 = 主操作 → 对齐 button-preview 的 primary(竖向蓝渐变) */
-.lgb-edit-btn { background: linear-gradient(180deg, var(--accent-soft), var(--accent) 56%, var(--accent-deep));
-  border: 1px solid var(--accent-deep); color: #fff; font-weight: 600;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.26), 0 1px 2px rgba(4,18,44,.3), 0 2px 8px rgba(47,134,214,.22);
-  text-shadow: 0 1px 1px rgba(2,16,48,.35);
-  border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 12.5px;
-  transition: transform .14s var(--ease-out), box-shadow .2s var(--ease-out), background .2s var(--ease-out); }
-.lgb-edit-btn:hover:not(:disabled) { background: linear-gradient(180deg, #82c0ff, var(--accent-soft) 56%, var(--accent)); transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.36), 0 2px 4px rgba(4,18,44,.3), 0 5px 15px rgba(47,134,214,.32); }
-.lgb-edit-btn:active:not(:disabled) { transform: translateY(.5px); box-shadow: inset 0 2px 6px rgba(2,16,48,.45), 0 1px 3px var(--accent-glow); }
+.lgb-edit-btn { background: var(--accent, #18181b); border: 1px solid var(--accent, #18181b);
+  color: #fff; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 12.5px; }
+.lgb-edit-btn:hover:not(:disabled) { background: var(--accent-soft, #3f3f46); }
 .lgb-edit-btn:disabled { opacity: .5; cursor: default; }
-.lgb-edit-toggle { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: #9aa2b0;
+.lgb-edit-toggle { display: flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--text-dim, #52525b);
   white-space: nowrap; cursor: pointer; }
 </style>

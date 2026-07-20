@@ -1,52 +1,49 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
-
 /*
- * shadcn-vue 主题令牌：全部映射到本项目既有的暗色玻璃设计令牌（见 index.css 的 :root），
- * 让 shadcn 组件天生就是「Foundry 蓝 + 玻璃面板」风格，而不是默认黑白。
- * 本应用为纯暗色，故只维护一套深色取值（同时放进 :root 与 .dark 以兼容组件里的 dark: 变体）。
+ * shadcn-vue 主题令牌:映射到项目的浅色极简设计令牌(见 index.css 的 :root),
+ * 让 shadcn 组件天生就是「白底 + 中性灰 + 黑色主按钮」的 Codex 风格。
+ * 本应用为纯浅色单主题,只维护一套取值。
  */
-:root,
-.dark {
-  --radius: 0.75rem;
+:root {
+  --radius: 0.5rem;
 
   --background: var(--bg-base);
   --foreground: var(--text-main);
 
-  /* 卡片 / 浮层 = 项目的强面板底 */
-  --card: var(--bg-panel-strong);
+  /* 卡片 / 浮层 = 白底 */
+  --card: #ffffff;
   --card-foreground: var(--text-main);
-  --popover: var(--bg-panel-strong);
+  --popover: #ffffff;
   --popover-foreground: var(--text-main);
 
-  /* 主色 = 项目强调蓝 */
+  /* 主色 = 近黑(黑底白字按钮) */
   --primary: var(--accent);
   --primary-foreground: #ffffff;
 
-  /* 次级 / 中性表面 = 抬升底 */
-  --secondary: var(--bg-elev-hi);
+  /* 次级 / 中性表面 = 浅灰 */
+  --secondary: var(--bg-elev);
   --secondary-foreground: var(--text-main);
   --muted: var(--bg-elev);
   --muted-foreground: var(--text-dim);
 
-  /* hover/选中底 = 强调色淡染 */
+  /* hover/选中底 = 浅灰 */
   --accent: var(--accent-tint);
   --accent-foreground: var(--text-main);
 
-  --destructive: #e5484d;
+  --destructive: #dc2626;
   --destructive-foreground: #ffffff;
 
   --border: var(--glass-border);
   --input: var(--glass-border-strong);
   --ring: var(--accent-2);
 
-  --chart-1: var(--accent);
-  --chart-2: var(--accent-2);
-  --chart-3: var(--accent-3);
-  --chart-4: var(--accent-soft);
-  --chart-5: var(--accent-deep);
+  --chart-1: #2563eb;
+  --chart-2: #059669;
+  --chart-3: #d97706;
+  --chart-4: #db2777;
+  --chart-5: #7c3aed;
 }
 
 @theme inline {
@@ -80,7 +77,7 @@
 }
 
 @layer base {
-  /* 只给「带 shadcn 工具类的元素」补默认边框色与聚焦环，避免影响既有自研组件 */
+  /* 只给「带 shadcn 工具类的元素」补默认边框色与聚焦环,避免影响既有自研组件 */
   *:where([class*="border-"], [class*="outline-"]) {
     border-color: var(--border);
   }

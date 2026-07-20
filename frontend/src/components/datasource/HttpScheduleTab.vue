@@ -54,12 +54,12 @@ const save = async () => {
 </template>
 
 <style scoped>
-.tab { padding: 16px; display: flex; flex-direction: column; gap: 12px; color: #e8eaed; }
+.tab { padding: 16px; display: flex; flex-direction: column; gap: 12px; color: var(--text-main, #18181b); }
 .toggle { display: flex; gap: 8px; align-items: center; }
 .row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-.row > span:first-child { min-width: 88px; color: #c0c4cf; }
-.row input[type=number] { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 4px 8px; color: #e8eaed; width: 100px; }
-.hint { color: #888; font-size: 12px; }
-.primary { background: #4a8df0; border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; align-self: flex-start; }
+.row > span:first-child { min-width: 88px; color: var(--text-dim, #52525b); }
+.row input[type=number] { background: #fff; border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); border-radius: 6px; padding: 4px 8px; color: var(--text-main, #18181b); width: 100px; }
+.hint { color: var(--text-muted, #a1a1aa); font-size: 12px; }
+.primary { background: var(--accent, #18181b); border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; align-self: flex-start; }
 .primary:disabled { opacity: .5; }
 </style>

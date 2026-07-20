@@ -11,14 +11,14 @@ export function useGraphStats(
   getEdges: () => OntologyEdge[],
 ) {
   // ── 辅助 ────────────────────────────────────────────
-  const typeColor = (type: string) => (NT as any)[type]?.color || '#22dd88';
+  const typeColor = (type: string) => (NT as any)[type]?.color || '#059669';
   const typeLabel = (type: string) => (NT as any)[type]?.label || type;
 
   const sourceBadge = (s?: string) => {
-    if (s === 'inferred')  return { text: 'AI推理',   color: '#bb77ff' };
-    if (s === 'derived')   return { text: '文本提取', color: '#22dd88' };
-    if (s === 'manual')    return { text: '手动',     color: '#3d9bff' };
-      return { text: '预置', color: '#888' };
+    if (s === 'inferred')  return { text: 'AI推理',   color: '#7c3aed' };
+    if (s === 'derived')   return { text: '文本提取', color: '#059669' };
+    if (s === 'manual')    return { text: '手动',     color: '#2563eb' };
+      return { text: '预置', color: '#a1a1aa' };
   };
 
   // 节点按类型分组

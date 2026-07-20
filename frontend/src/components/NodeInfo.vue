@@ -117,14 +117,14 @@ const kindLabel = (k?: string) => ({
 
 // 来源徽章: AI 推理 / 文本提取 / 手动 / 系统预置
 const sourceBadge = (s?: string) => {
-  if (s === 'inferred') return { text: 'AI推理', color: '#bb77ff', bg: 'rgba(187,119,255,0.12)' };
-  if (s === 'derived')  return { text: '文本提取', color: '#22dd88', bg: 'rgba(34,221,136,0.12)' };
-  if (s === 'manual')   return { text: '手动', color: '#3d9bff', bg: 'rgba(61,155,255,0.12)' };
-  return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
+  if (s === 'inferred') return { text: 'AI推理', color: '#7c3aed', bg: 'rgba(124,58,237,0.10)' };
+  if (s === 'derived')  return { text: '文本提取', color: '#059669', bg: 'rgba(5,150,105,0.10)' };
+  if (s === 'manual')   return { text: '手动', color: '#2563eb', bg: 'rgba(37,99,235,0.10)' };
+  return { text: '预置', color: '#a1a1aa', bg: 'rgba(0,0,0,0.05)' };
 };
 
 // 置信度配色 / 提示：高=绿、中=黄、低=红，帮助快速判断血缘可信度
-const confColor = (c: number) => (c >= 0.85 ? '#22dd88' : c >= 0.55 ? '#ffcc44' : '#ff7755');
+const confColor = (c: number) => (c >= 0.85 ? '#059669' : c >= 0.55 ? '#d97706' : '#dc2626');
 const confHint = (c: number) => (c >= 0.85 ? '高（事实依据充分）' : c >= 0.55 ? '中（部分推断）' : '低（多为推断，需复核）');
 
 // 来源方式：显式 sourceMethod 优先；否则由物理字段 / 来源推断
@@ -223,7 +223,7 @@ const startResize = (e: MouseEvent) => {
             </div>
             <div class="ni-header-r">
               <span v-if="node" class="ni-current">
-                <span class="ni-current-dot" :style="t ? { background: t.color || '#2f86d6' } : {}" />
+                <span class="ni-current-dot" :style="t ? { background: t.color || '#2563eb' } : {}" />
                 <span class="ni-current-lb">{{ node.label }}</span>
               </span>
               <span v-else class="ni-current ni-current-global">
@@ -604,7 +604,7 @@ const startResize = (e: MouseEvent) => {
 <style scoped>
 /* ===== 置信度 / 血缘证据 ===== */
 .ni-conf { font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-.ni-conf-hint { margin-left: 8px; font-size: 11px; color: rgba(255,255,255,0.45); }
+.ni-conf-hint { margin-left: 8px; font-size: 11px; color: var(--text-muted); }
 .ni-evidence {
   display: flex;
   gap: 8px;
@@ -612,12 +612,12 @@ const startResize = (e: MouseEvent) => {
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.5;
-  color: rgba(255,255,255,0.78);
-  background: rgba(34,221,136,0.06);
-  border-left: 2px solid rgba(34,221,136,0.5);
+  color: var(--text-dim);
+  background: rgba(5,150,105,0.05);
+  border-left: 2px solid rgba(5,150,105,0.40);
   border-radius: 4px;
 }
-.ni-evidence-icon { color: #22dd88; font-weight: 700; flex-shrink: 0; }
+.ni-evidence-icon { color: #059669; font-weight: 700; flex-shrink: 0; }
 .ni-evidence-text { font-style: italic; }
 
 .ni-src-chip {
@@ -625,8 +625,8 @@ const startResize = (e: MouseEvent) => {
   padding: 2px 8px;
   font-size: 12px;
   font-family: 'JetBrains Mono', monospace;
-  color: #22dd88;
-  background: rgba(34, 221, 136, 0.12);
+  color: #059669;
+  background: rgba(5, 150, 105, 0.10);
   border-radius: 6px;
 }
 
@@ -635,8 +635,8 @@ const startResize = (e: MouseEvent) => {
   padding: 4px 12px;
   font-size: 12px;
   border-radius: 6px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.12);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
   color: var(--text-main);
   cursor: pointer;
   font-family: inherit;
@@ -644,21 +644,21 @@ const startResize = (e: MouseEvent) => {
   transition: background-color .15s, border-color .15s, color .15s;
 }
 .ni-edit-btn:hover {
-  background: rgba(255,255,255,0.1);
-  border-color: rgba(255,255,255,0.22);
+  background: var(--bg-elev);
+  border-color: var(--glass-border-strong);
 }
 .ni-edit-btn--save {
-  background: var(--accent, #2f86d6);
-  border-color: var(--accent, #2f86d6);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
   font-weight: 600;
 }
 .ni-edit-btn--save:hover {
-  opacity: 0.9;
-  background: var(--accent, #2f86d6);
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
 }
 .ni-edit-btn--cancel {
-  color: rgba(255,255,255,0.7);
+  color: var(--text-dim);
 }
 
 /* ===== 编辑模式提示 ===== */
@@ -666,9 +666,9 @@ const startResize = (e: MouseEvent) => {
   margin-top: 8px;
   padding: 6px 10px;
   font-size: 11px;
-  color: rgba(255,255,255,0.5);
-  background: rgba(255,255,255,0.03);
-  border: 1px dashed rgba(255,255,255,0.1);
+  color: var(--text-muted);
+  background: rgba(0,0,0,0.02);
+  border: 1px dashed rgba(0,0,0,0.12);
   border-radius: 6px;
 }
 
@@ -690,7 +690,7 @@ const startResize = (e: MouseEvent) => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--hairline);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -712,8 +712,8 @@ const startResize = (e: MouseEvent) => {
   grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.6fr) auto 32px;
 }
 .ni-attr-thead {
-  background: rgba(255,255,255,0.025);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--hairline);
   padding: 6px 10px;
 }
 .ni-attr-th {
@@ -721,13 +721,13 @@ const startResize = (e: MouseEvent) => {
   font-weight: 600;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.45);
+  color: var(--text-muted);
 }
 .ni-attr-row {
-  border-bottom: 1px dashed rgba(255,255,255,0.05);
+  border-bottom: 1px dashed rgba(0,0,0,0.06);
 }
 .ni-attr-row:last-child { border-bottom: none; }
-.ni-attr-row:hover { background: rgba(255,255,255,0.02); }
+.ni-attr-row:hover { background: rgba(0,0,0,0.02); }
 .ni-attr-cell {
   display: flex;
   align-items: center;
@@ -737,7 +737,7 @@ const startResize = (e: MouseEvent) => {
   color: var(--text-main);
 }
 .ni-attr-cell.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; color: var(--text-dim); }
-.ni-attr-cell .ni-attr-name { color: #ffaa22; font-weight: 500; }
+.ni-attr-cell .ni-attr-name { color: #d97706; font-weight: 500; }
 .ni-col-act { justify-content: flex-end; }
 /* 单元格内的输入/下拉占满列宽 */
 .ni-col-method .ni-inline-select { width: 100%; }
@@ -752,7 +752,7 @@ const startResize = (e: MouseEvent) => {
   gap: 12px;
   padding-bottom: 9px;
   margin-bottom: 2px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid var(--hairline);
 }
 .ni-card-head .ni-card-title {
   padding-bottom: 0;

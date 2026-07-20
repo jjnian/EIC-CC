@@ -116,8 +116,8 @@ const fmtTime = (t: number) => {
   flex-direction: column;
   gap: 8px;
   text-align: left;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
   border-radius: 12px;
   padding: 16px;
   cursor: pointer;
@@ -126,8 +126,8 @@ const fmtTime = (t: number) => {
   min-height: 78px;
 }
 .cl-card:hover {
-  background: rgba(47, 134, 214, 0.08);
-  border-color: rgba(47, 134, 214, 0.4);
+  background: var(--bg-elev);
+  border-color: var(--glass-border-strong);
 }
 .cl-card-title {
   font-size: 14px;

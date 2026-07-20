@@ -21,14 +21,14 @@ const emit = defineEmits<{
 // ── 辅助 ────────────────────────────────────────────
 const nmap = computed(() => Object.fromEntries(props.nodes.map(n => [n.id, n])));
 
-const typeColor = (type: string) => (NT as any)[type]?.color || '#2f86d6';
+const typeColor = (type: string) => (NT as any)[type]?.color || '#2563eb';
 const typeLabel = (type: string) => (NT as any)[type]?.label || type;
 
 const sourceBadge = (s?: string) => {
-  if (s === 'inferred')  return { text: 'AI推理',   color: '#bb77ff' };
-  if (s === 'derived')   return { text: '文本提取', color: '#22dd88' };
-  if (s === 'manual')    return { text: '手动',     color: '#3d9bff' };
-  return { text: '预置', color: '#888' };
+  if (s === 'inferred')  return { text: 'AI推理',   color: '#7c3aed' };
+  if (s === 'derived')   return { text: '文本提取', color: '#059669' };
+  if (s === 'manual')    return { text: '手动',     color: '#2563eb' };
+  return { text: '预置', color: '#a1a1aa' };
 };
 
 // ── 节点精确分析 ──────────────────────────────────────
@@ -118,11 +118,11 @@ const exportImpactReport = () => {
       <div class="gap-section-title">连接度统计</div>
       <div class="gap-row-stats">
         <div class="gap-stat-card">
-          <div class="gap-stat-n" style="color:#22dd88">{{ incoming.length }}</div>
+          <div class="gap-stat-n" style="color:#059669">{{ incoming.length }}</div>
           <div class="gap-stat-l">入度（被指向）</div>
         </div>
         <div class="gap-stat-card">
-          <div class="gap-stat-n" style="color:#3d9bff">{{ outgoing.length }}</div>
+          <div class="gap-stat-n" style="color:#2563eb">{{ outgoing.length }}</div>
           <div class="gap-stat-l">出度（指向他人）</div>
         </div>
         <div class="gap-stat-card">
@@ -130,7 +130,7 @@ const exportImpactReport = () => {
           <div class="gap-stat-l">总度数</div>
         </div>
         <div class="gap-stat-card">
-          <div class="gap-stat-n" style="color:#fbbf24">{{ twoHopNeighbors.length }}</div>
+          <div class="gap-stat-n" style="color:#d97706">{{ twoHopNeighbors.length }}</div>
           <div class="gap-stat-l">二跳邻居</div>
         </div>
       </div>
@@ -249,32 +249,32 @@ const exportImpactReport = () => {
 
 <style scoped>
 .gap-section { display: flex; flex-direction: column; gap: 8px; }
-.gap-section-title { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.gap-section-title { font-size: 11px; color: var(--text-muted, #a1a1aa); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 
 .gap-row-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .gap-stat-card {
-  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07);
+  background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07));
   border-radius: 8px; padding: 10px 8px; text-align: center;
 }
 .gap-stat-n { font-size: 22px; font-weight: 700; line-height: 1; }
-.gap-stat-l { font-size: 10px; color: #888; margin-top: 4px; }
+.gap-stat-l { font-size: 10px; color: var(--text-muted, #a1a1aa); margin-top: 4px; }
 
 .gap-table { width: 100%; border-collapse: collapse; }
 .gap-table th {
-  text-align: left; font-size: 11px; color: #888; font-weight: 500;
-  padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.06);
+  text-align: left; font-size: 11px; color: var(--text-muted, #a1a1aa); font-weight: 500;
+  padding: 4px 6px; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07));
 }
 .gap-tr { cursor: pointer; }
-.gap-tr:hover td { background: rgba(255,255,255,.04); }
-.gap-td { padding: 5px 6px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,.04); }
-.gap-td.num { text-align: center; color: #aaa; width: 40px; }
-.gap-td.bold { color: #e8eaed; font-weight: 600; }
-.gap-td.amber { color: #fbbf24; }
+.gap-tr:hover td { background: var(--bg-elev, rgba(0,0,0,0.045)); }
+.gap-td { padding: 5px 6px; font-size: 12px; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); }
+.gap-td.num { text-align: center; color: var(--text-dim, #52525b); width: 40px; }
+.gap-td.bold { color: var(--text-main, #18181b); font-weight: 600; }
+.gap-td.amber { color: #d97706; }
 .gap-td.node-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .gap-chip {
   display: inline-block; font-size: 11px; padding: 4px 11px; line-height: 1.4;
-  border: 1px solid rgba(255,255,255,.15); border-radius: 100px;
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); border-radius: 100px;
 }
 .gap-chip-click { cursor: pointer; }
 .gap-chip-click:hover { opacity: .75; }
@@ -283,28 +283,28 @@ const exportImpactReport = () => {
 
 .gap-kv-list { display: flex; flex-direction: column; gap: 6px; }
 .gap-kv { display: flex; align-items: center; gap: 8px; }
-.gap-k { min-width: 60px; font-size: 12px; color: #888; }
+.gap-k { min-width: 60px; font-size: 12px; color: var(--text-muted, #a1a1aa); }
 .gap-v { font-size: 13px; }
 .gap-v.bold { font-weight: 600; }
-.gap-v.mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #aaa; }
+.gap-v.mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim, #52525b); }
 
-.gap-hint { color: #888; text-align: center; padding: 40px 16px; font-size: 13px; }
-.gap-empty { color: #888; font-size: 12px; padding: 6px 0; }
+.gap-hint { color: var(--text-muted, #a1a1aa); text-align: center; padding: 40px 16px; font-size: 13px; }
+.gap-empty { color: var(--text-muted, #a1a1aa); font-size: 12px; padding: 6px 0; }
 
 /* ── 血缘追溯 ── */
 .gap-lineage-stats { grid-template-columns: repeat(2, 1fr); }
 .gap-lineage-actions { display: flex; gap: 8px; }
 .gap-btn {
   flex: 1; padding: 7px 10px; font-size: 12px; cursor: pointer;
-  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
-  color: #e8eaed; border-radius: 7px; font-family: inherit;
+  background: var(--bg-elev, rgba(0,0,0,0.045)); border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  color: var(--text-main, #18181b); border-radius: 7px; font-family: inherit;
   transition: background-color .15s, border-color .15s, opacity .15s;
 }
-.gap-btn:hover { background: rgba(255,255,255,.1); }
+.gap-btn:hover { background: rgba(0,0,0,0.08); }
 .gap-btn:disabled { opacity: .4; cursor: not-allowed; }
-.gap-btn-primary { flex: 2; background: rgba(168,85,247,.16); border-color: rgba(168,85,247,.4); color: #c9a3ff; }
-.gap-btn-primary:hover:not(:disabled) { background: rgba(168,85,247,.26); }
-.gap-lineage-legend { display: flex; gap: 14px; font-size: 11px; color: #999; }
+.gap-btn-primary { flex: 2; background: rgba(124,58,237,0.10); border-color: rgba(124,58,237,0.35); color: #7c3aed; }
+.gap-btn-primary:hover:not(:disabled) { background: rgba(124,58,237,0.16); }
+.gap-lineage-legend { display: flex; gap: 14px; font-size: 11px; color: var(--text-muted, #a1a1aa); }
 .gap-lineage-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .lg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .gap-lineage-group { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }

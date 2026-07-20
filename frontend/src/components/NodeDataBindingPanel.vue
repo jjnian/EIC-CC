@@ -334,38 +334,38 @@ const levelView = (level?: string) => ({
 </template>
 
 <style scoped>
-.ndb { padding: 4px 2px; font-size: 13px; color: var(--text-main, #e8eaed); }
-.ndb-hint { color: #888; font-size: 12.5px; padding: 10px 2px; }
+.ndb { padding: 4px 2px; font-size: 13px; color: var(--text-main, #18181b); }
+.ndb-hint { color: var(--text-muted, #a1a1aa); font-size: 12.5px; padding: 10px 2px; }
 .ndb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .ndb-title { font-weight: 600; }
-.ndb-count { font-size: 11px; background: rgba(74,141,240,.18); color: #9cc4ff; padding: 0 7px; border-radius: 100px; margin-left: 4px; }
-.ndb-add { background: rgba(47,134,214,.16); color: var(--accent-soft); border: 1px solid rgba(47,134,214,.4);
+.ndb-count { font-size: 11px; background: rgba(37,99,235,0.10); color: #2563eb; padding: 0 7px; border-radius: 100px; margin-left: 4px; }
+.ndb-add { background: rgba(37,99,235,0.06); color: #2563eb; border: 1px solid rgba(37,99,235,0.35);
   border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit; }
-.ndb-add:hover { background: rgba(47,134,214,.26); }
-.ndb-desc { margin: 0 0 10px; font-size: 11.5px; color: #8a91a0; line-height: 1.5; }
+.ndb-add:hover { background: rgba(37,99,235,0.12); }
+.ndb-desc { margin: 0 0 10px; font-size: 11.5px; color: var(--text-dim, #52525b); line-height: 1.5; }
 
-.ndb-form { background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.08);
+.ndb-form { background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07));
   border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
-.ndb-empty-ds { color: #f0c660; font-size: 12px; }
+.ndb-empty-ds { color: #d97706; font-size: 12px; }
 .ndb-row { display: flex; align-items: center; gap: 10px; }
-.ndb-row > span { min-width: 56px; color: #8a91a0; font-size: 12px; }
+.ndb-row > span { min-width: 56px; color: var(--text-dim, #52525b); font-size: 12px; }
 .ndb-ctl { flex: 1; min-width: 0; }
 .ndb-form-actions { display: flex; gap: 8px; }
 .ndb-btn { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 12.5px; font-family: inherit; }
-.ndb-btn.primary { background: var(--accent); color: #fff; font-weight: 600; }
+.ndb-btn.primary { background: var(--accent, #18181b); color: #fff; font-weight: 600; }
 .ndb-btn.primary:disabled { opacity: .5; cursor: default; }
-.ndb-btn.ghost { background: transparent; color: #aaa; border: 1px solid rgba(255,255,255,.12); }
+.ndb-btn.ghost { background: transparent; color: var(--text-dim, #52525b); border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); }
 
-.ndb-item { border: 1px solid rgba(255,255,255,.08); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.ndb-item { border: 1px solid var(--hairline, rgba(0,0,0,0.07)); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
 .ndb-item-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.ndb-item-ds { font-weight: 600; color: #b9d4ff; }
-.ndb-item-table { color: var(--text-main, #e8eaed); }
-.ndb-item-filter { font-size: 11px; color: #8a91a0; font-family: 'JetBrains Mono', monospace; }
+.ndb-item-ds { font-weight: 600; color: #2563eb; }
+.ndb-item-table { color: var(--text-main, #18181b); }
+.ndb-item-filter { font-size: 11px; color: var(--text-dim, #52525b); font-family: 'JetBrains Mono', monospace; }
 .ndb-spacer { flex: 1; }
-.ndb-mini { background: rgba(255,255,255,.06); color: #c0c4cf; border: 1px solid rgba(255,255,255,.12);
+.ndb-mini { background: var(--bg-elev, rgba(0,0,0,0.045)); color: var(--text-dim, #52525b); border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
   border-radius: 6px; padding: 3px 9px; font-size: 11.5px; cursor: pointer; font-family: inherit; }
-.ndb-mini:hover { background: rgba(255,255,255,.12); }
-.ndb-mini.del { color: #ff8a6f; }
+.ndb-mini:hover { background: rgba(0,0,0,0.08); }
+.ndb-mini.del { color: #dc2626; }
 .ndb-mini:disabled { opacity: .5; cursor: default; }
 
 .ndb-status { margin-top: 8px; padding: 10px 12px; border-radius: 8px;
@@ -378,10 +378,10 @@ const levelView = (level?: string) => ({
 .ndb-status-num { font-family: 'JetBrains Mono', monospace; color: #dde3ee; }
 
 .ndb-result { margin-top: 8px; }
-.ndb-result-meta { font-size: 11px; color: #888; margin-bottom: 4px; }
-.ndb-scroll { overflow: auto; max-height: 240px; border: 1px solid rgba(255,255,255,.06); border-radius: 6px; }
+.ndb-result-meta { font-size: 11px; color: var(--text-muted, #a1a1aa); margin-bottom: 4px; }
+.ndb-scroll { overflow: auto; max-height: 240px; border: 1px solid var(--hairline, rgba(0,0,0,0.07)); border-radius: 6px; }
 .ndb-result table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
 .ndb-result th, .ndb-result td { padding: 4px 8px; text-align: left;
-  border-bottom: 1px solid rgba(255,255,255,.06); white-space: nowrap; color: var(--text-main, #e8eaed); }
-.ndb-result th { color: #8a91a0; position: sticky; top: 0; background: #1d1f24; }
+  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); white-space: nowrap; color: var(--text-main, #18181b); }
+.ndb-result th { color: var(--text-dim, #52525b); position: sticky; top: 0; background: var(--bg-subtle, #f7f8fa); }
 </style>

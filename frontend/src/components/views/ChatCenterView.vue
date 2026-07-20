@@ -139,12 +139,12 @@ const bindRef = (el: any) => {
   background: transparent !important;
   border: none;
   box-shadow: none;
-  color: #f5f7fb;
+  color: var(--text-main);
   padding: 4px 0;
 }
 .cc-chat :deep(.msg-asst .bubble strong),
 .cc-chat :deep(.msg-asst .bubble em) {
-  color: #fff;
+  color: var(--text-main);
 }
 @media (max-width: 1200px) {
   .cc-chat :deep(.ch-msgs),
@@ -173,31 +173,22 @@ const bindRef = (el: any) => {
   width: 56px;
   height: 56px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #5aa6ee 0%, #2f86d6 50%, #35495e 100%);
+  background: var(--accent);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 22px;
   font-weight: 800;
   color: #fff;
-  box-shadow:
-    0 12px 30px rgba(47, 134, 214, 0.36),
-    0 4px 10px rgba(0, 0, 0, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.30),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.18);
   letter-spacing: 0.5px;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
 }
 .cwb-title {
   margin: 0;
   font-size: 28px;
   font-weight: 700;
-  letter-spacing: 0.4px;
-  background: linear-gradient(180deg, #ffffff 0%, rgba(244, 247, 251, 0.78) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.3px;
+  color: var(--text-main);
 }
 .cwb-sub {
   margin: 0;
@@ -216,28 +207,27 @@ const bindRef = (el: any) => {
 }
 .cwb-ex-label {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--text-muted);
   align-self: center;
   margin-right: 4px;
   letter-spacing: 0.3px;
   font-family: 'JetBrains Mono', monospace;
 }
 .cwb-ex {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
   color: var(--text-dim);
   padding: 7px 14px;
   border-radius: 100px;
   font-size: 12.5px;
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
   font-family: inherit;
   letter-spacing: 0.15px;
 }
 .cwb-ex:hover {
-  border-color: rgba(47, 134, 214, 0.45);
+  border-color: var(--glass-border-strong);
   color: var(--text-main);
-  background: linear-gradient(180deg, rgba(47, 134, 214, 0.10), rgba(47, 134, 214, 0.04));
-  transform: translateY(-1px);
+  background: var(--bg-elev);
 }
 </style>

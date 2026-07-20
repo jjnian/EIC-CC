@@ -68,7 +68,7 @@ const {
   <div class="gap-section">
     <div class="gap-section-title">关系标签频次（Top {{ Math.min(20, edgeLabelStats.length) }}）</div>
     <div v-for="s in edgeLabelStats" :key="s.label" class="gap-bar-row">
-      <span class="gap-bar-dot" style="background:#fbbf24" />
+      <span class="gap-bar-dot" style="background:#d97706" />
       <span class="gap-bar-label">{{ s.label }}</span>
       <div class="gap-bar-track">
         <div class="gap-bar-fill" :style="{ width: (s.count / (edgeLabelStats[0]?.count || 1) * 100) + '%', background: 'rgba(251,191,36,0.5)' }" />
@@ -122,39 +122,39 @@ const {
 
 <style scoped>
 .gap-section { display: flex; flex-direction: column; gap: 8px; }
-.gap-section-title { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.gap-section-title { font-size: 11px; color: var(--text-muted, #a1a1aa); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
 
 .gap-row-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .gap-stat-card {
-  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07);
+  background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07));
   border-radius: 8px; padding: 10px 8px; text-align: center;
 }
 .gap-stat-n { font-size: 22px; font-weight: 700; line-height: 1; }
-.gap-stat-l { font-size: 10px; color: #888; margin-top: 4px; }
+.gap-stat-l { font-size: 10px; color: var(--text-muted, #a1a1aa); margin-top: 4px; }
 
 .gap-bar-row { display: flex; align-items: center; gap: 8px; }
 .gap-bar-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.gap-bar-label { min-width: 60px; font-size: 12px; color: #ccc; }
-.gap-bar-track { flex: 1; height: 6px; background: rgba(255,255,255,.06); border-radius: 3px; overflow: hidden; }
+.gap-bar-label { min-width: 60px; font-size: 12px; color: var(--text-dim, #52525b); }
+.gap-bar-track { flex: 1; height: 6px; background: rgba(0,0,0,0.06); border-radius: 3px; overflow: hidden; }
 .gap-bar-fill { height: 100%; border-radius: 3px; transition: width .3s; }
-.gap-bar-count { min-width: 28px; text-align: right; font-size: 12px; color: #aaa; }
+.gap-bar-count { min-width: 28px; text-align: right; font-size: 12px; color: var(--text-dim, #52525b); }
 
 .gap-table { width: 100%; border-collapse: collapse; }
 .gap-table th {
-  text-align: left; font-size: 11px; color: #888; font-weight: 500;
-  padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.06);
+  text-align: left; font-size: 11px; color: var(--text-muted, #a1a1aa); font-weight: 500;
+  padding: 4px 6px; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07));
 }
 .gap-tr { cursor: pointer; }
-.gap-tr:hover td { background: rgba(255,255,255,.04); }
-.gap-td { padding: 5px 6px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,.04); }
-.gap-td.rank { color: #888; width: 24px; }
-.gap-td.num { text-align: center; color: #aaa; width: 40px; }
-.gap-td.bold { color: #e8eaed; font-weight: 600; }
+.gap-tr:hover td { background: var(--bg-elev, rgba(0,0,0,0.045)); }
+.gap-td { padding: 5px 6px; font-size: 12px; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); }
+.gap-td.rank { color: var(--text-muted, #a1a1aa); width: 24px; }
+.gap-td.num { text-align: center; color: var(--text-dim, #52525b); width: 40px; }
+.gap-td.bold { color: var(--text-main, #18181b); font-weight: 600; }
 .gap-td.node-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .gap-chip {
   display: inline-block; font-size: 11px; padding: 4px 11px; line-height: 1.4;
-  border: 1px solid rgba(255,255,255,.15); border-radius: 100px;
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); border-radius: 100px;
 }
 .gap-chip-click { cursor: pointer; }
 .gap-chip-click:hover { opacity: .75; }

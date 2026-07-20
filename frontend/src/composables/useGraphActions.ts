@@ -386,14 +386,14 @@ export function useGraphActions(ctx: GraphActionsCtx) {
       const c = canvas.getContext('2d')!;
 
       // 背景
-      c.fillStyle = '#0f172a';
+      c.fillStyle = '#ffffff';
       c.fillRect(0, 0, canvas.width, canvas.height);
 
       const ox = -minX + padding;
       const oy = -minY + padding;
 
       // 画边
-      c.strokeStyle = 'rgba(255,255,255,0.3)';
+      c.strokeStyle = '#a1a1aa';
       c.lineWidth = 1.5;
       const nodeMap = Object.fromEntries(ctx.nodes.value.map(n => [n.id, n]));
       for (const e of ctx.edges.value) {
@@ -410,14 +410,14 @@ export function useGraphActions(ctx: GraphActionsCtx) {
       for (const n of ctx.nodes.value) {
         const x = (n.x || 0) + ox;
         const y = (n.y || 0) + oy;
-        c.fillStyle = '#1e293b';
-        c.strokeStyle = 'rgba(255,255,255,0.2)';
+        c.fillStyle = '#ffffff';
+        c.strokeStyle = 'rgba(0,0,0,0.18)';
         c.lineWidth = 1;
         c.beginPath();
         c.roundRect(x, y, nodeW, nodeH, 8);
         c.fill();
         c.stroke();
-        c.fillStyle = '#e2e8f0';
+        c.fillStyle = '#18181b';
         c.font = '13px sans-serif';
         c.fillText(n.label || '', x + 12, y + 30, 136);
       }

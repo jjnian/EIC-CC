@@ -11,6 +11,7 @@ import { confirm as uiConfirm } from '../../composables/useConfirm';
 import { useSidebarTree } from '../../composables/useSidebarTree';
 import { useWorkspaces } from '../../composables/useWorkspaces';
 import DataSourceConfigForm from '../datasource/DataSourceConfigForm.vue';
+import { defaultConfigFor } from '../../utils/datasourceDefaults';
 import { Button } from '@/components/ui/button';
 import {
   Database, FileText, Globe, Link2, Package, Plus, X, ChevronLeft, Diamond, Circle,
@@ -65,7 +66,7 @@ const statusLabel: Record<string, string> = {
   connected: '已连接', error: '异常', idle: '未测试',
 };
 const statusColor: Record<string, string> = {
-  connected: '#22dd88', error: '#ff6644', idle: 'var(--text-muted)',
+  connected: '#059669', error: '#dc2626', idle: 'var(--text-muted)',
 };
 const canOpen = (d: DataSource) =>
   ['mysql', 'pgsql', 'oracle', 'dm', 'gbase', 'file_stored', 'https_api'].includes(d.kind);
@@ -192,12 +193,7 @@ const openAdd = () => {
 const pickType = (k: DataSourceKind) => {
   kind.value = k;
   step.value = 'form';
-  if (k === 'mysql')     cfg.value = { host: 'localhost', port: 3306, database: '', username: '', password: '', params: '' };
-  if (k === 'pgsql')     cfg.value = { host: 'localhost', port: 5432, database: '', username: '', password: '', params: '' };
-  if (k === 'oracle')    cfg.value = { host: 'localhost', port: 1521, database: '', username: '', password: '' };
-  if (k === 'dm')        cfg.value = { host: 'localhost', port: 5236, database: '', username: '', password: '' };
-  if (k === 'gbase')     cfg.value = { host: 'localhost', port: 5258, database: '', username: '', password: '', params: '' };
-  if (k === 'https_api') cfg.value = { url: '', method: 'GET', headers: {}, body: '', timeoutMs: 15000, schedule: { enabled: false, intervalSec: 300 } };
+  cfg.value = defaultConfigFor(k);
 };
 
 const runTest = async () => {
@@ -385,15 +381,15 @@ const submit = async () => {
   transition: background .14s var(--ease-out), color .14s var(--ease-out), border-color .14s var(--ease-out);
 }
 .chip:hover { background: var(--bg-elev-hi); color: var(--text-main); }
-.chip.on { background: var(--accent-tint); border-color: rgba(47,134,214,.5); color: var(--accent-soft); }
+.chip.on { background: var(--bg-elev-hi); border-color: var(--glass-border-strong); color: var(--text-main); }
 
 .add-panel {
-  background: linear-gradient(180deg, var(--bg-panel) 0%, rgba(11,18,32,.5) 100%);
+  background: var(--bg-panel);
   border: 1px solid var(--hairline); border-radius: 14px; margin-bottom: 20px;
-  box-shadow: var(--shadow-md), inset 0 1px 0 var(--hairline-top);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
-.add-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; border-bottom: 1px solid var(--hairline); font-size: 13px; font-weight: 500; color: var(--text-main); background: linear-gradient(180deg, rgba(255,255,255,.03), transparent); }
+.add-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; border-bottom: 1px solid var(--hairline); font-size: 13px; font-weight: 500; color: var(--text-main); background: var(--bg-subtle); }
 .close-btn { color: var(--text-dim); }
 
 .picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 18px; }
@@ -403,7 +399,7 @@ const submit = async () => {
   padding: 16px; cursor: pointer; color: var(--text-main); text-align: left;
   transition: transform .18s var(--ease-out), background .18s var(--ease-out), border-color .18s var(--ease-out), box-shadow .18s var(--ease-out);
 }
-.type-card:hover { transform: translateY(-2px); background: var(--bg-elev-hi); border-color: rgba(47,134,214,.42); box-shadow: 0 10px 26px rgba(0,0,0,.28); }
+.type-card:hover { background: var(--bg-elev-hi); border-color: var(--glass-border-strong); box-shadow: var(--shadow-md); }
 .type-card .ic { display: inline-flex; color: var(--accent-soft); margin-bottom: 2px; }
 .type-card strong { font-size: 14px; font-weight: 600; }
 .type-card small { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
@@ -411,8 +407,8 @@ const submit = async () => {
 .form-area { padding: 18px; display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
 .row { display: flex; align-items: center; gap: 8px; }
 .row > span { min-width: 88px; font-size: 13px; color: var(--text-dim); }
-.row > input { flex: 1; background: rgba(8,13,22,.7); border: 1px solid var(--glass-border); border-radius: 8px; padding: 8px 10px; color: var(--text-main); outline: none; transition: border-color .15s; }
-.row > input:focus { border-color: rgba(47,134,214,.55); }
+.row > input { flex: 1; background: #fff; border: 1px solid var(--glass-border); border-radius: 8px; padding: 8px 10px; color: var(--text-main); outline: none; transition: border-color .15s; }
+.row > input:focus { border-color: rgba(0,0,0,0.35); }
 .row.block { flex-direction: column; align-items: stretch; gap: 6px; }
 .test-msg { font-size: 13px; color: var(--text-dim); padding: 10px 12px; background: var(--bg-elev); border: 1px solid var(--hairline); border-radius: 8px; }
 .form-actions { display: flex; gap: 8px; align-items: center; padding-top: 4px; }
@@ -450,8 +446,8 @@ const submit = async () => {
 
 .ws-badge {
   display: inline-flex; align-items: center; gap: 5px; flex: none;
-  font-size: 12px; color: var(--accent-soft);
-  background: var(--accent-tint); border: 1px solid rgba(61,155,255,.28);
+  font-size: 12px; color: var(--text-dim);
+  background: var(--bg-elev); border: 1px solid var(--glass-border);
   border-radius: 100px; padding: 3px 11px; width: 160px; box-sizing: border-box;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
@@ -461,15 +457,15 @@ const submit = async () => {
 .ds-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; flex: none; width: 120px; }
 
 .row-actions { display: flex; gap: 4px; flex: none; width: 120px; justify-content: center; opacity: 0; transition: opacity .14s; }
-.row-actions button:hover { color: #fff; background: var(--bg-elev-hi); }
-.row-actions button.danger:hover { color: #fff; background: rgba(255,99,71,.22); border-color: rgba(255,99,71,.5); }
+.row-actions button:hover { color: var(--text-main); background: var(--bg-elev-hi); }
+.row-actions button.danger:hover { color: #dc2626; background: rgba(220,38,38,0.08); border-color: rgba(220,38,38,0.35); }
 
 .empty { color: var(--text-dim); padding: 48px; text-align: center; font-size: 14px; }
 
 /* 只读预览弹层 */
-.preview-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 60; }
-.preview-panel { background: linear-gradient(180deg, #182338 0%, #101729 100%); border: 1px solid var(--glass-border); border-radius: 16px; width: 460px; max-width: 92vw; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow-panel); }
-.preview-head { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--hairline); background: linear-gradient(180deg, rgba(255,255,255,.03), transparent); }
+.preview-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.preview-panel { background: var(--bg-base); border: 1px solid var(--glass-border); border-radius: 16px; width: 460px; max-width: 92vw; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: var(--shadow-lg); }
+.preview-head { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--hairline); background: var(--bg-subtle); }
 .preview-title { font-size: 15px; font-weight: 600; color: var(--text-main); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .preview-head .close-btn { margin-left: 4px; }
 .preview-body { padding: 8px 18px 12px; overflow-y: auto; display: flex; flex-direction: column; }

@@ -77,7 +77,7 @@ defineExpose({ scrollToBottom });
           <!-- LLM 返回的澄清问题组(支持一次多个、单题多选) -->
           <div v-if="m.role === 'a' && m.questions && m.questions.length" class="question-card" :class="{ answered: !!m.questionsDone }">
             <div class="question-head">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"/>
                 <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
                 <line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -147,8 +147,8 @@ defineExpose({ scrollToBottom });
   transition: background .15s, color .15s;
 }
 .att-sm-clickable:hover {
-  background: rgba(47, 134, 214, 0.18);
-  color: #a7f3d0;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-main);
 }
 .att-sm:disabled { cursor: default; }
 .att-sm-eye { opacity: 0.55; }
@@ -157,8 +157,8 @@ defineExpose({ scrollToBottom });
 /* 澄清问题卡片 */
 .question-card {
   margin-top: 8px;
-  background: rgba(251, 191, 36, 0.06);
-  border: 1px solid rgba(251, 191, 36, 0.25);
+  background: rgba(217, 119, 6, 0.05);
+  border: 1px solid rgba(217, 119, 6, 0.22);
   border-radius: 10px;
   padding: 10px 12px;
   display: flex;
@@ -166,8 +166,8 @@ defineExpose({ scrollToBottom });
   gap: 8px;
 }
 .question-card.answered {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.08);
 }
 .question-head {
   display: flex;
@@ -177,10 +177,10 @@ defineExpose({ scrollToBottom });
 .question-tag {
   font-size: 11px;
   font-weight: 600;
-  color: #fbbf24;
+  color: #d97706;
   letter-spacing: 0.4px;
 }
-.question-card.answered .question-tag { color: rgba(255, 255, 255, 0.45); }
+.question-card.answered .question-tag { color: var(--text-muted); }
 .question-text {
   color: var(--text-main);
   font-size: 13px;
@@ -197,9 +197,9 @@ defineExpose({ scrollToBottom });
   gap: 9px;
   width: 100%;
   text-align: left;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  color: #fde68a;
+  background: rgba(217, 119, 6, 0.07);
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  color: #b45309;
   padding: 8px 12px;
   border-radius: 8px;
   font-size: 12px;
@@ -208,9 +208,9 @@ defineExpose({ scrollToBottom });
   transition: all 0.12s;
 }
 .question-option:hover:not(:disabled) {
-  background: rgba(251, 191, 36, 0.22);
-  border-color: rgba(251, 191, 36, 0.55);
-  color: #fff;
+  background: rgba(217, 119, 6, 0.14);
+  border-color: rgba(217, 119, 6, 0.45);
+  color: #92400e;
   transform: translateX(2px);
 }
 /* 行首的序号徽标:1 2 3 … */
@@ -222,8 +222,8 @@ defineExpose({ scrollToBottom });
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  background: rgba(251, 191, 36, 0.22);
-  color: #fde68a;
+  background: rgba(217, 119, 6, 0.16);
+  color: #b45309;
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
@@ -235,39 +235,39 @@ defineExpose({ scrollToBottom });
   gap: 5px;
 }
 .question-option.selected .question-option-num {
-  background: rgba(47, 134, 214, 0.28);
-  color: #5aa6ee;
+  background: rgba(37, 99, 235, 0.16);
+  color: #2563eb;
 }
 .question-option-custom .question-option-num {
-  background: rgba(125, 211, 252, 0.2);
-  color: #bae6fd;
+  background: rgba(2, 132, 199, 0.12);
+  color: #0284c7;
 }
 .question-option:disabled {
   cursor: default;
   opacity: 0.5;
 }
 .question-option.selected {
-  background: rgba(47, 134, 214, 0.18);
-  border-color: rgba(47, 134, 214, 0.45);
-  color: #5aa6ee;
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.35);
+  color: #2563eb;
   opacity: 1;
 }
 .question-option-custom {
-  background: rgba(125, 211, 252, 0.08);
-  border-color: rgba(125, 211, 252, 0.28);
-  color: #bae6fd;
+  background: rgba(2, 132, 199, 0.05);
+  border-color: rgba(2, 132, 199, 0.25);
+  color: #0284c7;
   border-style: dashed;
 }
 .question-option-custom:hover:not(:disabled) {
-  background: rgba(125, 211, 252, 0.18);
-  border-color: rgba(125, 211, 252, 0.5);
-  color: #fff;
+  background: rgba(2, 132, 199, 0.12);
+  border-color: rgba(2, 132, 199, 0.45);
+  color: #0369a1;
 }
 .question-option-custom.selected {
-  background: rgba(125, 211, 252, 0.2);
-  border-color: rgba(125, 211, 252, 0.55);
+  background: rgba(2, 132, 199, 0.12);
+  border-color: rgba(2, 132, 199, 0.45);
   border-style: solid;
-  color: #e0f2fe;
+  color: #0369a1;
 }
 /* 多问题:每条问题成块,块间细分隔线 */
 .question-block {
@@ -277,24 +277,24 @@ defineExpose({ scrollToBottom });
 }
 .question-block + .question-block {
   padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
 }
 .question-topic {
   display: inline-block;
   font-size: 10.5px;
   font-weight: 600;
-  color: #fbbf24;
-  background: rgba(251, 191, 36, 0.12);
+  color: #d97706;
+  background: rgba(217, 119, 6, 0.10);
   border-radius: 5px;
   padding: 1px 7px;
   margin-right: 6px;
   vertical-align: middle;
 }
-.question-card.answered .question-topic { color: rgba(255, 255, 255, 0.45); background: rgba(255, 255, 255, 0.06); }
+.question-card.answered .question-topic { color: var(--text-muted); background: rgba(0, 0, 0, 0.05); }
 .question-multi-tag {
   font-size: 10px;
-  color: #5aa6ee;
-  background: rgba(47, 134, 214, 0.14);
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.08);
   border-radius: 100px;
   padding: 1px 7px;
   margin-left: 6px;
@@ -319,7 +319,7 @@ defineExpose({ scrollToBottom });
   font-family: inherit;
   transition: all 0.12s;
 }
-.question-submit:hover:not(:disabled) { background: #5aa6ee; }
+.question-submit:hover:not(:disabled) { background: var(--accent-soft); }
 .question-submit:disabled { opacity: 0.45; cursor: default; }
 
 .view-graph-btn {
@@ -328,17 +328,17 @@ defineExpose({ scrollToBottom });
   gap: 5px;
   margin-top: 8px;
   padding: 5px 12px;
-  background: rgba(47, 134, 214, 0.12);
-  border: 1px solid rgba(47, 134, 214, 0.35);
+  background: rgba(37, 99, 235, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.28);
   border-radius: 6px;
-  color: #5aa6ee;
+  color: #2563eb;
   font-size: 12px;
   cursor: pointer;
   transition: background .15s, border-color .15s;
 }
 .view-graph-btn:hover {
-  background: rgba(47, 134, 214, 0.22);
-  border-color: rgba(47, 134, 214, 0.6);
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.5);
 }
 
 .ch-msgs {
@@ -374,13 +374,12 @@ defineExpose({ scrollToBottom });
   display: inline-block;
   max-width: min(100%, 620px);
   margin-left: auto;
-  background: linear-gradient(135deg, var(--accent-soft), var(--accent));
-  border: 1px solid rgba(47, 134, 214, 0.45);
+  background: rgba(0, 0, 0, 0.055);
+  border: none;
   border-radius: 14px;
   padding: 10px 14px;
-  color: #fff;
-  font-weight: 600;
-  box-shadow: 0 8px 22px rgba(47, 134, 214, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  color: var(--text-main);
+  font-weight: 500;
 }
 .msg-asst .bubble {
   max-width: min(100%, 860px);
@@ -388,7 +387,7 @@ defineExpose({ scrollToBottom });
   background: transparent !important;
   border: none !important;
   border-radius: 0;
-  color: #f4f7fb;
+  color: var(--text-main);
   font-size: 14px;
   line-height: 1.8;
   box-shadow: none !important;

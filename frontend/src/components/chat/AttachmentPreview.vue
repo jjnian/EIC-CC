@@ -125,7 +125,7 @@ const copyText = async () => {
 <style scoped>
 .ap-backdrop {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,0.55); backdrop-filter: blur(4px);
+  background: rgba(0,0,0,0.40);
   display: flex; align-items: center; justify-content: center;
   z-index: 2100; animation: apFade .18s ease-out;
 }
@@ -133,37 +133,37 @@ const copyText = async () => {
 
 .ap-dialog {
   width: 720px; max-width: 92vw; max-height: 86vh;
-  background: rgba(15, 23, 42, 0.97);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 16px; display: flex; flex-direction: column;
-  box-shadow: 0 24px 64px rgba(0,0,0,0.5); overflow: hidden;
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  border-radius: 14px; display: flex; flex-direction: column;
+  box-shadow: var(--shadow-lg); overflow: hidden;
 }
 
 .ap-head {
   display: flex; align-items: center; gap: 12px;
-  padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 14px 18px; border-bottom: 1px solid var(--hairline);
 }
 .ap-title { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
 .ap-kind { font-size: 16px; }
-.ap-name { color: #fff; font-weight: 500; font-size: 14px; max-width: 480px;
+.ap-name { color: var(--text-main); font-weight: 500; font-size: 14px; max-width: 480px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ap-size { font-size: 12px; color: rgba(255,255,255,0.4); font-family: 'JetBrains Mono', monospace; }
+.ap-size { font-size: 12px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
 .ap-tag {
   font-size: 11px; padding: 2px 6px; border-radius: 4px;
-  background: rgba(99, 179, 237, 0.15); color: #63b3ed;
-  border: 1px solid rgba(99, 179, 237, 0.3);
+  background: rgba(37, 99, 235, 0.07); color: #2563eb;
+  border: 1px solid rgba(37, 99, 235, 0.25);
 }
 .ap-tag-warn {
-  background: rgba(251, 191, 36, 0.15); color: #fbbf24;
-  border-color: rgba(251, 191, 36, 0.3);
+  background: rgba(217, 119, 6, 0.08); color: #d97706;
+  border-color: rgba(217, 119, 6, 0.28);
 }
 .ap-close {
-  background: none; border: none; color: rgba(255,255,255,0.5);
+  background: none; border: none; color: var(--text-muted);
   font-size: 24px; line-height: 1; cursor: pointer; padding: 0;
   width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
   border-radius: 6px;
 }
-.ap-close:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.ap-close:hover { background: rgba(0, 0, 0, 0.06); color: var(--text-main); }
 
 .ap-body {
   flex: 1; overflow: auto; padding: 18px;
@@ -173,59 +173,59 @@ const copyText = async () => {
   width: 100%; max-height: 60vh; display: flex; align-items: center; justify-content: center;
 }
 .ap-img-wrap img { max-width: 100%; max-height: 60vh; object-fit: contain;
-  border-radius: 8px; background: rgba(0,0,0,0.3); }
+  border-radius: 8px; background: var(--bg-subtle); }
 .ap-text {
   width: 100%; max-height: 60vh; overflow: auto;
-  background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06);
+  background: var(--bg-subtle); border: 1px solid var(--hairline);
   border-radius: 8px; padding: 14px 16px; margin: 0;
   font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12.5px;
-  color: #d6e2f0; line-height: 1.55;
+  color: #3f3f46; line-height: 1.55;
   white-space: pre-wrap; word-break: break-word;
 }
 /* 渲染后的 Markdown「阅读视图」 */
 .ap-md {
   align-self: flex-start;
   width: 100%; max-height: 64vh; overflow: auto;
-  background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06);
+  background: #ffffff; border: 1px solid var(--hairline);
   border-radius: 8px; padding: 18px 22px;
-  color: #d6e2f0; font-size: 13.5px; line-height: 1.7; overflow-wrap: anywhere;
+  color: #3f3f46; font-size: 13.5px; line-height: 1.7; overflow-wrap: anywhere;
 }
-.ap-md :deep(h1) { font-size: 19px; margin: 4px 0 10px; color: #fff; }
-.ap-md :deep(h2) { font-size: 16px; margin: 16px 0 8px; color: #fff; }
-.ap-md :deep(h3) { font-size: 14px; margin: 14px 0 6px; color: #fff; }
+.ap-md :deep(h1) { font-size: 19px; margin: 4px 0 10px; color: var(--text-main); }
+.ap-md :deep(h2) { font-size: 16px; margin: 16px 0 8px; color: var(--text-main); }
+.ap-md :deep(h3) { font-size: 14px; margin: 14px 0 6px; color: var(--text-main); }
 .ap-md :deep(p) { margin: 8px 0; }
 .ap-md :deep(ul), .ap-md :deep(ol) { padding-left: 22px; margin: 8px 0; }
 .ap-md :deep(li) { margin: 3px 0; }
-.ap-md :deep(code) { background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 4px;
+.ap-md :deep(code) { background: rgba(0, 0, 0, 0.06); padding: 1px 6px; border-radius: 4px;
   font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.ap-md :deep(pre) { background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08);
+.ap-md :deep(pre) { background: var(--bg-subtle); border: 1px solid var(--hairline);
   border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 10px 0; }
 .ap-md :deep(pre code) { background: none; padding: 0; }
-.ap-md :deep(blockquote) { border-left: 3px solid rgba(47,134,214,0.5); margin: 8px 0;
-  padding: 2px 12px; color: rgba(255,255,255,0.6); }
-.ap-md :deep(a) { color: #5aa6ee; }
-.ap-md :deep(hr) { border: none; border-top: 1px solid rgba(255,255,255,0.12); margin: 14px 0; }
+.ap-md :deep(blockquote) { border-left: 3px solid rgba(37, 99, 235, 0.4); margin: 8px 0;
+  padding: 2px 12px; color: var(--text-dim); }
+.ap-md :deep(a) { color: #2563eb; }
+.ap-md :deep(hr) { border: none; border-top: 1px solid var(--hairline); margin: 14px 0; }
 
 .ap-msg {
-  color: rgba(255,255,255,0.55); font-size: 13px; text-align: center;
+  color: var(--text-dim); font-size: 13px; text-align: center;
   padding: 32px 16px;
 }
-.ap-msg.ap-error { color: #ff8a8a; }
-.ap-hint { color: rgba(255,255,255,0.35); font-size: 12px; }
+.ap-msg.ap-error { color: #dc2626; }
+.ap-hint { color: var(--text-muted); font-size: 12px; }
 
 .ap-foot {
   display: flex; align-items: center; gap: 8px;
-  padding: 12px 18px; border-top: 1px solid rgba(255,255,255,0.08);
+  padding: 12px 18px; border-top: 1px solid var(--hairline);
 }
 .ap-foot-spacer { flex: 1; }
 .ap-btn {
-  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
+  background: #ffffff; border: 1px solid var(--glass-border);
   color: var(--text-main); padding: 7px 14px; border-radius: 8px;
   font-size: 13px; cursor: pointer; transition: all .15s; font-family: inherit;
 }
-.ap-btn:hover { background: rgba(255,255,255,0.16); }
+.ap-btn:hover { background: var(--bg-elev); }
 .ap-btn-hi {
-  background: var(--accent); color: #fff; border-color: transparent; font-weight: 600;
+  background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600;
 }
-.ap-btn-hi:hover { opacity: 0.9; background: var(--accent); }
+.ap-btn-hi:hover { background: var(--accent-soft); }
 </style>

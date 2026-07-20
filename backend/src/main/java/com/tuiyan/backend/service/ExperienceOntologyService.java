@@ -11,6 +11,7 @@ import com.tuiyan.backend.support.IdSaltRewriter;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -18,8 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
 import java.util.regex.Pattern;
 
 /**
@@ -43,9 +43,6 @@ public class ExperienceOntologyService {
     private static final int MAX_CHARS_PER_EXPERIENCE = 40_000;
     /** 每批聚合的正文字符上限，约对应一次 LLM 抽取调用；批与批之间并行跑、按 label 增量合并。 */
     private static final int BATCH_CHAR_BUDGET = 30_000;
-    /** 并行批数上限，避免一次性打爆 LLM 限流。 */
-    private static final int MAX_PARALLEL_BATCHES = 4;
-
     /** 探索文档里内嵌结构化图片段的注释块:{@code <!-- EXPLORE_GRAPH {json} EXPLORE_GRAPH -->}。 */
     private static final Pattern GRAPH_BLOCK = Pattern.compile(
             "(?s)<!--\\s*" + ExplorationAgentService.GRAPH_MARKER + "\\s*(\\{.*?\\})\\s*"
@@ -67,14 +64,11 @@ public class ExperienceOntologyService {
     private static final String BUILD_CACHE_VERSION = "v1";
     /** checkpoint 孤儿保留期(3 天)：作业成功即清理，此为崩溃/预览残留的兜底上限。 */
     private static final long CHECKPOINT_TTL_MS = 3L * 24 * 60 * 60 * 1000;
-    /** 并行建图专用有界线程池（守护线程）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
-    private final ExecutorService batchExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_BATCHES, r -> {
-        Thread t = new Thread(r, "exp-ontology-batch");
-        t.setDaemon(true);
-        return t;
-    });
+    /** 并行建图专用线程池（共享 Bean batchExecutor）：各批抽取在此并发跑，避免占用 appTaskExecutor 造成自饿死。 */
+    private final Executor batchExecutor;
 
     public ExperienceOntologyService(ExperienceRepository repo,
+                                     @Qualifier("batchExecutor") Executor batchExecutor,
                                      ExtractionLlmService extractionLlmService,
                                      ExtractionGraphMerger merger,
                                      OntologyVocabService vocabService,
@@ -86,6 +80,7 @@ public class ExperienceOntologyService {
                                      com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex,
                                      com.tuiyan.backend.repository.GraphBuildCheckpointRepository checkpointRepo) {
         this.repo = repo;
+        this.batchExecutor = batchExecutor;
         this.extractionLlmService = extractionLlmService;
         this.merger = merger;
         this.vocabService = vocabService;

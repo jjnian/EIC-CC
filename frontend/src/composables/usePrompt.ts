@@ -18,8 +18,7 @@ const ensureStyle = () => {
   style.textContent = `
 .eic-prompt-backdrop {
   position: fixed; inset: 0; z-index: 9998;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(4px);
+  background: rgba(0,0,0,0.32);
   display: flex; align-items: center; justify-content: center;
   animation: eicPrFade 0.16s ease-out;
   font-family: inherit;
@@ -27,34 +26,34 @@ const ensureStyle = () => {
 @keyframes eicPrFade { from { opacity: 0; } to { opacity: 1; } }
 .eic-prompt-card {
   width: 420px; max-width: 92vw;
-  background: rgba(15, 23, 42, 0.97);
-  border: 1px solid rgba(255,255,255,0.12);
+  background: #ffffff;
+  border: 1px solid rgba(0,0,0,0.09);
   border-radius: 14px;
-  box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,0.12));
   padding: 20px;
   display: flex; flex-direction: column; gap: 14px;
-  color: var(--text-main, #e6e9ef);
+  color: var(--text-main, #18181b);
 }
 .eic-prompt-title {
   font-size: 14px; font-weight: 600; letter-spacing: 0.3px;
 }
 .eic-prompt-msg {
   font-size: 13px; line-height: 1.55;
-  color: var(--text-dim, rgba(255,255,255,0.7));
+  color: var(--text-dim, #52525b);
   white-space: pre-line;
 }
 .eic-prompt-input {
   width: 100%;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid rgba(0,0,0,0.09);
   border-radius: 8px;
-  background: rgba(255,255,255,0.04);
-  color: var(--text-main, #e6e9ef);
+  background: #ffffff;
+  color: var(--text-main, #18181b);
   font: inherit;
   font-size: 13px;
   padding: 9px 10px;
   outline: none;
 }
-.eic-prompt-input:focus { border-color: rgba(47,134,214,0.6); }
+.eic-prompt-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
 .eic-prompt-foot {
   display: flex; gap: 8px; justify-content: flex-end;
 }
@@ -63,15 +62,15 @@ const ensureStyle = () => {
   font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
 }
 .eic-prompt-btn-cancel {
-  background: rgba(255,255,255,0.06);
-  color: var(--text-dim, rgba(255,255,255,0.7));
-  border-color: rgba(255,255,255,0.08);
+  background: #ffffff;
+  color: var(--text-dim, #52525b);
+  border-color: rgba(0,0,0,0.09);
 }
-.eic-prompt-btn-cancel:hover { background: rgba(255,255,255,0.12); }
+.eic-prompt-btn-cancel:hover { background: rgba(0,0,0,0.045); }
 .eic-prompt-btn-ok {
-  background: #2f86d6; color: #fff;
+  background: #18181b; color: #fff;
 }
-.eic-prompt-btn-ok:hover { background: #5aa6ee; }
+.eic-prompt-btn-ok:hover { background: #000000; }
 `;
   document.head.appendChild(style);
 };

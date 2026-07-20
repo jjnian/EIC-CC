@@ -47,20 +47,20 @@ watch(() => props.dsId, load);
 
 <style scoped>
 .tab { padding: 12px; height: 100%; min-height: 320px; display: flex; flex-direction: column; }
-.bar { display: flex; align-items: center; gap: 8px; color: #aaa; font-size: 12px; margin-bottom: 8px; }
-.bar button { background: none; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 2px 8px; color: #c0c4cf; cursor: pointer; }
+.bar { display: flex; align-items: center; gap: 8px; color: var(--text-dim, #52525b); font-size: 12px; margin-bottom: 8px; }
+.bar button { background: none; border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); border-radius: 6px; padding: 2px 8px; color: var(--text-dim, #52525b); cursor: pointer; }
 .list { flex: 1; overflow: auto; }
-.log { border-bottom: 1px solid rgba(255,255,255,.06); }
+.log { border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); }
 .row { display: flex; gap: 12px; align-items: center; padding: 8px 4px; cursor: pointer; font-size: 12px; }
-.row:hover { background: rgba(255,255,255,.04); }
+.row:hover { background: var(--bg-elev, rgba(0,0,0,0.045)); }
 .dot { width: 8px; height: 8px; border-radius: 50%; }
-.dot.ok { background: #22dd88; }
-.dot.bad { background: tomato; }
-.code { color: #c0c4cf; font-weight: 600; min-width: 36px; }
-.time { color: #888; flex: 1; }
-.dur { color: #aaa; }
-.body { padding: 8px; background: rgba(0,0,0,.2); }
-.body pre { margin: 0; font-family: monospace; font-size: 12px; color: #e8eaed; white-space: pre-wrap; word-break: break-all; }
-.err { color: tomato; font-size: 12px; margin-bottom: 6px; }
-.msg { color: #888; padding: 12px; }
+.dot.ok { background: #059669; }
+.dot.bad { background: #dc2626; }
+.code { color: var(--text-dim, #52525b); font-weight: 600; min-width: 36px; }
+.time { color: var(--text-muted, #a1a1aa); flex: 1; }
+.dur { color: var(--text-dim, #52525b); }
+.body { padding: 8px; background: var(--bg-subtle, #f7f8fa); }
+.body pre { margin: 0; font-family: monospace; font-size: 12px; color: var(--text-main, #18181b); white-space: pre-wrap; word-break: break-all; }
+.err { color: #dc2626; font-size: 12px; margin-bottom: 6px; }
+.msg { color: var(--text-muted, #a1a1aa); padding: 12px; }
 </style>

@@ -422,106 +422,106 @@ const hasQualityIssue = computed(() => {
 
 <style scoped>
 .dbo-backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,.5);
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
   display: flex; align-items: center; justify-content: center; z-index: 1000;
 }
 .dbo-dialog {
   width: min(720px, 92vw); max-height: 86vh; overflow: hidden;
-  background: #1d1f24; border: 1px solid rgba(255,255,255,.08);
+  background: var(--bg-base, #fff); border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
   border-radius: 10px; display: flex; flex-direction: column;
-  color: #e8eaed; box-shadow: 0 12px 32px rgba(0,0,0,.4);
+  color: var(--text-main, #18181b); box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,0.12));
 }
 .dbo-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px;
-  border-bottom: 1px solid rgba(255,255,255,.06); }
+  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); }
 .dbo-icon { font-size: 18px; }
 .dbo-title { font-size: 15px; font-weight: 600; }
-.dbo-source { font-size: 12px; color: #aaa; }
-.dbo-close { margin-left: auto; background: none; border: none; color: #aaa;
+.dbo-source { font-size: 12px; color: var(--text-dim, #52525b); }
+.dbo-close { margin-left: auto; background: none; border: none; color: var(--text-muted, #a1a1aa);
   font-size: 22px; cursor: pointer; line-height: 1; }
-.dbo-close:hover { color: #fff; }
+.dbo-close:hover { color: var(--text-main, #18181b); }
 .dbo-body { padding: 16px; overflow-y: auto; }
 .dbo-section { margin-bottom: 16px; }
 .dbo-section:last-child { margin-bottom: 0; }
-.dbo-desc { color: #c0c4cf; font-size: 13px; line-height: 1.7; margin-bottom: 12px; }
+.dbo-desc { color: var(--text-dim, #52525b); font-size: 13px; line-height: 1.7; margin-bottom: 12px; }
 .dbo-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-.dbo-row > span { min-width: 100px; font-size: 13px; color: #aaa; }
-.dbo-row > input { flex: 1; background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 6px 8px;
-  color: #e8eaed; font-size: 13px; }
+.dbo-row > span { min-width: 100px; font-size: 13px; color: var(--text-dim, #52525b); }
+.dbo-row > input { flex: 1; background: #fff;
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); border-radius: 6px; padding: 6px 8px;
+  color: var(--text-main, #18181b); font-size: 13px; }
 .dbo-actions { display: flex; gap: 8px; margin-top: 14px; }
 .dbo-btn { padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer;
   font-size: 13px; }
-.dbo-btn.primary { background: var(--accent, #2f86d6); color: #fff; font-weight: 600; }
+.dbo-btn.primary { background: var(--accent, #18181b); color: #fff; font-weight: 600; }
 .dbo-btn.primary:disabled { opacity: .45; cursor: not-allowed; }
-.dbo-btn.ghost { background: transparent; color: #aaa;
-  border: 1px solid rgba(255,255,255,.12); }
-.dbo-btn.ghost:hover { color: #fff; }
+.dbo-btn.ghost { background: transparent; color: var(--text-dim, #52525b);
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); }
+.dbo-btn.ghost:hover { color: var(--text-main, #18181b); }
 
 .dbo-steps { display: flex; flex-direction: column; gap: 4px;
-  background: rgba(255,255,255,.03); border-radius: 6px; padding: 10px 12px;
+  background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07)); border-radius: 6px; padding: 10px 12px;
   max-height: 220px; overflow-y: auto; }
 .dbo-step { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
-  color: #c0c4cf; }
+  color: var(--text-dim, #52525b); }
 .dbo-step-dot { width: 14px; text-align: center; font-weight: bold; }
-.dbo-step.done .dbo-step-dot { color: #22dd88; }
-.dbo-step.running .dbo-step-dot { color: var(--accent, #2f86d6); animation: blink 1s infinite; }
-.dbo-step.error .dbo-step-dot { color: tomato; }
+.dbo-step.done .dbo-step-dot { color: #059669; }
+.dbo-step.running .dbo-step-dot { color: #2563eb; animation: blink 1s infinite; }
+.dbo-step.error .dbo-step-dot { color: #dc2626; }
 @keyframes blink { 50% { opacity: .35; } }
 
-.dbo-error { color: tomato; background: rgba(255,99,71,.12);
+.dbo-error { color: #dc2626; background: rgba(220,38,38,0.08);
   padding: 10px 14px; border-radius: 6px; font-size: 13px; }
 
-.dbo-summary { background: rgba(47,134,214,.08); padding: 12px 14px;
+.dbo-summary { background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.18); padding: 12px 14px;
   border-radius: 6px; margin-bottom: 12px; }
-.dbo-summary-row { font-size: 13.5px; color: #e8eaed; margin-bottom: 6px; }
-.dbo-summary-row strong { color: #5aa6ee; font-weight: 600; }
-.dbo-reply { font-size: 12px; color: #aaa; line-height: 1.6; }
+.dbo-summary-row { font-size: 13.5px; color: var(--text-main, #18181b); margin-bottom: 6px; }
+.dbo-summary-row strong { color: #2563eb; font-weight: 600; }
+.dbo-reply { font-size: 12px; color: var(--text-dim, #52525b); line-height: 1.6; }
 
 .dbo-health { border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;
-  background: rgba(34,221,136,.08); border: 1px solid rgba(34,221,136,.25); }
-.dbo-health.warn { background: rgba(255,180,60,.08); border-color: rgba(255,180,60,.3); }
-.dbo-health-title { font-size: 12.5px; color: #e8eaed; margin-bottom: 6px; }
+  background: rgba(5,150,105,0.06); border: 1px solid rgba(5,150,105,0.25); }
+.dbo-health.warn { background: rgba(217,119,6,0.06); border-color: rgba(217,119,6,0.3); }
+.dbo-health-title { font-size: 12.5px; color: var(--text-main, #18181b); margin-bottom: 6px; }
 .dbo-health-items { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .dbo-h-item { font-size: 11.5px; padding: 2px 8px; border-radius: 10px;
-  background: rgba(255,255,255,.06); color: #cbd0d6; }
-.dbo-h-item.warn { color: #ffcc66; background: rgba(255,180,60,.14); }
-.dbo-h-item.bad { color: #ff8866; background: rgba(255,90,60,.16); }
-.dbo-health-note { font-size: 11.5px; color: #999; line-height: 1.5; }
+  background: var(--bg-elev, rgba(0,0,0,0.045)); color: var(--text-dim, #52525b); }
+.dbo-h-item.warn { color: #d97706; background: rgba(217,119,6,0.10); }
+.dbo-h-item.bad { color: #dc2626; background: rgba(220,38,38,0.08); }
+.dbo-health-note { font-size: 11.5px; color: var(--text-muted, #a1a1aa); line-height: 1.5; }
 
 .dbo-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
   margin-bottom: 14px; }
-.dbo-stat-block { background: rgba(255,255,255,.03); border-radius: 6px;
+.dbo-stat-block { background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07)); border-radius: 6px;
   padding: 10px 12px; }
-.dbo-stat-title { font-size: 12px; color: #888; margin-bottom: 6px; }
+.dbo-stat-title { font-size: 12px; color: var(--text-muted, #a1a1aa); margin-bottom: 6px; }
 .dbo-chip-row { display: flex; flex-wrap: wrap; gap: 4px; }
-.dbo-chip { font-size: 11.5px; color: #c0c4cf; background: rgba(255,255,255,.06);
+.dbo-chip { font-size: 11.5px; color: var(--text-dim, #52525b); background: var(--bg-elev, rgba(0,0,0,0.045));
   padding: 2px 8px; border-radius: 10px; }
-.dbo-chip.rel { background: rgba(47,134,214,.15); color: #cfe4fb; }
+.dbo-chip.rel { background: rgba(37,99,235,0.10); color: #2563eb; }
 
-.dbo-scope { background: rgba(255,255,255,.03); border-radius: 6px; padding: 10px 12px;
+.dbo-scope { background: var(--bg-subtle, #f7f8fa); border: 1px solid var(--hairline, rgba(0,0,0,0.07)); border-radius: 6px; padding: 10px 12px;
   margin-bottom: 12px; }
 .dbo-scope-head { display: flex; align-items: center; gap: 16px; font-size: 13px;
-  color: #c0c4cf; }
-.dbo-scope-head > span { color: #888; font-size: 12px; }
+  color: var(--text-dim, #52525b); }
+.dbo-scope-head > span { color: var(--text-muted, #a1a1aa); font-size: 12px; }
 .dbo-scope-head label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
 .dbo-scope-list { margin-top: 8px; max-height: 180px; overflow-y: auto;
   display: flex; flex-direction: column; gap: 4px; }
 .dbo-scope-item { display: flex; align-items: center; gap: 7px; font-size: 12.5px;
-  color: #c0c4cf; cursor: pointer; padding: 2px 0; }
+  color: var(--text-dim, #52525b); cursor: pointer; padding: 2px 0; }
 .dbo-scope-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dbo-scope-badge { flex-shrink: 0; font-size: 10.5px; color: #8fb8e8;
-  background: rgba(47,134,214,.15); padding: 1px 6px; border-radius: 8px; }
+.dbo-scope-badge { flex-shrink: 0; font-size: 10.5px; color: #2563eb;
+  background: rgba(37,99,235,0.10); padding: 1px 6px; border-radius: 8px; }
 
 .dbo-incr { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px;
-  color: #c0c4cf; margin-bottom: 10px; cursor: pointer; line-height: 1.5; }
+  color: var(--text-dim, #52525b); margin-bottom: 10px; cursor: pointer; line-height: 1.5; }
 .dbo-incr input { margin-top: 2px; }
-.dbo-incr-tag { margin-left: 8px; font-size: 11.5px; color: #8fb8e8;
-  background: rgba(47,134,214,.15); padding: 1px 8px; border-radius: 10px; }
+.dbo-incr-tag { margin-left: 8px; font-size: 11.5px; color: #2563eb;
+  background: rgba(37,99,235,0.10); padding: 1px 8px; border-radius: 10px; }
 
 .dbo-mode-pick { display: flex; gap: 18px; margin-bottom: 10px; font-size: 13px;
-  color: #c0c4cf; }
+  color: var(--text-dim, #52525b); }
 .dbo-mode-pick label { display: flex; align-items: center; gap: 6px;
   cursor: pointer; }
-.dbo-muted { color: #666; font-size: 11.5px; }
-.dbo-hint-sm { margin-top: 8px; font-size: 11px; color: #7f8796; line-height: 1.5; }
+.dbo-muted { color: var(--text-muted, #a1a1aa); font-size: 11.5px; }
+.dbo-hint-sm { margin-top: 8px; font-size: 11px; color: var(--text-muted, #a1a1aa); line-height: 1.5; }
 </style>

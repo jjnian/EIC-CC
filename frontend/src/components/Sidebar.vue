@@ -165,7 +165,7 @@ const submitCreate = async () => {
 .sb-ws {
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--hairline);
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -173,15 +173,8 @@ const submitCreate = async () => {
   overflow-y: auto;
   position: relative;
 }
-.sb-ws::before {
-  content: '';
-  position: absolute;
-  inset: 0 12px auto 12px; height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
-  pointer-events: none;
-}
 .sb-ws::-webkit-scrollbar { width: 4px; }
-.sb-ws::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+.sb-ws::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.14); border-radius: 4px; }
 .sb-section-head {
   background: none;
   border: none;
@@ -197,7 +190,7 @@ const submitCreate = async () => {
 .sb-section-head:hover { opacity: 0.85; }
 .sb-caret {
   font-size: 9px;
-  color: rgba(255, 255, 255, 0.40);
+  color: var(--text-muted);
   transition: transform .2s cubic-bezier(.34,1.56,.64,1);
 }
 .sb-caret.open {
@@ -227,7 +220,7 @@ const submitCreate = async () => {
   letter-spacing: 0.15px;
 }
 .sb-ws-new:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.045);
   color: var(--text-main);
 }
 .sb-ws-avatar {
@@ -239,18 +232,18 @@ const submitCreate = async () => {
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
 }
 .sb-ws-avatar.plus {
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.55);
-  border: 1px dashed rgba(255, 255, 255, 0.20);
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed rgba(0, 0, 0, 0.25);
   transition: all 0.18s ease;
 }
 .sb-ws-new:hover .sb-ws-avatar.plus {
-  border-color: rgba(47, 134, 214, 0.5);
-  color: #5aa6ee;
-  background: rgba(47, 134, 214, 0.08);
+  border-color: rgba(0, 0, 0, 0.45);
+  color: var(--text-main);
+  background: rgba(0, 0, 0, 0.04);
 }
 .sb-ws-name {
   flex: 1;
@@ -262,7 +255,7 @@ const submitCreate = async () => {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1.4px;
-  color: rgba(255, 255, 255, 0.42);
+  color: var(--text-muted);
   font-family: 'JetBrains Mono', 'Inter', sans-serif;
   font-weight: 600;
 }
@@ -271,34 +264,32 @@ const submitCreate = async () => {
 .sb-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.40);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1500;
 }
 .sb-dialog {
-  background: linear-gradient(180deg, #182338 0%, #101729 100%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
   padding: 22px;
   width: 360px;
   max-width: 90vw;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+  box-shadow: var(--shadow-lg);
 }
 .sb-dialog h3 {
   margin: 0; font-size: 16px; color: var(--text-main);
   font-weight: 600; letter-spacing: 0.3px;
 }
 .sb-dialog input {
-  background: rgba(8, 13, 22, 0.80);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  color: #e2e8f0;
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  color: var(--text-main);
   padding: 10px 12px;
   border-radius: 9px;
   font-size: 13px;
@@ -307,8 +298,8 @@ const submitCreate = async () => {
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .sb-dialog input:focus {
-  border-color: rgba(47, 134, 214, 0.55);
-  box-shadow: 0 0 0 3px rgba(47, 134, 214, 0.10);
+  border-color: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
 }
 .sb-dialog-actions {
   display: flex;
@@ -316,7 +307,7 @@ const submitCreate = async () => {
   gap: 10px;
 }
 .sb-btn-primary {
-  background: linear-gradient(135deg, #5aa6ee, #2f86d6);
+  background: var(--accent);
   color: #fff;
   border: none;
   padding: 9px 20px;
@@ -325,19 +316,17 @@ const submitCreate = async () => {
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 6px 16px rgba(47, 134, 214, 0.30), inset 0 1px 0 rgba(255,255,255,0.32);
+  transition: background 0.15s ease;
   letter-spacing: 0.2px;
 }
 .sb-btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(47, 134, 214, 0.40), inset 0 1px 0 rgba(255,255,255,0.36);
+  background: var(--accent-soft);
 }
-.sb-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; }
+.sb-btn-primary:disabled { opacity: 0.55; cursor: not-allowed; }
 .sb-btn-cancel {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.70);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  color: var(--text-dim);
   padding: 9px 20px;
   border-radius: 9px;
   font-size: 13px;
@@ -345,5 +334,5 @@ const submitCreate = async () => {
   font-family: inherit;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.sb-btn-cancel:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
+.sb-btn-cancel:hover { background: var(--bg-elev); color: var(--text-main); }
 </style>

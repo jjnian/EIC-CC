@@ -44,9 +44,9 @@ export function useNodeColoring(ctx: NodeColoringCtx) {
   const diffColor = (n: any) => {
     const diff = ctx.getDiffHighlight();
     if (!diff) return null;
-    if (diff.uniqueAIds.includes(n.id)) return '#3b82f6'; // 蓝色 = A 独有
-    if (diff.uniqueBIds.includes(n.id)) return '#f97316'; // 橙色 = B 独有
-    if (diff.sharedIds.includes(n.id)) return '#a855f7';  // 紫色 = 共同
+    if (diff.uniqueAIds.includes(n.id)) return '#dbeafe'; // 蓝色浅底 = A 独有
+    if (diff.uniqueBIds.includes(n.id)) return '#ffedd5'; // 橙色浅底 = B 独有
+    if (diff.sharedIds.includes(n.id)) return '#f3e8ff';  // 紫色浅底 = 共同
     return null;
   };
 

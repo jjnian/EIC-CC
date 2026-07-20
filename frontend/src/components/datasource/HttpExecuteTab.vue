@@ -61,22 +61,22 @@ const prettyBody = (s?: string) => {
 <style scoped>
 .tab { display: flex; gap: 12px; padding: 12px; height: 100%; min-height: 320px; }
 .left, .right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-h4 { margin: 0 0 8px; color: #aaa; font-size: 13px; }
+h4 { margin: 0 0 8px; color: var(--text-dim, #52525b); font-size: 13px; }
 dl { display: grid; grid-template-columns: 80px 1fr; gap: 4px 12px; font-size: 12px; margin-bottom: 12px; }
-dt { color: #888; }
-dd { color: #e8eaed; margin: 0; word-break: break-all; }
+dt { color: var(--text-muted, #a1a1aa); }
+dd { color: var(--text-main, #18181b); margin: 0; word-break: break-all; }
 dd.url { font-family: monospace; }
-dd pre { margin: 0; font-size: 12px; background: rgba(255,255,255,.03); padding: 6px; border-radius: 4px; }
-.primary { background: #4a8df0; border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; align-self: flex-start; }
+dd pre { margin: 0; font-size: 12px; background: var(--bg-subtle, #f7f8fa); padding: 6px; border-radius: 4px; }
+.primary { background: var(--accent, #18181b); border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; align-self: flex-start; }
 .primary:disabled { opacity: .5; }
 .status { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 12px; }
 .code { padding: 2px 8px; border-radius: 4px; font-weight: 600; }
-.code.ok { background: rgba(34,221,136,.2); color: #22dd88; }
-.code.bad { background: rgba(255,99,71,.2); color: tomato; }
-.latency { color: #aaa; }
-.trunc { color: #ffaa22; }
-.errbox { color: tomato; background: rgba(255,99,71,.1); padding: 6px; border-radius: 4px; font-size: 12px; margin-bottom: 8px; }
-.body { flex: 1; overflow: auto; background: rgba(255,255,255,.03); padding: 8px; border-radius: 6px; color: #e8eaed; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
-.msg { color: #888; padding: 8px; }
-.msg.err { color: tomato; }
+.code.ok { background: rgba(5,150,105,0.10); color: #059669; }
+.code.bad { background: rgba(220,38,38,0.08); color: #dc2626; }
+.latency { color: var(--text-dim, #52525b); }
+.trunc { color: #d97706; }
+.errbox { color: #dc2626; background: rgba(220,38,38,0.08); padding: 6px; border-radius: 4px; font-size: 12px; margin-bottom: 8px; }
+.body { flex: 1; overflow: auto; background: var(--bg-subtle, #f7f8fa); padding: 8px; border-radius: 6px; color: var(--text-main, #18181b); font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+.msg { color: var(--text-muted, #a1a1aa); padding: 8px; }
+.msg.err { color: #dc2626; }
 </style>

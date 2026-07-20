@@ -8,15 +8,14 @@ import com.tuiyan.backend.repository.DataSourceRepository;
 import com.tuiyan.backend.service.connector.FileStoredService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
 
 /**
  * 数据源向量索引服务：读取文件内容 → 分块 → 嵌入 → 存储，并提供相似度检索。
@@ -32,6 +31,8 @@ public class DataSourceIndexService {
     private final EmbeddingProperties embeddingProps;
     private final PgVectorSupport pgVector;
     private final JdbcTemplate jdbc;
+    /** 向量索引专用线程池（共享 Bean，并发度 = app.embedding.concurrency，避免打爆 embedding 限流）。 */
+    private final Executor indexExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public record ChunkResult(String content, String dataSourceName, double score) {}
@@ -41,13 +42,15 @@ public class DataSourceIndexService {
                                   EmbeddingClient embeddingClient,
                                   EmbeddingProperties embeddingProps,
                                   PgVectorSupport pgVector,
-                                  JdbcTemplate jdbc) {
+                                  JdbcTemplate jdbc,
+                                  @Qualifier("indexExecutor") Executor indexExecutor) {
         this.dsRepo = dsRepo;
         this.fileService = fileService;
         this.embeddingClient = embeddingClient;
         this.embeddingProps = embeddingProps;
         this.pgVector = pgVector;
         this.jdbc = jdbc;
+        this.indexExecutor = indexExecutor;
     }
 
     public boolean isConfigured() {
@@ -55,10 +58,10 @@ public class DataSourceIndexService {
     }
 
     /**
-     * 异步索引单个数据源，通过 SSE 推送进度。
+     * 异步索引单个数据源，通过 SSE 推送进度。提交到共享 {@code indexExecutor}（透传 WorkspaceContext）。
      */
     public void indexDataSource(String dataSourceId, SseEmitter emitter) {
-        CompletableFuture.runAsync(() -> doIndex(dataSourceId, emitter));
+        indexExecutor.execute(() -> doIndex(dataSourceId, emitter));
     }
 
     /**
@@ -91,9 +94,8 @@ public class DataSourceIndexService {
         }
 
         if (!toIndex.isEmpty()) {
-            ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, embeddingProps.getConcurrency()));
             for (String dsId : toIndex) {
-                pool.submit(() -> {
+                indexExecutor.execute(() -> {
                     try {
                         doIndex(dsId, null);   // emitter=null：批量场景不推 SSE，进度落 index_status
                     } catch (Exception e) {
@@ -101,7 +103,6 @@ public class DataSourceIndexService {
                     }
                 });
             }
-            pool.shutdown();   // 不阻塞等待：任务在后台跑完后线程池自动回收
         }
 
         log.info("[Index] 工作空间批量索引 ws={} 候选={} 调度={} 跳过={} force={}",
@@ -126,9 +127,8 @@ public class DataSourceIndexService {
                 "AND (kind = 'file_stored' OR extra_json LIKE '%\"transcript\"%')",
                 String.class);
         if (ids.isEmpty()) return 0;
-        ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, embeddingProps.getConcurrency()));
         for (String dsId : ids) {
-            pool.submit(() -> {
+            indexExecutor.execute(() -> {
                 try {
                     doIndex(dsId, null);   // emitter=null：批量场景不推 SSE，进度落 index_status
                 } catch (Exception e) {
@@ -136,7 +136,6 @@ public class DataSourceIndexService {
                 }
             });
         }
-        pool.shutdown();   // 不阻塞等待：任务跑完后线程池自动回收
         log.info("[Index] 启动补索引：调度 {} 个未索引数据源", ids.size());
         return ids.size();
     }

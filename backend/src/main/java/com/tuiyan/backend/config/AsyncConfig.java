@@ -13,12 +13,25 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
  * 避免占用 Tomcat 工作线程。
  * <ul>
  *   <li>{@code appTaskExecutor}：抽取 / 建图 / 推演 / 解释等「快进快出」的 LLM 任务；</li>
- *   <li>{@code explorationExecutor}：浏览器探索（重内存、长耗时），与推演池隔离，避免互相饿死。</li>
+ *   <li>{@code explorationExecutor}：浏览器探索（重内存、长耗时），与推演池隔离，避免互相饿死；</li>
+ *   <li>{@code indexExecutor}：向量索引/补索引（embedding 限流敏感，按 app.embedding.concurrency 限并发）；</li>
+ *   <li>{@code batchExecutor}：经验库建图分批抽取（固定 4 并发，与 appTaskExecutor 隔离防自饿死）。</li>
  * </ul>
+ * <p>所有池均带 {@link #workspacePropagatingDecorator()}：把提交线程的 WorkspaceContext 透传到 worker
+ * 线程（ThreadLocal 不随线程池自动传播），任务结束还原，避免复用线程串号。线程池均为 Spring 托管的
+ * {@link ThreadPoolTaskExecutor}（实现 DisposableBean），容器关闭时自动 graceful shutdown，
+ * 无需各 Service 自行 @PreDestroy。
  */
 @Configuration
 @EnableAsync
 public class AsyncConfig {
+
+    private final EmbeddingProperties embeddingProperties;
+
+    public AsyncConfig(EmbeddingProperties embeddingProperties) {
+        this.embeddingProperties = embeddingProperties;
+    }
+
 
     /**
      * 应用级异步任务线程池。
@@ -65,6 +78,48 @@ public class AsyncConfig {
         exec.setThreadNamePrefix("explore-");
         exec.setWaitForTasksToCompleteOnShutdown(true);
         exec.setAwaitTerminationSeconds(20);
+        exec.setTaskDecorator(workspacePropagatingDecorator());
+        exec.initialize();
+        return exec;
+    }
+
+    /**
+     * 向量索引专用线程池：并发度 = {@code app.embedding.concurrency}（默认 3）。
+     * <p>大量文件上传后自动/批量建索引在此排队，避免瞬间打爆 embedding 服务限流。
+     * DataSourceIndexService（批量/补索引）与 ExperienceIndexService（经验库异步重建）共用此池，
+     * 替代各自 new 一个 ExecutorService 的旧做法（旧做法每次调用 new+shutdown，且无法统一关闭）。
+     */
+    @Bean(name = "indexExecutor", destroyMethod = "shutdown")
+    public ThreadPoolTaskExecutor indexExecutor() {
+        int n = Math.max(1, embeddingProperties.getConcurrency());
+        ThreadPoolTaskExecutor exec = new ThreadPoolTaskExecutor();
+        exec.setCorePoolSize(n);
+        exec.setMaxPoolSize(n);
+        exec.setQueueCapacity(200);
+        exec.setThreadNamePrefix("index-");
+        exec.setWaitForTasksToCompleteOnShutdown(true);
+        exec.setAwaitTerminationSeconds(20);
+        exec.setTaskDecorator(workspacePropagatingDecorator());
+        exec.initialize();
+        return exec;
+    }
+
+    /**
+     * 经验库建图批抽取专用线程池：固定 4 并发。
+     * <p>ExperienceOntologyService 把经验库分批并行喂给 LLM 抽取，各批在此并发跑。
+     * 与 appTaskExecutor 隔离：建图作业本身跑在 appTaskExecutor 上，若各批也提交到同一有界池，
+     * join 时会互相等待自饿死，故单独开池（与 DocumentExtractionService 分路抽取同理）。
+     * DocumentExtractionService 的分路抽取也改用此池。
+     */
+    @Bean(name = "batchExecutor", destroyMethod = "shutdown")
+    public ThreadPoolTaskExecutor batchExecutor() {
+        ThreadPoolTaskExecutor exec = new ThreadPoolTaskExecutor();
+        exec.setCorePoolSize(4);
+        exec.setMaxPoolSize(4);
+        exec.setQueueCapacity(100);
+        exec.setThreadNamePrefix("batch-");
+        exec.setWaitForTasksToCompleteOnShutdown(true);
+        exec.setAwaitTerminationSeconds(30);
         exec.setTaskDecorator(workspacePropagatingDecorator());
         exec.initialize();
         return exec;

@@ -8,7 +8,7 @@
  *   <li>拖拽 / 缩放都基于 zoom 反算，避免在缩放时累计漂移。</li>
  * </ul>
  */
-import { reactive, computed, onMounted, onUnmounted } from 'vue';
+import { reactive, onMounted, onUnmounted } from 'vue';
 import { NW, getPath } from '../constants';
 import type { OntologyNode, OntologyEdge } from '../types';
 import { useGraphSearch } from '../composables/useGraphSearch';
@@ -30,8 +30,6 @@ const props = defineProps<{
   /** 撤销/重做按钮的可用状态(由父级图谱历史栈决定) */
   canUndo?: boolean;
   canRedo?: boolean;
-  /** 态势层·节点状态（nodeId → 最严重状态）：非空时节点渲染状态徽标（值 + 级别配色） */
-  nodeStates?: Record<string, { value?: string | null; level?: string }> | null;
 }>();
 
 const emit = defineEmits<{
@@ -75,36 +73,6 @@ const fitView = viewport.fitView;
 const onWheel = viewport.onWheel;
 const focusNode = viewport.focusNode;
 const onScroll = viewport.onScroll;
-
-/**
- * 可见边的预计算路径：每条可见边的贝塞尔路径此前在模板里被 getPath() 重复调用 6 次/边、
- * selId 端点判定算 8 次/边，每次平移/缩放/选中/筛选都全量重算——中等规模图卡顿主因。
- * 这里一次性算好 {d, mx, my, sel}，模板直接读，把每边的重复计算从 ~14 次降到 1 次。
- * 依赖 visibleEdges（已视口裁剪）、nmap、selId，任一变化才重算，与原渲染逐字节等价。
- */
-const visibleEdgePaths = computed(() => {
-  const m = nmap.value;
-  const sel = props.selId;
-  const out = [];
-  for (const e of visibleEdges.value) {
-    const fn = m[e.from], tn = m[e.to];
-    if (!fn || !tn) continue;              // 缺端点的边不渲染（等价于原 v-if）
-    const p = getPath(fn, tn);
-    out.push({ e, d: p.d, mx: p.mx, my: p.my, sel: sel === e.from || sel === e.to });
-  }
-  return out;
-});
-
-/**
- * 流光动画降级：line-flow 是每条边持续跑的 stroke-dashoffset 无限动画，几百条边时是持续的
- * GPU/重绘开销（即使不操作）。可见边超阈值时关流光、退化为静态实线；选中边通常极少，保留其
- * 快速流光作反馈。系统「减弱动画」偏好下一律关（无障碍 + 省电）。
- */
-const FLOW_MAX_EDGES = 120;
-const prefersReducedMotion = typeof window !== 'undefined'
-  && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-const flowEnabled = computed(() =>
-  !prefersReducedMotion && visibleEdgePaths.value.length <= FLOW_MAX_EDGES);
 
 /* ── 搜索（useGraphSearch composable） ── */
 const search = useGraphSearch({
@@ -315,32 +283,32 @@ defineExpose({ fitView, focusNode });
           <svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible">
             <defs>
               <marker id="arr" markerWidth="8" markerHeight="8" refX="28" refY="4" orient="auto">
-                <path d="M0,0 L0,8 L8,4 Z" fill="rgba(255, 255, 255, 0.4)"/>
+                <path d="M0,0 L0,8 L8,4 Z" fill="#a1a1aa"/>
               </marker>
               <marker id="arr-r" markerWidth="8" markerHeight="8" refX="28" refY="4" orient="auto">
-                <path d="M0,0 L0,8 L8,4 Z" fill="#ff3399"/>
+                <path d="M0,0 L0,8 L8,4 Z" fill="#db2777"/>
               </marker>
               <marker id="arr-s" markerWidth="8" markerHeight="8" refX="28" refY="4" orient="auto">
-                <path d="M0,0 L0,8 L8,4 Z" fill="#3d9bff"/>
+                <path d="M0,0 L0,8 L8,4 Z" fill="#2563eb"/>
               </marker>
               <marker id="arr-p" markerWidth="8" markerHeight="8" refX="28" refY="4" orient="auto">
-                <path d="M0,0 L0,8 L8,4 Z" fill="#fbbf24"/>
+                <path d="M0,0 L0,8 L8,4 Z" fill="#d97706"/>
               </marker>
             </defs>
             <g>
-              <template v-for="ep in visibleEdgePaths" :key="ep.e.id">
-                <g :style="{ opacity: !edgeMatchesFilter(ep.e) ? 0.15 : (selId && !ep.sel ? 0.25 : 1), transition: 'opacity .2s' }">
+              <template v-for="e in visibleEdges" :key="e.id">
+                <g v-if="nmap[e.from] && nmap[e.to]" :style="{ opacity: !edgeMatchesFilter(e) ? 0.15 : (selId && selId !== e.from && selId !== e.to ? 0.25 : 1), transition: 'opacity .2s' }">
                   <!-- 不可见点击热区：左键查看抽屉，右键编辑输入输出 -->
-                  <path v-if="!readonly" :d="ep.d" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" @click.stop="emit('select-edge', ep.e.id)" @contextmenu.prevent.stop="emit('edit-edge-relation', ep.e.id)" />
-                  <path v-if="ep.sel" :d="ep.d" fill="none" :stroke="ep.e.rule_driven ? '#ff3399' : '#3d9bff'" :stroke-width="8" opacity="0.1"/>
-                  <path :d="ep.d" fill="none"
-                        :stroke="ep.e.rule_driven ? (ep.sel ? '#ff3399' : 'rgba(255, 51, 153, 0.4)') : (ep.sel ? '#3d9bff' : 'rgba(255, 255, 255, 0.3)')"
-                        :stroke-width="ep.sel ? 2 : 1.4"/>
-                  <path :class="ep.sel ? 'line-flow-fast' : (flowEnabled ? 'line-flow' : 'line-static')" :d="ep.d" fill="none" :stroke="ep.e.rule_driven ? (ep.sel ? '#ff80bf' : 'rgba(255, 51, 153, 0.6)') : (ep.sel ? '#9ecbff' : 'rgba(61, 155, 255, 0.55)')" :stroke-width="ep.sel ? 2.5 : 1.5"/>
-                  <g v-if="ep.e.label">
-                    <rect :x="ep.mx - 20" :y="ep.my - 17" width="40" height="14" rx="3" fill="#050810" opacity="0.85"/>
-                    <text :x="ep.mx" :y="ep.my - 6" text-anchor="middle" :style="{fill: ep.e.rule_driven ? '#ff3399' : (ep.sel ? '#7ab8f0' : 'rgba(197, 216, 235, 0.65)'), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
-                      <tspan v-if="ep.e.rule_driven">⚡</tspan>{{ ep.e.label }}
+                  <path v-if="!readonly" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" stroke="transparent" stroke-width="14" style="pointer-events: stroke; cursor: pointer;" @click.stop="emit('select-edge', e.id)" @contextmenu.prevent.stop="emit('edit-edge-relation', e.id)" />
+                  <path v-if="selId === e.from || selId === e.to" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? '#db2777' : '#2563eb'" :stroke-width="8" opacity="0.1"/>
+                  <path :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none"
+                        :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#db2777' : 'rgba(219, 39, 119, 0.4)') : (selId === e.from || selId === e.to ? '#2563eb' : '#a1a1aa')"
+                        :stroke-width="selId === e.from || selId === e.to ? 2 : 1.4"/>
+                  <path :class="selId === e.from || selId === e.to ? 'line-flow-fast' : 'line-flow'" :d="getPath(nmap[e.from], nmap[e.to]).d" fill="none" :stroke="e.rule_driven ? (selId === e.from || selId === e.to ? '#db2777' : 'rgba(219, 39, 119, 0.55)') : (selId === e.from || selId === e.to ? '#2563eb' : 'rgba(0, 0, 0, 0.22)')" :stroke-width="selId === e.from || selId === e.to ? 2.5 : 1.5"/>
+                  <g v-if="e.label">
+                    <rect :x="getPath(nmap[e.from], nmap[e.to]).mx - 20" :y="getPath(nmap[e.from], nmap[e.to]).my - 17" width="40" height="14" rx="3" fill="#ffffff" opacity="0.85"/>
+                    <text :x="getPath(nmap[e.from], nmap[e.to]).mx" :y="getPath(nmap[e.from], nmap[e.to]).my - 6" text-anchor="middle" :style="{fill: e.rule_driven ? '#db2777' : (selId === e.from || selId === e.to ? '#2563eb' : '#71717a'), fontSize: '9.5px', fontFamily: 'JetBrains Mono', fontWeight: 500}">
+                      <tspan v-if="e.rule_driven">⚡</tspan>{{ e.label }}
                     </text>
                   </g>
                 </g>
@@ -354,22 +322,16 @@ defineExpose({ fitView, focusNode });
                 :style="{
                   left: n.x + 'px', top: n.y + 'px', width: NW + 'px',
                   background: diffColor(n) || getT(n).bg, borderLeftColor: getT(n).color,
-                  borderTopColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#111c2c',
-                  borderRightColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#111c2c',
-                  borderBottomColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#111c2c',
-                  boxShadow: (selId === n.id || (typeFilter && matchesFilter(n))) ? `0 0 0 1px ${getT(n).color}55,0 4px 24px ${getT(n).color}33` : (neighborIds && neighborIds.has(n.id) && selId !== n.id) ? `0 0 0 1px ${getT(n).color}44,0 2px 12px ${getT(n).color}22` : '0 2px 8px rgba(0,0,0,0.4)'
+                  borderTopColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#e4e4e7',
+                  borderRightColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#e4e4e7',
+                  borderBottomColor: (selId === n.id || (typeFilter && matchesFilter(n)) || (neighborIds && neighborIds.has(n.id) && selId !== n.id)) ? getT(n).color + '44' : '#e4e4e7',
+                  boxShadow: (selId === n.id || (typeFilter && matchesFilter(n))) ? `0 0 0 1px ${getT(n).color}66, 0 2px 8px rgba(0,0,0,0.10)` : (neighborIds && neighborIds.has(n.id) && selId !== n.id) ? `0 0 0 1px ${getT(n).color}44, 0 1px 4px rgba(0,0,0,0.08)` : '0 1px 2px rgba(0,0,0,0.08)'
                 }"
                 @mousedown="e => onNodeMousedown(e, n.id)" @contextmenu="e => onNodeContext(e, n.id)" @dblclick.stop="emit('edit-node', n.id)" @click.stop>
-              <div class="node-dot" :style="{ background: getT(n).color, boxShadow: selId === n.id ? `0 0 6px ${getT(n).color}88` : '' }"/>
+              <div class="node-dot" :style="{ background: getT(n).color }"/>
               <div class="node-label">{{ n.label }}</div>
               <div class="node-type">{{ getT(n).label }}</div>
               <div v-if="(n.constraints?.length || 0) > 0" class="node-lock-badge" :title="n.constraints.map((c: any) => (c.kind || '约束') + ': ' + c.note).join('\n')">🔒</div>
-              <!-- 态势徽标：状态查询的最新值 + 级别配色（正常绿/关注黄/告警红闪/失联灰） -->
-              <div v-if="nodeStates && nodeStates[n.id]"
-                   :class="['node-state-badge', 'nsb-' + (nodeStates[n.id].level || 'normal')]"
-                   :title="`节点状态: ${nodeStates[n.id].value ?? '∅'}（${nodeStates[n.id].level || 'normal'}）`">
-                {{ nodeStates[n.id].value ?? '·' }}
-              </div>
             </div>
           </div>
 
@@ -515,7 +477,7 @@ defineExpose({ fitView, focusNode });
         <button v-if="searchQuery" class="search-btn" @click="jumpToPrev" title="上一个">↑</button>
         <button v-if="searchQuery" class="search-btn" @click="clearSearch" title="清除">✕</button>
       </div>
-      <div v-if="!readonly" class="canvas-actions" style="position: absolute; top: 24px; left: 50%; transform: translateX(-50%); pointer-events: auto; display: flex; gap: 8px; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); padding: 6px 8px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 4px 16px rgba(0,0,0,0.2);">
+      <div v-if="!readonly" class="canvas-actions" style="position: absolute; top: 24px; left: 50%; transform: translateX(-50%); pointer-events: auto; display: flex; gap: 8px; background: #ffffff; padding: 6px 8px; border-radius: 12px; border: 1px solid rgba(0, 0, 0, 0.09); box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
         <button class="ca-btn" @click="fitView"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7 7"/></svg>适应屏幕</button>
         <button class="ca-btn" @click="emit('auto-layout')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3M21 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3M4 12h16"/></svg>自动布局</button>
         <button class="ca-btn" @click="emit('toggle-layout-direction')" :title="layoutDirection === 'LR' ? '当前从左向右,点击改为从上到下' : '当前从上到下,点击改为从左向右'">
@@ -558,8 +520,8 @@ defineExpose({ fitView, focusNode });
              :title="typeFilter === '_edge_' ? '点击取消筛选' : '点击仅显示关系'"
              @click.stop="toggleEdgeFilter">
           <svg class="legend-arrow" width="18" height="10" viewBox="0 0 18 10">
-            <line x1="1" y1="5" x2="14" y2="5" stroke="#22dd88" stroke-width="1.6"/>
-            <path d="M14,1 L17,5 L14,9 Z" fill="#22dd88"/>
+            <line x1="1" y1="5" x2="14" y2="5" stroke="#059669" stroke-width="1.6"/>
+            <path d="M14,1 L17,5 L14,9 Z" fill="#059669"/>
           </svg>
           <span>关系</span>
         </div>
@@ -567,29 +529,3 @@ defineExpose({ fitView, focusNode });
     </div>
   </div>
 </template>
-
-<style scoped>
-/* 态势徽标：挂在节点右上角的状态值胶囊，颜色 = 阈值判级 */
-.node-state-badge {
-  position: absolute;
-  top: -9px; right: -6px;
-  max-width: 90px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 10px; font-family: 'JetBrains Mono', monospace; font-weight: 600;
-  line-height: 1; padding: 3px 7px; border-radius: 100px;
-  border: 1px solid transparent;
-  pointer-events: none;
-}
-.nsb-normal { background: rgba(34,221,136,.18); color: #22dd88; border-color: rgba(34,221,136,.45); }
-.nsb-warn   { background: rgba(255,204,68,.18);  color: #ffcc44; border-color: rgba(255,204,68,.5); }
-.nsb-alert  { background: rgba(255,85,85,.22);   color: #ff7777; border-color: rgba(255,85,85,.6);
-              animation: nsb-pulse 1.2s ease-in-out infinite; }
-.nsb-error  { background: rgba(255,255,255,.08); color: #9aa3b2; border-color: rgba(255,255,255,.2); }
-@keyframes nsb-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255,85,85,.5); }
-  50%      { box-shadow: 0 0 0 5px rgba(255,85,85,0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .nsb-alert { animation: none; }
-}
-</style>

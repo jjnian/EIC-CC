@@ -172,38 +172,24 @@ const formatTime = (ts?: number) => {
   gap: 20px;
 }
 .wp-card {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.55) 0%, rgba(11, 18, 32, 0.45) 100%);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
   padding: 22px 24px;
   cursor: pointer;
-  transition: transform 0.22s var(--ease-spring), border-color 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 150px;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-.wp-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 12% -10%, rgba(47, 134, 214, 0.14), transparent 55%);
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.22s ease;
+  box-shadow: var(--shadow-sm);
 }
 .wp-card:hover {
-  transform: translateY(-4px);
-  background: linear-gradient(180deg, rgba(20, 30, 52, 0.62) 0%, rgba(15, 23, 42, 0.55) 100%);
-  border-color: rgba(47, 134, 214, 0.42);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(47, 134, 214, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-color: var(--glass-border-strong);
+  box-shadow: var(--shadow-md);
 }
-.wp-card:hover::before { opacity: 1; }
 .wp-card-head {
   display: flex;
   align-items: center;
@@ -223,8 +209,7 @@ const formatTime = (ts?: number) => {
   display: flex; align-items: center; justify-content: center;
   font-size: 15px; font-weight: 700;
   color: #fff;
-  background: linear-gradient(135deg, var(--accent-soft), var(--accent-deep));
-  box-shadow: 0 4px 12px rgba(47, 134, 214, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  background: var(--accent);
   letter-spacing: 0.4px;
 }
 .wp-card-head h3 {
@@ -238,11 +223,11 @@ const formatTime = (ts?: number) => {
 }
 .wp-default {
   font-size: 11px;
-  background: var(--accent-tint);
-  color: var(--accent-soft);
+  background: var(--bg-elev);
+  color: var(--text-dim);
   padding: 2px 9px;
   border-radius: 100px;
-  border: 1px solid rgba(47, 134, 214, 0.3);
+  border: 1px solid var(--hairline);
   flex-shrink: 0;
 }
 .wp-card-desc {
@@ -253,10 +238,10 @@ const formatTime = (ts?: number) => {
 }
 .wp-card-foot {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.42);
+  color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
   padding-top: 14px;
-  border-top: 1px dashed rgba(255, 255, 255, 0.10);
+  border-top: 1px dashed var(--hairline);
 }
 .wp-card-new {
   align-items: center;
@@ -266,16 +251,16 @@ const formatTime = (ts?: number) => {
   gap: 8px;
 }
 .wp-card-new:hover .wp-plus {
-  color: var(--accent-soft);
-  border-color: rgba(47, 134, 214, 0.5);
-  background: rgba(47, 134, 214, 0.08);
+  color: var(--text-main);
+  border-color: rgba(0, 0, 0, 0.40);
+  background: rgba(0, 0, 0, 0.04);
 }
 .wp-plus {
   width: 46px; height: 46px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 13px;
-  border: 1px dashed rgba(255, 255, 255, 0.22);
-  color: rgba(255, 255, 255, 0.55);
+  border: 1px dashed rgba(0, 0, 0, 0.25);
+  color: var(--text-muted);
   margin-bottom: 4px;
   transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
@@ -296,15 +281,15 @@ const formatTime = (ts?: number) => {
 .wp-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.40);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1500;
 }
 .wp-dialog {
-  background: #141e30;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
   border-radius: 14px;
   padding: 22px;
   width: 420px;
@@ -312,6 +297,7 @@ const formatTime = (ts?: number) => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  box-shadow: var(--shadow-lg);
 }
 .wp-dialog h3 {
   margin: 0;
@@ -323,13 +309,13 @@ const formatTime = (ts?: number) => {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--text-dim);
 }
 .wp-dialog input,
 .wp-dialog textarea {
-  background: rgba(10, 16, 27, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #e2e8f0;
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  color: var(--text-main);
   padding: 9px 12px;
   border-radius: 8px;
   font-size: 13px;
@@ -339,7 +325,7 @@ const formatTime = (ts?: number) => {
 }
 .wp-dialog input:focus,
 .wp-dialog textarea:focus {
-  border-color: #2f86d6;
+  border-color: rgba(0, 0, 0, 0.35);
 }
 .wp-actions {
   display: flex;
@@ -348,7 +334,7 @@ const formatTime = (ts?: number) => {
   margin-top: 4px;
 }
 .wp-btn-primary {
-  background: #2f86d6;
+  background: var(--accent);
   color: #fff;
   border: none;
   padding: 9px 20px;
@@ -358,22 +344,22 @@ const formatTime = (ts?: number) => {
   cursor: pointer;
 }
 .wp-btn-primary:hover {
-  background: #5aa6ee;
+  background: var(--accent-soft);
 }
 .wp-btn-primary:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 .wp-btn-cancel {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.65);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
+  color: var(--text-dim);
   padding: 9px 20px;
   border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
 }
 .wp-btn-cancel:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-elev);
 }
 </style>

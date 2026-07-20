@@ -204,16 +204,16 @@ const formatTime = (ts?: number) => ts ? new Date(ts).toLocaleString() : '';
 <style scoped>
 .ws-current {
   font-size: 11px;
-  background: rgba(47, 134, 214, 0.18);
-  color: #5aa6ee;
+  background: rgba(37, 99, 235, 0.10);
+  color: #2563eb;
   padding: 1px 8px;
   border-radius: 100px;
-  border: 1px solid rgba(47, 134, 214, 0.35);
+  border: 1px solid rgba(37, 99, 235, 0.3);
   margin-left: 6px;
 }
 .ws-meta {
   margin-left: 8px;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-muted, #a1a1aa);
   font-size: 11px;
 }
 .action-btn:disabled {

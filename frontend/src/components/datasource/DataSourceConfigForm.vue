@@ -188,12 +188,12 @@ watch([isValid, () => props.kind], () => emit('validity', isValid.value), { imme
 .kv-list { display: flex; flex-direction: column; gap: 8px; }
 .kv { display: flex; gap: 8px; align-items: center; }
 .kv-del {
-  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--glass-border);
+  background: var(--bg-elev, rgba(0,0,0,0.045)); border: 1px solid var(--glass-border);
   border-radius: 8px; width: 32px; height: 36px; flex-shrink: 0;
   color: var(--text-dim); cursor: pointer; font-size: 16px;
   transition: color 0.15s var(--ease-out), background 0.15s var(--ease-out);
 }
-.kv-del:hover { color: #ff8a8a; background: rgba(255, 107, 107, 0.12); }
+.kv-del:hover { color: #dc2626; background: rgba(220,38,38,0.08); }
 .kv-add {
   align-self: flex-start;
   background: transparent; border: 1px dashed var(--glass-border);

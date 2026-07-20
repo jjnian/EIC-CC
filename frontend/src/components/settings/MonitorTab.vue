@@ -22,16 +22,16 @@ defineEmits<{ (e: 'refresh'): void }>();
       <div class="pref-row">
         <div style="display:flex;gap:24px;flex-wrap:wrap;width:100%">
           <div>
-            <span style="color:rgba(255,255,255,0.5);font-size:12px">状态</span><br/>
-            <span :style="{ color: healthData.status === 'UP' ? '#22dd88' : '#ef4444' }">{{ healthData.status }}</span>
+            <span style="color:var(--text-muted);font-size:12px">状态</span><br/>
+            <span :style="{ color: healthData.status === 'UP' ? '#059669' : '#dc2626' }">{{ healthData.status }}</span>
           </div>
           <div>
-            <span style="color:rgba(255,255,255,0.5);font-size:12px">内存</span><br/>
+            <span style="color:var(--text-muted);font-size:12px">内存</span><br/>
             <span>{{ healthData.freeMemoryMb }}MB / {{ healthData.totalMemoryMb }}MB</span>
           </div>
           <div>
-            <span style="color:rgba(255,255,255,0.5);font-size:12px">数据目录</span><br/>
-            <span :style="{ color: healthData.dataDir ? '#22dd88' : '#ef4444' }">{{ healthData.dataDir ? '正常' : '异常' }}</span>
+            <span style="color:var(--text-muted);font-size:12px">数据目录</span><br/>
+            <span :style="{ color: healthData.dataDir ? '#059669' : '#dc2626' }">{{ healthData.dataDir ? '正常' : '异常' }}</span>
           </div>
         </div>
       </div>
@@ -42,23 +42,23 @@ defineEmits<{ (e: 'refresh'): void }>();
         <h4 style="margin:0 0 12px;font-size:14px;color:var(--text-main)">LLM 调用统计</h4>
         <div style="display:flex;gap:24px;flex-wrap:wrap">
           <div>
-            <span style="color:rgba(255,255,255,0.5);font-size:12px">总调用</span><br/>
+            <span style="color:var(--text-muted);font-size:12px">总调用</span><br/>
             <span style="font-size:20px;font-weight:600">{{ metricsData.totalCalls }}</span>
           </div>
           <div>
-            <span style="color:rgba(255,255,255,0.5);font-size:12px">总错误</span><br/>
-            <span style="font-size:20px;font-weight:600;color:#ef4444">{{ metricsData.totalErrors }}</span>
+            <span style="color:var(--text-muted);font-size:12px">总错误</span><br/>
+            <span style="font-size:20px;font-weight:600;color:#dc2626">{{ metricsData.totalErrors }}</span>
           </div>
           <div>
-            <span style="color:rgba(255,255,255,0.5);font-size:12px">平均延迟</span><br/>
+            <span style="color:var(--text-muted);font-size:12px">平均延迟</span><br/>
             <span style="font-size:20px;font-weight:600">{{ metricsData.avgLatencyMs }}ms</span>
           </div>
         </div>
         <div v-if="metricsData.byModel && metricsData.byModel.length" style="margin-top:16px;width:100%">
-          <h5 style="margin:0 0 8px;color:rgba(255,255,255,0.6);font-size:13px">按模型统计</h5>
-          <div v-for="m in metricsData.byModel" :key="m.model" style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+          <h5 style="margin:0 0 8px;color:var(--text-dim);font-size:13px">按模型统计</h5>
+          <div v-for="m in metricsData.byModel" :key="m.model" style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--hairline)">
             <span>{{ m.model }}</span>
-            <span style="color:rgba(255,255,255,0.5)">{{ m.calls }} 次调用 · {{ m.errors }} 错误</span>
+            <span style="color:var(--text-muted)">{{ m.calls }} 次调用 · {{ m.errors }} 错误</span>
           </div>
         </div>
       </div>

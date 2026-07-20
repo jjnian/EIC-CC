@@ -1134,64 +1134,57 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   display: flex; align-items: center; gap: 6px;
   padding: 6px 10px; border-radius: 9px; cursor: pointer;
   color: var(--text-dim); font-size: 12.5px;
-  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+  transition: background .15s ease, color .15s ease;
   letter-spacing: 0.15px;
 }
-.ws-node:hover { background: rgba(255,255,255,.05); color: var(--text-main); }
+.ws-node:hover { background: rgba(0,0,0,.045); color: var(--text-main); }
 .ws-node.active {
-  background: linear-gradient(135deg, rgba(47,134,214,.18), rgba(47,134,214,.08));
-  color: #5aa6ee;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  background: rgba(0,0,0,.06);
+  color: var(--text-main);
+  font-weight: 500;
 }
 .ws-caret {
   display: flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; flex-shrink: 0;
   font-size: 17px; font-weight: 700; line-height: 1;
-  color: rgba(255,255,255,.62);
+  color: var(--text-muted);
   border-radius: 6px;
   transition: transform .2s cubic-bezier(.34,1.56,.64,1), background .12s ease, color .12s ease;
 }
-.ws-node:hover .ws-caret { background: rgba(255,255,255,.08); color: #fff; }
-.ws-node.active .ws-caret { color: #5aa6ee; }
+.ws-node:hover .ws-caret { background: rgba(0,0,0,.06); color: var(--text-main); }
+.ws-node.active .ws-caret { color: var(--text-main); }
 .ws-caret.open { transform: rotate(90deg); }
 .ws-avatar {
   width: 22px; height: 22px; flex-shrink: 0; border-radius: 7px;
-  background: linear-gradient(135deg,#5d9eff 0%, #6366f1 60%, #8b5cf6 100%);
+  background: var(--accent);
   color: #fff;
   display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700; font-family: 'Inter',sans-serif;
-  box-shadow: 0 3px 10px rgba(99,102,241,0.30), inset 0 1px 0 rgba(255,255,255,0.20);
+  font-size: 12px; font-weight: 700; font-family: var(--font-sans);
   letter-spacing: 0.3px;
-}
-.ws-node.active .ws-avatar {
-  background: linear-gradient(135deg,#5aa6ee 0%, #2f86d6 55%, #1a5fcc 100%);
-  box-shadow: 0 3px 12px rgba(47,134,214,0.42), 0 0 0 1px rgba(47,134,214,.45), inset 0 1px 0 rgba(255,255,255,0.22);
 }
 .ws-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ws-tag {
   font-size: 9px; padding: 1px 6px; border-radius: 100px;
-  background: rgba(255,255,255,.06); color: rgba(255,255,255,.50); flex-shrink: 0;
+  background: rgba(0,0,0,.05); color: var(--text-muted); flex-shrink: 0;
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: 0.3px;
 }
 .ws-node.active .ws-tag {
-  background: rgba(47,134,214,.18); color: #5aa6ee;
-  box-shadow: inset 0 0 0 1px rgba(47,134,214,0.22);
+  background: rgba(0,0,0,.08); color: var(--text-dim);
 }
 .ws-dot {
   width: 6px; height: 6px; border-radius: 50%;
-  background: #5aa6ee;
-  box-shadow: 0 0 6px #2f86d6, 0 0 0 2px rgba(47,134,214,0.18);
+  background: var(--accent);
   flex-shrink: 0;
 }
 .ws-del-btn {
-  background: transparent; border: none; color: rgba(255,255,255,.32);
+  background: transparent; border: none; color: var(--text-muted);
   font-size: 14px; line-height: 1; width: 18px; height: 18px;
   border-radius: 50%; cursor: pointer; font-family: inherit;
   display: flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0;
   transition: background 0.15s ease, color 0.15s ease;
 }
-.ws-del-btn:hover { background: rgba(255,102,68,.20); color: #ff8a6f; }
+.ws-del-btn:hover { background: rgba(220,38,38,.10); color: #dc2626; }
 .ws-children { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px; }
 .ws-section { display: flex; flex-direction: column; gap: 0; }
 .ws-section-head {
@@ -1209,22 +1202,22 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   border-radius: 6px;
   transition: background 0.12s ease, color 0.12s ease;
 }
-.ws-section-head:hover { background: rgba(255,255,255,.04); }
-.ws-section-head:hover .ws-section-lbl { color: rgba(255,255,255,.62); }
+.ws-section-head:hover { background: rgba(0,0,0,.04); }
+.ws-section-head:hover .ws-section-lbl { color: var(--text-dim); }
 .ws-section-caret {
   display: flex; align-items: center; justify-content: center;
   width: 16px; height: 16px; flex-shrink: 0;
   font-size: 15px; font-weight: 700; line-height: 1;
-  color: rgba(255,255,255,.55);
+  color: var(--text-muted);
   border-radius: 5px;
   transition: transform .2s cubic-bezier(.34,1.56,.64,1), background .12s ease, color .12s ease;
 }
-.ws-section-head:hover .ws-section-caret { background: rgba(255,255,255,.08); color: rgba(255,255,255,.9); }
+.ws-section-head:hover .ws-section-caret { background: rgba(0,0,0,.06); color: var(--text-main); }
 .ws-section-caret.open { transform: rotate(90deg); }
 .ws-section-lbl {
   font-size: 10px;
   letter-spacing: 1.2px;
-  color: rgba(255,255,255,.42);
+  color: var(--text-muted);
   font-family: 'JetBrains Mono', 'Inter', sans-serif;
   font-weight: 600;
   text-transform: uppercase;
@@ -1234,8 +1227,8 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   font-size: 9px;
   padding: 1px 5px;
   border-radius: 100px;
-  background: rgba(255,255,255,.06);
-  color: rgba(255,255,255,.40);
+  background: rgba(0,0,0,.05);
+  color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: 0.2px;
   margin-left: 2px;
@@ -1243,19 +1236,19 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 .ws-section-open {
   margin-left: auto;
   font-size: 11px;
-  color: rgba(255,255,255,.32);
+  color: var(--text-muted);
   padding: 0 6px;
   border-radius: 4px;
   transition: background 0.12s ease, color 0.12s ease;
   cursor: pointer;
 }
-.ws-section-open:hover { color: #5aa6ee; background: rgba(47,134,214,.10); }
-.ws-loading { font-size: 11px; color: rgba(255,255,255,.32); padding: 2px 10px 2px 44px; font-style: italic; }
-.ws-empty { font-size: 11px; color: rgba(255,255,255,.22); padding: 2px 10px 4px 44px; font-style: italic; }
+.ws-section-open:hover { color: #2563eb; background: rgba(37,99,235,.08); }
+.ws-loading { font-size: 11px; color: var(--text-muted); padding: 2px 10px 2px 44px; font-style: italic; }
+.ws-empty { font-size: 11px; color: var(--text-muted); padding: 2px 10px 4px 44px; font-style: italic; }
 .ws-item {
   display: flex; align-items: center; gap: 6px;
   padding: 4px 10px 4px 44px; border-radius: 7px; cursor: pointer;
-  background: none; border: none; color: rgba(255,255,255,.62);
+  background: none; border: none; color: var(--text-dim);
   font-size: 12px; text-align: left; width: 100%; font-family: inherit;
   transition: background .12s ease, color .12s ease;
   position: relative;
@@ -1267,17 +1260,17 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   left: 32px; top: 50%;
   width: 4px; height: 4px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.18);
+  background: rgba(0,0,0,0.15);
   transform: translateY(-50%);
   transition: background 0.12s ease;
 }
-.ws-item:hover { background: rgba(255,255,255,.05); color: #f4f7fb; }
-.ws-item:hover::before { background: rgba(47,134,214,0.6); box-shadow: 0 0 6px rgba(47,134,214,0.5); }
+.ws-item:hover { background: rgba(0,0,0,.045); color: var(--text-main); }
+.ws-item:hover::before { background: var(--accent); }
 .ws-item-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ws-item-time { font-size: 10px; color: rgba(255,255,255,.30); flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
+.ws-item-time { font-size: 10px; color: var(--text-muted); flex-shrink: 0; font-family: 'JetBrains Mono', monospace; }
 .ws-item-kind {
   font-size: 9px; padding: 1px 5px; border-radius: 100px; flex-shrink: 0;
-  background: rgba(255,255,255,.06); color: rgba(255,255,255,.40);
+  background: rgba(0,0,0,.05); color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace;
   letter-spacing: 0.3px;
 }
@@ -1300,7 +1293,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   flex: 0 0 16px;
   align-self: stretch;
   margin-left: 2px;
-  border-left: 1px solid rgba(255,255,255,.10);
+  border-left: 1px solid rgba(0,0,0,.10);
 }
 .ws-tree-main {
   flex: 1;
@@ -1310,54 +1303,51 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   gap: 6px;
   padding: 4px 4px;
   border-radius: 7px;
-  color: rgba(255,255,255,.62);
+  color: var(--text-dim);
   font-size: 12px;
   transition: background .12s ease, color .12s ease;
   letter-spacing: 0.1px;
 }
-.ws-tree-row:hover .ws-tree-main { background: rgba(255,255,255,.05); color: #f4f7fb; }
+.ws-tree-row:hover .ws-tree-main { background: rgba(0,0,0,.045); color: var(--text-main); }
 .ws-tw {
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 14px; font-weight: 700; line-height: 1;
-  color: rgba(255,255,255,.55);
+  color: var(--text-muted);
   flex-shrink: 0;
   width: 14px;
   transition: transform .2s cubic-bezier(.34,1.56,.64,1), color .12s ease;
 }
-.ws-tree-row.is-folder:hover .ws-tw { color: #ffe7a8; }
+.ws-tree-row.is-folder:hover .ws-tw { color: #d97706; }
 .ws-tw.open { transform: rotate(90deg); }
 .ws-tw-spacer { visibility: hidden; }
 .ws-tree-ico { flex-shrink: 0; font-size: 13px; line-height: 1; width: 16px; text-align: center; }
-.ws-tree-row.is-folder .ws-tree-main { color: rgba(255,255,255,.80); font-weight: 600; }
-.ws-tree-row.is-folder:hover .ws-tree-main { color: #ffe7a8; }
-.ws-tree-row.is-ds:hover .ws-tree-ico { filter: drop-shadow(0 0 5px rgba(47,134,214,.5)); }
+.ws-tree-row.is-folder .ws-tree-main { color: var(--text-main); font-weight: 600; }
+.ws-tree-row.is-folder:hover .ws-tree-main { color: #d97706; }
 /* 拖拽中:行变半透明,提示「正在被拖动」 */
 .ws-tree-row[draggable="true"]:active { cursor: grabbing; }
 /* 拖拽悬停在文件夹/根目录上方:高亮放置目标 */
 .ws-tree-row.is-folder.drag-over .ws-tree-main {
-  background: rgba(47,134,214,.20);
-  color: #cfe4fb;
-  box-shadow: inset 0 0 0 1px rgba(47,134,214,.55);
+  background: rgba(37,99,235,.10);
+  color: #2563eb;
+  box-shadow: inset 0 0 0 1px rgba(37,99,235,.40);
   border-radius: 6px;
 }
 .ws-section-head.drag-root {
-  background: rgba(47,134,214,.16);
-  box-shadow: inset 0 0 0 1px rgba(47,134,214,.5);
+  background: rgba(37,99,235,.08);
+  box-shadow: inset 0 0 0 1px rgba(37,99,235,.35);
   border-radius: 7px;
 }
-.ws-section-head.drag-root .ws-section-lbl { color: #cfe4fb; }
+.ws-section-head.drag-root .ws-section-lbl { color: #2563eb; }
 
 .node-ctx-menu {
   position: fixed;
   z-index: 2000;
   min-width: 176px;
   padding: 6px;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(11, 18, 32, 0.96));
-  border: 1px solid rgba(255,255,255,.14);
+  background: #ffffff;
+  border: 1px solid var(--glass-border);
   border-radius: 12px;
-  box-shadow: 0 20px 48px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,0.05);
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: var(--shadow-lg);
 }
 .ctx-item {
   width: 100%;
@@ -1367,7 +1357,7 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   padding: 8px 10px;
   border: none;
   background: transparent;
-  color: rgba(255,255,255,.85);
+  color: var(--text-main);
   font: inherit;
   font-size: 12px;
   text-align: left;
@@ -1376,18 +1366,18 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   transition: background 0.12s ease, color 0.12s ease;
   letter-spacing: 0.15px;
 }
-.ctx-item:hover { background: rgba(255,255,255,.07); }
-.ctx-danger { color: #ff8a6f; }
-.ctx-danger:hover { background: rgba(255,102,68,.12); }
+.ctx-item:hover { background: rgba(0,0,0,.05); }
+.ctx-danger { color: #dc2626; }
+.ctx-danger:hover { background: rgba(220,38,38,.08); }
 .ctx-icon { width: 14px; text-align: center; opacity: .85; }
-.ctx-hint { margin-left: auto; font-size: 10px; color: rgba(255,255,255,.35); font-family: 'JetBrains Mono', monospace; }
+.ctx-hint { margin-left: auto; font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
 .move-menu { max-height: 260px; overflow-y: auto; min-width: 184px; }
 .ctx-title {
   padding: 4px 10px 6px;
   font-size: 10px;
   letter-spacing: 0.4px;
-  color: rgba(255,255,255,.42);
-  border-bottom: 1px solid rgba(255,255,255,.08);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--hairline);
   margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;
@@ -1398,15 +1388,15 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 /* ── 引用公共库选择器 ───────────────────────────────── */
 .ref-mask {
   position: fixed; inset: 0; z-index: 2100;
-  background: rgba(3,6,12,0.62); backdrop-filter: blur(4px);
+  background: rgba(0,0,0,0.40);
   display: flex; align-items: center; justify-content: center;
 }
 .ref-dialog {
   width: 460px; max-width: calc(100vw - 40px); max-height: 78vh;
   display: flex; flex-direction: column;
-  background: linear-gradient(180deg, rgba(18,26,42,0.98), rgba(10,15,26,0.98));
-  border: 1px solid rgba(255,255,255,.14); border-radius: 14px;
-  box-shadow: 0 24px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,0.05);
+  background: #ffffff;
+  border: 1px solid var(--glass-border); border-radius: 14px;
+  box-shadow: var(--shadow-lg);
 }
 .ref-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -1415,16 +1405,16 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
 .ref-title { font-size: 15px; font-weight: 600; color: var(--text-main); }
 .ref-sub { font-size: 12px; font-weight: 400; color: var(--text-dim); margin-left: 4px; }
 .ref-x {
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,.12); color: var(--text-dim);
+  background: transparent; border: none; color: var(--text-muted);
   width: 26px; height: 26px; border-radius: 7px; font-size: 17px; line-height: 1; cursor: pointer;
 }
-.ref-x:hover { color: var(--text-main); background: rgba(255,255,255,0.08); }
+.ref-x:hover { color: var(--text-main); background: rgba(0,0,0,0.06); }
 .ref-search {
   margin: 0 18px 10px; padding: 8px 11px; border-radius: 9px;
-  background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,.12);
+  background: #ffffff; border: 1px solid var(--glass-border);
   color: var(--text-main); font-size: 13px; font-family: inherit;
 }
-.ref-search:focus { outline: none; border-color: rgba(47,134,214,.55); }
+.ref-search:focus { outline: none; border-color: rgba(0,0,0,0.35); }
 .ref-body { flex: 1; min-height: 80px; overflow-y: auto; padding: 0 10px; display: flex; flex-direction: column; gap: 2px; }
 .ref-state { padding: 28px 12px; text-align: center; color: var(--text-muted); font-size: 12.5px; }
 .ref-row {
@@ -1433,27 +1423,27 @@ const onDeleteLineageModel = (modelId: string, e: Event) => {
   background: transparent; border: 1px solid transparent; color: var(--text-main); font-size: 13px;
   transition: background .12s ease, border-color .12s ease;
 }
-.ref-row:hover { background: rgba(255,255,255,.05); }
-.ref-row.on { background: rgba(47,134,214,.14); border-color: rgba(47,134,214,.4); }
-.ref-check { flex-shrink: 0; font-size: 15px; color: #5aa6ee; width: 18px; text-align: center; }
+.ref-row:hover { background: rgba(0,0,0,.045); }
+.ref-row.on { background: rgba(37,99,235,.06); border-color: rgba(37,99,235,.30); }
+.ref-check { flex-shrink: 0; font-size: 15px; color: #2563eb; width: 18px; text-align: center; }
 .ref-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ref-kind {
   flex-shrink: 0; font-size: 9px; padding: 1px 6px; border-radius: 100px;
-  background: rgba(255,255,255,.06); color: rgba(255,255,255,.45);
+  background: rgba(0,0,0,.05); color: var(--text-muted);
   font-family: 'JetBrains Mono', monospace; letter-spacing: 0.3px;
 }
 .ref-foot {
   display: flex; align-items: center; gap: 10px; padding: 12px 18px 16px;
-  border-top: 1px solid rgba(255,255,255,.08); margin-top: 6px;
+  border-top: 1px solid var(--hairline); margin-top: 6px;
 }
 .ref-count { flex: 1; font-size: 12px; color: var(--text-dim); }
 .ref-cancel {
-  background: transparent; border: 1px solid rgba(255,255,255,.15); color: var(--text-dim);
+  background: #ffffff; border: 1px solid var(--glass-border); color: var(--text-dim);
   padding: 7px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; font-family: inherit;
 }
-.ref-cancel:hover { color: var(--text-main); border-color: rgba(255,255,255,.3); }
+.ref-cancel:hover { color: var(--text-main); background: var(--bg-elev); }
 .ref-ok {
-  background: linear-gradient(135deg, var(--accent-soft, #5aa6ee), var(--accent, #2f86d6)); color: #fff;
+  background: var(--accent); color: #fff;
   border: none; padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
   cursor: pointer; font-family: inherit;
 }

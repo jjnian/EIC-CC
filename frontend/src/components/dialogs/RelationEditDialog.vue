@@ -45,7 +45,7 @@ const emit = defineEmits<{
                 :modelValue="editingRelation.inputs.includes(n.id)"
                 @update:modelValue="emit('toggle-input', n.id)"
               />
-              <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
+              <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#2563eb' }"></span>
               <span class="anp-node-name">{{ n.label }}</span>
             </div>
           </div>
@@ -60,7 +60,7 @@ const emit = defineEmits<{
                 :modelValue="editingRelation.outputs.includes(n.id)"
                 @update:modelValue="emit('toggle-output', n.id)"
               />
-              <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#3d9bff' }"></span>
+              <span class="anp-node-dot" :style="{ background: (NT as any)[n.type]?.color || '#2563eb' }"></span>
               <span class="anp-node-name">{{ n.label }}</span>
             </div>
           </div>
@@ -79,5 +79,5 @@ const emit = defineEmits<{
 
 <style scoped>
 .anp-check-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; transition: background 0.12s; }
-.anp-check-row:hover { background: rgba(255, 255, 255, 0.06); }
+.anp-check-row:hover { background: var(--bg-elev, rgba(0, 0, 0, 0.045)); }
 </style>

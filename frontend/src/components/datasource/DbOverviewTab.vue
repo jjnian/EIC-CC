@@ -46,15 +46,15 @@ const runTest = async () => {
 </template>
 
 <style scoped>
-.overview { padding: 16px; color: #e8eaed; }
+.overview { padding: 16px; color: var(--text-main, #18181b); }
 dl { display: grid; grid-template-columns: 110px 1fr; gap: 6px 12px; margin-bottom: 12px; }
-dt { color: #888; font-size: 13px; }
-dd { color: #e8eaed; font-size: 13px; margin: 0; }
+dt { color: var(--text-muted, #a1a1aa); font-size: 13px; }
+dd { color: var(--text-main, #18181b); font-size: 13px; margin: 0; }
 .status { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
-.status.connected { background: rgba(34,221,136,.2); color: #22dd88; }
-.status.error { background: rgba(255,99,71,.2); color: tomato; }
-.status.idle { background: rgba(255,255,255,.1); color: #aaa; }
-.err { color: tomato; font-size: 12px; }
-.primary { background: #4a8df0; border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+.status.connected { background: rgba(5,150,105,0.10); color: #059669; }
+.status.error { background: rgba(220,38,38,0.08); color: #dc2626; }
+.status.idle { background: var(--bg-elev, rgba(0,0,0,0.045)); color: var(--text-dim, #52525b); }
+.err { color: #dc2626; font-size: 12px; }
+.primary { background: var(--accent, #18181b); border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
 .primary:disabled { opacity: .5; }
 </style>

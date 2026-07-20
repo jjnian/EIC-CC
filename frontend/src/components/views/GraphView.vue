@@ -299,19 +299,18 @@ onUnmounted(() => { if (situationTimer) clearInterval(situationTimer); });
   width: 8px;
   flex-shrink: 0;
   cursor: col-resize;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(0, 0, 0, 0.05);
   transition: background-color 0.15s;
   position: relative;
   z-index: 5;
 }
 .resize-divider:hover, .resize-divider.dragging {
-  background: rgba(74, 144, 226, 0.45);
+  background: rgba(37, 99, 235, 0.35);
 }
 .analysis-btn {
   position: absolute;
   top: 12px; right: 12px;
   z-index: 15;
-  backdrop-filter: blur(8px);
 }
 .domain-btn {
   position: absolute;

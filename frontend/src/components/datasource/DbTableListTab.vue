@@ -109,35 +109,35 @@ watch(() => props.dsId, () => { tables.value = []; selected.value = null; previe
 
 <style scoped>
 .tab { display: flex; height: 100%; min-height: 320px; }
-.tlist { width: 220px; border-right: 1px solid rgba(255,255,255,.06); display: flex; flex-direction: column; }
-.tlist .head { display: flex; align-items: center; padding: 8px 12px; color: #888; font-size: 12px; }
+.tlist { width: 220px; border-right: 1px solid var(--hairline, rgba(0,0,0,0.07)); display: flex; flex-direction: column; }
+.tlist .head { display: flex; align-items: center; padding: 8px 12px; color: var(--text-muted, #a1a1aa); font-size: 12px; }
 .tlist .head span { flex: 1; }
-.tlist .head button { background: none; border: none; color: #aaa; cursor: pointer; }
-.extract-action { padding: 4px 8px 8px; border-bottom: 1px solid rgba(255,255,255,.04); }
+.tlist .head button { background: none; border: none; color: var(--text-dim, #52525b); cursor: pointer; }
+.extract-action { padding: 4px 8px 8px; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); }
 .extract-btn { width: 100%; padding: 6px 8px; font-size: 12px; border-radius: 6px;
-  background: linear-gradient(135deg, rgba(74,141,240,.18), rgba(74,141,240,.08));
-  color: #b9d4ff; border: 1px solid rgba(74,141,240,.3); cursor: pointer;
+  background: rgba(37,99,235,0.06);
+  color: #2563eb; border: 1px solid rgba(37,99,235,0.35); cursor: pointer;
   transition: background .15s; }
 .extract-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, rgba(74,141,240,.32), rgba(74,141,240,.18));
-  color: #fff; }
+  background: rgba(37,99,235,0.12);
+  color: #2563eb; }
 .extract-btn:disabled { opacity: .35; cursor: not-allowed; }
-.sample-opt { display: flex; align-items: center; gap: 6px; margin: 7px 2px 0; font-size: 11.5px; color: #9aa3b2; cursor: pointer; user-select: none; }
-.sample-opt input[type=checkbox] { accent-color: #4a8df0; width: 13px; height: 13px; }
+.sample-opt { display: flex; align-items: center; gap: 6px; margin: 7px 2px 0; font-size: 11.5px; color: var(--text-dim, #52525b); cursor: pointer; user-select: none; }
+.sample-opt input[type=checkbox] { accent-color: #18181b; width: 13px; height: 13px; }
 .sample-n { width: 44px; padding: 2px 6px; font-size: 11.5px; border-radius: 5px;
-  background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.14); color: #e8eaed; }
-.sample-unit { color: #7a8290; }
-.extract-tip { margin: 6px 2px 0; font-size: 11px; color: #7a8290; line-height: 1.4; }
+  background: #fff; border: 1px solid var(--glass-border, rgba(0,0,0,0.09)); color: var(--text-main, #18181b); }
+.sample-unit { color: var(--text-muted, #a1a1aa); }
+.extract-tip { margin: 6px 2px 0; font-size: 11px; color: var(--text-muted, #a1a1aa); line-height: 1.4; }
 .tlist ul { list-style: none; padding: 0; margin: 0; overflow-y: auto; flex: 1; }
-.tlist li { padding: 6px 12px; cursor: pointer; color: #c0c4cf; font-size: 13px; }
-.tlist li:hover { background: rgba(255,255,255,.06); }
-.tlist li.active { background: rgba(74,141,240,.2); color: #fff; }
+.tlist li { padding: 6px 12px; cursor: pointer; color: var(--text-dim, #52525b); font-size: 13px; }
+.tlist li:hover { background: var(--bg-elev, rgba(0,0,0,0.045)); }
+.tlist li.active { background: rgba(37,99,235,0.10); color: #2563eb; }
 .ptable { flex: 1; padding: 12px; overflow: hidden; display: flex; flex-direction: column; }
-.meta { color: #aaa; font-size: 12px; margin-bottom: 8px; }
+.meta { color: var(--text-dim, #52525b); font-size: 12px; margin-bottom: 8px; }
 .scroll { overflow: auto; flex: 1; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
-th, td { padding: 4px 8px; text-align: left; border-bottom: 1px solid rgba(255,255,255,.06); color: #e8eaed; white-space: nowrap; }
-th { color: #aaa; position: sticky; top: 0; background: #1d1f24; }
-.hint, .msg { color: #888; padding: 12px; font-size: 13px; }
-.msg.err { color: tomato; }
+th, td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07)); color: var(--text-main, #18181b); white-space: nowrap; }
+th { color: var(--text-dim, #52525b); position: sticky; top: 0; background: var(--bg-subtle, #f7f8fa); }
+.hint, .msg { color: var(--text-muted, #a1a1aa); padding: 12px; font-size: 13px; }
+.msg.err { color: #dc2626; }
 </style>

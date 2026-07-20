@@ -30,8 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * 文档抽取编排：文件嗅探 → 按类型分派给 {@link SourceFileHandler} → LLM 抽取 → idMap salt 重写。
@@ -50,9 +48,7 @@ public class DocumentExtractionService {
     private static final int TOTAL_FILE_LIMIT = 8;
     // 一次抽取最多接受 5 个 URL，避免对外网批量打洞
     private static final int URL_LIMIT        = 5;
-
-    // 多来源分路抽取的并行度上限，避免一次性打爆 LLM 限流
-    private static final int MAX_PARALLEL_SOURCES = 4;
+    // 多来源分路抽取的并行度上限由共享 Bean batchExecutor 控制（corePoolSize=4），避免一次性打爆 LLM 限流
 
     private final ExtractionLlmService extractionLlmService;
     private final Executor urlFetchExecutor;
@@ -62,27 +58,25 @@ public class DocumentExtractionService {
     private final ExtractionGraphMerger merger;
     private final ObjectMapper objectMapper = new ObjectMapper();
     /**
-     * 分路抽取专用有界线程池（守护线程）：extractCore 本身跑在 appTaskExecutor 上，
+     * 分路抽取专用线程池（共享 Bean {@code batchExecutor}）：extractCore 本身跑在 appTaskExecutor 上，
      * 若分路任务也提交到同一个有界池，join 时可能互相等待饿死，故单独开池（与经验库建图同法）。
      */
-    private final ExecutorService sourceExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_SOURCES, r -> {
-        Thread t = new Thread(r, "doc-extract-source");
-        t.setDaemon(true);
-        return t;
-    });
+    private final Executor sourceExecutor;
 
     public DocumentExtractionService(ExtractionLlmService extractionLlmService,
                                      @Qualifier("appTaskExecutor") ThreadPoolTaskExecutor appTaskExecutor,
                                      DataSourceRepository dataSourceRepository,
                                      List<SourceFileHandler> fileHandlers,
                                      com.tuiyan.backend.service.indexing.DataSourceIndexService dataSourceIndexService,
-                                     ExtractionGraphMerger merger) {
+                                     ExtractionGraphMerger merger,
+                                     @Qualifier("batchExecutor") Executor batchExecutor) {
         this.extractionLlmService = extractionLlmService;
         this.urlFetchExecutor = appTaskExecutor;
         this.dataSourceRepository = dataSourceRepository;
         this.fileHandlers = fileHandlers;
         this.dataSourceIndexService = dataSourceIndexService;
         this.merger = merger;
+        this.sourceExecutor = batchExecutor;
     }
 
     /**

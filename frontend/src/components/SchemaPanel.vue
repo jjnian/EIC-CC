@@ -113,10 +113,10 @@ const kindLabel = (k?: string) => ({
 const kindOptions = computed(() => CONSTRAINT_KINDS.map((k) => ({ value: k, label: kindLabel(k) })));
 
 const sourceBadge = (s?: string) => {
-  if (s === 'inferred') return { text: 'AI推理', color: '#bb77ff', bg: 'rgba(187,119,255,0.12)' };
-  if (s === 'derived')  return { text: '文本提取', color: '#22dd88', bg: 'rgba(34,221,136,0.12)' };
-  if (s === 'manual')   return { text: '手动', color: '#3d9bff', bg: 'rgba(61,155,255,0.12)' };
-  return { text: '预置', color: 'rgba(255,255,255,0.5)', bg: 'rgba(255,255,255,0.06)' };
+  if (s === 'inferred') return { text: 'AI推理', color: '#7c3aed', bg: 'rgba(124,58,237,0.10)' };
+  if (s === 'derived')  return { text: '文本提取', color: '#059669', bg: 'rgba(5,150,105,0.10)' };
+  if (s === 'manual')   return { text: '手动', color: '#2563eb', bg: 'rgba(37,99,235,0.10)' };
+  return { text: '预置', color: '#a1a1aa', bg: 'rgba(0,0,0,0.05)' };
 };
 </script>
 
@@ -234,34 +234,33 @@ const sourceBadge = (s?: string) => {
 .sp-wrap {
   width: 360px;
   flex-shrink: 0;
-  background: rgba(11, 19, 33, 0.95);
-  border-left: 1px solid rgba(255,255,255,0.08);
+  background: var(--bg-base, #fff);
+  border-left: 1px solid var(--hairline, rgba(0,0,0,0.07));
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  backdrop-filter: blur(12px);
 }
 .sp-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07));
 }
-.sp-title { display: flex; align-items: center; gap: 8px; color: #e2e8f0; font-size: 14px; font-weight: 600; }
-.sp-title-mark { color: #3d9bff; font-size: 16px; }
-.sp-close { background: transparent; border: none; color: rgba(255,255,255,0.4); font-size: 18px; cursor: pointer; }
-.sp-close:hover { color: #fff; }
+.sp-title { display: flex; align-items: center; gap: 8px; color: var(--text-main, #18181b); font-size: 14px; font-weight: 600; }
+.sp-title-mark { color: #2563eb; font-size: 16px; }
+.sp-close { background: transparent; border: none; color: var(--text-muted, #a1a1aa); font-size: 18px; cursor: pointer; }
+.sp-close:hover { color: var(--text-main, #18181b); }
 
 .sp-tabs {
   display: flex;
   padding: 6px 8px;
   gap: 4px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--hairline, rgba(0,0,0,0.07));
 }
 .sp-tab {
   flex: 1;
   background: transparent;
   border: none;
-  color: rgba(255,255,255,0.55);
+  color: var(--text-dim, #52525b);
   padding: 6px 4px;
   font-size: 12px;
   cursor: pointer;
@@ -271,76 +270,76 @@ const sourceBadge = (s?: string) => {
   justify-content: center;
   gap: 4px;
 }
-.sp-tab:hover { background: rgba(255,255,255,0.05); color: #fff; }
-.sp-tab.active { background: rgba(61, 155, 255, 0.18); color: #3d9bff; }
+.sp-tab:hover { background: var(--bg-elev, rgba(0,0,0,0.045)); color: var(--text-main, #18181b); }
+.sp-tab.active { background: rgba(37,99,235,0.10); color: #2563eb; }
 .sp-tab-count { font-size: 10px; opacity: 0.7; font-family: 'JetBrains Mono', monospace; }
 
 .sp-body { flex: 1; overflow-y: auto; padding: 12px; }
-.sp-empty { padding: 24px 8px; text-align: center; color: rgba(255,255,255,0.35); font-size: 12px; line-height: 1.6; }
+.sp-empty { padding: 24px 8px; text-align: center; color: var(--text-muted, #a1a1aa); font-size: 12px; line-height: 1.6; }
 
 .sp-card {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
+  background: var(--bg-subtle, #f7f8fa);
+  border: 1px solid var(--hairline, rgba(0,0,0,0.07));
   border-radius: 10px;
   padding: 12px;
   margin-bottom: 10px;
 }
 .sp-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .sp-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.sp-dot-class { background: #3d9bff; box-shadow: 0 0 6px rgba(61,155,255,0.6); }
-.sp-dot-rel { background: #22dd88; box-shadow: 0 0 6px rgba(34,221,136,0.6); }
-.sp-card-name { color: #e2e8f0; font-size: 13px; font-weight: 600; cursor: pointer; flex: 1; }
-.sp-card-name:hover { color: #3d9bff; }
+.sp-dot-class { background: #2563eb; }
+.sp-dot-rel { background: #059669; }
+.sp-card-name { color: var(--text-main, #18181b); font-size: 13px; font-weight: 600; cursor: pointer; flex: 1; }
+.sp-card-name:hover { color: #2563eb; }
 .sp-lock {
   font-size: 11px;
-  background: rgba(255, 51, 153, 0.18);
-  color: #ff7fbe;
+  background: rgba(219,39,119,0.10);
+  color: #db2777;
   padding: 2px 6px;
   border-radius: 100px;
   cursor: help;
 }
 
-.sp-rel-end { color: #cbd5e1; cursor: pointer; }
-.sp-rel-end:hover { color: #3d9bff; text-decoration: underline; }
-.sp-rel-arrow { color: rgba(255,255,255,0.4); margin: 0 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.sp-rel-end { color: var(--text-dim, #52525b); cursor: pointer; }
+.sp-rel-end:hover { color: #2563eb; text-decoration: underline; }
+.sp-rel-arrow { color: var(--text-muted, #a1a1aa); margin: 0 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
 
 .sp-sub {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: rgba(255,255,255,0.35);
+  color: var(--text-muted, #a1a1aa);
   margin: 8px 0 4px;
 }
 .sp-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .sp-in {
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08);
-  color: #e2e8f0;
+  background: #fff;
+  border: 1px solid var(--glass-border, rgba(0,0,0,0.09));
+  color: var(--text-main, #18181b);
   border-radius: 5px;
   padding: 4px 6px;
   font-size: 12px;
   outline: none;
   font-family: inherit;
 }
-.sp-in:focus { border-color: #3d9bff; }
+.sp-in:focus { border-color: rgba(0,0,0,0.35); }
 .sp-in-name { width: 80px; }
 .sp-in-val { flex: 1; min-width: 0; }
 .sp-in-kind { width: 96px; flex-shrink: 0; }
 .sp-in-note { flex: 1; min-width: 0; }
-.sp-colon { color: rgba(255,255,255,0.4); }
+.sp-colon { color: var(--text-muted, #a1a1aa); }
 .sp-del {
   background: transparent;
   border: none;
-  color: rgba(255,255,255,0.35);
+  color: var(--text-muted, #a1a1aa);
   cursor: pointer;
   padding: 0 4px;
   font-size: 14px;
 }
-.sp-del:hover { color: #ff8a8a; }
+.sp-del:hover { color: #dc2626; }
 .sp-add {
-  background: rgba(61,155,255,0.08);
-  border: 1px dashed rgba(61,155,255,0.3);
-  color: #3d9bff;
+  background: rgba(37,99,235,0.05);
+  border: 1px dashed rgba(37,99,235,0.35);
+  color: #2563eb;
   border-radius: 6px;
   padding: 4px 8px;
   margin-top: 4px;
@@ -349,29 +348,29 @@ const sourceBadge = (s?: string) => {
   width: 100%;
   font-family: inherit;
 }
-.sp-add:hover { background: rgba(61,155,255,0.15); }
+.sp-add:hover { background: rgba(37,99,235,0.10); }
 
 .sp-flat {
   display: flex; align-items: center; gap: 6px;
   padding: 6px 8px;
   border-radius: 6px;
   font-size: 12px;
-  color: #cbd5e1;
+  color: var(--text-dim, #52525b);
 }
-.sp-flat:hover { background: rgba(255,255,255,0.04); }
-.sp-flat-owner { color: #e2e8f0; font-weight: 500; cursor: pointer; }
-.sp-flat-owner:hover { color: #3d9bff; }
-.sp-flat-dot { color: rgba(255,255,255,0.3); }
-.sp-flat-name { color: #ffaa22; font-weight: 500; }
-.sp-flat-val { color: rgba(255,255,255,0.55); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.sp-flat:hover { background: var(--bg-elev, rgba(0,0,0,0.045)); }
+.sp-flat-owner { color: var(--text-main, #18181b); font-weight: 500; cursor: pointer; }
+.sp-flat-owner:hover { color: #2563eb; }
+.sp-flat-dot { color: var(--text-muted, #a1a1aa); }
+.sp-flat-name { color: #d97706; font-weight: 500; }
+.sp-flat-val { color: var(--text-dim, #52525b); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
 .sp-flat-kind {
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 100px;
   letter-spacing: 0.5px;
 }
-.sp-flat-kind-class    { background: rgba(61,155,255,0.18); color: #3d9bff; }
-.sp-flat-kind-relation { background: rgba(34,221,136,0.18); color: #22dd88; }
+.sp-flat-kind-class    { background: #eff6ff; color: #2563eb; }
+.sp-flat-kind-relation { background: #ecfdf5; color: #059669; }
 
 .sp-src {
   font-size: 10px;

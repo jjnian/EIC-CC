@@ -6,12 +6,10 @@
 //
 // NT 仍然保留 4 个类别供 Schema 面板分类着色;但 GraphCanvas 只把 `class` 节点画到画布上。
 export const NT = {
-  class:         {color:'#3d9bff',bg:'#071d3a',label:'对象'},
-  relation_type: {color:'#22dd88',bg:'#002418',label:'关系类型'},
-  attribute:     {color:'#ffaa22',bg:'#221500',label:'属性'},
-  constraint:    {color:'#ff3399',bg:'#2a0515',label:'约束'},
-  // 领域折叠产生的超级节点（useDomainCollapse 渲染层派生，非真实节点）
-  domain:        {color:'#a78bfa',bg:'#1d1440',label:'领域'},
+  class:         {color:'#2563eb',bg:'#eff6ff',label:'对象'},
+  relation_type: {color:'#059669',bg:'#ecfdf5',label:'关系类型'},
+  attribute:     {color:'#d97706',bg:'#fffbeb',label:'属性'},
+  constraint:    {color:'#db2777',bg:'#fdf2f8',label:'约束'},
 };
 
 export const NW = 172;

@@ -19,8 +19,7 @@ const ensureStyle = () => {
   style.textContent = `
 .eic-confirm-backdrop {
   position: fixed; inset: 0; z-index: 9998;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(4px);
+  background: rgba(0,0,0,0.32);
   display: flex; align-items: center; justify-content: center;
   animation: eicCfFade 0.16s ease-out;
   font-family: inherit;
@@ -28,20 +27,20 @@ const ensureStyle = () => {
 @keyframes eicCfFade { from { opacity: 0; } to { opacity: 1; } }
 .eic-confirm-card {
   width: 380px; max-width: 92vw;
-  background: rgba(15, 23, 42, 0.97);
-  border: 1px solid rgba(255,255,255,0.12);
+  background: #ffffff;
+  border: 1px solid rgba(0,0,0,0.09);
   border-radius: 14px;
-  box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-lg, 0 12px 32px rgba(0,0,0,0.12));
   padding: 20px;
   display: flex; flex-direction: column; gap: 14px;
-  color: var(--text-main, #e6e9ef);
+  color: var(--text-main, #18181b);
 }
 .eic-confirm-title {
   font-size: 14px; font-weight: 600; letter-spacing: 0.3px;
 }
 .eic-confirm-msg {
   font-size: 13px; line-height: 1.55;
-  color: var(--text-dim, rgba(255,255,255,0.7));
+  color: var(--text-dim, #52525b);
   white-space: pre-line;
 }
 .eic-confirm-foot {
@@ -52,19 +51,19 @@ const ensureStyle = () => {
   font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
 }
 .eic-confirm-btn-cancel {
-  background: rgba(255,255,255,0.06);
-  color: var(--text-dim, rgba(255,255,255,0.7));
-  border-color: rgba(255,255,255,0.08);
+  background: #ffffff;
+  color: var(--text-dim, #52525b);
+  border-color: rgba(0,0,0,0.09);
 }
-.eic-confirm-btn-cancel:hover { background: rgba(255,255,255,0.12); }
+.eic-confirm-btn-cancel:hover { background: rgba(0,0,0,0.045); }
 .eic-confirm-btn-ok {
-  background: #2f86d6; color: #fff;
+  background: #18181b; color: #fff;
 }
-.eic-confirm-btn-ok:hover { background: #5aa6ee; }
+.eic-confirm-btn-ok:hover { background: #000000; }
 .eic-confirm-btn-danger {
-  background: #ff6b6b; color: #1a0a0a;
+  background: #dc2626; color: #fff;
 }
-.eic-confirm-btn-danger:hover { background: #ff8a8a; }
+.eic-confirm-btn-danger:hover { background: #b91c1c; }
 `;
   document.head.appendChild(style);
 };
