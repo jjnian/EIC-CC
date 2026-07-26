@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>方案 B · 工作台</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+tailwind.config = { theme: { extend: {
+  colors: { paper:'#F7F6F3', inkc:'#1C1917' },
+  fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','PingFang SC','Microsoft YaHei','sans-serif'] },
+  boxShadow: { card:'0 1px 2px rgba(28,25,23,.04), 0 4px 16px rgba(28,25,23,.05)', pop:'0 8px 32px rgba(28,25,23,.10)' },
+} } }
+</script>
+<style>
+  body { font-family: Inter, ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #D6D3CE; border-radius: 4px; }
+  .card { background:#fff; border-radius:16px; box-shadow:0 1px 2px rgba(28,25,23,.04), 0 4px 16px rgba(28,25,23,.05); }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:10px; font-size:13.5px; color:#78716C; transition:.15s; }
+  .nav-item:hover { color:#1C1917; background:rgba(28,25,23,.04); }
+  .nav-item.active { color:#6D28D9; background:#F3F0FF; font-weight:600; }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 14px; border-radius:10px; font-size:13px; font-weight:500; background:#fff; color:#57534E; box-shadow:0 1px 2px rgba(28,25,23,.05), inset 0 0 0 1px #E7E5E0; transition:.15s; }
+  .chip:hover { color:#6D28D9; box-shadow:0 1px 2px rgba(28,25,23,.05), inset 0 0 0 1px #C4B5FD; }
+</style>
+</head>
+<body class="bg-paper text-inkc">
+
+<div class="flex h-screen">
+  <!-- 侧边栏 -->
+  <aside class="flex w-[236px] shrink-0 flex-col bg-paper">
+    <div class="flex h-16 items-center gap-2.5 px-5">
+      <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-[14px] font-bold text-white shadow-md shadow-violet-500/25">推</div>
+      <div class="leading-tight">
+        <div class="text-[14px] font-bold text-stone-900">推演平台</div>
+        <div class="text-[10.5px] tracking-wide text-stone-400">EIC-CC · 业务血缘建模</div>
+      </div>
+      <a href="../index.html" title="返回方案画廊" class="ml-auto rounded-lg p-1.5 text-stone-400 hover:bg-white hover:text-violet-600"><i data-lucide="layout-grid" class="h-4 w-4"></i></a>
+    </div>
+    <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-2">
+      <div class="px-3 pb-1.5 pt-1 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">主导航</div>
+      <a class="nav-item active" href="dashboard.html"><i data-lucide="layout-dashboard" class="h-4 w-4"></i>工作台</a>
+      <a class="nav-item" href="graph.html"><i data-lucide="waypoints" class="h-4 w-4"></i>血缘图谱</a>
+      <a class="nav-item" href="experiences.html"><i data-lucide="library" class="h-4 w-4"></i>经验库<span class="ml-auto rounded-full bg-stone-200/70 px-2 py-0.5 text-[10.5px] text-stone-500">56</span></a>
+      <a class="nav-item" href="chat.html"><i data-lucide="message-square-text" class="h-4 w-4"></i>AI 对话</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">数据</div>
+      <a class="nav-item" href="datasources.html"><i data-lucide="database" class="h-4 w-4"></i>数据源</a>
+      <a class="nav-item" href="analysis.html"><i data-lucide="activity" class="h-4 w-4"></i>血缘分析</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">系统</div>
+      <a class="nav-item" href="settings.html"><i data-lucide="settings-2" class="h-4 w-4"></i>设置</a>
+    </nav>
+    <div class="p-3">
+      <a href="workspaces.html" class="card flex items-center gap-2.5 p-3 transition hover:shadow-pop">
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-[12px] font-bold text-violet-700">电</div>
+        <div class="min-w-0 flex-1 leading-tight">
+          <div class="truncate text-[12.5px] font-semibold text-stone-800">电商数仓工作空间</div>
+          <div class="text-[10.5px] text-stone-400">3 个模型 · 昨天更新</div>
+        </div>
+        <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5 text-stone-400"></i>
+      </a>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <div class="flex min-w-0 flex-1 flex-col">
+    <!-- 顶栏 -->
+    <header class="flex h-16 shrink-0 items-center gap-3 px-6">
+      <h1 class="text-[17px] font-bold text-stone-900">工作台</h1>
+      <div class="relative ml-4 w-72">
+        <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-stone-400"></i>
+        <input class="h-9 w-full rounded-xl bg-white pl-9 pr-12 text-[12.5px] text-stone-700 placeholder-stone-400 shadow-card outline-none transition focus:ring-2 focus:ring-violet-200" placeholder="搜索模型、节点、经验文档…" />
+        <kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-400">⌘K</kbd>
+      </div>
+      <div class="ml-auto flex items-center gap-2">
+        <button class="chip"><i data-lucide="sparkles" class="h-3.5 w-3.5 text-violet-600"></i>一键建图</button>
+        <button class="chip"><i data-lucide="globe" class="h-3.5 w-3.5"></i>联网调研</button>
+        <div class="mx-1 h-5 w-px bg-stone-200"></div>
+        <div class="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-500 text-[12px] font-bold text-white shadow-md shadow-violet-400/30">纪</div>
+      </div>
+    </header>
+
+    <!-- 内容 -->
+    <main class="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+      <!-- 欢迎横幅 -->
+      <div class="card mb-5 flex items-center justify-between overflow-hidden bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-500 p-6 text-white">
+        <div>
+          <h2 class="text-xl font-bold">晚上好，纪念 👋</h2>
+          <p class="mt-1 text-[13px] text-white/80">「电商数仓」的血缘图昨日新增 12 条推断边，3 条待审核。</p>
+        </div>
+        <div class="flex gap-2">
+          <a href="graph.html" class="rounded-xl bg-white/15 px-4 py-2 text-[13px] font-medium backdrop-blur transition hover:bg-white/25">去审核 →</a>
+        </div>
+      </div>
+
+      <!-- 统计卡 -->
+      <div class="mb-5 grid grid-cols-4 gap-4">
+        <div class="card p-5">
+          <div class="flex items-center justify-between"><span class="text-[12px] font-medium text-stone-400">业务实体</span><div class="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"><i data-lucide="box" class="h-3.5 w-3.5"></i></div></div>
+          <div class="mt-2 text-[28px] font-bold leading-none text-stone-900">128</div>
+          <div class="mt-1.5 text-[11.5px] font-medium text-emerald-600">▲ 本周 +6</div>
+        </div>
+        <div class="card p-5">
+          <div class="flex items-center justify-between"><span class="text-[12px] font-medium text-stone-400">血缘边</span><div class="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-50 text-violet-600"><i data-lucide="git-fork" class="h-3.5 w-3.5"></i></div></div>
+          <div class="mt-2 text-[28px] font-bold leading-none text-stone-900">342</div>
+          <div class="mt-1.5 text-[11.5px] font-medium text-emerald-600">▲ 本周 +12 推断</div>
+        </div>
+        <div class="card p-5">
+          <div class="flex items-center justify-between"><span class="text-[12px] font-medium text-stone-400">经验文档</span><div class="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600"><i data-lucide="file-text" class="h-3.5 w-3.5"></i></div></div>
+          <div class="mt-2 text-[28px] font-bold leading-none text-stone-900">56</div>
+          <div class="mt-1.5 text-[11.5px] text-stone-400">4 个领域文件夹</div>
+        </div>
+        <div class="card p-5">
+          <div class="flex items-center justify-between"><span class="text-[12px] font-medium text-stone-400">数据源</span><div class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><i data-lucide="database-zap" class="h-3.5 w-3.5"></i></div></div>
+          <div class="mt-2 text-[28px] font-bold leading-none text-stone-900">6</div>
+          <div class="mt-1.5 text-[11.5px] font-medium text-emerald-600">全部连接正常</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-4">
+        <!-- 最近模型 -->
+        <div class="card col-span-2">
+          <div class="flex items-center justify-between px-6 pt-5 pb-3">
+            <h3 class="text-[14px] font-bold text-stone-900">最近模型</h3>
+            <a href="graph.html" class="text-[12px] font-medium text-violet-600 hover:text-violet-700">查看全部 →</a>
+          </div>
+          <div class="space-y-1 px-3 pb-4">
+            <a href="graph.html" class="flex items-center gap-3 rounded-xl px-3 py-3 transition hover:bg-violet-50/60">
+              <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600"><i data-lucide="waypoints" class="h-4.5 w-4.5"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="text-[13.5px] font-semibold text-stone-800">交易域血缘图</div>
+                <div class="text-[11.5px] text-stone-400">86 节点 · 214 边 · 平均置信度 87%</div>
+              </div>
+              <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700">健康 92</span>
+              <span class="text-[11.5px] text-stone-400">2 小时前</span>
+            </a>
+            <a href="graph.html" class="flex items-center gap-3 rounded-xl px-3 py-3 transition hover:bg-violet-50/60">
+              <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100 text-violet-600"><i data-lucide="waypoints" class="h-4.5 w-4.5"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="text-[13.5px] font-semibold text-stone-800">营销归因模型</div>
+                <div class="text-[11.5px] text-stone-400">42 节点 · 128 边 · 平均置信度 79%</div>
+              </div>
+              <span class="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-medium text-amber-700">健康 74</span>
+              <span class="text-[11.5px] text-stone-400">昨天</span>
+            </a>
+            <a href="graph.html" class="flex items-center gap-3 rounded-xl px-3 py-3 transition hover:bg-violet-50/60">
+              <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-600"><i data-lucide="waypoints" class="h-4.5 w-4.5"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="text-[13.5px] font-semibold text-stone-800">用户域血缘图</div>
+                <div class="text-[11.5px] text-stone-400">— 构建中（已抽取 31 个实体）</div>
+              </div>
+              <span class="rounded-full bg-violet-100 px-2.5 py-0.5 text-[11px] font-medium text-violet-700">进行中</span>
+              <span class="text-[11.5px] text-stone-400">昨天</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- 右列 -->
+        <div class="space-y-4">
+          <div class="card p-5">
+            <h3 class="mb-3 text-[14px] font-bold text-stone-900">待办提醒</h3>
+            <div class="space-y-2.5">
+              <div class="flex items-start gap-2.5 rounded-xl bg-amber-50 p-3">
+                <i data-lucide="alert-triangle" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600"></i>
+                <div class="text-[12px] leading-relaxed text-stone-600"><span class="font-semibold text-amber-700">3 条推断边</span>缺少数据佐证，建议审核</div>
+              </div>
+              <div class="flex items-start gap-2.5 rounded-xl bg-rose-50 p-3">
+                <i data-lucide="repeat" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-500"></i>
+                <div class="text-[12px] leading-relaxed text-stone-600">营销归因模型检测到 <span class="font-semibold text-rose-600">1 个血缘环</span></div>
+              </div>
+              <div class="flex items-start gap-2.5 rounded-xl bg-stone-100 p-3">
+                <i data-lucide="unplug" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-stone-400"></i>
+                <div class="text-[12px] leading-relaxed text-stone-600">5 个孤立节点未接入任何血缘</div>
+              </div>
+            </div>
+          </div>
+          <div class="card p-5">
+            <h3 class="mb-3 text-[14px] font-bold text-stone-900">快速操作</h3>
+            <div class="grid grid-cols-2 gap-2.5">
+              <a href="experiences.html" class="rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 p-3.5 text-center text-white shadow-md shadow-violet-500/25 transition hover:brightness-110"><i data-lucide="sparkles" class="mx-auto mb-1.5 h-4 w-4"></i><div class="text-[12px] font-medium">一键建图</div></a>
+              <a href="experiences.html" class="rounded-xl bg-stone-100 p-3.5 text-center transition hover:bg-stone-200/70"><i data-lucide="globe" class="mx-auto mb-1.5 h-4 w-4 text-stone-500"></i><div class="text-[12px] font-medium text-stone-600">联网调研</div></a>
+              <a href="experiences.html" class="rounded-xl bg-stone-100 p-3.5 text-center transition hover:bg-stone-200/70"><i data-lucide="upload" class="mx-auto mb-1.5 h-4 w-4 text-stone-500"></i><div class="text-[12px] font-medium text-stone-600">导入文档</div></a>
+              <a href="datasources.html" class="rounded-xl bg-stone-100 p-3.5 text-center transition hover:bg-stone-200/70"><i data-lucide="database" class="mx-auto mb-1.5 h-4 w-4 text-stone-500"></i><div class="text-[12px] font-medium text-stone-600">接入数据源</div></a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>lucide.createIcons();</script>
+</body>
+</html>

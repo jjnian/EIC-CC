@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>EIC-CC 全新 UI 设计方案 · 预览画廊</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: { extend: {
+    fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','PingFang SC','Microsoft YaHei','sans-serif'] },
+  } }
+}
+</script>
+<style>
+  body { font-family: Inter, ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  .card-hover { transition: transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s; }
+  .card-hover:hover { transform: translateY(-4px); }
+</style>
+</head>
+<body class="bg-[#F5F4F1] text-stone-800 min-h-screen">
+
+<div class="mx-auto max-w-6xl px-8 py-12">
+
+  <!-- 头部 -->
+  <div class="mb-2 flex items-center gap-3">
+    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-stone-900 text-white text-lg font-bold">推</div>
+    <div>
+      <h1 class="text-xl font-bold text-stone-900">EIC-CC 推演平台 · 全新 UI 设计方案</h1>
+      <p class="text-sm text-stone-500">基于当前版本信息架构的两套视觉方向 · 仅供评审，确认后再开发</p>
+    </div>
+    <span class="ml-auto rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">设计评审稿 V1</span>
+  </div>
+
+  <div class="my-8 h-px bg-stone-200"></div>
+
+  <!-- 两个方案 -->
+  <div class="grid gap-6 md:grid-cols-2">
+
+    <!-- 方案 A -->
+    <div class="card-hover overflow-hidden rounded-2xl bg-[#0C0F14] text-white shadow-xl shadow-stone-900/10">
+      <div class="border-b border-white/10 px-7 pt-7 pb-6">
+        <div class="mb-3 flex items-center gap-2">
+          <span class="rounded-md bg-cyan-400/15 px-2 py-0.5 text-xs font-semibold text-cyan-300">方案 A</span>
+          <span class="text-xs text-white/40">Dark · Analyst Workbench</span>
+        </div>
+        <h2 class="text-2xl font-bold tracking-tight">墨 · 分析台</h2>
+        <p class="mt-2 text-sm leading-relaxed text-white/55">
+          深色沉浸式数据工作台。石墨底 + 青色辉光强调，图谱在暗色画布上呈现最佳可读性，
+          面向高频使用的专业分析师场景，气质接近 Linear / Raycast / 可观测性平台。
+        </p>
+      </div>
+      <!-- 缩略示意 -->
+      <div class="px-7 py-5">
+        <div class="flex gap-3 rounded-xl bg-[#12161E] p-3 ring-1 ring-white/5">
+          <div class="w-16 shrink-0 space-y-1.5">
+            <div class="h-5 rounded bg-cyan-400/20"></div>
+            <div class="h-5 rounded bg-white/5"></div>
+            <div class="h-5 rounded bg-white/5"></div>
+            <div class="h-5 rounded bg-white/5"></div>
+          </div>
+          <div class="flex-1 space-y-2">
+            <div class="flex gap-2">
+              <div class="h-10 flex-1 rounded-lg bg-white/5"></div>
+              <div class="h-10 flex-1 rounded-lg bg-white/5"></div>
+              <div class="h-10 flex-1 rounded-lg bg-white/5"></div>
+            </div>
+            <div class="h-20 rounded-lg bg-gradient-to-br from-cyan-400/10 to-blue-500/10 ring-1 ring-cyan-400/20"></div>
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2 px-7 pb-6">
+        <a href="a/dashboard.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">工作台 →</a>
+        <a href="a/graph.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">血缘图谱 →</a>
+        <a href="a/experiences.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">经验库 →</a>
+        <a href="a/chat.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">AI 对话 →</a>
+        <a href="a/datasources.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">数据源 →</a>
+        <a href="a/analysis.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">血缘分析 →</a>
+        <a href="a/settings.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">设置 →</a>
+        <a href="a/workspaces.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">工作空间 →</a>
+      </div>
+      <div class="border-t border-white/10 px-7 py-4 text-xs leading-relaxed text-white/40">
+        关键词：深色沉浸 · 辉光图谱 · 高密度信息 · 键盘友好
+      </div>
+    </div>
+
+    <!-- 方案 B -->
+    <div class="card-hover overflow-hidden rounded-2xl bg-white shadow-xl shadow-stone-900/5 ring-1 ring-stone-200">
+      <div class="border-b border-stone-100 px-7 pt-7 pb-6">
+        <div class="mb-3 flex items-center gap-2">
+          <span class="rounded-md bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">方案 B</span>
+          <span class="text-xs text-stone-400">Light · Modern Workspace</span>
+        </div>
+        <h2 class="text-2xl font-bold tracking-tight text-stone-900">澄 · 工作台</h2>
+        <p class="mt-2 text-sm leading-relaxed text-stone-500">
+          暖纸感明亮工作台。米白底 + 靛紫主色 + 大圆角浮动卡片，层级靠阴影与留白而非边框，
+          气质接近 Notion / Stripe，亲和、现代，适合全团队日常使用与演示汇报。
+        </p>
+      </div>
+      <div class="px-7 py-5">
+        <div class="flex gap-3 rounded-xl bg-[#F7F6F3] p-3 ring-1 ring-stone-200/70">
+          <div class="w-16 shrink-0 space-y-1.5">
+            <div class="h-5 rounded bg-violet-200/70"></div>
+            <div class="h-5 rounded bg-white ring-1 ring-stone-200"></div>
+            <div class="h-5 rounded bg-white ring-1 ring-stone-200"></div>
+            <div class="h-5 rounded bg-white ring-1 ring-stone-200"></div>
+          </div>
+          <div class="flex-1 space-y-2">
+            <div class="flex gap-2">
+              <div class="h-10 flex-1 rounded-xl bg-white shadow-sm ring-1 ring-stone-200/60"></div>
+              <div class="h-10 flex-1 rounded-xl bg-white shadow-sm ring-1 ring-stone-200/60"></div>
+              <div class="h-10 flex-1 rounded-xl bg-white shadow-sm ring-1 ring-stone-200/60"></div>
+            </div>
+            <div class="h-20 rounded-xl bg-gradient-to-br from-violet-100 to-indigo-100 ring-1 ring-violet-200/60"></div>
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2 px-7 pb-6">
+        <a href="b/dashboard.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">工作台 →</a>
+        <a href="b/graph.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">血缘图谱 →</a>
+        <a href="b/experiences.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">经验库 →</a>
+        <a href="b/chat.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">AI 对话 →</a>
+        <a href="b/datasources.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">数据源 →</a>
+        <a href="b/analysis.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">血缘分析 →</a>
+        <a href="b/settings.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">设置 →</a>
+        <a href="b/workspaces.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">工作空间 →</a>
+      </div>
+      <div class="border-t border-stone-100 px-7 py-4 text-xs leading-relaxed text-stone-400">
+        关键词：暖纸底 · 浮动卡片 · 大留白 · 演示友好
+      </div>
+    </div>
+  </div>
+
+  <!-- 对比表 -->
+  <div class="mt-10 overflow-hidden rounded-2xl bg-white ring-1 ring-stone-200">
+    <div class="border-b border-stone-100 px-7 py-4">
+      <h3 class="text-sm font-semibold text-stone-800">两个方向的对比</h3>
+    </div>
+    <table class="w-full text-[13px]">
+      <thead>
+        <tr class="border-b border-stone-100 text-left text-xs text-stone-400">
+          <th class="px-7 py-3 font-medium">维度</th>
+          <th class="px-4 py-3 font-medium">方案 A · 墨（暗色）</th>
+          <th class="px-4 py-3 font-medium">方案 B · 澄（亮色）</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-stone-100 text-stone-600">
+        <tr><td class="px-7 py-3 font-medium text-stone-800">主色</td><td class="px-4 py-3">青 Cyan #22D3EE（辉光）</td><td class="px-4 py-3">靛紫 Indigo→Violet 渐变</td></tr>
+        <tr><td class="px-7 py-3 font-medium text-stone-800">底色</td><td class="px-4 py-3">石墨 #0C0F14 / 面板 #12161E</td><td class="px-4 py-3">暖纸 #F7F6F3 / 卡片纯白</td></tr>
+        <tr><td class="px-7 py-3 font-medium text-stone-800">图谱体验</td><td class="px-4 py-3">暗色画布 + 发光血缘路径，长时间看图不刺眼</td><td class="px-4 py-3">浅色画布 + 柔和色块，投屏汇报更清晰</td></tr>
+        <tr><td class="px-7 py-3 font-medium text-stone-800">信息密度</td><td class="px-4 py-3">高（分析师向）</td><td class="px-4 py-3">中（全员向）</td></tr>
+        <tr><td class="px-7 py-3 font-medium text-stone-800">气质参考</td><td class="px-4 py-3">Linear · Raycast · Grafana</td><td class="px-4 py-3">Notion · Stripe · Linear 亮色</td></tr>
+        <tr><td class="px-7 py-3 font-medium text-stone-800">适合场景</td><td class="px-4 py-3">数据/研发同学日常高频使用</td><td class="px-4 py-3">业务+数据混用、对外演示</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 说明 -->
+  <div class="mt-8 grid gap-6 md:grid-cols-3">
+    <div class="rounded-2xl bg-white p-6 ring-1 ring-stone-200">
+      <h4 class="mb-2 text-sm font-semibold text-stone-800">不变的骨架</h4>
+      <p class="text-[13px] leading-relaxed text-stone-500">两套方案共用同一信息架构：左侧导航 + 顶栏 + 8 个页面（工作台/图谱/经验库/对话/数据源/分析/设置/工作空间），交互逻辑与后端契约完全不变。</p>
+    </div>
+    <div class="rounded-2xl bg-white p-6 ring-1 ring-stone-200">
+      <h4 class="mb-2 text-sm font-semibold text-stone-800">评审方式</h4>
+      <p class="text-[13px] leading-relaxed text-stone-500">点击上方卡片进入各页面设计稿（含模拟数据）。可两套混选——例如「B 的浅色骨架 + A 的暗色图谱画布」，开发时可组合。</p>
+    </div>
+    <div class="rounded-2xl bg-white p-6 ring-1 ring-stone-200">
+      <h4 class="mb-2 text-sm font-semibold text-stone-800">下一步</h4>
+      <p class="text-[13px] leading-relaxed text-stone-500">你确认方向（可提修改意见）后，我再在 feature 分支上用 Vue 3 + Vite + Tailwind 落地开发，并逐页与你确认。</p>
+    </div>
+  </div>
+
+  <p class="mt-10 text-center text-xs text-stone-400">EIC-CC UI Redesign · 设计评审稿 · 数据均为演示用模拟数据</p>
+</div>
+
+</body>
+</html>

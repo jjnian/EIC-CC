@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>方案 B · 数据源</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+tailwind.config = { theme: { extend: {
+  colors: { paper:'#F7F6F3', inkc:'#1C1917' },
+  fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','PingFang SC','Microsoft YaHei','sans-serif'] },
+  boxShadow: { card:'0 1px 2px rgba(28,25,23,.04), 0 4px 16px rgba(28,25,23,.05)', pop:'0 8px 32px rgba(28,25,23,.10)' },
+} } }
+</script>
+<style>
+  body { font-family: Inter, ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #D6D3CE; border-radius: 4px; }
+  .card { background:#fff; border-radius:16px; box-shadow:0 1px 2px rgba(28,25,23,.04), 0 4px 16px rgba(28,25,23,.05); }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:10px; font-size:13.5px; color:#78716C; transition:.15s; }
+  .nav-item:hover { color:#1C1917; background:rgba(28,25,23,.04); }
+  .nav-item.active { color:#6D28D9; background:#F3F0FF; font-weight:600; }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 14px; border-radius:10px; font-size:13px; font-weight:500; background:#fff; color:#57534E; box-shadow:0 1px 2px rgba(28,25,23,.05), inset 0 0 0 1px #E7E5E0; transition:.15s; cursor:pointer; }
+  .chip:hover { color:#6D28D9; box-shadow:0 1px 2px rgba(28,25,23,.05), inset 0 0 0 1px #C4B5FD; }
+  .btn-primary { display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 16px; border-radius:10px; font-size:13px; font-weight:600; color:#fff; background:linear-gradient(135deg,#6366F1,#8B5CF6); box-shadow:0 4px 14px rgba(124,58,237,.3); transition:.15s; cursor:pointer; }
+  .btn-primary:hover { filter:brightness(1.08); }
+  .btn-sm { height:30px; padding:0 11px; font-size:12px; border-radius:8px; }
+  .input { width:100%; height:36px; border-radius:10px; background:#fff; padding:0 12px; font-size:13px; color:#1C1917; box-shadow:inset 0 0 0 1px #E7E5E0; outline:none; transition:.15s; }
+  .input:focus { box-shadow:inset 0 0 0 1px #C4B5FD, 0 0 0 3px #EDE9FE; }
+  textarea.input { height:auto; padding:8px 12px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px; line-height:1.6; }
+  .label { display:block; margin-bottom:6px; font-size:12px; font-weight:500; color:#78716C; }
+  .tab-btn { padding:9px 14px; font-size:13px; color:#A8A29E; border-bottom:2px solid transparent; transition:.15s; cursor:pointer; }
+  .tab-btn:hover { color:#57534E; }
+  .tab-btn.active { color:#1C1917; border-bottom-color:#7C3AED; font-weight:600; }
+  .kind-chip { display:inline-flex; align-items:center; height:32px; padding:0 12px; border-radius:9px; font-size:12.5px; color:#57534E; background:#fff; box-shadow:inset 0 0 0 1px #E7E5E0; transition:.15s; cursor:pointer; }
+  .kind-chip:hover { box-shadow:inset 0 0 0 1px #C4B5FD; }
+  .kind-chip.on { background:#F3F0FF; color:#6D28D9; font-weight:600; box-shadow:inset 0 0 0 1px #C4B5FD; }
+  .data-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .data-table th { padding:8px 12px; text-align:left; font-weight:500; color:#78716C; background:#FAFAF9; border-bottom:1px solid #E7E5E0; white-space:nowrap; position:sticky; top:0; }
+  .data-table td { padding:7px 12px; color:#44403C; border-bottom:1px solid #F5F4F0; white-space:nowrap; }
+  .type-card { display:flex; align-items:center; gap:14px; width:100%; text-align:left; background:#fff; border-radius:12px; padding:13px 15px; box-shadow:inset 0 0 0 1px #E7E5E0; transition:.15s; cursor:pointer; }
+  .type-card:hover { box-shadow:inset 0 0 0 1px #C4B5FD, 0 4px 14px rgba(124,58,237,.12); transform:translateY(-1px); }
+</style>
+</head>
+<body class="bg-paper text-inkc">
+
+<div class="flex h-screen">
+  <!-- 侧边栏 -->
+  <aside class="flex w-[236px] shrink-0 flex-col bg-paper">
+    <div class="flex h-16 items-center gap-2.5 px-5">
+      <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-[14px] font-bold text-white shadow-md shadow-violet-500/25">推</div>
+      <div class="leading-tight">
+        <div class="text-[14px] font-bold text-stone-900">推演平台</div>
+        <div class="text-[10.5px] tracking-wide text-stone-400">EIC-CC · 业务血缘建模</div>
+      </div>
+      <a href="../index.html" title="返回方案画廊" class="ml-auto rounded-lg p-1.5 text-stone-400 hover:bg-white hover:text-violet-600"><i data-lucide="layout-grid" class="h-4 w-4"></i></a>
+    </div>
+    <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-2">
+      <div class="px-3 pb-1.5 pt-1 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">主导航</div>
+      <a class="nav-item" href="dashboard.html"><i data-lucide="layout-dashboard" class="h-4 w-4"></i>工作台</a>
+      <a class="nav-item" href="graph.html"><i data-lucide="waypoints" class="h-4 w-4"></i>血缘图谱</a>
+      <a class="nav-item" href="experiences.html"><i data-lucide="library" class="h-4 w-4"></i>经验库<span class="ml-auto rounded-full bg-stone-200/70 px-2 py-0.5 text-[10.5px] text-stone-500">56</span></a>
+      <a class="nav-item" href="chat.html"><i data-lucide="message-square-text" class="h-4 w-4"></i>AI 对话</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">数据</div>
+      <a class="nav-item active" href="datasources.html"><i data-lucide="database" class="h-4 w-4"></i>数据源</a>
+      <a class="nav-item" href="analysis.html"><i data-lucide="activity" class="h-4 w-4"></i>血缘分析</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">系统</div>
+      <a class="nav-item" href="settings.html"><i data-lucide="settings-2" class="h-4 w-4"></i>设置</a>
+    </nav>
+    <div class="p-3">
+      <a href="workspaces.html" class="card flex items-center gap-2.5 p-3 transition hover:shadow-pop">
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-[12px] font-bold text-violet-700">电</div>
+        <div class="min-w-0 flex-1 leading-tight">
+          <div class="truncate text-[12.5px] font-semibold text-stone-800">电商数仓工作空间</div>
+          <div class="text-[10.5px] text-stone-400">3 个模型 · 昨天更新</div>
+        </div>
+        <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5 text-stone-400"></i>
+      </a>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <div class="flex min-w-0 flex-1 flex-col">
+    <!-- 顶栏 -->
+    <header class="flex h-16 shrink-0 items-center gap-3 px-6">
+      <h1 class="text-[17px] font-bold text-stone-900">数据源</h1>
+      <div class="relative ml-4 w-72">
+        <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-stone-400"></i>
+        <input class="h-9 w-full rounded-xl bg-white pl-9 pr-12 text-[12.5px] text-stone-700 placeholder-stone-400 shadow-card outline-none transition focus:ring-2 focus:ring-violet-200" placeholder="搜索模型、节点、经验文档…" />
+        <kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-400">⌘K</kbd>
+      </div>
+      <div class="ml-auto flex items-center gap-2">
+        <button class="chip"><i data-lucide="sparkles" class="h-3.5 w-3.5 text-violet-600"></i>一键建图</button>
+        <button class="chip"><i data-lucide="globe" class="h-3.5 w-3.5"></i>联网调研</button>
+        <div class="mx-1 h-5 w-px bg-stone-200"></div>
+        <div class="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-500 text-[12px] font-bold text-white shadow-md shadow-violet-400/30">纪</div>
+      </div>
+    </header>
+
+    <!-- 内容 -->
+    <main class="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+      <!-- 页头说明 + 操作 -->
+      <div class="mb-4 flex items-center justify-between">
+        <p class="text-[13px] text-stone-500">数据源为图节点「供血」：库表结构可沉淀为经验，推断血缘可做值包含检验。</p>
+        <button class="btn-primary" onclick="openModal()"><i data-lucide="plus" class="h-4 w-4"></i>接入数据源</button>
+      </div>
+
+      <!-- 概览 chip 行 -->
+      <div class="mb-5 flex flex-wrap items-center gap-2">
+        <span class="chip !h-8 !cursor-default !text-[12px]"><i data-lucide="database" class="h-3.5 w-3.5 text-violet-600"></i>全部 6</span>
+        <span class="chip !h-8 !cursor-default !text-[12px]">数据库 5</span>
+        <span class="chip !h-8 !cursor-default !text-[12px]">HTTP 接口 1</span>
+        <span class="mx-1 h-4 w-px bg-stone-200"></span>
+        <span class="chip !h-8 !cursor-default !text-[12px]"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>已连接 4</span>
+        <span class="chip !h-8 !cursor-default !text-[12px]"><span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>异常 1</span>
+        <span class="chip !h-8 !cursor-default !text-[12px]"><span class="h-1.5 w-1.5 rounded-full bg-stone-300"></span>未测试 1</span>
+      </div>
+
+      <!-- 数据源卡片 -->
+      <div class="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <!-- 核心交易库 -->
+        <div class="card group flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-pop">
+          <div class="mb-3 flex items-center gap-2.5">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"><i data-lucide="database" class="h-4 w-4"></i></div>
+            <span class="rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-medium text-stone-500">MySQL</span>
+            <span class="ml-auto flex items-center gap-1.5 text-[11.5px] text-emerald-600"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>已连接</span>
+          </div>
+          <div class="text-[14.5px] font-semibold text-stone-800">核心交易库</div>
+          <div class="mt-1 font-mono text-[11px] text-stone-400">10.20.8.31:3306 / eic_trade</div>
+          <div class="mt-1 text-[11.5px] text-stone-400">接入于 3 天前</div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <button class="chip btn-sm"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>测试</button>
+            <button class="chip btn-sm" onclick="scrollToId('dsDbDetail')">详情</button>
+            <button class="chip btn-sm ml-auto !px-2 text-rose-500 hover:!text-rose-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>
+        <!-- 用户画像库 -->
+        <div class="card group flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-pop">
+          <div class="mb-3 flex items-center gap-2.5">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"><i data-lucide="database" class="h-4 w-4"></i></div>
+            <span class="rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-medium text-stone-500">PostgreSQL</span>
+            <span class="ml-auto flex items-center gap-1.5 text-[11.5px] text-emerald-600"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>已连接</span>
+          </div>
+          <div class="text-[14.5px] font-semibold text-stone-800">用户画像库</div>
+          <div class="mt-1 font-mono text-[11px] text-stone-400">10.20.8.42:5432 / eic_profile</div>
+          <div class="mt-1 text-[11.5px] text-stone-400">接入于 1 周前</div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <button class="chip btn-sm"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>测试</button>
+            <button class="chip btn-sm">详情</button>
+            <button class="chip btn-sm ml-auto !px-2 text-rose-500 hover:!text-rose-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>
+        <!-- 信贷核心库 -->
+        <div class="card group flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-pop">
+          <div class="mb-3 flex items-center gap-2.5">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"><i data-lucide="database" class="h-4 w-4"></i></div>
+            <span class="rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-medium text-stone-500">达梦 DM</span>
+            <span class="ml-auto flex items-center gap-1.5 text-[11.5px] text-emerald-600"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>已连接</span>
+          </div>
+          <div class="text-[14.5px] font-semibold text-stone-800">信贷核心库</div>
+          <div class="mt-1 font-mono text-[11px] text-stone-400">10.20.9.7:5236 / CREDIT</div>
+          <div class="mt-1 text-[11.5px] text-stone-400">接入于 2 周前</div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <button class="chip btn-sm"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>测试</button>
+            <button class="chip btn-sm">详情</button>
+            <button class="chip btn-sm ml-auto !px-2 text-rose-500 hover:!text-rose-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>
+        <!-- 经营分析库（异常） -->
+        <div class="card group flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-pop">
+          <div class="mb-3 flex items-center gap-2.5">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"><i data-lucide="database" class="h-4 w-4"></i></div>
+            <span class="rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-medium text-stone-500">GBase 8a</span>
+            <span class="ml-auto flex items-center gap-1.5 text-[11.5px] text-rose-500"><span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>异常</span>
+          </div>
+          <div class="text-[14.5px] font-semibold text-stone-800">经营分析库</div>
+          <div class="mt-1 font-mono text-[11px] text-stone-400">10.20.10.15:5258 / eic_bi</div>
+          <div class="mt-1 text-[11.5px] text-rose-400">连接超时（connect timed out）</div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <button class="chip btn-sm"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>测试</button>
+            <button class="chip btn-sm">详情</button>
+            <button class="chip btn-sm ml-auto !px-2 text-rose-500 hover:!text-rose-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>
+        <!-- 历史订单归档（未测试） -->
+        <div class="card group flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-pop">
+          <div class="mb-3 flex items-center gap-2.5">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"><i data-lucide="database" class="h-4 w-4"></i></div>
+            <span class="rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-medium text-stone-500">Oracle</span>
+            <span class="ml-auto flex items-center gap-1.5 text-[11.5px] text-stone-400"><span class="h-1.5 w-1.5 rounded-full bg-stone-300"></span>未测试</span>
+          </div>
+          <div class="text-[14.5px] font-semibold text-stone-800">历史订单归档</div>
+          <div class="mt-1 font-mono text-[11px] text-stone-400">10.20.11.3:1521 / ORCLPDB1</div>
+          <div class="mt-1 text-[11.5px] text-stone-400">接入于 2 个月前</div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <button class="chip btn-sm"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>测试</button>
+            <button class="chip btn-sm">详情</button>
+            <button class="chip btn-sm ml-auto !px-2 text-rose-500 hover:!text-rose-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>
+        <!-- 营销触达 API -->
+        <div class="card group flex flex-col p-5 transition hover:-translate-y-0.5 hover:shadow-pop">
+          <div class="mb-3 flex items-center gap-2.5">
+            <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600"><i data-lucide="globe" class="h-4 w-4"></i></div>
+            <span class="rounded-full bg-stone-100 px-2.5 py-0.5 text-[11px] font-medium text-stone-500">HTTP 接口</span>
+            <span class="ml-auto flex items-center gap-1.5 text-[11.5px] text-emerald-600"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>已连接</span>
+          </div>
+          <div class="text-[14.5px] font-semibold text-stone-800">营销触达 API</div>
+          <div class="mt-1 truncate font-mono text-[11px] text-stone-400">GET api.mkt.internal/v2/campaigns/daily</div>
+          <div class="mt-1 text-[11.5px] text-stone-400">接入于 5 天前 · 定时拉取 300s</div>
+          <div class="mt-4 flex items-center gap-1.5">
+            <button class="chip btn-sm"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>测试</button>
+            <button class="chip btn-sm" onclick="scrollToId('dsHttpDetail')">详情</button>
+            <button class="chip btn-sm ml-auto !px-2 text-rose-500 hover:!text-rose-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 数据源详情 · 数据库 ===== -->
+      <section id="dsDbDetail" class="card mb-6 overflow-hidden" data-tabgroup>
+        <!-- 详情头 -->
+        <div class="flex flex-wrap items-center gap-3 border-b border-stone-100 px-6 py-4">
+          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600"><i data-lucide="database" class="h-5 w-5"></i></div>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <h3 class="text-[15px] font-bold text-stone-900">核心交易库</h3>
+              <span class="rounded-md bg-stone-100 px-2 py-0.5 font-mono text-[10.5px] text-stone-500">mysql</span>
+              <span class="flex items-center gap-1.5 text-[11.5px] text-emerald-600"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>已连接 · 42ms</span>
+            </div>
+            <div class="mt-0.5 font-mono text-[11px] text-stone-400">10.20.8.31:3306 / eic_trade · 用户 lineage_ro</div>
+          </div>
+          <div class="ml-auto flex flex-wrap items-center gap-2">
+            <label class="flex cursor-pointer items-center gap-1.5 text-[11.5px] text-stone-500" title="为每张表附带前 10 行真实数据作样例（敏感字段自动脱敏）">
+              <input type="checkbox" class="h-3.5 w-3.5 accent-violet-600" />附带样例数据（10 行/表）
+            </label>
+            <button class="chip btn-sm"><i data-lucide="upload" class="h-3.5 w-3.5"></i>导出 DDL 到经验库</button>
+            <button class="btn-primary btn-sm"><i data-lucide="building-2" class="h-3.5 w-3.5"></i>结构建图（全库）</button>
+          </div>
+        </div>
+        <!-- tabs -->
+        <div class="flex gap-1 border-b border-stone-100 px-4">
+          <button class="tab-btn active" data-tab="overview">概览</button>
+          <button class="tab-btn" data-tab="tables">表列表</button>
+          <button class="tab-btn" data-tab="sql">SQL 查询</button>
+          <button class="tab-btn" data-tab="config">配置</button>
+        </div>
+
+        <div class="p-6">
+          <!-- 概览 -->
+          <div data-panel="overview">
+            <dl class="grid max-w-2xl grid-cols-[120px_1fr] gap-x-4 gap-y-2.5 text-[13px]">
+              <dt class="text-stone-400">类型</dt><dd class="text-stone-700">MySQL</dd>
+              <dt class="text-stone-400">Host</dt><dd class="font-mono text-[12.5px] text-stone-700">10.20.8.31:3306</dd>
+              <dt class="text-stone-400">Database</dt><dd class="font-mono text-[12.5px] text-stone-700">eic_trade</dd>
+              <dt class="text-stone-400">Username</dt><dd class="font-mono text-[12.5px] text-stone-700">lineage_ro</dd>
+              <dt class="text-stone-400">状态</dt><dd><span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11.5px] font-medium text-emerald-700">connected（已连接）</span></dd>
+              <dt class="text-stone-400">最后测试</dt><dd class="text-stone-700">2026-07-25 09:41:12</dd>
+            </dl>
+            <button class="chip mt-5"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>测试连接</button>
+          </div>
+
+          <!-- 表列表 -->
+          <div data-panel="tables" class="hidden">
+            <div class="flex overflow-hidden rounded-xl shadow-[inset_0_0_0_1px_#E7E5E0]">
+              <!-- 左：表清单 -->
+              <aside class="w-60 shrink-0 border-r border-stone-100 bg-stone-50/50">
+                <div class="flex items-center justify-between px-4 pb-2 pt-3 text-[11.5px] text-stone-400">
+                  <span>表 (6)</span>
+                  <button class="rounded-md p-1 text-stone-400 hover:bg-white hover:text-violet-600"><i data-lucide="rotate-cw" class="h-3 w-3"></i></button>
+                </div>
+                <div class="border-b border-stone-100 px-3 pb-3">
+                  <button class="flex w-full items-center justify-center gap-1.5 rounded-lg bg-violet-50 py-1.5 text-[12px] font-medium text-violet-700 shadow-[inset_0_0_0_1px_#DDD6FE] transition hover:bg-violet-100"><i data-lucide="download" class="h-3.5 w-3.5"></i>导出结构到经验库供血</button>
+                  <label class="mt-2 flex cursor-pointer items-center gap-1.5 px-0.5 text-[11px] text-stone-500"><input type="checkbox" class="h-3 w-3 accent-violet-600" />附带样例数据</label>
+                  <p class="mt-1.5 px-0.5 text-[10.5px] leading-relaxed text-stone-400">数据源不再直接出图：先入经验库，再到经验库「构建本体血缘图」。</p>
+                </div>
+                <ul class="py-1 text-[12.5px]">
+                  <li class="flex cursor-pointer items-center gap-2 px-4 py-1.5 font-mono text-stone-500 hover:bg-white">dim_customers</li>
+                  <li class="flex cursor-pointer items-center gap-2 px-4 py-1.5 font-mono text-stone-500 hover:bg-white">dim_products</li>
+                  <li class="flex cursor-pointer items-center gap-2 bg-violet-50 px-4 py-1.5 font-mono font-medium text-violet-700">dwd_trade_orders</li>
+                  <li class="flex cursor-pointer items-center gap-2 px-4 py-1.5 font-mono text-stone-500 hover:bg-white">dws_user_daily</li>
+                  <li class="flex cursor-pointer items-center gap-2 px-4 py-1.5 font-mono text-stone-500 hover:bg-white">ods_payment_log</li>
+                  <li class="flex cursor-pointer items-center gap-2 px-4 py-1.5 font-mono text-stone-500 hover:bg-white">ods_refund_log</li>
+                </ul>
+              </aside>
+              <!-- 右：预览 -->
+              <div class="min-w-0 flex-1 p-4">
+                <div class="mb-2 text-[12px] text-stone-400">dwd_trade_orders：50 行（已截断）</div>
+                <div class="overflow-x-auto">
+                  <table class="data-table">
+                    <thead><tr><th>order_id</th><th>customer_id</th><th>sku_id</th><th>amount</th><th>status</th><th>created_at</th></tr></thead>
+                    <tbody class="font-mono text-[12px]">
+                      <tr><td>SO20260724001</td><td>C10028</td><td>SKU-8834</td><td>1299.00</td><td>PAID</td><td>2026-07-24 21:03:12</td></tr>
+                      <tr><td>SO20260724002</td><td>C10311</td><td>SKU-1207</td><td>459.50</td><td>SHIPPED</td><td>2026-07-24 21:11:47</td></tr>
+                      <tr><td>SO20260724003</td><td>C10028</td><td>SKU-5521</td><td>89.90</td><td>PAID</td><td>2026-07-24 21:26:03</td></tr>
+                      <tr><td>SO20260724004</td><td>C10876</td><td>SKU-8834</td><td>2598.00</td><td>PENDING</td><td>2026-07-24 21:40:55</td></tr>
+                      <tr><td>SO20260724005</td><td>C10240</td><td>SKU-3302</td><td>320.00</td><td>REFUNDED</td><td>2026-07-24 22:02:19</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SQL 查询 -->
+          <div data-panel="sql" class="hidden">
+            <textarea class="input" rows="4" placeholder="仅允许 SELECT / SHOW / DESC / EXPLAIN">SELECT status, COUNT(*) AS cnt, SUM(amount) AS gmv
+FROM dwd_trade_orders
+GROUP BY status</textarea>
+            <div class="mt-3 flex items-center gap-3">
+              <label class="flex items-center gap-2 text-[12px] text-stone-500">LIMIT <input class="input !h-8 !w-20" type="number" value="100" min="1" max="1000" /></label>
+              <span class="text-[11.5px] text-stone-400">仅允许 SELECT / SHOW / DESC / EXPLAIN</span>
+              <button class="btn-primary btn-sm ml-auto"><i data-lucide="play" class="h-3.5 w-3.5"></i>执行</button>
+            </div>
+            <div class="mt-4">
+              <div class="mb-2 text-[12px] text-stone-400">4 行 · 18ms</div>
+              <div class="overflow-x-auto rounded-xl shadow-[inset_0_0_0_1px_#E7E5E0]">
+                <table class="data-table">
+                  <thead><tr><th>status</th><th>cnt</th><th>gmv</th></tr></thead>
+                  <tbody class="font-mono text-[12px]">
+                    <tr><td>PAID</td><td>1284</td><td>583290.50</td></tr>
+                    <tr><td>SHIPPED</td><td>932</td><td>411208.00</td></tr>
+                    <tr><td>PENDING</td><td>156</td><td>68240.00</td></tr>
+                    <tr><td>REFUNDED</td><td>87</td><td>39655.20</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 配置 -->
+          <div data-panel="config" class="hidden">
+            <div class="grid max-w-2xl grid-cols-2 gap-4">
+              <div class="col-span-2"><label class="label">名称 <span class="text-rose-500">*</span></label><input class="input" value="核心交易库" /></div>
+              <div><label class="label">Host <span class="text-rose-500">*</span></label><input class="input font-mono" value="10.20.8.31" /></div>
+              <div><label class="label">端口 <span class="text-rose-500">*</span></label><input class="input font-mono" value="3306" /></div>
+              <div class="col-span-2"><label class="label">数据库名 <span class="text-rose-500">*</span></label><input class="input font-mono" value="eic_trade" /></div>
+              <div><label class="label">用户名 <span class="text-rose-500">*</span></label><input class="input font-mono" value="lineage_ro" /></div>
+              <div><label class="label">密码</label><input class="input" type="password" value="password123" /></div>
+              <div class="col-span-2"><label class="label">额外参数 <span class="ml-1 font-normal text-stone-400">可选</span></label><input class="input font-mono" value="useSSL=false&serverTimezone=UTC" /></div>
+            </div>
+            <button class="btn-primary mt-5"><i data-lucide="check" class="h-4 w-4"></i>保存</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 数据源详情 · HTTP 接口 ===== -->
+      <section id="dsHttpDetail" class="card overflow-hidden" data-tabgroup>
+        <!-- 详情头 -->
+        <div class="flex flex-wrap items-center gap-3 border-b border-stone-100 px-6 py-4">
+          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><i data-lucide="globe" class="h-5 w-5"></i></div>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <h3 class="text-[15px] font-bold text-stone-900">营销触达 API</h3>
+              <span class="rounded-md bg-stone-100 px-2 py-0.5 font-mono text-[10.5px] text-stone-500">https_api</span>
+              <span class="flex items-center gap-1.5 text-[11.5px] text-emerald-600"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>已连接 · 418ms</span>
+              <span class="rounded-full bg-violet-100 px-2.5 py-0.5 text-[11px] font-medium text-violet-700">定时拉取 · 每 300s</span>
+            </div>
+            <div class="mt-0.5 truncate font-mono text-[11px] text-stone-400">GET https://api.mkt.internal/v2/campaigns/daily</div>
+          </div>
+          <div class="ml-auto flex items-center gap-2">
+            <button class="chip btn-sm"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>测试连接</button>
+            <button class="btn-primary btn-sm"><i data-lucide="play" class="h-3.5 w-3.5"></i>立即执行</button>
+          </div>
+        </div>
+        <!-- tabs -->
+        <div class="flex gap-1 border-b border-stone-100 px-4">
+          <button class="tab-btn active" data-tab="overview">概览</button>
+          <button class="tab-btn" data-tab="execute">执行</button>
+          <button class="tab-btn" data-tab="history">历史</button>
+          <button class="tab-btn" data-tab="schedule">定时</button>
+          <button class="tab-btn" data-tab="config">配置</button>
+        </div>
+
+        <div class="p-6">
+          <!-- 概览 -->
+          <div data-panel="overview">
+            <dl class="grid max-w-2xl grid-cols-[120px_1fr] gap-x-4 gap-y-2.5 text-[13px]">
+              <dt class="text-stone-400">方法</dt><dd><span class="rounded-md bg-emerald-100 px-2 py-0.5 font-mono text-[11.5px] font-semibold text-emerald-700">GET</span></dd>
+              <dt class="text-stone-400">URL</dt><dd class="break-all font-mono text-[12.5px] text-stone-700">https://api.mkt.internal/v2/campaigns/daily</dd>
+              <dt class="text-stone-400">状态</dt><dd><span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11.5px] font-medium text-emerald-700">connected（已连接）</span></dd>
+              <dt class="text-stone-400">最后测试</dt><dd class="text-stone-700">2026-07-25 08:00:03</dd>
+              <dt class="text-stone-400">定时拉取</dt><dd class="text-stone-700">已启用 · 间隔 300 秒</dd>
+            </dl>
+          </div>
+
+          <!-- 执行 -->
+          <div data-panel="execute" class="hidden">
+            <div class="grid grid-cols-2 gap-4">
+              <!-- 请求 -->
+              <div class="rounded-xl p-4 shadow-[inset_0_0_0_1px_#E7E5E0]">
+                <h4 class="mb-3 text-[13px] font-semibold text-stone-700">请求</h4>
+                <dl class="grid grid-cols-[72px_1fr] gap-x-3 gap-y-2 text-[12.5px]">
+                  <dt class="text-stone-400">方法</dt><dd class="font-mono font-semibold text-emerald-600">GET</dd>
+                  <dt class="text-stone-400">URL</dt><dd class="break-all font-mono text-[12px] text-stone-700">https://api.mkt.internal/v2/campaigns/daily</dd>
+                  <dt class="text-stone-400">Headers</dt>
+                  <dd class="space-y-1 font-mono text-[12px] text-stone-600">
+                    <div><b class="text-stone-700">Authorization:</b> Bearer ••••••</div>
+                    <div><b class="text-stone-700">X-Workspace:</b> ecommerce</div>
+                  </dd>
+                </dl>
+                <button class="btn-primary btn-sm mt-4"><i data-lucide="play" class="h-3.5 w-3.5"></i>立即执行</button>
+              </div>
+              <!-- 响应 -->
+              <div class="rounded-xl p-4 shadow-[inset_0_0_0_1px_#E7E5E0]">
+                <h4 class="mb-3 text-[13px] font-semibold text-stone-700">响应</h4>
+                <div class="mb-2 flex items-center gap-3 text-[12px]">
+                  <span class="rounded-md bg-emerald-100 px-2 py-0.5 font-mono font-bold text-emerald-700">200</span>
+                  <span class="text-stone-400">412ms</span>
+                </div>
+                <pre class="max-h-56 overflow-auto rounded-lg bg-stone-50 p-3 font-mono text-[12px] leading-relaxed text-stone-700">{
+  "code": 0,
+  "data": {
+    "date": "2026-07-24",
+    "campaigns": 12,
+    "sent": 48210,
+    "opened": 19302,
+    "clicked": 3861
+  }
+}</pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- 历史 -->
+          <div data-panel="history" class="hidden">
+            <div class="mb-2 flex items-center gap-2 text-[12px] text-stone-400">
+              <span>最近 5 条</span>
+              <button class="rounded-md p-1 text-stone-400 hover:bg-stone-100 hover:text-violet-600"><i data-lucide="rotate-cw" class="h-3 w-3"></i></button>
+            </div>
+            <div class="divide-y divide-stone-100 rounded-xl shadow-[inset_0_0_0_1px_#E7E5E0]">
+              <div class="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-[12.5px] transition hover:bg-stone-50">
+                <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+                <span class="w-10 font-mono font-semibold text-stone-600">200</span>
+                <span class="flex-1 text-stone-400">2026-07-25 09:00:00</span>
+                <span class="font-mono text-[12px] text-stone-500">418ms</span>
+              </div>
+              <div class="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-[12.5px] transition hover:bg-stone-50">
+                <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+                <span class="w-10 font-mono font-semibold text-stone-600">200</span>
+                <span class="flex-1 text-stone-400">2026-07-25 08:55:00</span>
+                <span class="font-mono text-[12px] text-stone-500">402ms</span>
+              </div>
+              <div>
+                <div class="flex cursor-pointer items-center gap-3 bg-rose-50/50 px-4 py-2.5 text-[12.5px]">
+                  <span class="h-2 w-2 rounded-full bg-rose-500"></span>
+                  <span class="w-10 font-mono font-semibold text-rose-600">500</span>
+                  <span class="flex-1 text-stone-400">2026-07-25 08:50:00</span>
+                  <span class="font-mono text-[12px] text-stone-500">1203ms</span>
+                </div>
+                <div class="border-t border-stone-100 bg-stone-50 px-4 py-3">
+                  <div class="mb-1.5 text-[12px] font-medium text-rose-600">upstream connect timeout</div>
+                  <pre class="font-mono text-[11.5px] text-stone-600">{"code":500,"message":"gateway timeout"}</pre>
+                </div>
+              </div>
+              <div class="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-[12.5px] transition hover:bg-stone-50">
+                <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+                <span class="w-10 font-mono font-semibold text-stone-600">200</span>
+                <span class="flex-1 text-stone-400">2026-07-25 08:45:00</span>
+                <span class="font-mono text-[12px] text-stone-500">377ms</span>
+              </div>
+              <div class="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-[12.5px] transition hover:bg-stone-50">
+                <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+                <span class="w-10 font-mono font-semibold text-stone-600">200</span>
+                <span class="flex-1 text-stone-400">2026-07-25 08:40:00</span>
+                <span class="font-mono text-[12px] text-stone-500">391ms</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 定时 -->
+          <div data-panel="schedule" class="hidden">
+            <div class="max-w-md space-y-4">
+              <label class="flex cursor-pointer items-center gap-2.5 text-[13px] font-medium text-stone-700">
+                <input type="checkbox" checked class="h-4 w-4 accent-violet-600" />启用定时拉取
+              </label>
+              <div class="flex items-center gap-3 text-[13px]">
+                <span class="w-20 text-stone-400">间隔（秒）</span>
+                <input class="input !h-8 !w-28 font-mono" type="number" value="300" min="60" />
+                <span class="text-[11.5px] text-stone-400">最小 60 秒</span>
+              </div>
+              <div class="flex items-center gap-3 text-[13px]">
+                <span class="w-20 text-stone-400">下次执行</span>
+                <span class="font-mono text-[12.5px] text-stone-700">2026-07-25 09:05:00</span>
+              </div>
+              <button class="btn-primary btn-sm"><i data-lucide="check" class="h-3.5 w-3.5"></i>保存</button>
+            </div>
+          </div>
+
+          <!-- 配置 -->
+          <div data-panel="config" class="hidden">
+            <div class="grid max-w-2xl grid-cols-2 gap-4">
+              <div class="col-span-2"><label class="label">名称 <span class="text-rose-500">*</span></label><input class="input" value="营销触达 API" /></div>
+              <div class="col-span-2"><label class="label">URL <span class="text-rose-500">*</span></label><input class="input font-mono" value="https://api.mkt.internal/v2/campaigns/daily" /></div>
+              <div>
+                <label class="label">方法</label>
+                <select class="input font-mono"><option selected>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select>
+              </div>
+              <div><label class="label">超时（ms）</label><input class="input font-mono" type="number" value="15000" /></div>
+              <div class="col-span-2">
+                <label class="label">Headers <span class="ml-1 font-normal text-stone-400">可选</span></label>
+                <div class="space-y-2">
+                  <div class="flex items-center gap-2"><input class="input font-mono !text-[12px]" value="Authorization" /><input class="input font-mono !text-[12px]" value="Bearer ••••••" /><button class="chip btn-sm !px-2 shrink-0"><i data-lucide="x" class="h-3.5 w-3.5"></i></button></div>
+                  <div class="flex items-center gap-2"><input class="input font-mono !text-[12px]" value="X-Workspace" /><input class="input font-mono !text-[12px]" value="ecommerce" /><button class="chip btn-sm !px-2 shrink-0"><i data-lucide="x" class="h-3.5 w-3.5"></i></button></div>
+                  <button class="chip btn-sm border-dashed"><i data-lucide="plus" class="h-3.5 w-3.5"></i>添加 Header</button>
+                </div>
+              </div>
+              <div class="col-span-2">
+                <label class="label">定时拉取</label>
+                <div class="flex items-center gap-3">
+                  <label class="flex cursor-pointer items-center gap-2 text-[12.5px] text-stone-600"><input type="checkbox" checked class="h-4 w-4 accent-violet-600" />已启用</label>
+                  <input class="input !h-8 !w-28 font-mono" type="number" value="300" min="60" />
+                  <span class="text-[11.5px] text-stone-400">秒，≥60</span>
+                </div>
+              </div>
+            </div>
+            <button class="btn-primary mt-5"><i data-lucide="check" class="h-4 w-4"></i>保存</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ===== 接入数据源 Modal ===== -->
+<div id="createModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-stone-900/40 p-6 backdrop-blur-sm" onclick="if(event.target===this)closeModal()">
+  <div class="card flex max-h-[85vh] w-[620px] flex-col shadow-pop">
+    <!-- 头 -->
+    <div class="flex items-start px-6 pt-5">
+      <div>
+        <div class="mb-1 font-mono text-[9.5px] uppercase tracking-[2px] text-stone-400" id="modalKicker">NEW · DATA SOURCE</div>
+        <h3 class="text-[17px] font-bold text-stone-900">接入数据源</h3>
+      </div>
+      <button class="ml-auto rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700" onclick="closeModal()"><i data-lucide="x" class="h-4 w-4"></i></button>
+    </div>
+    <!-- 步骤指示 -->
+    <div class="flex items-center gap-2.5 px-6 pb-4 pt-3 text-[11.5px] font-medium">
+      <span id="stepDot1" class="flex items-center gap-1.5 text-stone-800"><i class="flex h-[19px] w-[19px] items-center justify-center rounded-full bg-violet-100 font-mono text-[10px] not-italic text-violet-700">1</i>选择类型</span>
+      <span id="stepLine" class="h-px flex-1 bg-stone-200"></span>
+      <span id="stepDot2" class="flex items-center gap-1.5 text-stone-400"><i class="flex h-[19px] w-[19px] items-center justify-center rounded-full bg-stone-100 font-mono text-[10px] not-italic text-stone-400">2</i>填写连接</span>
+    </div>
+
+    <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-5">
+      <!-- 第 1 步：类型选择 -->
+      <div id="stepPick" class="space-y-2.5">
+        <button class="type-card" onclick="pickKind('mysql','MySQL')">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600"><i data-lucide="database" class="h-5 w-5"></i></span>
+          <span class="min-w-0 flex-1"><span class="flex items-center gap-2 text-[14px] font-semibold text-stone-800">MySQL<small class="rounded-md bg-indigo-50 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-indigo-600">RDBMS</small></span><small class="text-[12px] text-stone-400">连接 MySQL 数据库，查表写 SQL</small></span>
+          <i data-lucide="arrow-right" class="h-4 w-4 shrink-0 text-stone-300"></i>
+        </button>
+        <button class="type-card" onclick="pickKind('pgsql','PostgreSQL')">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-600"><i data-lucide="database" class="h-5 w-5"></i></span>
+          <span class="min-w-0 flex-1"><span class="flex items-center gap-2 text-[14px] font-semibold text-stone-800">PostgreSQL<small class="rounded-md bg-sky-50 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-sky-600">RDBMS</small></span><small class="text-[12px] text-stone-400">连接 PgSQL 数据库，查表写 SQL</small></span>
+          <i data-lucide="arrow-right" class="h-4 w-4 shrink-0 text-stone-300"></i>
+        </button>
+        <button class="type-card" onclick="pickKind('oracle','Oracle')">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-500"><i data-lucide="database" class="h-5 w-5"></i></span>
+          <span class="min-w-0 flex-1"><span class="flex items-center gap-2 text-[14px] font-semibold text-stone-800">Oracle<small class="rounded-md bg-rose-50 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-rose-500">RDBMS</small></span><small class="text-[12px] text-stone-400">连接 Oracle 数据库，查表写 SQL</small></span>
+          <i data-lucide="arrow-right" class="h-4 w-4 shrink-0 text-stone-300"></i>
+        </button>
+        <button class="type-card" onclick="pickKind('dm','达梦 DM')">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"><i data-lucide="database" class="h-5 w-5"></i></span>
+          <span class="min-w-0 flex-1"><span class="flex items-center gap-2 text-[14px] font-semibold text-stone-800">达梦 DM<small class="rounded-md bg-amber-50 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-amber-600">国产</small></span><small class="text-[12px] text-stone-400">国产库，兼容 Oracle 语法</small></span>
+          <i data-lucide="arrow-right" class="h-4 w-4 shrink-0 text-stone-300"></i>
+        </button>
+        <button class="type-card" onclick="pickKind('gbase','GBase 8a')">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"><i data-lucide="database" class="h-5 w-5"></i></span>
+          <span class="min-w-0 flex-1"><span class="flex items-center gap-2 text-[14px] font-semibold text-stone-800">GBase 8a<small class="rounded-md bg-amber-50 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-amber-600">国产</small></span><small class="text-[12px] text-stone-400">国产 MPP 库，兼容 MySQL 协议</small></span>
+          <i data-lucide="arrow-right" class="h-4 w-4 shrink-0 text-stone-300"></i>
+        </button>
+        <button class="type-card" onclick="pickKind('https_api','HTTPS 接口')">
+          <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><i data-lucide="globe" class="h-5 w-5"></i></span>
+          <span class="min-w-0 flex-1"><span class="flex items-center gap-2 text-[14px] font-semibold text-stone-800">HTTPS 接口<small class="rounded-md bg-emerald-50 px-1.5 py-0.5 font-mono text-[9px] tracking-wider text-emerald-600">API</small></span><small class="text-[12px] text-stone-400">REST API，可定时拉取</small></span>
+          <i data-lucide="arrow-right" class="h-4 w-4 shrink-0 text-stone-300"></i>
+        </button>
+      </div>
+
+      <!-- 第 2 步：连接表单 -->
+      <div id="stepForm" class="hidden">
+        <!-- 类型 chips -->
+        <div class="mb-4 flex flex-wrap gap-1.5" id="kindChips">
+          <button class="kind-chip on" data-kind="mysql">MySQL</button>
+          <button class="kind-chip" data-kind="pgsql">PostgreSQL</button>
+          <button class="kind-chip" data-kind="oracle">Oracle</button>
+          <button class="kind-chip" data-kind="dm">达梦 DM</button>
+          <button class="kind-chip" data-kind="gbase">GBase 8a</button>
+          <button class="kind-chip" data-kind="https_api">HTTP 接口</button>
+        </div>
+
+        <div class="mb-4"><label class="label">名称 <span class="text-rose-500">*</span></label><input class="input" placeholder="例如：核心信贷库" /></div>
+
+        <!-- 数据库字段 -->
+        <div id="dbFields" class="space-y-4">
+          <div class="grid grid-cols-3 gap-3">
+            <div class="col-span-2"><label class="label">Host <span class="text-rose-500">*</span></label><input class="input font-mono" placeholder="localhost" /></div>
+            <div><label class="label">端口 <span class="text-rose-500">*</span></label><input class="input font-mono" id="portInput" placeholder="3306" /></div>
+          </div>
+          <div><label class="label" id="dbNameLabel">数据库名 <span class="text-rose-500">*</span></label><input class="input font-mono" /></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="label">用户名 <span class="text-rose-500">*</span></label><input class="input font-mono" /></div>
+            <div><label class="label">密码</label><input class="input" type="password" /></div>
+          </div>
+          <div id="paramsField"><label class="label">额外参数 <span class="ml-1 font-normal text-stone-400">可选</span></label><input class="input font-mono" placeholder="useSSL=false&serverTimezone=UTC" /></div>
+        </div>
+
+        <!-- HTTP 字段 -->
+        <div id="httpFields" class="hidden space-y-4">
+          <div><label class="label">URL <span class="text-rose-500">*</span></label><input class="input font-mono" placeholder="https://api.example.com/data" /></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="label">方法</label><select class="input font-mono"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select></div>
+            <div><label class="label">超时（ms）</label><input class="input font-mono" type="number" placeholder="15000" /></div>
+          </div>
+          <div>
+            <label class="label">Headers <span class="ml-1 font-normal text-stone-400">可选</span></label>
+            <div class="flex items-center gap-2"><input class="input font-mono !text-[12px]" placeholder="Header" /><input class="input font-mono !text-[12px]" placeholder="Value" /><button class="chip btn-sm !px-2 shrink-0"><i data-lucide="x" class="h-3.5 w-3.5"></i></button></div>
+            <button class="chip btn-sm mt-2 border-dashed"><i data-lucide="plus" class="h-3.5 w-3.5"></i>添加 Header</button>
+          </div>
+          <div class="flex items-center gap-3">
+            <label class="flex cursor-pointer items-center gap-2 text-[12.5px] text-stone-600"><input type="checkbox" class="h-4 w-4 accent-violet-600" />启用定时拉取</label>
+            <input class="input !h-8 !w-28 font-mono" type="number" placeholder="300" min="60" />
+            <span class="text-[11.5px] text-stone-400">秒，≥60</span>
+          </div>
+        </div>
+
+        <!-- 测试结果 -->
+        <div class="mt-4 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 font-mono text-[12px] text-emerald-700 shadow-[inset_0_0_0_1px_#A7F3D0]">
+          <span class="h-[7px] w-[7px] rounded-full bg-emerald-500"></span>连接成功 · 38ms
+        </div>
+      </div>
+    </div>
+
+    <!-- 底栏 -->
+    <div class="flex items-center gap-2 border-t border-stone-100 px-6 py-4">
+      <button id="backBtn" class="chip btn-sm hidden" onclick="showStep('pick')"><i data-lucide="chevron-left" class="h-3.5 w-3.5"></i>返回</button>
+      <span class="flex-1"></span>
+      <button id="testBtn" class="chip btn-sm hidden"><i data-lucide="zap" class="h-3.5 w-3.5"></i>测试连接</button>
+      <button class="btn-primary btn-sm" onclick="closeModal()">保存连接</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  lucide.createIcons();
+
+  // ── Tab 切换（所有 [data-tabgroup] 容器通用）──
+  document.querySelectorAll('[data-tabgroup]').forEach(function (g) {
+    var btns = g.querySelectorAll('[data-tab]');
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () {
+        btns.forEach(function (x) { x.classList.toggle('active', x === b); });
+        g.querySelectorAll('[data-panel]').forEach(function (p) {
+          p.classList.toggle('hidden', p.dataset.panel !== b.dataset.tab);
+        });
+      });
+    });
+  });
+
+  // ── 新建数据源 Modal ──
+  var modal = document.getElementById('createModal');
+  var DEFAULT_PORTS = { mysql: '3306', pgsql: '5432', oracle: '1521', dm: '5236', gbase: '5258' };
+
+  function openModal() { modal.classList.remove('hidden'); modal.classList.add('flex'); showStep('pick'); }
+  function closeModal() { modal.classList.add('hidden'); modal.classList.remove('flex'); }
+  function showStep(s) {
+    document.getElementById('stepPick').classList.toggle('hidden', s !== 'pick');
+    document.getElementById('stepForm').classList.toggle('hidden', s !== 'form');
+    document.getElementById('backBtn').classList.toggle('hidden', s !== 'form');
+    document.getElementById('testBtn').classList.toggle('hidden', s !== 'form');
+    var on = s === 'form';
+    document.getElementById('stepDot2').className = 'flex items-center gap-1.5 ' + (on ? 'text-stone-800' : 'text-stone-400');
+    document.getElementById('stepDot2').firstElementChild.className =
+      'flex h-[19px] w-[19px] items-center justify-center rounded-full font-mono text-[10px] not-italic ' +
+      (on ? 'bg-violet-100 text-violet-700' : 'bg-stone-100 text-stone-400');
+    document.getElementById('stepLine').className = 'h-px flex-1 ' + (on ? 'bg-violet-400' : 'bg-stone-200');
+  }
+  function pickKind(kind, label) {
+    showStep('form');
+    document.getElementById('modalKicker').textContent = 'CONFIGURE · ' + kind.toUpperCase();
+    document.querySelectorAll('#kindChips .kind-chip').forEach(function (c) {
+      c.classList.toggle('on', c.dataset.kind === kind);
+    });
+    applyKind(kind);
+  }
+  function applyKind(kind) {
+    var isHttp = kind === 'https_api';
+    document.getElementById('dbFields').classList.toggle('hidden', isHttp);
+    document.getElementById('httpFields').classList.toggle('hidden', !isHttp);
+    if (!isHttp) {
+      document.getElementById('portInput').placeholder = DEFAULT_PORTS[kind] || '';
+      var lbl = kind === 'oracle' ? 'Service Name' : kind === 'dm' ? 'Schema（可空）' : '数据库名';
+      document.getElementById('dbNameLabel').innerHTML = lbl + (kind === 'dm' ? '' : ' <span class="text-rose-500">*</span>');
+      document.getElementById('paramsField').classList.toggle('hidden', kind === 'oracle' || kind === 'dm');
+    }
+  }
+  document.querySelectorAll('#kindChips .kind-chip').forEach(function (c) {
+    c.addEventListener('click', function () {
+      document.querySelectorAll('#kindChips .kind-chip').forEach(function (x) { x.classList.toggle('on', x === c); });
+      applyKind(c.dataset.kind);
+    });
+  });
+
+  function scrollToId(id) {
+    var el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+</script>
+</body>
+</html>
