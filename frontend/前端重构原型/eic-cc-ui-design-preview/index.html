@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>EIC-CC 全新 UI 设计方案 · 预览画廊</title>
+<title>EIC-CC 推演平台 · 全新 UI 原型</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
 <script>
 tailwind.config = {
   theme: { extend: {
@@ -13,166 +14,1898 @@ tailwind.config = {
 }
 </script>
 <style>
-  body { font-family: Inter, ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
-  .card-hover { transition: transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s; }
-  .card-hover:hover { transform: translateY(-4px); }
+  :root {
+    --bg: #F7F6F3; --panel: #FFFFFF; --border: #E7E5E0; --text: #1C1917; --text2: #78716C; --text3: #A8A29E;
+    --primary: #6366F1; --primary2: #8B5CF6; --accent-bg: #F3F0FF; --accent-text: #6D28D9;
+    --sidebar: #F7F6F3; --topbar: rgba(247,246,243,.85); --canvas-bg: #FFFFFF;
+    --nav-hover: #F3F0FF; --nav-active-bg: #F3F0FF; --nav-active-text: #6D28D9;
+    --btn-ghost-bg: #FFFFFF; --btn-ghost-border: #E7E5E0; --btn-ghost-text: #78716C;
+    --success: #10B981; --warning: #D97706; --danger: #F43F5E;
+    --card-shadow: 0 1px 2px rgba(28,25,23,.04), 0 4px 16px rgba(28,25,23,.05);
+    --panel-border: 1px solid #E7E5E0;
+  }
+  .theme-dark {
+    --bg: #0C0F14; --panel: #12161E; --border: rgba(255,255,255,.06); --text: rgba(255,255,255,.88); --text2: rgba(255,255,255,.5); --text3: rgba(255,255,255,.3);
+    --primary: #22D3EE; --primary2: #3B82F6; --accent-bg: rgba(34,211,238,.1); --accent-text: #67E8F9;
+    --sidebar: #080A0E; --topbar: rgba(12,15,20,.85); --canvas-bg: #080A0E;
+    --nav-hover: rgba(255,255,255,.04); --nav-active-bg: rgba(34,211,238,.1); --nav-active-text: #67E8F9;
+    --btn-ghost-bg: #161B25; --btn-ghost-border: rgba(255,255,255,.09); --btn-ghost-text: rgba(255,255,255,.65);
+    --success: #34D399; --warning: #FBBF24; --danger: #FB7185;
+    --card-shadow: none; --panel-border: 1px solid rgba(255,255,255,.06);
+  }
+  body { font-family: Inter, ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); transition: background .3s, color .3s; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--text3); border-radius: 3px; }
+  .panel { background: var(--panel); border: var(--panel-border); border-radius: 14px; box-shadow: var(--card-shadow); transition: .2s; }
+  .panel-dark { background: var(--panel); border: var(--panel-border); border-radius: 14px; transition: .2s; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; font-size:13.5px; color: var(--text2); transition:.15s; cursor:pointer; }
+  .nav-item:hover { color: var(--text); background: var(--nav-hover); }
+  .nav-item.active { color: var(--accent-text); background: var(--nav-active-bg); font-weight:600; }
+  .btn-primary { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 15px; border-radius:10px; font-size:13px; font-weight:600; color:#FFFFFF; background:linear-gradient(135deg, var(--primary), var(--primary2)); transition:.15s; cursor:pointer; border:none; white-space:nowrap; }
+  .btn-primary:hover { filter:brightness(1.1); }
+  .btn-ghost { display:inline-flex; align-items:center; gap:5px; height:32px; padding:0 12px; border-radius:8px; font-size:12.5px; font-weight:500; border:1px solid var(--btn-ghost-border); background:var(--btn-ghost-bg); color:var(--btn-ghost-text); transition:.15s; cursor:pointer; white-space:nowrap; }
+  .btn-ghost:hover { border-color:var(--primary); color:var(--primary); }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 12px; border-radius:8px; font-size:12.5px; font-weight:500; border:1px solid var(--btn-ghost-border); background:var(--btn-ghost-bg); color:var(--btn-ghost-text); transition:.15s; cursor:pointer; white-space:nowrap; }
+  .chip:hover { border-color:var(--primary); }
+  .input { width:100%; height:34px; border-radius:8px; background:var(--panel); border:1px solid var(--border); padding:0 12px; font-size:13px; color:var(--text); outline:none; transition:.15s; }
+  .input:focus { border-color:var(--primary); }
+  .input::placeholder { color:var(--text3); }
+  textarea.input { height:auto; padding:8px 12px; resize:vertical; }
+  .tab-btn { padding:7px 13px; border-radius:7px; font-size:12.5px; font-weight:500; color:var(--text2); transition:.15s; cursor:pointer; white-space:nowrap; border:none; background:none; }
+  .tab-btn:hover { color:var(--text); }
+  .tab-btn.active { color:var(--accent-text); background:var(--accent-bg); }
+  .switch { position:relative; width:36px; height:20px; border-radius:999px; border:1px solid var(--border); background:var(--border); cursor:pointer; transition:.18s; flex-shrink:0; }
+  .switch .knob { position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:999px; background:#FFFFFF; transition:.18s; }
+  .switch.on { border-color:transparent; background:linear-gradient(135deg, var(--primary), var(--primary2)); }
+  .switch.on .knob { transform:translateX(16px); }
+  .badge { display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:500; }
+  .page { display:none; }
+  .page.active { display:block; }
+  .card-hover { transition: transform .2s, box-shadow .2s; cursor:pointer; }
+  .card-hover:hover { transform: translateY(-2px); }
+  .doc-card { transition: .18s; }
+  .doc-card:hover { border-color: var(--primary); transform: translateY(-2px); }
+  .ds-card { transition: .18s; cursor: pointer; }
+  .ds-card:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,.08); }
+  .ds-filter-chip { display:inline-flex; align-items:center; gap:4px; height:28px; padding:0 10px; border-radius:7px; font-size:12px; font-weight:500; border:1px solid var(--btn-ghost-border); background:var(--btn-ghost-bg); color:var(--btn-ghost-text); transition:.15s; cursor:pointer; white-space:nowrap; }
+  .ds-filter-chip:hover { border-color:var(--primary); color:var(--text); }
+  .ds-filter-chip.active { border-color:var(--primary); background:var(--accent-bg); color:var(--accent-text); font-weight:600; }
+  .ws-card { transition: .18s; cursor:pointer; }
+  .ws-card:hover { transform: translateY(-3px); }
+  .ws-card .ws-actions { opacity:0; transition:opacity .15s; }
+  .ws-card:hover .ws-actions { opacity:1; }
+  .theme-dark .ws-card:hover { border-color: rgba(34,211,238,.4); box-shadow: 0 0 24px rgba(34,211,238,.12); }
+  .theme-dark .card-hover:hover { border-color: rgba(34,211,238,.3); box-shadow: 0 4px 20px rgba(0,0,0,.3); }
+  .canvas-bg {
+    background-image: radial-gradient(circle, var(--text3) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  .theme-dark .canvas-bg {
+    background-image: radial-gradient(rgba(255,255,255,.055) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  .bar-track { height:8px; border-radius:999px; background:var(--border); overflow:hidden; }
+  .bar-fill { height:100%; border-radius:999px; }
+  .tbl { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .tbl th { text-align:left; font-size:11px; font-weight:500; color:var(--text2); padding:6px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  .tbl td { padding:7px 10px; color:var(--text); border-bottom:1px solid var(--border); }
+  .tbl tr:hover td { background:var(--nav-hover); }
+  .toast { position:fixed; top:16px; right:16px; z-index:9999; padding:12px 18px; border-radius:10px; font-size:13px; font-weight:500; animation:slideIn .3s ease; box-shadow:0 4px 20px rgba(0,0,0,.15); }
+  @keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+  .node-card { cursor:pointer; }
+  .node-card rect.body { fill:var(--panel); stroke:var(--border); }
+  .node-card:hover rect.body { stroke:var(--primary); }
+  .edge { stroke:var(--text3); stroke-width:1.4; fill:none; }
+  .edge.hot { stroke:var(--primary); stroke-width:2.2; }
+  .edge.dash { stroke-dasharray:5 4; }
+  .type-card { display:flex; align-items:center; gap:14px; width:100%; text-align:left; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; transition:.18s; cursor:pointer; }
+  .type-card:hover { border-color:var(--primary); background:var(--accent-bg); }
+  .ai-bubble { background:var(--panel); border:var(--panel-border); border-radius:4px 14px 14px 14px; }
+  .user-bubble { background:linear-gradient(135deg, rgba(99,102,241,.12), rgba(139,92,246,.12)); border:1px solid rgba(99,102,241,.2); border-radius:14px 4px 14px 14px; }
+  .step-dot { position:relative; }
+  .step-dot::after { content:''; position:absolute; left:5px; top:16px; bottom:-2px; width:1px; background:var(--border); }
+  .step-dot:last-child::after { display:none; }
 </style>
 </head>
-<body class="bg-[#F5F4F1] text-stone-800 min-h-screen">
+<body>
 
-<div class="mx-auto max-w-6xl px-8 py-12">
+<!-- 主题切换按钮 -->
+<button id="themeToggle" onclick="toggleTheme()" title="切换亮色/暗色主题" class="fixed right-4 top-4 z-50 flex h-9 w-9 items-center justify-center rounded-full border shadow-lg transition" style="background:var(--panel);border-color:var(--border);color:var(--text2)">
+  <i data-lucide="moon" class="h-4 w-4" id="themeIconMoon"></i>
+  <i data-lucide="sun" class="h-4 w-4 hidden" id="themeIconSun"></i>
+</button>
 
-  <!-- 头部 -->
-  <div class="mb-2 flex items-center gap-3">
-    <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-stone-900 text-white text-lg font-bold">推</div>
-    <div>
-      <h1 class="text-xl font-bold text-stone-900">EIC-CC 推演平台 · 全新 UI 设计方案</h1>
-      <p class="text-sm text-stone-500">基于当前版本信息架构的两套视觉方向 · 仅供评审，确认后再开发</p>
-    </div>
-    <span class="ml-auto rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">设计评审稿 V1</span>
-  </div>
-
-  <div class="my-8 h-px bg-stone-200"></div>
-
-  <!-- 两个方案 -->
-  <div class="grid gap-6 md:grid-cols-2">
-
-    <!-- 方案 A -->
-    <div class="card-hover overflow-hidden rounded-2xl bg-[#0C0F14] text-white shadow-xl shadow-stone-900/10">
-      <div class="border-b border-white/10 px-7 pt-7 pb-6">
-        <div class="mb-3 flex items-center gap-2">
-          <span class="rounded-md bg-cyan-400/15 px-2 py-0.5 text-xs font-semibold text-cyan-300">方案 A</span>
-          <span class="text-xs text-white/40">Dark · Analyst Workbench</span>
-        </div>
-        <h2 class="text-2xl font-bold tracking-tight">墨 · 分析台</h2>
-        <p class="mt-2 text-sm leading-relaxed text-white/55">
-          深色沉浸式数据工作台。石墨底 + 青色辉光强调，图谱在暗色画布上呈现最佳可读性，
-          面向高频使用的专业分析师场景，气质接近 Linear / Raycast / 可观测性平台。
-        </p>
+<div class="flex h-screen">
+  <!-- ========== 侧边栏 ========== -->
+  <aside class="flex w-[232px] shrink-0 flex-col border-r" style="background:var(--sidebar);border-color:var(--border)">
+    <!-- Logo -->
+    <div class="flex h-14 items-center gap-2.5 border-b px-4" style="border-color:var(--border)">
+      <div class="flex h-7 w-7 items-center justify-center rounded-lg text-[13px] font-bold text-white" style="background:linear-gradient(135deg, var(--primary), var(--primary2))">推</div>
+      <div class="leading-tight">
+        <div class="text-[13.5px] font-semibold" style="color:var(--text)">推演平台</div>
+        <div class="text-[10.5px] tracking-wide" style="color:var(--text3)">EIC-CC · 业务血缘建模</div>
       </div>
-      <!-- 缩略示意 -->
-      <div class="px-7 py-5">
-        <div class="flex gap-3 rounded-xl bg-[#12161E] p-3 ring-1 ring-white/5">
-          <div class="w-16 shrink-0 space-y-1.5">
-            <div class="h-5 rounded bg-cyan-400/20"></div>
-            <div class="h-5 rounded bg-white/5"></div>
-            <div class="h-5 rounded bg-white/5"></div>
-            <div class="h-5 rounded bg-white/5"></div>
+    </div>
+
+    <!-- 导航 -->
+    <nav class="flex-1 space-y-0.5 overflow-y-auto p-3">
+      <div class="px-3 pb-1.5 pt-1 text-[10.5px] font-medium uppercase tracking-widest" style="color:var(--text3)">主导航</div>
+      <a class="nav-item active" onclick="switchPage('dashboard', this)" data-page="dashboard"><i data-lucide="layout-dashboard" class="h-4 w-4"></i>工作台</a>
+      <a class="nav-item" onclick="switchPage('graph', this)" data-page="graph"><i data-lucide="waypoints" class="h-4 w-4"></i>血缘图谱</a>
+      <a class="nav-item" onclick="switchPage('experiences', this)" data-page="experiences"><i data-lucide="library" class="h-4 w-4"></i>经验库<span class="ml-auto rounded px-1.5 py-0.5 text-[10.5px]" style="background:var(--nav-hover);color:var(--text3)">56</span></a>
+      <a class="nav-item" onclick="switchPage('chat', this)" data-page="chat"><i data-lucide="message-square-text" class="h-4 w-4"></i>AI 对话</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-medium uppercase tracking-widest" style="color:var(--text3)">数据</div>
+      <a class="nav-item" onclick="switchPage('datasources', this)" data-page="datasources"><i data-lucide="database" class="h-4 w-4"></i>数据源</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-medium uppercase tracking-widest" style="color:var(--text3)">系统</div>
+      <a class="nav-item" onclick="switchPage('settings', this)" data-page="settings"><i data-lucide="settings-2" class="h-4 w-4"></i>设置</a>
+    </nav>
+
+    <!-- 工作空间切换 -->
+    <div class="border-t p-3" style="border-color:var(--border)">
+      <div class="flex cursor-pointer items-center gap-2.5 rounded-lg p-2.5 transition" style="background:var(--nav-hover)" onclick="switchPage('workspaces', document.querySelector('[data-page=workspaces]'))">
+        <div class="flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold" style="background:var(--accent-bg);color:var(--accent-text)">电</div>
+        <div class="min-w-0 flex-1 leading-tight">
+          <div class="truncate text-[12.5px] font-medium" style="color:var(--text)">电商数仓工作空间</div>
+          <div class="text-[10.5px]" style="color:var(--text3)">3 个模型 · 昨天更新</div>
+        </div>
+        <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5" style="color:var(--text3)"></i>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ========== 主区域 ========== -->
+  <div class="flex min-w-0 flex-1 flex-col">
+    <!-- 顶栏 -->
+    <header class="flex h-14 shrink-0 items-center gap-3 border-b px-5 backdrop-blur" style="background:var(--topbar);border-color:var(--border)">
+      <h1 id="pageTitle" class="text-[15px] font-semibold" style="color:var(--text)">工作台</h1>
+      <div id="globalSearchBox" class="relative ml-4 w-64">
+        <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2" style="color:var(--text3)"></i>
+        <input class="h-8 w-full rounded-lg border pl-9 pr-12 text-[12.5px] outline-none transition" style="background:var(--panel);border-color:var(--border);color:var(--text)" placeholder="搜索模型、节点、经验文档…" />
+        <kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded border px-1.5 py-0.5 text-[10px]" style="border-color:var(--border);color:var(--text3)">⌘K</kbd>
+      </div>
+      <div class="ml-auto flex items-center gap-2">
+        <button class="chip" onclick="switchPage('experiences', document.querySelector('[data-page=experiences]'));setTimeout(function(){showExpBuildGraphDialog()},300)"><i data-lucide="sparkles" class="h-3.5 w-3.5" style="color:var(--primary)"></i>一键建图</button>
+        <button class="chip" onclick="switchPage('experiences', document.querySelector('[data-page=experiences]'));setTimeout(function(){showExpResearchDialog()},300)"><i data-lucide="globe" class="h-3.5 w-3.5"></i>联网调研</button>
+        <div class="mx-1 h-5 w-px" style="background:var(--border)"></div>
+        <div class="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold text-white" style="background:linear-gradient(135deg, #8B5CF6, #D946EF)">纪</div>
+      </div>
+    </header>
+
+    <!-- 内容区 -->
+    <main class="min-h-0 flex-1 overflow-y-auto p-6">
+
+      <!-- ==================== 页面：工作台 ==================== -->
+      <div id="page-dashboard" class="page active">
+        <div class="mb-6 flex items-end justify-between">
+          <div>
+            <h2 class="text-xl font-bold" style="color:var(--text)">晚上好，纪念 👋</h2>
+            <p class="mt-1 text-[13px]" style="color:var(--text2)">「电商数仓」的血缘图昨日新增 12 条推断边，3 条待审核。</p>
           </div>
-          <div class="flex-1 space-y-2">
-            <div class="flex gap-2">
-              <div class="h-10 flex-1 rounded-lg bg-white/5"></div>
-              <div class="h-10 flex-1 rounded-lg bg-white/5"></div>
-              <div class="h-10 flex-1 rounded-lg bg-white/5"></div>
+          <span class="text-xs" style="color:var(--text3)">2026-07-28 · 数据截至昨天 24:00</span>
+        </div>
+
+        <!-- 统计卡 -->
+        <div class="mb-6 grid grid-cols-4 gap-4">
+          <div class="panel p-4">
+            <div class="flex items-center justify-between"><span class="text-[12px]" style="color:var(--text2)">业务实体</span><i data-lucide="box" class="h-4 w-4" style="color:var(--primary)"></i></div>
+            <div class="mt-2 text-[26px] font-bold leading-none" style="color:var(--text)">128</div>
+            <div class="mt-1.5 text-[11.5px]" style="color:var(--success)">▲ 本周 +6</div>
+          </div>
+          <div class="panel p-4">
+            <div class="flex items-center justify-between"><span class="text-[12px]" style="color:var(--text2)">血缘边</span><i data-lucide="git-fork" class="h-4 w-4" style="color:var(--primary)"></i></div>
+            <div class="mt-2 text-[26px] font-bold leading-none" style="color:var(--text)">342</div>
+            <div class="mt-1.5 text-[11.5px]" style="color:var(--success)">▲ 本周 +12 推断</div>
+          </div>
+          <div class="panel p-4">
+            <div class="flex items-center justify-between"><span class="text-[12px]" style="color:var(--text2)">经验文档</span><i data-lucide="file-text" class="h-4 w-4" style="color:var(--primary)"></i></div>
+            <div class="mt-2 text-[26px] font-bold leading-none" style="color:var(--text)">56</div>
+            <div class="mt-1.5 text-[11.5px]" style="color:var(--text3)">4 个领域文件夹</div>
+          </div>
+          <div class="panel p-4">
+            <div class="flex items-center justify-between"><span class="text-[12px]" style="color:var(--text2)">数据源</span><i data-lucide="database-zap" class="h-4 w-4" style="color:var(--primary)"></i></div>
+            <div class="mt-2 text-[26px] font-bold leading-none" style="color:var(--text)">6</div>
+            <div class="mt-1.5 text-[11.5px]" style="color:var(--success)">全部连接正常</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-4">
+          <!-- 最近模型 -->
+          <div class="panel col-span-2">
+            <div class="flex items-center justify-between border-b px-5 py-3.5" style="border-color:var(--border)">
+              <h3 class="text-[13.5px] font-semibold" style="color:var(--text)">最近模型</h3>
+              <a class="text-[12px] cursor-pointer" style="color:var(--primary)" onclick="switchPage('graph', document.querySelector('[data-page=graph]'))">查看全部 →</a>
             </div>
-            <div class="h-20 rounded-lg bg-gradient-to-br from-cyan-400/10 to-blue-500/10 ring-1 ring-cyan-400/20"></div>
-          </div>
-        </div>
-      </div>
-      <div class="flex flex-wrap gap-2 px-7 pb-6">
-        <a href="a/dashboard.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">工作台 →</a>
-        <a href="a/graph.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">血缘图谱 →</a>
-        <a href="a/experiences.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">经验库 →</a>
-        <a href="a/chat.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">AI 对话 →</a>
-        <a href="a/datasources.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">数据源 →</a>
-        <a href="a/analysis.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">血缘分析 →</a>
-        <a href="a/settings.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">设置 →</a>
-        <a href="a/workspaces.html" class="rounded-lg bg-white/10 px-3.5 py-2 text-[13px] font-medium text-white/80 ring-1 ring-white/10 transition hover:bg-cyan-400/15 hover:text-cyan-200">工作空间 →</a>
-      </div>
-      <div class="border-t border-white/10 px-7 py-4 text-xs leading-relaxed text-white/40">
-        关键词：深色沉浸 · 辉光图谱 · 高密度信息 · 键盘友好
-      </div>
-    </div>
-
-    <!-- 方案 B -->
-    <div class="card-hover overflow-hidden rounded-2xl bg-white shadow-xl shadow-stone-900/5 ring-1 ring-stone-200">
-      <div class="border-b border-stone-100 px-7 pt-7 pb-6">
-        <div class="mb-3 flex items-center gap-2">
-          <span class="rounded-md bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">方案 B</span>
-          <span class="text-xs text-stone-400">Light · Modern Workspace</span>
-        </div>
-        <h2 class="text-2xl font-bold tracking-tight text-stone-900">澄 · 工作台</h2>
-        <p class="mt-2 text-sm leading-relaxed text-stone-500">
-          暖纸感明亮工作台。米白底 + 靛紫主色 + 大圆角浮动卡片，层级靠阴影与留白而非边框，
-          气质接近 Notion / Stripe，亲和、现代，适合全团队日常使用与演示汇报。
-        </p>
-      </div>
-      <div class="px-7 py-5">
-        <div class="flex gap-3 rounded-xl bg-[#F7F6F3] p-3 ring-1 ring-stone-200/70">
-          <div class="w-16 shrink-0 space-y-1.5">
-            <div class="h-5 rounded bg-violet-200/70"></div>
-            <div class="h-5 rounded bg-white ring-1 ring-stone-200"></div>
-            <div class="h-5 rounded bg-white ring-1 ring-stone-200"></div>
-            <div class="h-5 rounded bg-white ring-1 ring-stone-200"></div>
-          </div>
-          <div class="flex-1 space-y-2">
-            <div class="flex gap-2">
-              <div class="h-10 flex-1 rounded-xl bg-white shadow-sm ring-1 ring-stone-200/60"></div>
-              <div class="h-10 flex-1 rounded-xl bg-white shadow-sm ring-1 ring-stone-200/60"></div>
-              <div class="h-10 flex-1 rounded-xl bg-white shadow-sm ring-1 ring-stone-200/60"></div>
+            <div style="border-color:var(--border)">
+              <div class="flex cursor-pointer items-center gap-3 px-5 py-3.5 transition card-hover" onclick="switchPage('graph', document.querySelector('[data-page=graph]'))">
+                <div class="flex h-9 w-9 items-center justify-center rounded-lg" style="background:var(--accent-bg);color:var(--accent-text)"><i data-lucide="waypoints" class="h-4 w-4"></i></div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-[13.5px] font-medium" style="color:var(--text)">交易域血缘图</div>
+                  <div class="text-[11.5px]" style="color:var(--text3)">86 节点 · 214 边 · 平均置信度 87%</div>
+                </div>
+                <span class="badge" style="background:rgba(16,185,129,.1);color:#10B981">健康 92</span>
+                <span class="text-[11.5px]" style="color:var(--text3)">2 小时前</span>
+              </div>
+              <div class="flex cursor-pointer items-center gap-3 border-t px-5 py-3.5 transition card-hover" style="border-color:var(--border)" onclick="switchPage('graph', document.querySelector('[data-page=graph]'))">
+                <div class="flex h-9 w-9 items-center justify-center rounded-lg" style="background:rgba(139,92,246,.1);color:#8B5CF6"><i data-lucide="waypoints" class="h-4 w-4"></i></div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-[13.5px] font-medium" style="color:var(--text)">营销归因模型</div>
+                  <div class="text-[11.5px]" style="color:var(--text3)">42 节点 · 128 边 · 平均置信度 79%</div>
+                </div>
+                <span class="badge" style="background:rgba(217,119,6,.1);color:#D97706">健康 74</span>
+                <span class="text-[11.5px]" style="color:var(--text3)">昨天</span>
+              </div>
             </div>
-            <div class="h-20 rounded-xl bg-gradient-to-br from-violet-100 to-indigo-100 ring-1 ring-violet-200/60"></div>
+          </div>
+
+          <!-- 待办 & 快速操作 -->
+          <div class="space-y-4">
+            <div class="panel p-5">
+              <h3 class="mb-3 text-[13.5px] font-semibold" style="color:var(--text)">待办提醒</h3>
+              <div class="space-y-2.5">
+                <div class="flex items-start gap-2.5 rounded-lg p-3" style="background:rgba(217,119,6,.06)"><i data-lucide="alert-triangle" class="mt-0.5 h-3.5 w-3.5 shrink-0" style="color:#D97706"></i><div class="text-[12px] leading-relaxed" style="color:var(--text2)"><span style="color:#D97706;font-weight:500">3 条推断边</span>缺少数据佐证，建议审核</div></div>
+                <div class="flex items-start gap-2.5 rounded-lg p-3" style="background:rgba(244,63,94,.06)"><i data-lucide="repeat" class="mt-0.5 h-3.5 w-3.5 shrink-0" style="color:#F43F5E"></i><div class="text-[12px] leading-relaxed" style="color:var(--text2)">营销归因模型检测到 <span style="color:#F43F5E;font-weight:500">1 个血缘环</span></div></div>
+                <div class="flex items-start gap-2.5 rounded-lg p-3" style="background:var(--nav-hover)"><i data-lucide="unplug" class="mt-0.5 h-3.5 w-3.5 shrink-0" style="color:var(--text3)"></i><div class="text-[12px] leading-relaxed" style="color:var(--text2)">5 个孤立节点未接入任何血缘</div></div>
+              </div>
+            </div>
+            <div class="panel p-5">
+              <h3 class="mb-3 text-[13.5px] font-semibold" style="color:var(--text)">快速操作</h3>
+              <div class="grid grid-cols-2 gap-2">
+                <div class="cursor-pointer rounded-lg p-3 text-center transition hover:brightness-95" style="background:var(--accent-bg)" onclick="switchPage('experiences', document.querySelector('[data-page=experiences]'))"><i data-lucide="sparkles" class="mx-auto mb-1.5 h-4 w-4" style="color:var(--primary)"></i><div class="text-[12px]" style="color:var(--accent-text)">一键建图</div></div>
+                <div class="cursor-pointer rounded-lg p-3 text-center transition hover:brightness-95" style="background:var(--nav-hover)" onclick="switchPage('experiences', document.querySelector('[data-page=experiences]'))"><i data-lucide="globe" class="mx-auto mb-1.5 h-4 w-4" style="color:var(--text2)"></i><div class="text-[12px]" style="color:var(--text2)">联网调研</div></div>
+                <div class="cursor-pointer rounded-lg p-3 text-center transition hover:brightness-95" style="background:var(--nav-hover)" onclick="switchPage('experiences', document.querySelector('[data-page=experiences]'))"><i data-lucide="upload" class="mx-auto mb-1.5 h-4 w-4" style="color:var(--text2)"></i><div class="text-[12px]" style="color:var(--text2)">导入文档</div></div>
+                <div class="cursor-pointer rounded-lg p-3 text-center transition hover:brightness-95" style="background:var(--nav-hover)" onclick="switchPage('datasources', document.querySelector('[data-page=datasources]'))"><i data-lucide="database" class="mx-auto mb-1.5 h-4 w-4" style="color:var(--text2)"></i><div class="text-[12px]" style="color:var(--text2)">接入数据源</div></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-      <div class="flex flex-wrap gap-2 px-7 pb-6">
-        <a href="b/dashboard.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">工作台 →</a>
-        <a href="b/graph.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">血缘图谱 →</a>
-        <a href="b/experiences.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">经验库 →</a>
-        <a href="b/chat.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">AI 对话 →</a>
-        <a href="b/datasources.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">数据源 →</a>
-        <a href="b/analysis.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">血缘分析 →</a>
-        <a href="b/settings.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">设置 →</a>
-        <a href="b/workspaces.html" class="rounded-lg bg-stone-100 px-3.5 py-2 text-[13px] font-medium text-stone-600 transition hover:bg-violet-100 hover:text-violet-700">工作空间 →</a>
+
+      <!-- ==================== 页面：血缘图谱 ==================== -->
+      <div id="page-graph" class="page">
+        <div class="flex min-h-0 flex-1 flex-col" style="height:calc(100vh - 110px)">
+          <!-- 图谱工具栏 -->
+          <div class="mb-3 flex flex-wrap items-center gap-2">
+            <select class="input !h-8 !w-auto" style="background:var(--panel);border-color:var(--border);color:var(--text)">
+              <option>交易域血缘图</option><option>营销归因模型</option><option>用户域血缘图</option>
+            </select>
+            <input class="input !h-8 !w-48" placeholder="搜索节点…" style="background:var(--panel);border-color:var(--border);color:var(--text)" />
+            <button class="btn-ghost"><i data-lucide="zoom-in" class="h-3.5 w-3.5"></i></button>
+            <button class="btn-ghost"><i data-lucide="zoom-out" class="h-3.5 w-3.5"></i></button>
+            <button class="btn-ghost"><i data-lucide="maximize" class="h-3.5 w-3.5"></i>适应</button>
+            <button class="btn-ghost" id="traceBtn" onclick="toggleTrace()"><i data-lucide="git-branch" class="h-3.5 w-3.5"></i>追溯</button>
+            <button class="btn-ghost"><i data-lucide="tag" class="h-3.5 w-3.5"></i>边标签</button>
+            <span class="ml-auto text-[11.5px]" style="color:var(--text3)">86 节点 · 214 边</span>
+            <button class="btn-ghost"><i data-lucide="save" class="h-3.5 w-3.5"></i>保存布局</button>
+          </div>
+
+          <div class="flex min-h-0 flex-1 gap-0">
+            <!-- 画布 -->
+            <div class="canvas-bg relative min-w-0 flex-1 overflow-hidden rounded-xl" style="background:var(--canvas-bg);border:var(--panel-border)">
+              <!-- 追溯提示条 -->
+              <div id="traceBanner" class="absolute left-4 top-4 z-10 hidden items-center gap-2 rounded-lg px-3 py-2 backdrop-blur" style="background:var(--panel);border:1px solid var(--primary)">
+                <i data-lucide="git-branch" class="h-3.5 w-3.5" style="color:var(--primary)"></i>
+                <span class="text-[12px]" style="color:var(--text)">「支付成功率」上游追溯 · 2 跳 · <span style="color:var(--primary)">4 节点 3 边</span></span>
+                <button class="ml-1 rounded p-0.5" style="color:var(--text3)" onclick="toggleTrace()"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+              </div>
+              <!-- 缩放控件 -->
+              <div class="absolute bottom-4 left-4 z-10 flex flex-col gap-1 rounded-lg p-1 backdrop-blur" style="background:var(--panel);border:var(--panel-border)">
+                <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text2)"><i data-lucide="plus" class="h-4 w-4"></i></button>
+                <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text2)"><i data-lucide="minus" class="h-4 w-4"></i></button>
+                <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text2)"><i data-lucide="maximize" class="h-4 w-4"></i></button>
+              </div>
+              <!-- 图例 -->
+              <div class="absolute bottom-4 right-4 z-10 flex items-center gap-3 rounded-lg px-3 py-2 backdrop-blur" style="background:var(--panel);border:var(--panel-border)">
+                <span class="flex items-center gap-1.5 text-[11px]" style="color:var(--text2)"><span class="h-2 w-2 rounded-full bg-sky-400"></span>表</span>
+                <span class="flex items-center gap-1.5 text-[11px]" style="color:var(--text2)"><span class="h-2 w-2 rounded-full bg-violet-400"></span>指标</span>
+                <span class="flex items-center gap-1.5 text-[11px]" style="color:var(--text2)"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>维度</span>
+                <span class="flex items-center gap-1.5 text-[11px]" style="color:var(--text2)"><span class="inline-block h-0 w-4 border-t border-dashed" style="border-color:var(--text3)"></span>推断</span>
+              </div>
+
+              <svg class="h-full w-full" viewBox="0 0 1240 640" preserveAspectRatio="xMidYMid meet">
+                <defs>
+                  <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill="#94A3B8"></path>
+                  </marker>
+                  <marker id="arrHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill="var(--primary)"></path>
+                  </marker>
+                </defs>
+                <!-- 层标签 -->
+                <text x="155" y="80" fill="var(--text3)" font-size="11" text-anchor="middle" letter-spacing="3">ODS</text>
+                <text x="445" y="80" fill="var(--text3)" font-size="11" text-anchor="middle" letter-spacing="3">DWD / DIM</text>
+                <text x="735" y="80" fill="var(--text3)" font-size="11" text-anchor="middle" letter-spacing="3">DWS</text>
+                <text x="1025" y="80" fill="var(--text3)" font-size="11" text-anchor="middle" letter-spacing="3">指标</text>
+                <!-- 边 -->
+                <path class="edge" d="M250,146 C300,146 300,166 350,166" marker-end="url(#arr)"></path>
+                <path class="edge dash" d="M250,286 C300,286 300,326 350,326" marker-end="url(#arr)"></path>
+                <path class="edge" d="M250,426 C300,426 300,466 350,466" marker-end="url(#arr)"></path>
+                <path class="edge" d="M540,166 C590,166 590,186 640,186" marker-end="url(#arr)"></path>
+                <path class="edge" d="M540,466 C590,466 590,386 640,386" marker-end="url(#arr)"></path>
+                <path class="edge dash" d="M540,326 C590,326 590,366 640,366" marker-end="url(#arr)"></path>
+                <path class="edge" d="M830,186 C880,186 880,146 930,146" marker-end="url(#arr)"></path>
+                <path class="edge" d="M830,386 C880,386 880,446 930,446" marker-end="url(#arr)"></path>
+                <path class="edge dash" d="M830,206 C880,206 880,426 930,436" marker-end="url(#arr)"></path>
+                <!-- Trace 边 (隐藏/显示) -->
+                <g id="traceEdges" style="display:none">
+                  <path class="edge hot" d="M250,306 C300,306 300,306 350,306" marker-end="url(#arrHot)" transform="translate(0,20)"></path>
+                  <path class="edge hot" d="M540,326 C590,326 590,206 640,206" marker-end="url(#arrHot)"></path>
+                  <path class="edge hot" d="M830,206 C880,206 880,286 930,286" marker-end="url(#arrHot)"></path>
+                </g>
+                <!-- 边标签 -->
+                <text x="300" y="150" fill="var(--text3)" font-size="10" text-anchor="middle">抽取</text>
+                <text x="590" y="250" fill="var(--text3)" font-size="10" text-anchor="middle">汇总</text>
+                <text x="880" y="240" fill="var(--text3)" font-size="10" text-anchor="middle">计算</text>
+                <!-- ODS 节点 -->
+                <g class="node-card" transform="translate(60,120)" onclick="showNodeDetail('ods_order')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#0EA5E9"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="600">ods_order</text><text x="16" y="39" fill="var(--text3)" font-size="10">订单原始表 · MySQL</text></g>
+                <g class="node-card" transform="translate(60,260)" onclick="showNodeDetail('ods_pay')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#0EA5E9"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="600">ods_pay</text><text x="16" y="39" fill="var(--text3)" font-size="10">支付原始表 · MySQL</text></g>
+                <g class="node-card" transform="translate(60,400)" onclick="showNodeDetail('ods_user')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#0EA5E9"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="600">ods_user</text><text x="16" y="39" fill="var(--text3)" font-size="10">用户原始表 · PG</text></g>
+                <!-- DWD 节点 -->
+                <g class="node-card" transform="translate(350,140)" onclick="showNodeDetail('dwd_order_di')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#0EA5E9"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="600">dwd_order_di</text><text x="16" y="39" fill="var(--text3)" font-size="10">订单明细 · 日增量</text></g>
+                <g class="node-card" transform="translate(350,300)" onclick="showNodeDetail('dwd_pay_di')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#0EA5E9"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="600">dwd_pay_di</text><text x="16" y="39" fill="var(--text3)" font-size="10">支付明细 · 日增量</text></g>
+                <g class="node-card" transform="translate(350,440)" onclick="showNodeDetail('dim_user')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#10B981"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="600">dim_user</text><text x="16" y="39" fill="var(--text3)" font-size="10">用户维度</text></g>
+                <!-- DWS 节点 -->
+                <g class="node-card" transform="translate(640,180)" onclick="showNodeDetail('dws_trade_td')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#0EA5E9"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="600">dws_trade_td</text><text x="16" y="39" fill="var(--text3)" font-size="10">交易汇总 · 天级</text></g>
+                <g class="node-card" transform="translate(640,360)" onclick="showNodeDetail('dws_user_td')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#0EA5E9"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="600">dws_user_td</text><text x="16" y="39" fill="var(--text3)" font-size="10">用户汇总 · 天级</text></g>
+                <!-- 指标节点 -->
+                <g class="node-card" transform="translate(930,120)" onclick="showNodeDetail('metric_gmv')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#8B5CF6"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="600">GMV</text><text x="16" y="39" fill="var(--text3)" font-size="10">指标 · 交易域</text></g>
+                <g class="node-card" transform="translate(930,260)" onclick="showNodeDetail('metric_pay_rate')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#8B5CF6"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="700">支付成功率</text><text x="16" y="39" fill="var(--text3)" font-size="10">指标 · 交易域</text></g>
+                <g class="node-card" transform="translate(930,420)" onclick="showNodeDetail('metric_repurchase')"><rect class="body" width="190" height="52" rx="10"></rect><rect width="4" height="52" rx="2" fill="#8B5CF6"></rect><text x="16" y="22" fill="var(--text)" font-size="12.5" font-weight="600">复购率</text><text x="16" y="39" fill="var(--text3)" font-size="10">指标 · 用户域</text></g>
+              </svg>
+            </div>
+
+            <!-- 节点详情抽屉 -->
+            <div id="nodeDetailPanel" class="hidden flex w-[320px] shrink-0 flex-col border-l" style="background:var(--panel);border-color:var(--border)">
+              <div class="flex items-center justify-between border-b px-5 py-3.5" style="border-color:var(--border)">
+                <h3 class="text-[13.5px] font-semibold" style="color:var(--text)">节点详情</h3>
+                <button class="rounded p-1 transition hover:brightness-95" style="color:var(--text3)" onclick="hideNodeDetail()"><i data-lucide="x" class="h-4 w-4"></i></button>
+              </div>
+              <div class="min-h-0 flex-1 overflow-y-auto p-5">
+                <div class="mb-1 flex items-center gap-2">
+                  <span id="nodeDetailType" class="badge bg-sky-400/10 text-sky-400">表</span>
+                  <span class="badge" style="background:var(--nav-hover);color:var(--text3)">交易域</span>
+                </div>
+                <h2 id="nodeDetailName" class="mb-4 mt-2 text-lg font-bold" style="color:var(--text)">dws_trade_td</h2>
+                <div class="mb-5 grid grid-cols-2 gap-2">
+                  <div class="rounded-lg p-3" style="background:var(--nav-hover)"><div class="text-[10.5px]" style="color:var(--text3)">置信度</div><div class="mt-0.5 text-[15px] font-bold" style="color:var(--success)">94%</div></div>
+                  <div class="rounded-lg p-3" style="background:var(--nav-hover)"><div class="text-[10.5px]" style="color:var(--text3)">血缘连接</div><div class="mt-0.5 text-[15px] font-bold" style="color:var(--text)">3 入 · 3 出</div></div>
+                </div>
+                <h4 class="mb-2 flex items-center gap-1.5 text-[12px] font-semibold" style="color:var(--text2)"><i data-lucide="arrow-down-to-dot" class="h-3.5 w-3.5" style="color:var(--primary)"></i>上游（3）</h4>
+                <div class="mb-4 space-y-1.5">
+                  <div class="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px]" style="background:var(--nav-hover);color:var(--text)"><span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>dwd_order_di<span class="ml-auto text-[10.5px]" style="color:var(--text3)">DDL</span></div>
+                  <div class="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px]" style="background:var(--accent-bg);color:var(--accent-text)"><span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>dwd_pay_di<span class="ml-auto text-[10.5px]" style="color:var(--primary)">经验</span></div>
+                  <div class="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px]" style="background:var(--nav-hover);color:var(--text)"><span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>dws_user_td<span class="ml-auto text-[10.5px]" style="color:var(--text3)">推断</span></div>
+                </div>
+                <h4 class="mb-2 flex items-center gap-1.5 text-[12px] font-semibold" style="color:var(--text2)"><i data-lucide="arrow-up-from-dot" class="h-3.5 w-3.5" style="color:#8B5CF6"></i>下游（3）</h4>
+                <div class="mb-5 space-y-1.5">
+                  <div class="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px]" style="background:var(--nav-hover);color:var(--text)"><span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>GMV<span class="ml-auto text-[10.5px]" style="color:var(--text3)">经验</span></div>
+                  <div class="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px]" style="background:var(--accent-bg);color:var(--accent-text)"><span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>支付成功率<span class="ml-auto text-[10.5px]" style="color:var(--primary)">经验</span></div>
+                </div>
+                <div class="mt-5 flex gap-2">
+                  <button class="btn-primary flex-1 justify-center"><i data-lucide="git-branch" class="h-3.5 w-3.5"></i>追溯</button>
+                  <button class="btn-ghost flex-1 justify-center"><i data-lucide="message-square" class="h-3.5 w-3.5"></i>问 AI</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="border-t border-stone-100 px-7 py-4 text-xs leading-relaxed text-stone-400">
-        关键词：暖纸底 · 浮动卡片 · 大留白 · 演示友好
+
+      <!-- ==================== 页面：经验库 ==================== -->
+      <div id="page-experiences" class="page">
+        <!-- 顶栏按钮行 -->
+        <div class="mb-4 flex items-center gap-3">
+          <div class="relative w-64">
+            <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2" style="color:var(--text3)"></i>
+            <input class="input" placeholder="搜索经验文档…" id="expSearchInput" oninput="filterExperiences()" />
+          </div>
+          <div class="ml-auto flex items-center gap-2">
+            <button class="btn-ghost" onclick="showExpImportDialog()"><i data-lucide="upload" class="h-3.5 w-3.5"></i>导入文档</button>
+            <button class="btn-ghost" onclick="showExpResearchDialog()"><i data-lucide="globe" class="h-3.5 w-3.5"></i>联网调研</button>
+            <button class="btn-ghost" onclick="showExpCreateDialog()"><i data-lucide="plus" class="h-3.5 w-3.5"></i>新建经验</button>
+            <button class="btn-primary" onclick="showExpBuildGraphDialog()"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i>一键建图</button>
+          </div>
+        </div>
+
+        <div class="flex min-h-0 flex-1 gap-0" style="height:calc(100vh - 180px)">
+          <!-- 文件夹树（可筛选） -->
+          <aside class="w-[200px] shrink-0 overflow-y-auto border-r p-3" style="border-color:var(--border)">
+            <div class="px-2 pb-2 text-[10.5px] font-medium uppercase tracking-widest" style="color:var(--text3)">领域文件夹</div>
+            <div class="nav-item active" onclick="filterByDomain('all', this)" data-domain="all"><i data-lucide="folder-open" class="h-4 w-4"></i>全部文档<span class="ml-auto text-[11px]" id="count-all" style="color:var(--text3)">56</span></div>
+            <div class="nav-item" onclick="filterByDomain('trade', this)" data-domain="trade"><i data-lucide="folder" class="h-4 w-4"></i>交易域<span class="ml-auto text-[11px]" id="count-trade" style="color:var(--text3)">22</span></div>
+            <div class="nav-item" onclick="filterByDomain('user', this)" data-domain="user"><i data-lucide="folder" class="h-4 w-4"></i>用户域<span class="ml-auto text-[11px]" id="count-user" style="color:var(--text3)">14</span></div>
+            <div class="nav-item" onclick="filterByDomain('marketing', this)" data-domain="marketing"><i data-lucide="folder" class="h-4 w-4"></i>营销域<span class="ml-auto text-[11px]" id="count-marketing" style="color:var(--text3)">12</span></div>
+            <div class="nav-item" onclick="filterByDomain('supply', this)" data-domain="supply"><i data-lucide="folder" class="h-4 w-4"></i>供应链<span class="ml-auto text-[11px]" id="count-supply" style="color:var(--text3)">8</span></div>
+            <div class="mt-4 px-2 pb-2 text-[10.5px] font-medium uppercase tracking-widest" style="color:var(--text3)">来源筛选</div>
+            <div class="nav-item" onclick="filterBySource('ddl', this)" data-source="ddl"><i data-lucide="database" class="h-4 w-4" style="color:#0EA5E9"></i>DDL 同步<span class="ml-auto text-[11px]" style="color:var(--text3)">14</span></div>
+            <div class="nav-item" onclick="filterBySource('import', this)" data-source="import"><i data-lucide="file-up" class="h-4 w-4" style="color:#8B5CF6"></i>文档导入<span class="ml-auto text-[11px]" style="color:var(--text3)">18</span></div>
+            <div class="nav-item" onclick="filterBySource('research', this)" data-source="research"><i data-lucide="globe" class="h-4 w-4" style="color:#10B981"></i>联网调研<span class="ml-auto text-[11px]" style="color:var(--text3)">16</span></div>
+            <div class="nav-item" onclick="filterBySource('manual', this)" data-source="manual"><i data-lucide="pen-line" class="h-4 w-4" style="color:var(--text3)"></i>手工编写<span class="ml-auto text-[11px]" style="color:var(--text3)">8</span></div>
+            <div class="mt-4 border-t pt-3" style="border-color:var(--border)">
+              <button class="nav-item w-full" onclick="clearAllFilters()"><i data-lucide="filter-x" class="h-4 w-4"></i>清除筛选</button>
+            </div>
+          </aside>
+
+          <!-- 文档网格 -->
+          <div class="min-h-0 flex-1 overflow-y-auto p-5" id="expDocList">
+            <div class="mb-4 flex items-center gap-3 text-[12px]" style="color:var(--text2)" id="expInfoBar">
+              <span id="expDocCount">56 篇文档</span><span>·</span><span id="expSortLabel">按更新时间排序</span>
+              <div class="ml-auto flex items-center gap-2">
+                <select class="input !h-7 !w-auto !text-[11px] !px-2" onchange="sortExperiences(this.value)" style="min-width:100px">
+                  <option value="time">按更新时间</option>
+                  <option value="name">按名称</option>
+                  <option value="domain">按领域</option>
+                </select>
+                <span class="flex items-center gap-1.5"><i data-lucide="info" class="h-3.5 w-3.5"></i>带 <span class="rounded px-1" style="background:var(--accent-bg);color:var(--accent-text)">已入图</span> 标记的文档已参与血缘抽取</span>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4" id="expGrid">
+
+              <!-- 文档1：已入图 · 交易域 · 文档导入 -->
+              <div class="panel doc-card group relative p-4" data-domain="trade" data-source="import" data-time="2h" data-name="交易域指标口径说明">
+                <div class="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();previewDoc('交易域指标口径说明.pdf')" title="预览"><i data-lucide="eye" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();showExpEditDialog('交易域指标口径说明.pdf','trade','import')" title="编辑"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();extractOntology('交易域指标口径说明.pdf')" title="抽取本体"><i data-lucide="brain-circuit" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition hover:text-red-400" style="color:var(--text3)" onclick="event.stopPropagation();deleteDoc('交易域指标口径说明.pdf')" title="删除"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+                </div>
+                <div class="mb-2.5 flex items-center gap-2" onclick="previewDoc('交易域指标口径说明.pdf')" style="cursor:pointer">
+                  <div class="flex h-8 w-8 items-center justify-center rounded-lg" style="background:rgba(139,92,246,.1);color:#8B5CF6"><i data-lucide="file-text" class="h-4 w-4"></i></div>
+                  <span class="badge" style="background:var(--accent-bg);color:var(--accent-text)">已入图</span>
+                  <span class="ml-auto text-[10.5px]" style="color:var(--text3)">2 小时前</span>
+                </div>
+                <h3 class="mb-1 text-[14px] font-semibold leading-snug cursor-pointer" style="color:var(--text)" onclick="previewDoc('交易域指标口径说明.pdf')">交易域指标口径说明.pdf</h3>
+                <p class="mb-3 line-clamp-2 text-[12px] leading-relaxed" style="color:var(--text2)">GMV、支付成功率、退款率等 12 个核心指标的统计口径、分子分母与过滤条件…</p>
+                <div class="flex items-center gap-2 text-[10.5px]" style="color:var(--text3)">
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">交易域</span>
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">指标口径</span>
+                  <span class="ml-auto">抽取 8 实体</span>
+                </div>
+                <div class="mt-3 flex gap-1.5 border-t pt-3" style="border-color:var(--border)">
+                  <button class="btn-ghost flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();extractOntology('交易域指标口径说明.pdf')"><i data-lucide="brain-circuit" class="h-3 w-3"></i>抽取本体</button>
+                  <button class="btn-primary flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();buildGraphFromDoc('交易域指标口径说明.pdf')"><i data-lucide="waypoints" class="h-3 w-3"></i>构建图谱</button>
+                </div>
+              </div>
+
+              <!-- 文档2：已入图 · 交易域 · DDL同步 -->
+              <div class="panel doc-card group relative p-4" data-domain="trade" data-source="ddl" data-time="1d" data-name="订单中心 DDL">
+                <div class="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();previewDoc('订单中心 DDL（mysql-order）')" title="预览"><i data-lucide="eye" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();showExpEditDialog('订单中心 DDL（mysql-order）','trade','ddl')" title="编辑"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();syncDdl('订单中心 DDL（mysql-order）')" title="重新同步"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition hover:text-red-400" style="color:var(--text3)" onclick="event.stopPropagation();deleteDoc('订单中心 DDL（mysql-order）')" title="删除"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+                </div>
+                <div class="mb-2.5 flex items-center gap-2" onclick="previewDoc('订单中心 DDL（mysql-order）')" style="cursor:pointer">
+                  <div class="flex h-8 w-8 items-center justify-center rounded-lg" style="background:rgba(14,165,233,.1);color:#0EA5E9"><i data-lucide="database" class="h-4 w-4"></i></div>
+                  <span class="badge" style="background:var(--accent-bg);color:var(--accent-text)">已入图</span>
+                  <span class="ml-auto text-[10.5px]" style="color:var(--text3)">昨天</span>
+                </div>
+                <h3 class="mb-1 text-[14px] font-semibold leading-snug cursor-pointer" style="color:var(--text)" onclick="previewDoc('订单中心 DDL（mysql-order）')">订单中心 DDL（mysql-order）</h3>
+                <p class="mb-3 line-clamp-2 text-[12px] leading-relaxed" style="color:var(--text2)">来自数据源「订单库」的 28 张表结构同步：ods_order / ods_pay / ods_refund…</p>
+                <div class="flex items-center gap-2 text-[10.5px]" style="color:var(--text3)">
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">交易域</span>
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">DDL</span>
+                  <span class="ml-auto">28 张表</span>
+                </div>
+                <div class="mt-3 flex gap-1.5 border-t pt-3" style="border-color:var(--border)">
+                  <button class="btn-ghost flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();syncDdl('订单中心 DDL（mysql-order）')"><i data-lucide="refresh-cw" class="h-3 w-3"></i>重新同步</button>
+                  <button class="btn-primary flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();buildGraphFromDoc('订单中心 DDL（mysql-order）')"><i data-lucide="waypoints" class="h-3 w-3"></i>构建图谱</button>
+                </div>
+              </div>
+
+              <!-- 文档3：未入图 · 用户域 · 联网调研 -->
+              <div class="panel doc-card group relative p-4" data-domain="user" data-source="research" data-time="1d" data-name="调研：电商复购率行业基准">
+                <div class="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();previewDoc('调研：电商复购率行业基准')" title="预览"><i data-lucide="eye" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();showExpEditDialog('调研：电商复购率行业基准','user','research')" title="编辑"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();extractOntology('调研：电商复购率行业基准')" title="抽取本体"><i data-lucide="brain-circuit" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition hover:text-red-400" style="color:var(--text3)" onclick="event.stopPropagation();deleteDoc('调研：电商复购率行业基准')" title="删除"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+                </div>
+                <div class="mb-2.5 flex items-center gap-2" onclick="previewDoc('调研：电商复购率行业基准')" style="cursor:pointer">
+                  <div class="flex h-8 w-8 items-center justify-center rounded-lg" style="background:rgba(16,185,129,.1);color:#10B981"><i data-lucide="globe" class="h-4 w-4"></i></div>
+                  <span class="badge" style="background:rgba(217,119,6,.1);color:#D97706">未入图</span>
+                  <span class="ml-auto text-[10.5px]" style="color:var(--text3)">昨天</span>
+                </div>
+                <h3 class="mb-1 text-[14px] font-semibold leading-snug cursor-pointer" style="color:var(--text)" onclick="previewDoc('调研：电商复购率行业基准')">调研：电商复购率行业基准</h3>
+                <p class="mb-3 line-clamp-2 text-[12px] leading-relaxed" style="color:var(--text2)">联网调研 6 个信息源：主流电商平台复购率区间、统计周期差异与口径陷阱…</p>
+                <div class="flex items-center gap-2 text-[10.5px]" style="color:var(--text3)">
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">用户域</span>
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">调研</span>
+                  <span class="ml-auto">6 信息源</span>
+                </div>
+                <div class="mt-3 flex gap-1.5 border-t pt-3" style="border-color:var(--border)">
+                  <button class="btn-ghost flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();extractOntology('调研：电商复购率行业基准')"><i data-lucide="brain-circuit" class="h-3 w-3"></i>抽取本体</button>
+                  <button class="btn-primary flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();buildGraphFromDoc('调研：电商复购率行业基准')"><i data-lucide="waypoints" class="h-3 w-3"></i>构建图谱</button>
+                </div>
+              </div>
+
+              <!-- 文档4：已入图 · 营销域 · 手工编写 -->
+              <div class="panel doc-card group relative p-4" data-domain="marketing" data-source="manual" data-time="3d" data-name="营销归因窗口约定">
+                <div class="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();previewDoc('营销归因窗口约定')" title="预览"><i data-lucide="eye" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();showExpEditDialog('营销归因窗口约定','marketing','manual')" title="编辑"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();extractOntology('营销归因窗口约定')" title="抽取本体"><i data-lucide="brain-circuit" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition hover:text-red-400" style="color:var(--text3)" onclick="event.stopPropagation();deleteDoc('营销归因窗口约定')" title="删除"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+                </div>
+                <div class="mb-2.5 flex items-center gap-2" onclick="previewDoc('营销归因窗口约定')" style="cursor:pointer">
+                  <div class="flex h-8 w-8 items-center justify-center rounded-lg" style="background:var(--nav-hover);color:var(--text2)"><i data-lucide="pen-line" class="h-4 w-4"></i></div>
+                  <span class="badge" style="background:var(--accent-bg);color:var(--accent-text)">已入图</span>
+                  <span class="ml-auto text-[10.5px]" style="color:var(--text3)">3 天前</span>
+                </div>
+                <h3 class="mb-1 text-[14px] font-semibold leading-snug cursor-pointer" style="color:var(--text)" onclick="previewDoc('营销归因窗口约定')">营销归因窗口约定</h3>
+                <p class="mb-3 line-clamp-2 text-[12px] leading-relaxed" style="color:var(--text2)">末次点击归因，窗口 7 天；跨渠道去重规则与退款订单的剔除方式…</p>
+                <div class="flex items-center gap-2 text-[10.5px]" style="color:var(--text3)">
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">营销域</span>
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">口径</span>
+                  <span class="ml-auto">手工编写</span>
+                </div>
+                <div class="mt-3 flex gap-1.5 border-t pt-3" style="border-color:var(--border)">
+                  <button class="btn-ghost flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();extractOntology('营销归因窗口约定')"><i data-lucide="brain-circuit" class="h-3 w-3"></i>抽取本体</button>
+                  <button class="btn-primary flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();buildGraphFromDoc('营销归因窗口约定')"><i data-lucide="waypoints" class="h-3 w-3"></i>构建图谱</button>
+                </div>
+              </div>
+
+              <!-- 文档5：未入图 · 供应链 · 文档导入 -->
+              <div class="panel doc-card group relative p-4" data-domain="supply" data-source="import" data-time="3d" data-name="供应链域业务流程 v2">
+                <div class="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();previewDoc('供应链域业务流程 v2.docx')" title="预览"><i data-lucide="eye" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();showExpEditDialog('供应链域业务流程 v2.docx','supply','import')" title="编辑"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();extractOntology('供应链域业务流程 v2.docx')" title="抽取本体"><i data-lucide="brain-circuit" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition hover:text-red-400" style="color:var(--text3)" onclick="event.stopPropagation();deleteDoc('供应链域业务流程 v2.docx')" title="删除"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+                </div>
+                <div class="mb-2.5 flex items-center gap-2" onclick="previewDoc('供应链域业务流程 v2.docx')" style="cursor:pointer">
+                  <div class="flex h-8 w-8 items-center justify-center rounded-lg" style="background:rgba(139,92,246,.1);color:#8B5CF6"><i data-lucide="file-text" class="h-4 w-4"></i></div>
+                  <span class="badge" style="background:rgba(217,119,6,.1);color:#D97706">未入图</span>
+                  <span class="ml-auto text-[10.5px]" style="color:var(--text3)">3 天前</span>
+                </div>
+                <h3 class="mb-1 text-[14px] font-semibold leading-snug cursor-pointer" style="color:var(--text)" onclick="previewDoc('供应链域业务流程 v2.docx')">供应链域业务流程 v2.docx</h3>
+                <p class="mb-3 line-clamp-2 text-[12px] leading-relaxed" style="color:var(--text2)">采购—入库—分拣—配送全链路环节说明，含异常单流转分支…</p>
+                <div class="flex items-center gap-2 text-[10.5px]" style="color:var(--text3)">
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">供应链</span>
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">流程</span>
+                  <span class="ml-auto">待建图</span>
+                </div>
+                <div class="mt-3 flex gap-1.5 border-t pt-3" style="border-color:var(--border)">
+                  <button class="btn-ghost flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();extractOntology('供应链域业务流程 v2.docx')"><i data-lucide="brain-circuit" class="h-3 w-3"></i>抽取本体</button>
+                  <button class="btn-primary flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();buildGraphFromDoc('供应链域业务流程 v2.docx')"><i data-lucide="waypoints" class="h-3 w-3"></i>构建图谱</button>
+                </div>
+              </div>
+
+              <!-- 文档6：已入图 · 用户域 · DDL同步 -->
+              <div class="panel doc-card group relative p-4" data-domain="user" data-source="ddl" data-time="5d" data-name="用户中心 DDL">
+                <div class="absolute right-3 top-3 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();previewDoc('用户中心 DDL（pg-user）')" title="预览"><i data-lucide="eye" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();showExpEditDialog('用户中心 DDL（pg-user）','user','ddl')" title="编辑"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation();syncDdl('用户中心 DDL（pg-user）')" title="重新同步"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i></button>
+                  <button class="rounded-md p-1.5 transition hover:text-red-400" style="color:var(--text3)" onclick="event.stopPropagation();deleteDoc('用户中心 DDL（pg-user）')" title="删除"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+                </div>
+                <div class="mb-2.5 flex items-center gap-2" onclick="previewDoc('用户中心 DDL（pg-user）')" style="cursor:pointer">
+                  <div class="flex h-8 w-8 items-center justify-center rounded-lg" style="background:rgba(14,165,233,.1);color:#0EA5E9"><i data-lucide="database" class="h-4 w-4"></i></div>
+                  <span class="badge" style="background:var(--accent-bg);color:var(--accent-text)">已入图</span>
+                  <span class="ml-auto text-[10.5px]" style="color:var(--text3)">5 天前</span>
+                </div>
+                <h3 class="mb-1 text-[14px] font-semibold leading-snug cursor-pointer" style="color:var(--text)" onclick="previewDoc('用户中心 DDL（pg-user）')">用户中心 DDL（pg-user）</h3>
+                <p class="mb-3 line-clamp-2 text-[12px] leading-relaxed" style="color:var(--text2)">来自数据源「用户库」的 16 张表结构同步：ods_user / ods_member_level…</p>
+                <div class="flex items-center gap-2 text-[10.5px]" style="color:var(--text3)">
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">用户域</span>
+                  <span class="rounded px-1.5 py-0.5" style="background:var(--nav-hover)">DDL</span>
+                  <span class="ml-auto">16 张表</span>
+                </div>
+                <div class="mt-3 flex gap-1.5 border-t pt-3" style="border-color:var(--border)">
+                  <button class="btn-ghost flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();syncDdl('用户中心 DDL（pg-user）')"><i data-lucide="refresh-cw" class="h-3 w-3"></i>重新同步</button>
+                  <button class="btn-primary flex-1 justify-center text-[11px] !h-7" onclick="event.stopPropagation();buildGraphFromDoc('用户中心 DDL（pg-user）')"><i data-lucide="waypoints" class="h-3 w-3"></i>构建图谱</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-  </div>
 
-  <!-- 对比表 -->
-  <div class="mt-10 overflow-hidden rounded-2xl bg-white ring-1 ring-stone-200">
-    <div class="border-b border-stone-100 px-7 py-4">
-      <h3 class="text-sm font-semibold text-stone-800">两个方向的对比</h3>
-    </div>
-    <table class="w-full text-[13px]">
-      <thead>
-        <tr class="border-b border-stone-100 text-left text-xs text-stone-400">
-          <th class="px-7 py-3 font-medium">维度</th>
-          <th class="px-4 py-3 font-medium">方案 A · 墨（暗色）</th>
-          <th class="px-4 py-3 font-medium">方案 B · 澄（亮色）</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-stone-100 text-stone-600">
-        <tr><td class="px-7 py-3 font-medium text-stone-800">主色</td><td class="px-4 py-3">青 Cyan #22D3EE（辉光）</td><td class="px-4 py-3">靛紫 Indigo→Violet 渐变</td></tr>
-        <tr><td class="px-7 py-3 font-medium text-stone-800">底色</td><td class="px-4 py-3">石墨 #0C0F14 / 面板 #12161E</td><td class="px-4 py-3">暖纸 #F7F6F3 / 卡片纯白</td></tr>
-        <tr><td class="px-7 py-3 font-medium text-stone-800">图谱体验</td><td class="px-4 py-3">暗色画布 + 发光血缘路径，长时间看图不刺眼</td><td class="px-4 py-3">浅色画布 + 柔和色块，投屏汇报更清晰</td></tr>
-        <tr><td class="px-7 py-3 font-medium text-stone-800">信息密度</td><td class="px-4 py-3">高（分析师向）</td><td class="px-4 py-3">中（全员向）</td></tr>
-        <tr><td class="px-7 py-3 font-medium text-stone-800">气质参考</td><td class="px-4 py-3">Linear · Raycast · Grafana</td><td class="px-4 py-3">Notion · Stripe · Linear 亮色</td></tr>
-        <tr><td class="px-7 py-3 font-medium text-stone-800">适合场景</td><td class="px-4 py-3">数据/研发同学日常高频使用</td><td class="px-4 py-3">业务+数据混用、对外演示</td></tr>
-      </tbody>
-    </table>
-  </div>
+      <!-- ====== 经验库相关弹窗 ====== -->
+      <!-- 文档预览弹窗 -->
+      <div id="expPreviewModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onclick="if(event.target===this)closeExpPreview()">
+        <div class="panel flex max-h-[85vh] w-[720px] flex-col shadow-2xl">
+          <div class="flex items-center justify-between border-b px-6 py-4" style="border-color:var(--border)">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider" style="color:var(--text3)">文档预览</div>
+              <h3 class="text-[16px] font-semibold" style="color:var(--text)" id="previewTitle">—</h3>
+            </div>
+            <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" onclick="closeExpPreview()"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto p-6">
+            <div class="mb-4 flex flex-wrap gap-2" id="previewMeta"></div>
+            <div class="rounded-lg p-5 text-[13px] leading-relaxed" style="background:var(--nav-hover);color:var(--text)" id="previewContent">—</div>
+            <div class="mt-4 rounded-lg p-4" style="background:var(--accent-bg)">
+              <div class="mb-2 text-[12px] font-semibold" style="color:var(--accent-text)">提取的本体实体（预览）</div>
+              <div class="flex flex-wrap gap-1.5" id="previewEntities"></div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 border-t px-6 py-4" style="border-color:var(--border)">
+            <button class="btn-ghost" onclick="closeExpPreview()"><i data-lucide="pencil" class="h-3.5 w-3.5"></i>编辑</button>
+            <button class="btn-ghost" onclick="closeExpPreview();extractOntology('')"><i data-lucide="brain-circuit" class="h-3.5 w-3.5"></i>抽取本体</button>
+            <span class="flex-1"></span>
+            <button class="btn-primary" onclick="closeExpPreview();buildGraphFromDoc('')"><i data-lucide="waypoints" class="h-3.5 w-3.5"></i>构建图谱</button>
+          </div>
+        </div>
+      </div>
 
-  <!-- 说明 -->
-  <div class="mt-8 grid gap-6 md:grid-cols-3">
-    <div class="rounded-2xl bg-white p-6 ring-1 ring-stone-200">
-      <h4 class="mb-2 text-sm font-semibold text-stone-800">不变的骨架</h4>
-      <p class="text-[13px] leading-relaxed text-stone-500">两套方案共用同一信息架构：左侧导航 + 顶栏 + 8 个页面（工作台/图谱/经验库/对话/数据源/分析/设置/工作空间），交互逻辑与后端契约完全不变。</p>
-    </div>
-    <div class="rounded-2xl bg-white p-6 ring-1 ring-stone-200">
-      <h4 class="mb-2 text-sm font-semibold text-stone-800">评审方式</h4>
-      <p class="text-[13px] leading-relaxed text-stone-500">点击上方卡片进入各页面设计稿（含模拟数据）。可两套混选——例如「B 的浅色骨架 + A 的暗色图谱画布」，开发时可组合。</p>
-    </div>
-    <div class="rounded-2xl bg-white p-6 ring-1 ring-stone-200">
-      <h4 class="mb-2 text-sm font-semibold text-stone-800">下一步</h4>
-      <p class="text-[13px] leading-relaxed text-stone-500">你确认方向（可提修改意见）后，我再在 feature 分支上用 Vue 3 + Vite + Tailwind 落地开发，并逐页与你确认。</p>
-    </div>
-  </div>
+      <!-- 导入文档弹窗 -->
+      <div id="expImportModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onclick="if(event.target===this)closeExpImport()">
+        <div class="panel flex max-h-[85vh] w-[560px] flex-col shadow-2xl">
+          <div class="flex items-center justify-between border-b px-6 py-4" style="border-color:var(--border)">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider" style="color:var(--text3)">导入经验文档</div>
+              <h3 class="text-[16px] font-semibold" style="color:var(--text)">导入文档到经验库</h3>
+            </div>
+            <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" onclick="closeExpImport()"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
+            <!-- 拖拽上传区 -->
+            <div class="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed p-10 transition cursor-pointer" style="border-color:var(--border);color:var(--text3)" onclick="showToast('文件选择对话框（演示）')" id="dropZone">
+              <i data-lucide="upload-cloud" class="h-10 w-10" style="color:var(--primary)"></i>
+              <div class="text-center">
+                <div class="text-[13px] font-medium" style="color:var(--text)">拖拽文件到此处，或点击上传</div>
+                <div class="mt-1 text-[11.5px]" style="color:var(--text3)">支持 PDF、Word、Markdown、TXT、Excel · 最大 50MB</div>
+              </div>
+            </div>
+            <!-- URL 导入 -->
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">或输入文档 URL</div>
+              <div class="flex gap-2">
+                <input class="input flex-1 font-mono text-[12px]" placeholder="https://wiki.internal/doc/xxx" />
+                <button class="btn-ghost" onclick="showToast('正在抓取 URL 内容…')"><i data-lucide="link" class="h-3.5 w-3.5"></i>抓取</button>
+              </div>
+            </div>
+            <!-- 目标领域 -->
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">导入到领域</div>
+              <select class="input">
+                <option>交易域</option><option>用户域</option><option>营销域</option><option>供应链</option><option>新建领域…</option>
+              </select>
+            </div>
+            <!-- 标签 -->
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">标签（可选）</div>
+              <input class="input" placeholder="输入标签后回车添加，如：指标口径、DDL、调研" />
+            </div>
+          </div>
+          <div class="flex items-center gap-2 border-t px-6 py-4" style="border-color:var(--border)">
+            <span class="flex-1 text-[11px]" style="color:var(--text3)">导入后自动解析文档结构，可进一步抽取本体实体</span>
+            <button class="btn-ghost" onclick="closeExpImport()">取消</button>
+            <button class="btn-primary" onclick="closeExpImport();showToast('文档已导入经验库，正在解析…')"><i data-lucide="upload" class="h-3.5 w-3.5"></i>确认导入</button>
+          </div>
+        </div>
+      </div>
 
-  <p class="mt-10 text-center text-xs text-stone-400">EIC-CC UI Redesign · 设计评审稿 · 数据均为演示用模拟数据</p>
+      <!-- 联网调研弹窗 -->
+      <div id="expResearchModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onclick="if(event.target===this)closeExpResearch()">
+        <div class="panel flex max-h-[85vh] w-[540px] flex-col shadow-2xl">
+          <div class="flex items-center justify-between border-b px-6 py-4" style="border-color:var(--border)">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider" style="color:var(--text3)">联网调研</div>
+              <h3 class="text-[16px] font-semibold" style="color:var(--text)">AI 联网调研</h3>
+            </div>
+            <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" onclick="closeExpResearch()"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">调研主题 <span style="color:#F43F5E">*</span></div>
+              <input class="input" placeholder="例如：电商行业复购率基准与统计口径" />
+            </div>
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">信息源数量</div>
+              <div class="flex items-center gap-3">
+                <input type="range" min="3" max="20" value="6" class="flex-1" />
+                <span class="text-[13px] font-semibold" style="color:var(--primary)">6</span>
+                <span class="text-[11px]" style="color:var(--text3)">个信息源</span>
+              </div>
+            </div>
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">保存到领域</div>
+              <select class="input">
+                <option>用户域</option><option>交易域</option><option>营销域</option><option>供应链</option>
+              </select>
+            </div>
+            <div class="rounded-lg p-4" style="background:var(--accent-bg)">
+              <div class="text-[12px] leading-relaxed" style="color:var(--accent-text)">
+                <i data-lucide="info" class="mr-1 inline h-3.5 w-3.5"></i>
+                AI 将自动搜索、抓取并总结多个信息源的内容，最终生成一篇结构化的调研文档存入经验库。
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 border-t px-6 py-4" style="border-color:var(--border)">
+            <button class="btn-ghost" onclick="closeExpResearch()">取消</button>
+            <button class="btn-primary" onclick="closeExpResearch();showToast('联网调研已启动，预计 30 秒后完成…')"><i data-lucide="globe" class="h-3.5 w-3.5"></i>开始调研</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 新建经验弹窗 -->
+      <div id="expCreateModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onclick="if(event.target===this)closeExpCreate()">
+        <div class="panel flex max-h-[85vh] w-[600px] flex-col shadow-2xl">
+          <div class="flex items-center justify-between border-b px-6 py-4" style="border-color:var(--border)">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider" style="color:var(--text3)">新建经验</div>
+              <h3 class="text-[16px] font-semibold" style="color:var(--text)">手工编写经验文档</h3>
+            </div>
+            <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" onclick="closeExpCreate()"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">标题 <span style="color:#F43F5E">*</span></div>
+              <input class="input" placeholder="例如：交易域退款率口径变更说明" />
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">领域</div>
+                <select class="input"><option>交易域</option><option>用户域</option><option>营销域</option><option>供应链</option></select>
+              </div>
+              <div>
+                <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">类型</div>
+                <select class="input"><option>口径说明</option><option>业务流程</option><option>DDL 说明</option><option>调研报告</option><option>其他</option></select>
+              </div>
+            </div>
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">内容 <span style="color:#F43F5E">*</span></div>
+              <textarea class="input" rows="6" placeholder="在此编写经验内容…支持 Markdown 格式"></textarea>
+            </div>
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">标签（可选）</div>
+              <input class="input" placeholder="如：指标口径、退款、风控" />
+            </div>
+            <div>
+              <label class="flex cursor-pointer items-center gap-2 text-[12px]" style="color:var(--text2)">
+                <input type="checkbox" class="h-4 w-4 rounded" style="accent-color:var(--primary)" checked />保存后自动抽取本体实体
+              </label>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 border-t px-6 py-4" style="border-color:var(--border)">
+            <button class="btn-ghost" onclick="closeExpCreate()">取消</button>
+            <button class="btn-ghost" onclick="closeExpCreate();showToast('已保存为草稿')"><i data-lucide="save" class="h-3.5 w-3.5"></i>存草稿</button>
+            <button class="btn-primary" onclick="closeExpCreate();showToast('经验已创建，正在抽取本体…')"><i data-lucide="check" class="h-3.5 w-3.5"></i>创建并抽取本体</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 编辑经验弹窗 -->
+      <div id="expEditModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onclick="if(event.target===this)closeExpEdit()">
+        <div class="panel flex max-h-[85vh] w-[600px] flex-col shadow-2xl">
+          <div class="flex items-center justify-between border-b px-6 py-4" style="border-color:var(--border)">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider" style="color:var(--text3)">编辑经验</div>
+              <h3 class="text-[16px] font-semibold" style="color:var(--text)" id="editExpTitle">—</h3>
+            </div>
+            <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" onclick="closeExpEdit()"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">标题</div>
+              <input class="input" id="editExpNameInput" />
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">领域</div>
+                <select class="input" id="editExpDomain"><option>交易域</option><option>用户域</option><option>营销域</option><option>供应链</option></select>
+              </div>
+              <div>
+                <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">来源</div>
+                <select class="input" id="editExpSource"><option value="ddl">DDL 同步</option><option value="import">文档导入</option><option value="research">联网调研</option><option value="manual">手工编写</option></select>
+              </div>
+            </div>
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">内容</div>
+              <textarea class="input" rows="6" placeholder="文档内容…支持 Markdown 格式"></textarea>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 border-t px-6 py-4" style="border-color:var(--border)">
+            <button class="btn-ghost" onclick="closeExpEdit()">取消</button>
+            <button class="btn-primary" onclick="closeExpEdit();showToast('经验已更新')"><i data-lucide="check" class="h-3.5 w-3.5"></i>保存修改</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 一键建图进度弹窗 -->
+      <div id="expBuildModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-6 backdrop-blur-sm">
+        <div class="panel flex max-h-[85vh] w-[480px] flex-col shadow-2xl">
+          <div class="flex items-center justify-between border-b px-6 py-4" style="border-color:var(--border)">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider" style="color:var(--text3)">一键建图</div>
+              <h3 class="text-[16px] font-semibold" style="color:var(--text)">从经验库构建本体血缘图</h3>
+            </div>
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto p-6">
+            <div class="mb-5 text-[12.5px]" style="color:var(--text2)">正在扫描经验库中的 56 篇文档，抽取本体实体并推断血缘关系…</div>
+            <div class="space-y-3" id="buildSteps">
+              <div class="step-dot flex items-center gap-3 text-[12.5px]" style="color:#10B981">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style="background:#10B981">✓</span>
+                <span>扫描经验库：发现 56 篇文档</span>
+              </div>
+              <div class="step-dot flex items-center gap-3 text-[12.5px]" style="color:#10B981">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style="background:#10B981">✓</span>
+                <span>抽取实体：识别 128 个业务实体</span>
+              </div>
+              <div class="step-dot flex items-center gap-3 text-[13px] font-medium" style="color:var(--primary)">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style="background:var(--primary)">3</span>
+                <span>推断血缘关系：正在计算中…<span class="ml-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-r-transparent"></span></span>
+              </div>
+              <div class="step-dot flex items-center gap-3 text-[12.5px]" style="color:var(--text3)">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px]" style="background:var(--nav-hover)">4</span>
+                <span>写入图谱：等待前序步骤完成</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 border-t px-6 py-4" style="border-color:var(--border)">
+            <span class="text-[11px]" style="color:var(--text3)">步骤 3/4 · 预计剩余 15 秒</span>
+            <span class="flex-1"></span>
+            <button class="btn-ghost" onclick="closeExpBuild()">后台运行</button>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <!-- ==================== 页面：AI 对话 ==================== -->
+      <div id="page-chat" class="page">
+        <div class="mb-3 flex items-center gap-3">
+          <span class="badge" style="background:rgba(16,185,129,.1);color:#10B981">已挂载：交易域血缘图 · 56 篇经验</span>
+          <button class="btn-ghost ml-auto" onclick="newChatSession()"><i data-lucide="plus" class="h-3.5 w-3.5"></i>新会话</button>
+        </div>
+        <div class="mx-auto max-w-3xl space-y-6" id="chatMessageList" style="height:calc(100vh - 240px);overflow-y:auto">
+          <!-- 欢迎提示 -->
+          <div class="flex gap-3" id="chatWelcome">
+            <div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white" style="background:linear-gradient(135deg, var(--primary), var(--primary2))"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i></div>
+            <div class="min-w-0 flex-1">
+              <p class="text-[13px] leading-relaxed" style="color:var(--text2)">我是你的血缘建模助手，已加载当前工作空间的经验库和血缘图谱。你可以问我指标口径、血缘影响、数据溯源等问题。</p>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button class="rounded-full border px-3 py-1.5 text-[12px] transition" style="border-color:var(--border);color:var(--text2)" onclick="sendQuickQuestion('支付成功率的口径是什么？它依赖哪些上游表？')">支付成功率的口径是什么？它依赖哪些上游表？</button>
+                <button class="rounded-full border px-3 py-1.5 text-[12px] transition" style="border-color:var(--border);color:var(--text2)" onclick="sendQuickQuestion('当前图谱中有哪些孤立节点？如何修复？')">当前图谱中有哪些孤立节点？如何修复？</button>
+                <button class="rounded-full border px-3 py-1.5 text-[12px] transition" style="border-color:var(--border);color:var(--text2)" onclick="sendQuickQuestion('帮我分析最近 7 天的血缘变更')">帮我分析最近 7 天的血缘变更</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 输入区 -->
+        <div class="shrink-0 pt-4">
+          <div class="mx-auto max-w-3xl">
+            <div class="flex items-end gap-2 rounded-xl border p-2 transition" style="background:var(--panel);border-color:var(--border)" id="chatInputBox">
+              <button class="rounded-lg p-2 transition" style="color:var(--text3)" onclick="showToast('文件上传（演示）')"><i data-lucide="paperclip" class="h-4 w-4"></i></button>
+              <textarea rows="1" id="chatInput" class="max-h-32 flex-1 resize-none bg-transparent py-2 text-[13.5px] outline-none" style="color:var(--text)" placeholder="追问指标口径、血缘影响、数据佐证…（Enter 发送，Shift+Enter 换行）" onkeydown="handleChatKey(event)"></textarea>
+              <button class="flex h-9 w-9 items-center justify-center rounded-lg text-white transition hover:brightness-110" style="background:linear-gradient(135deg, var(--primary), var(--primary2))" onclick="sendChatMessage()"><i data-lucide="send-horizontal" class="h-4 w-4"></i></button>
+            </div>
+            <p class="mt-2 text-center text-[11px]" style="color:var(--text3)">回答基于当前工作空间的经验库与血缘图生成，请核对证据后使用</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== 页面：数据源 ==================== -->
+      <div id="page-datasources" class="page">
+        <!-- 工具栏：搜索 + 筛选 + 操作，单行 -->
+        <div class="mb-4 flex items-center gap-2.5">
+          <div class="relative w-56">
+            <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2" style="color:var(--text3)"></i>
+            <input class="input" placeholder="搜索数据源…" oninput="filterDsCards(null,null,this.value)" />
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button class="ds-filter-chip active" onclick="filterDsCards('all', this)" data-filter="all">全部</button>
+            <button class="ds-filter-chip" onclick="filterDsCards('db', this)" data-filter="db">数据库</button>
+            <button class="ds-filter-chip" onclick="filterDsCards('http', this)" data-filter="http">HTTP 接口</button>
+            <span class="mx-0.5 h-4 w-px" style="background:var(--border)"></span>
+            <button class="ds-filter-chip" onclick="filterDsCards('connected', this)" data-filter="connected"><span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>已连接</button>
+            <button class="ds-filter-chip" onclick="filterDsCards('error', this)" data-filter="error" style="background:rgba(244,63,94,.08);border-color:rgba(244,63,94,.25)"><span class="h-1.5 w-1.5 rounded-full bg-rose-400"></span>异常</button>
+            <button class="ds-filter-chip" onclick="filterDsCards('untested', this)" data-filter="untested"><span class="h-1.5 w-1.5 rounded-full" style="background:var(--text3)"></span>未测试</button>
+            <button class="rounded p-1 transition hover:brightness-90" style="color:var(--text3)" onclick="clearDsFilters()" title="清除所有筛选"><i data-lucide="filter-x" class="h-3.5 w-3.5"></i></button>
+          </div>
+          <button class="btn-primary ml-auto" onclick="showDataSourceModal()"><i data-lucide="plus" class="h-4 w-4"></i>接入数据源</button>
+        </div>
+
+        <!-- 数据源卡片网格 -->
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" id="dsCardGrid">
+
+          <!-- 核心交易库 · 正常 -->
+          <div class="panel ds-card group flex flex-col p-4" data-ds-type="db" data-ds-status="connected" data-ds-name="核心交易库" style="border-left:3px solid #10B981" onclick="showDataSourceDetail('核心交易库')">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style="background:var(--accent-bg);color:var(--accent-text)"><i data-lucide="database" class="h-4 w-4"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-semibold" style="color:var(--text)">核心交易库</span>
+                  <span class="rounded-full px-2 py-px text-[10px] font-medium" style="background:rgba(16,185,129,.1);color:#10B981">正常</span>
+                </div>
+                <div class="mt-0.5 font-mono text-[11px] truncate" style="color:var(--text3)">10.20.8.31:3306 / eic_trade</div>
+              </div>
+            </div>
+            <div class="mb-3 text-[12px]" style="color:var(--text2)">MySQL 8.0<span class="mx-1.5" style="color:var(--text3)">·</span><span style="color:#10B981">42ms</span><span class="mx-1.5" style="color:var(--text3)">·</span>12 张表<span class="mx-1.5" style="color:var(--text3)">·</span>1.2 万行</div>
+            <div class="flex items-center gap-1">
+              <span class="flex-1"></span>
+              <button class="btn-ghost text-[11px] !h-7 !px-2" onclick="event.stopPropagation();testDsConnection('核心交易库')"><i data-lucide="plug-zap" class="h-3 w-3"></i>测试</button>
+              <button class="btn-ghost text-[11px] !h-7 !px-2" onclick="event.stopPropagation();showDataSourceDetail('核心交易库')"><i data-lucide="eye" class="h-3 w-3"></i>详情</button>
+              <button class="btn-ghost text-[11px] !h-7 !px-2 hover:!text-red-400 hover:!border-red-300" onclick="event.stopPropagation();showToast('数据源已移除')"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+            </div>
+          </div>
+
+          <!-- 用户画像库 · 正常 -->
+          <div class="panel ds-card group flex flex-col p-4" data-ds-type="db" data-ds-status="connected" data-ds-name="用户画像库" style="border-left:3px solid #10B981" onclick="showDataSourceDetail('用户画像库')">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style="background:rgba(14,165,233,.1);color:#0EA5E9"><i data-lucide="database" class="h-4 w-4"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-semibold" style="color:var(--text)">用户画像库</span>
+                  <span class="rounded-full px-2 py-px text-[10px] font-medium" style="background:rgba(16,185,129,.1);color:#10B981">正常</span>
+                </div>
+                <div class="mt-0.5 font-mono text-[11px] truncate" style="color:var(--text3)">10.20.8.42:5432 / eic_profile</div>
+              </div>
+            </div>
+            <div class="mb-3 text-[12px]" style="color:var(--text2)">PostgreSQL 15<span class="mx-1.5" style="color:var(--text3)">·</span><span style="color:#10B981">28ms</span><span class="mx-1.5" style="color:var(--text3)">·</span>16 张表<span class="mx-1.5" style="color:var(--text3)">·</span>8.5 万行</div>
+            <div class="flex items-center gap-1">
+              <span class="flex-1"></span>
+              <button class="btn-ghost text-[11px] !h-7 !px-2" onclick="event.stopPropagation();testDsConnection('用户画像库')"><i data-lucide="plug-zap" class="h-3 w-3"></i>测试</button>
+              <button class="btn-ghost text-[11px] !h-7 !px-2" onclick="event.stopPropagation();showDataSourceDetail('用户画像库')"><i data-lucide="eye" class="h-3 w-3"></i>详情</button>
+              <button class="btn-ghost text-[11px] !h-7 !px-2 hover:!text-red-400 hover:!border-red-300" onclick="event.stopPropagation();showToast('数据源已移除')"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+            </div>
+          </div>
+
+          <!-- 信贷核心库 · 正常 -->
+          <div class="panel ds-card group flex flex-col p-4" data-ds-type="db" data-ds-status="connected" data-ds-name="信贷核心库" style="border-left:3px solid #10B981" onclick="showDataSourceDetail('信贷核心库')">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style="background:rgba(245,158,11,.1);color:#F59E0B"><i data-lucide="database" class="h-4 w-4"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-semibold" style="color:var(--text)">信贷核心库</span>
+                  <span class="rounded-full px-2 py-px text-[10px] font-medium" style="background:rgba(16,185,129,.1);color:#10B981">正常</span>
+                </div>
+                <div class="mt-0.5 font-mono text-[11px] truncate" style="color:var(--text3)">10.20.9.7:5236 / CREDIT</div>
+              </div>
+            </div>
+            <div class="mb-3 text-[12px]" style="color:var(--text2)">达梦 DM 8<span class="mx-1.5" style="color:var(--text3)">·</span><span style="color:#10B981">15ms</span><span class="mx-1.5" style="color:var(--text3)">·</span>24 张表<span class="mx-1.5" style="color:var(--text3)">·</span>4.5 万行</div>
+            <div class="flex items-center gap-1">
+              <span class="flex-1"></span>
+              <button class="btn-ghost text-[11px] !h-7 !px-2" onclick="event.stopPropagation();testDsConnection('信贷核心库')"><i data-lucide="plug-zap" class="h-3 w-3"></i>测试</button>
+              <button class="btn-ghost text-[11px] !h-7 !px-2" onclick="event.stopPropagation();showDataSourceDetail('信贷核心库')"><i data-lucide="eye" class="h-3 w-3"></i>详情</button>
+              <button class="btn-ghost text-[11px] !h-7 !px-2 hover:!text-red-400 hover:!border-red-300" onclick="event.stopPropagation();showToast('数据源已移除')"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+            </div>
+          </div>
+
+          <!-- 经营分析库 · 异常 -->
+          <div class="panel ds-card group flex flex-col p-4" data-ds-type="db" data-ds-status="error" data-ds-name="经营分析库" style="border-left:3px solid #F43F5E" onclick="showDataSourceDetail('经营分析库')">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style="background:rgba(244,63,94,.1);color:#F43F5E"><i data-lucide="database" class="h-4 w-4"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-semibold" style="color:var(--text)">经营分析库</span>
+                  <span class="rounded-full px-2 py-px text-[10px] font-medium" style="background:rgba(244,63,94,.12);color:#F43F5E">异常</span>
+                </div>
+                <div class="mt-0.5 font-mono text-[11px] truncate" style="color:#F43F5E">connect timed out</div>
+              </div>
+            </div>
+            <div class="mb-2 text-[12px]" style="color:var(--text2)">GBase 8a<span class="mx-1.5" style="color:var(--text3)">·</span><span style="color:#F43F5E">连接超时</span></div>
+            <div class="mb-3 text-[11px]" style="color:var(--text3)">可能原因：网络不通、端口未放行、数据库重启、账号失效</div>
+            <div class="flex items-center gap-1">
+              <button class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white transition hover:brightness-110" style="background:linear-gradient(135deg,#F97316,#EF4444)" onclick="event.stopPropagation();testDsConnection('经营分析库')"><i data-lucide="rotate-cw" class="h-3 w-3"></i>重试连接</button>
+              <span class="flex-1"></span>
+              <button class="btn-ghost text-[11px] !h-7 !px-2" onclick="event.stopPropagation();showDataSourceDetail('经营分析库')"><i data-lucide="eye" class="h-3 w-3"></i>详情</button>
+              <button class="btn-ghost text-[11px] !h-7 !px-2 hover:!text-red-400 hover:!border-red-300" onclick="event.stopPropagation();showToast('数据源已移除')"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+            </div>
+          </div>
+
+          <!-- 历史订单归档 · 未测试 -->
+          <div class="panel ds-card group flex flex-col p-4" data-ds-type="db" data-ds-status="untested" data-ds-name="历史订单归档" style="border-left:3px solid #F59E0B" onclick="showDataSourceDetail('历史订单归档')">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style="background:rgba(245,158,11,.1);color:#F59E0B"><i data-lucide="database" class="h-4 w-4"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-semibold" style="color:var(--text)">历史订单归档</span>
+                  <span class="rounded-full px-2 py-px text-[10px] font-medium" style="background:rgba(245,158,11,.1);color:#F59E0B">待探测</span>
+                </div>
+                <div class="mt-0.5 font-mono text-[11px] truncate" style="color:var(--text3)">10.20.11.3:1521 / ORCLPDB1</div>
+              </div>
+            </div>
+            <div class="mb-3 text-[12px]" style="color:var(--text2)">Oracle 19c<span class="mx-1.5" style="color:var(--text3)">·</span><span style="color:#F59E0B">尚未测试</span></div>
+            <div class="flex items-center gap-1">
+              <button class="btn-primary text-[11px] !h-7 !px-3" onclick="event.stopPropagation();testDsConnection('历史订单归档')"><i data-lucide="plug-zap" class="h-3 w-3"></i>测试连接</button>
+              <span class="flex-1"></span>
+              <button class="btn-ghost text-[11px] !h-7 !px-2" onclick="event.stopPropagation();showDataSourceDetail('历史订单归档')"><i data-lucide="eye" class="h-3 w-3"></i>详情</button>
+              <button class="btn-ghost text-[11px] !h-7 !px-2 hover:!text-red-400 hover:!border-red-300" onclick="event.stopPropagation();showToast('数据源已移除')"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+            </div>
+          </div>
+
+          <!-- 营销触达 API · 正常 -->
+          <div class="panel ds-card group flex flex-col p-4" data-ds-type="http" data-ds-status="connected" data-ds-name="营销触达 API" style="border-left:3px solid #10B981" onclick="showDataSourceDetail('营销触达 API')">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style="background:rgba(16,185,129,.1);color:#10B981"><i data-lucide="globe" class="h-4 w-4"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-semibold" style="color:var(--text)">营销触达 API</span>
+                  <span class="rounded-full px-2 py-px text-[10px] font-medium" style="background:rgba(16,185,129,.1);color:#10B981">正常</span>
+                </div>
+                <div class="mt-0.5 font-mono text-[11px] truncate" style="color:var(--text3)">GET api.mkt.internal/v2/campaigns</div>
+              </div>
+            </div>
+            <div class="mb-3 text-[12px]" style="color:var(--text2)">HTTPS<span class="mx-1.5" style="color:var(--text3)">·</span><span style="color:#10B981">418ms</span><span class="mx-1.5" style="color:var(--text3)">·</span>定时轮询 300s<span class="mx-1.5" style="color:var(--text3)">·</span>12 活动/天<span class="mx-1.5" style="color:var(--text3)">·</span>4.8 万触达</div>
+            <div class="flex items-center gap-1">
+              <span class="flex-1"></span>
+              <button class="btn-ghost text-[11px] !h-7 !px-2" onclick="event.stopPropagation();testDsConnection('营销触达 API')"><i data-lucide="plug-zap" class="h-3 w-3"></i>测试</button>
+              <button class="btn-ghost text-[11px] !h-7 !px-2" onclick="event.stopPropagation();showDataSourceDetail('营销触达 API')"><i data-lucide="eye" class="h-3 w-3"></i>详情</button>
+              <button class="btn-ghost text-[11px] !h-7 !px-2 hover:!text-red-400 hover:!border-red-300" onclick="event.stopPropagation();showToast('数据源已移除')"><i data-lucide="trash-2" class="h-3 w-3"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 数据源详情 Modal ====== -->
+      <div id="dsDetailModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onclick="if(event.target===this)closeDsDetail()">
+        <div class="panel flex max-h-[85vh] w-[720px] max-w-full flex-col shadow-2xl">
+          <div class="flex items-center justify-between border-b px-6 py-4" style="border-color:var(--border)">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider" style="color:var(--text3)">数据源详情</div>
+              <h3 class="text-[16px] font-semibold" style="color:var(--text)" id="dsDetailTitle">—</h3>
+            </div>
+            <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" onclick="closeDsDetail()"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto p-6" id="dsDetailInfo"></div>
+          <div class="flex items-center gap-2 border-t px-6 py-4" style="border-color:var(--border)">
+            <button class="btn-ghost" onclick="showToast('测试连接中…');setTimeout(function(){showToast('连接成功 · 42ms')},1000)"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>测试连接</button>
+            <button class="btn-ghost" onclick="showToast('DDL 已导出到经验库')"><i data-lucide="upload" class="h-3.5 w-3.5"></i>导出 DDL 到经验库</button>
+            <span class="flex-1"></span>
+            <button class="btn-primary" onclick="closeDsDetail();showToast('正在基于该数据源结构建图…')"><i data-lucide="building-2" class="h-3.5 w-3.5"></i>结构建图</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 接入数据源向导 ====== -->
+      <div id="dsCreateWizard" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onclick="if(event.target===this)closeDataSourceModal()">
+        <div class="panel flex max-h-[85vh] w-[620px] flex-col shadow-2xl">
+          <div class="flex items-start gap-2 px-6 pt-5">
+            <div>
+              <div class="mb-1 text-[10px] uppercase tracking-wider" style="color:var(--text3)">NEW · DATA SOURCE</div>
+              <h3 class="text-[17px] font-semibold" style="color:var(--text)">接入数据源</h3>
+            </div>
+            <button class="ml-auto rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" onclick="closeDataSourceModal()"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <!-- 步骤指示器 -->
+          <div class="flex items-center gap-2.5 px-6 pb-4 pt-3 text-[11.5px] font-medium">
+            <span id="dsDot1" class="flex items-center gap-1.5" style="color:var(--text)"><i class="flex h-[19px] w-[19px] items-center justify-center rounded-full text-[10px] not-italic" style="background:var(--accent-bg);color:var(--accent-text)">1</i>选择类型</span>
+            <span id="dsStepLine" class="h-px flex-1" style="background:var(--border)"></span>
+            <span id="dsDot2" class="flex items-center gap-1.5" style="color:var(--text3)"><i class="flex h-[19px] w-[19px] items-center justify-center rounded-full text-[10px] not-italic" style="background:var(--nav-hover);color:var(--text3)">2</i>填写连接</span>
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto px-6 pb-5">
+            <!-- 第1步：类型选择 -->
+            <div id="dsStepType" class="space-y-2.5">
+              <div class="type-card" onclick="pickDsKind('mysql','MySQL','3306')">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg" style="background:var(--accent-bg);color:var(--accent-text)"><i data-lucide="database" class="h-5 w-5"></i></span>
+                <span class="min-w-0 flex-1"><span class="flex items-center gap-2 text-[14px] font-semibold" style="color:var(--text)">MySQL<small class="rounded px-1.5 py-0.5 text-[9px]" style="background:var(--accent-bg);color:var(--accent-text)">RDBMS</small></span><small class="text-[12px]" style="color:var(--text2)">连接 MySQL 数据库，查表写 SQL</small></span>
+                <i data-lucide="arrow-right" class="h-4 w-4 shrink-0" style="color:var(--text3)"></i>
+              </div>
+              <div class="type-card" onclick="pickDsKind('pgsql','PostgreSQL','5432')">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg" style="background:rgba(14,165,233,.1);color:#0EA5E9"><i data-lucide="database" class="h-5 w-5"></i></span>
+                <span class="min-w-0 flex-1"><span class="flex items-center gap-2 text-[14px] font-semibold" style="color:var(--text)">PostgreSQL<small class="rounded px-1.5 py-0.5 text-[9px]" style="background:rgba(14,165,233,.1);color:#0EA5E9">RDBMS</small></span><small class="text-[12px]" style="color:var(--text2)">连接 PgSQL 数据库，查表写 SQL</small></span>
+                <i data-lucide="arrow-right" class="h-4 w-4 shrink-0" style="color:var(--text3)"></i>
+              </div>
+              <div class="type-card" onclick="pickDsKind('https_api','HTTPS 接口','')">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg" style="background:rgba(16,185,129,.1);color:#10B981"><i data-lucide="globe" class="h-5 w-5"></i></span>
+                <span class="min-w-0 flex-1"><span class="flex items-center gap-2 text-[14px] font-semibold" style="color:var(--text)">HTTPS 接口<small class="rounded px-1.5 py-0.5 text-[9px]" style="background:rgba(16,185,129,.1);color:#10B981">API</small></span><small class="text-[12px]" style="color:var(--text2)">REST API，可定时拉取</small></span>
+                <i data-lucide="arrow-right" class="h-4 w-4 shrink-0" style="color:var(--text3)"></i>
+              </div>
+            </div>
+            <!-- 第2步：连接表单 -->
+            <div id="dsStepForm" class="hidden space-y-4">
+              <!-- 已选类型提示 -->
+              <div class="flex items-center gap-2.5 rounded-lg p-2.5" style="background:var(--nav-hover)">
+                <span class="flex h-8 w-8 items-center justify-center rounded-lg" style="background:var(--accent-bg);color:var(--accent-text)"><i data-lucide="database" class="h-4 w-4" id="dsKindIcon"></i></span>
+                <div class="min-w-0 flex-1">
+                  <div class="text-[12.5px] font-semibold" style="color:var(--text)" id="dsKindLabel">MySQL</div>
+                  <div class="text-[10.5px]" style="color:var(--text3)">连接信息仅保存在当前工作空间，密码将加密存储</div>
+                </div>
+                <button class="btn-ghost !h-7 !px-2 text-[11px]" onclick="showDsWizardStep('type')">更换类型</button>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div><div class="mb-1.5 text-[11.5px] font-medium" style="color:var(--text2)">名称 <span style="color:#F43F5E">*</span></div><input class="input" id="dsNameInput" placeholder="例如：核心交易库" /></div>
+                <div id="dsPortWrapper"><div class="mb-1.5 text-[11.5px] font-medium" style="color:var(--text2)">端口</div><input class="input font-mono" id="dsPortInput" placeholder="3306" /></div>
+              </div>
+              <div id="dsHostWrapper"><div class="mb-1.5 text-[11.5px] font-medium" style="color:var(--text2)">Host <span style="color:#F43F5E">*</span></div><input class="input font-mono" id="dsHostInput" placeholder="localhost" /></div>
+              <div id="dsDbWrapper"><div class="mb-1.5 text-[11.5px] font-medium" style="color:var(--text2)">数据库名 <span style="color:#F43F5E">*</span></div><input class="input font-mono" id="dsDbInput" placeholder="database_name" /></div>
+              <div id="dsUrlWrapper" class="hidden"><div class="mb-1.5 text-[11.5px] font-medium" style="color:var(--text2)">URL <span style="color:#F43F5E">*</span></div><input class="input font-mono" id="dsUrlInput" placeholder="https://api.example.com/data" /></div>
+              <div class="grid grid-cols-2 gap-3">
+                <div><div class="mb-1.5 text-[11.5px] font-medium" style="color:var(--text2)">用户名</div><input class="input font-mono" placeholder="lineage_ro" /></div>
+                <div><div class="mb-1.5 text-[11.5px] font-medium" style="color:var(--text2)">密码</div><input class="input" type="password" placeholder="••••••••" /></div>
+              </div>
+              <!-- 测试结果提示 -->
+              <div id="dsTestResult" class="hidden items-center gap-2 rounded-lg p-2.5 text-[12px]"></div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 border-t px-6 py-4" style="border-color:var(--border)">
+            <button id="dsBackBtn" class="btn-ghost hidden" onclick="showDsWizardStep('type')"><i data-lucide="chevron-left" class="h-3.5 w-3.5"></i>返回</button>
+            <span class="flex-1"></span>
+            <button class="btn-ghost" onclick="closeDataSourceModal()">取消</button>
+            <button id="dsTestBtn" class="btn-ghost hidden" onclick="testDsWizardConnection(this)"><i data-lucide="plug-zap" class="h-3.5 w-3.5"></i>测试连接</button>
+            <button id="dsSaveBtn" class="btn-primary hidden" onclick="saveDsWizard()"><i data-lucide="check" class="h-3.5 w-3.5"></i>保存连接</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ==================== 页面：设置 ==================== -->
+      <div id="page-settings" class="page">
+        <div class="mx-auto max-w-3xl space-y-8">
+          <!-- LLM 模型 -->
+          <section>
+            <h2 class="mb-4 text-[14.5px] font-semibold" style="color:var(--text)"><i data-lucide="cpu" class="mr-1.5 inline h-4 w-4" style="color:var(--text3)"></i>LLM 模型</h2>
+            <div class="panel mb-4 flex items-center gap-3 px-5 py-3.5">
+              <span class="badge" style="background:var(--accent-bg);color:var(--accent-text)">当前默认</span>
+              <span class="text-[13.5px] font-medium" style="color:var(--text)">dashscope / qwen-plus</span>
+              <span class="ml-auto text-[12px]" style="color:var(--text3)">https://dashscope.aliyuncs.com/compatible-mode/v1</span>
+            </div>
+            <!-- 模型卡片 -->
+            <div class="panel mb-4 p-5">
+              <div class="flex items-center gap-2.5">
+                <span class="text-[14px] font-semibold" style="color:var(--text)">通义千问 Plus</span>
+                <span class="badge" style="background:rgba(16,185,129,.1);color:#10B981">启用</span>
+                <button class="chip ml-auto" onclick="testModelConnection('通义千问 Plus', this)"><i data-lucide="plug-zap" class="h-3.5 w-3.5" style="color:var(--primary)"></i>测试连接</button>
+                <span class="switch on" onclick="this.classList.toggle('on')"><span class="knob"></span></span>
+              </div>
+              <div class="mt-1.5 text-[12.5px]" style="color:var(--text3)">dashscope · qwen-plus · 上下文 131k · 输出 8192 tokens</div>
+              <div class="mt-2 flex items-center gap-1.5 text-[12.5px]" style="color:#10B981"><i data-lucide="circle-check" class="h-3.5 w-3.5"></i>连接成功（486ms）</div>
+            </div>
+            <div class="panel mb-4 p-5">
+              <div class="flex items-center gap-2.5">
+                <span class="text-[14px] font-semibold" style="color:var(--text)">DeepSeek 对话</span>
+                <span class="badge" style="background:rgba(16,185,129,.1);color:#10B981">启用</span>
+                <button class="chip ml-auto" onclick="testModelConnection('DeepSeek 对话', this)"><i data-lucide="plug-zap" class="h-3.5 w-3.5" style="color:var(--primary)"></i>测试连接</button>
+                <span class="switch on" onclick="this.classList.toggle('on')"><span class="knob"></span></span>
+              </div>
+              <div class="mt-1.5 text-[12.5px]" style="color:var(--text3)">deepseek · deepseek-chat · 上下文 64k · 输出 8192 tokens</div>
+              <div class="mt-2 flex items-center gap-1.5 text-[12.5px]" style="color:#10B981"><i data-lucide="circle-check" class="h-3.5 w-3.5"></i>连接成功（312ms）</div>
+            </div>
+            <div class="panel p-5">
+              <div class="flex items-center gap-2.5">
+                <span class="text-[14px] font-semibold" style="color:var(--text3)">GPT-4o mini</span>
+                <span class="badge" style="background:var(--nav-hover);color:var(--text3)">停用</span>
+                <button class="chip ml-auto" onclick="testModelConnection('GPT-4o mini', this)"><i data-lucide="plug-zap" class="h-3.5 w-3.5" style="color:var(--primary)"></i>测试连接</button>
+                <span class="switch" onclick="this.classList.toggle('on')"><span class="knob"></span></span>
+              </div>
+              <div class="mt-2 flex items-center gap-1.5 text-[12.5px]" style="color:#F43F5E"><i data-lucide="circle-alert" class="h-3.5 w-3.5"></i>连接失败：401 Unauthorized</div>
+            </div>
+          </section>
+
+          <!-- 图谱偏好 -->
+          <section>
+            <h2 class="mb-4 text-[14.5px] font-semibold" style="color:var(--text)"><i data-lucide="sliders-horizontal" class="mr-1.5 inline h-4 w-4" style="color:var(--text3)"></i>图谱偏好</h2>
+            <div class="panel">
+              <div class="flex items-center justify-between border-b px-5 py-4" style="border-color:var(--border)">
+                <div><div class="text-[13.5px] font-medium" style="color:var(--text)">显示边标签</div><div class="text-[12px]" style="color:var(--text3)">在图谱画布上展示关系名称</div></div>
+                <span class="switch on" onclick="this.classList.toggle('on')"><span class="knob"></span></span>
+              </div>
+              <div class="flex items-center justify-between border-b px-5 py-4" style="border-color:var(--border)">
+                <div><div class="text-[13.5px] font-medium" style="color:var(--text)">自动适应视图</div><div class="text-[12px]" style="color:var(--text3)">加载图谱后自动缩放至全图可见</div></div>
+                <span class="switch on" onclick="this.classList.toggle('on')"><span class="knob"></span></span>
+              </div>
+              <div class="flex items-center justify-between px-5 py-4">
+                <div><div class="text-[13.5px] font-medium" style="color:var(--text)">图谱字号</div><div class="text-[12px]" style="color:var(--text3)">节点文字大小 · <span style="color:var(--primary)">12px</span></div></div>
+                <input type="range" min="10" max="18" value="12" class="w-32" />
+              </div>
+            </div>
+          </section>
+
+          <!-- 系统监控 -->
+          <section>
+            <h2 class="mb-4 text-[14.5px] font-semibold" style="color:var(--text)"><i data-lucide="activity" class="mr-1.5 inline h-4 w-4" style="color:var(--text3)"></i>系统监控</h2>
+            <div class="panel p-5">
+              <div class="grid grid-cols-4 gap-4">
+                <div class="rounded-lg p-3 text-center" style="background:var(--nav-hover)">
+                  <div class="text-lg font-bold" style="color:#10B981">UP</div><div class="text-[11px]" style="color:var(--text3)">系统状态</div>
+                </div>
+                <div class="rounded-lg p-3 text-center" style="background:var(--nav-hover)">
+                  <div class="text-lg font-bold" style="color:var(--text)">512MB</div><div class="text-[11px]" style="color:var(--text3)">空闲内存</div>
+                </div>
+                <div class="rounded-lg p-3 text-center" style="background:var(--nav-hover)">
+                  <div class="text-lg font-bold" style="color:var(--text)">1,247</div><div class="text-[11px]" style="color:var(--text3)">今日调用</div>
+                </div>
+                <div class="rounded-lg p-3 text-center" style="background:var(--nav-hover)">
+                  <div class="text-lg font-bold" style="color:var(--text)">0.8s</div><div class="text-[11px]" style="color:var(--text3)">平均延迟</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 数据管理 -->
+          <section>
+            <h2 class="mb-4 text-[14.5px] font-semibold" style="color:var(--text)"><i data-lucide="hard-drive" class="mr-1.5 inline h-4 w-4" style="color:var(--text3)"></i>数据管理</h2>
+            <div class="panel p-5">
+              <div class="flex items-center justify-between">
+                <div><div class="text-[13.5px] font-medium" style="color:var(--text)">导出全部偏好设置</div><div class="text-[12px]" style="color:var(--text3)">把当前偏好（外观等）下载为 JSON 文件</div></div>
+                <button class="btn-ghost" onclick="showToast('偏好设置 JSON 已导出')"><i data-lucide="download" class="h-3.5 w-3.5"></i>下载 JSON</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 关于 -->
+          <section>
+            <h2 class="mb-4 text-[14.5px] font-semibold" style="color:var(--text)"><i data-lucide="info" class="mr-1.5 inline h-4 w-4" style="color:var(--text3)"></i>关于</h2>
+            <div class="panel px-5 py-4 text-[13px] leading-relaxed" style="color:var(--text2)">
+              推演平台（EIC-CC）· 基于本体图谱的 AI 业务血缘建模系统。<br />
+              前端：Vue 3 + Vite + TypeScript + Tailwind CSS · 后端：Spring Boot 3 + PostgreSQL + MinIO。
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- ==================== 页面：工作空间 ==================== -->
+      <div id="page-workspaces" class="page">
+        <div class="mx-auto max-w-4xl">
+          <div class="mb-8 text-center">
+            <div class="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl text-white mx-auto" style="background:linear-gradient(135deg, var(--primary), var(--primary2))">
+              <i data-lucide="waypoints" class="h-7 w-7"></i>
+            </div>
+            <h1 class="text-2xl font-bold" style="color:var(--text)">推演平台</h1>
+            <p class="mt-1 text-[11px] tracking-widest" style="color:var(--text3)">EIC-CC · 业务血缘建模</p>
+            <p class="mt-3 max-w-md mx-auto text-[13.5px] leading-relaxed" style="color:var(--text2)">基于本体图谱的 AI 业务血缘建模 —— 选择一个工作空间开始，或新建一个。</p>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <!-- 电商数仓 -->
+            <div class="ws-card panel relative flex flex-col p-5" onclick="switchPage('dashboard', document.querySelector('[data-page=dashboard]'))">
+              <span class="absolute -top-2.5 left-4 badge" style="background:var(--accent-bg);color:var(--accent-text)"><i data-lucide="check-circle-2" class="h-3 w-3"></i>当前使用</span>
+              <div class="ws-actions absolute right-3 top-3 flex gap-1">
+                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+              </div>
+              <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-lg" style="background:var(--accent-bg);color:var(--accent-text)"><i data-lucide="layers" class="h-5 w-5"></i></div>
+              <div class="text-[15px] font-semibold" style="color:var(--text)">电商数仓</div>
+              <div class="mt-1 text-[12.5px] leading-relaxed" style="color:var(--text2)">交易、订单、支付核心链路的血缘建模与指标梳理</div>
+              <div class="mt-4 flex items-center gap-3 text-[11.5px]" style="color:var(--text3)">
+                <span><i data-lucide="waypoints" class="mr-1 inline h-3 w-3"></i>3 个模型</span>
+                <span><i data-lucide="box" class="mr-1 inline h-3 w-3"></i>128 节点</span>
+              </div>
+              <div class="mt-3 flex items-center justify-between border-t pt-3 text-[11.5px]" style="border-color:var(--border);color:var(--text3)">
+                <span>2 小时前更新</span>
+                <span style="color:var(--primary)">进入 →</span>
+              </div>
+            </div>
+            <!-- 营销域 -->
+            <div class="ws-card panel relative flex flex-col p-5" onclick="switchPage('dashboard', document.querySelector('[data-page=dashboard]'))">
+              <div class="ws-actions absolute right-3 top-3 flex gap-1">
+                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+              </div>
+              <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-lg" style="background:rgba(139,92,246,.1);color:#8B5CF6"><i data-lucide="megaphone" class="h-5 w-5"></i></div>
+              <div class="text-[15px] font-semibold" style="color:var(--text)">营销域</div>
+              <div class="mt-1 text-[12.5px] leading-relaxed" style="color:var(--text2)">投放、触达与归因分析的业务血缘图谱</div>
+              <div class="mt-4 flex items-center gap-3 text-[11.5px]" style="color:var(--text3)"><span>2 个模型</span><span>42 节点</span></div>
+              <div class="mt-3 flex items-center justify-between border-t pt-3 text-[11.5px]" style="border-color:var(--border);color:var(--text3)"><span>昨天更新</span><span style="color:var(--primary)">进入 →</span></div>
+            </div>
+            <!-- 用户域 -->
+            <div class="ws-card panel relative flex flex-col p-5" onclick="switchPage('dashboard', document.querySelector('[data-page=dashboard]'))">
+              <div class="ws-actions absolute right-3 top-3 flex gap-1">
+                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+              </div>
+              <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-lg" style="background:rgba(14,165,233,.1);color:#0EA5E9"><i data-lucide="users" class="h-5 w-5"></i></div>
+              <div class="text-[15px] font-semibold" style="color:var(--text)">用户域</div>
+              <div class="mt-1 text-[12.5px] leading-relaxed" style="color:var(--text2)">会员、画像与行为数据的血缘梳理（构建中）</div>
+              <div class="mt-4 flex items-center gap-3 text-[11.5px]" style="color:var(--text3)"><span>1 个模型</span><span>31 节点</span></div>
+              <div class="mt-3 flex items-center justify-between border-t pt-3 text-[11.5px]" style="border-color:var(--border);color:var(--text3)"><span>3 天前更新</span><span style="color:var(--primary)">进入 →</span></div>
+            </div>
+            <!-- 新建 -->
+            <div class="flex min-h-[200px] cursor-pointer flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed transition" style="border-color:var(--border);color:var(--text3)" onclick="showToast('新建工作空间对话框（演示）')">
+              <div class="flex h-10 w-10 items-center justify-center rounded-full" style="background:var(--nav-hover)"><i data-lucide="plus" class="h-5 w-5"></i></div>
+              <span class="text-[13.5px] font-medium">新建工作空间</span>
+              <span class="text-[11px]" style="color:var(--text3)">名称 + 可选描述</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
 </div>
+
+<!-- Toast 容器 -->
+<div id="toastContainer"></div>
+
+<script>
+  // 当前页面
+  let currentPage = 'dashboard';
+  const pageTitles = {
+    dashboard: '工作台', graph: '血缘图谱', experiences: '经验库', chat: 'AI 对话',
+    datasources: '数据源', settings: '设置', workspaces: '工作空间'
+  };
+
+  // 切换页面
+  function switchPage(pageName, navEl) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const page = document.getElementById('page-' + pageName);
+    if (page) page.classList.add('active');
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    if (navEl) navEl.classList.add('active');
+    document.getElementById('pageTitle').textContent = pageTitles[pageName] || pageName;
+    // 数据源页自带搜索+筛选，隐藏全局顶栏搜索框避免两个搜索框叠放
+    const globalSearch = document.getElementById('globalSearchBox');
+    if (globalSearch) globalSearch.style.display = (pageName === 'datasources') ? 'none' : '';
+    currentPage = pageName;
+    lucide.createIcons();
+  }
+
+  // 主题切换
+  let isDark = false;
+  function toggleTheme() {
+    isDark = !isDark;
+    document.body.classList.toggle('theme-dark', isDark);
+    document.getElementById('themeIconMoon').classList.toggle('hidden', isDark);
+    document.getElementById('themeIconSun').classList.toggle('hidden', !isDark);
+  }
+
+  // Toast 提示
+  function showToast(msg) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.style.background = 'var(--panel)';
+    toast.style.color = 'var(--text)';
+    toast.style.border = 'var(--panel-border)';
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity .3s'; setTimeout(() => toast.remove(), 300); }, 2000);
+  }
+
+  // 图谱追溯切换
+  function toggleTrace() {
+    const banner = document.getElementById('traceBanner');
+    const edges = document.getElementById('traceEdges');
+    const btn = document.getElementById('traceBtn');
+    const visible = banner.style.display !== 'none' && banner.style.display !== '';
+    if (visible) {
+      banner.style.display = 'none';
+      edges.style.display = 'none';
+      btn.classList.remove('active');
+    } else {
+      banner.style.display = 'flex';
+      edges.style.display = 'inline';
+      btn.style.borderColor = 'var(--primary)';
+      btn.style.color = 'var(--primary)';
+    }
+  }
+
+  // 节点详情
+  function showNodeDetail(name) {
+    document.getElementById('nodeDetailPanel').classList.remove('hidden');
+    document.getElementById('nodeDetailName').textContent = name;
+  }
+  function hideNodeDetail() {
+    document.getElementById('nodeDetailPanel').classList.add('hidden');
+  }
+
+  // 数据源 Modal
+  // ========== 数据源筛选 & 交互 ==========
+  var currentDsFilter = 'all';
+
+  function filterDsCards(filter, btn, search) {
+    if (filter) currentDsFilter = filter;
+    // 更新 chip 激活
+    document.querySelectorAll('.ds-filter-chip').forEach(function(c) { c.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+    else { var a = document.querySelector('.ds-filter-chip[data-filter="'+currentDsFilter+'"]'); if (a) a.classList.add('active'); }
+    // 筛选卡片
+    var cards = document.querySelectorAll('#dsCardGrid .ds-card');
+    var count = 0;
+    var st = (search || '').toLowerCase();
+    cards.forEach(function(c) {
+      var show = true;
+      if (currentDsFilter === 'db') show = c.dataset.dsType === 'db';
+      if (currentDsFilter === 'http') show = c.dataset.dsType === 'http';
+      if (currentDsFilter === 'connected') show = c.dataset.dsStatus === 'connected';
+      if (currentDsFilter === 'error') show = c.dataset.dsStatus === 'error';
+      if (currentDsFilter === 'untested') show = c.dataset.dsStatus === 'untested';
+      if (show && st) show = (c.dataset.dsName || '').toLowerCase().includes(st);
+      c.style.display = show ? '' : 'none';
+      if (show) count++;
+    });
+    if (count === 0 && st) showToast('未找到匹配「' + st + '」的数据源');
+    else if (count === 0 && currentDsFilter !== 'all') showToast('该筛选条件下无数据源');
+  }
+
+  function clearDsFilters() {
+    currentDsFilter = 'all';
+    document.querySelectorAll('.ds-filter-chip').forEach(function(c) { c.classList.remove('active'); });
+    var allChip = document.querySelector('.ds-filter-chip[data-filter="all"]');
+    if (allChip) allChip.classList.add('active');
+    document.querySelectorAll('#dsCardGrid .ds-card').forEach(function(c) { c.style.display = ''; });
+    // 清空搜索框
+    var si = document.querySelector('#page-datasources input[type]');
+    if (si) si.value = '';
+    showToast('已清除所有筛选');
+  }
+
+  function testDsConnection(name) {
+    showToast('正在测试「' + name + '」连接…');
+    setTimeout(function() {
+      var ms = Math.floor(Math.random() * 400 + 15);
+      showToast('「' + name + '」连接成功 · ' + ms + 'ms');
+    }, 1200);
+  }
+
+  function showDataSourceModal() {
+    document.getElementById('dsCreateWizard').classList.remove('hidden');
+    document.getElementById('dsCreateWizard').classList.add('flex');
+    showDsWizardStep('type');
+    lucide.createIcons();
+  }
+
+  // ========== 数据源详情（Mock 数据 + 渲染） ==========
+  var DS_DETAILS = {
+    '核心交易库': {
+      status: 'connected', engine: 'MySQL 8.0', host: '10.20.8.31:3306', db: 'eic_trade', user: 'lineage_ro',
+      latency: '42ms', lastSync: '今天 14:32', tableCount: 12, rowCount: '1.2 万',
+      tables: [
+        ['ods_order', '订单主表', '4,120'], ['ods_pay', '支付流水', '3,860'], ['ods_refund', '退款记录', '412'],
+        ['dwd_pay_di', '支付明细日增量', '2,904'], ['dws_trade_td', '交易域汇总', '365'], ['dim_channel', '支付渠道维表', '28']
+      ]
+    },
+    '用户画像库': {
+      status: 'connected', engine: 'PostgreSQL 15', host: '10.20.8.42:5432', db: 'eic_profile', user: 'lineage_ro',
+      latency: '28ms', lastSync: '今天 13:05', tableCount: 16, rowCount: '8.5 万',
+      tables: [
+        ['ods_user', '用户基础信息', '52,300'], ['ods_member_level', '会员等级', '52,300'], ['dim_user_tag', '用户标签维表', '1,204'],
+        ['dws_user_profile_td', '画像汇总宽表', '48,900'], ['ods_login_log', '登录日志', '31,750']
+      ]
+    },
+    '信贷核心库': {
+      status: 'connected', engine: '达梦 DM 8', host: '10.20.9.7:5236', db: 'CREDIT', user: 'lineage_ro',
+      latency: '15ms', lastSync: '今天 11:47', tableCount: 24, rowCount: '4.5 万',
+      tables: [
+        ['T_LOAN_APPLY', '贷款申请', '18,204'], ['T_LOAN_CONTRACT', '贷款合同', '12,880'], ['T_REPAY_PLAN', '还款计划', '9,640'],
+        ['T_CREDIT_SCORE', '信用评分', '4,020'], ['T_COLLATERAL', '押品信息', '312']
+      ]
+    },
+    '经营分析库': {
+      status: 'error', engine: 'GBase 8a', host: '10.20.10.15:5258', db: 'eic_bi', user: 'lineage_ro',
+      latency: '—', lastSync: '3 天前 09:12', tableCount: '--', rowCount: '--',
+      error: 'connect timed out（最近一次探测：今天 14:50）',
+      tables: []
+    },
+    '历史订单归档': {
+      status: 'untested', engine: 'Oracle 19c', host: '10.20.11.3:1521', db: 'ORCLPDB1', user: 'lineage_ro',
+      latency: '—', lastSync: '从未同步', tableCount: '待探测', rowCount: '待探测',
+      tables: []
+    },
+    '营销触达 API': {
+      status: 'connected', engine: 'HTTPS · REST', host: 'api.mkt.internal', db: '/v2/campaigns', user: 'Bearer Token',
+      latency: '418ms', lastSync: '5 分钟前（定时轮询 · 300s）', tableCount: 12, rowCount: '4.8 万',
+      isApi: true,
+      tables: [
+        ['GET /v2/campaigns', '营销活动列表', '12 条/天'], ['GET /v2/campaigns/{id}/reach', '触达明细', '4.8 万条/天'], ['GET /v2/audiences', '受众分群', '86 个分群']
+      ]
+    }
+  };
+
+  function dsStatusBadge(status) {
+    if (status === 'connected') return '<span class="rounded-full px-2 py-px text-[10px] font-medium" style="background:rgba(16,185,129,.1);color:#10B981">已连接</span>';
+    if (status === 'error') return '<span class="rounded-full px-2 py-px text-[10px] font-bold" style="background:rgba(244,63,94,.12);color:#F43F5E">异常</span>';
+    return '<span class="rounded-full px-2 py-px text-[10px] font-medium" style="background:rgba(245,158,11,.1);color:#F59E0B">待探测</span>';
+  }
+
+  function showDataSourceDetail(name) {
+    var d = DS_DETAILS[name];
+    if (!d) { showToast('未找到数据源：' + name); return; }
+    document.getElementById('dsDetailTitle').innerHTML = name + ' ' + dsStatusBadge(d.status);
+    var html = '';
+    // 异常提示
+    if (d.status === 'error') {
+      html += '<div class="mb-4 flex items-start gap-2.5 rounded-lg p-3 text-[12px] leading-relaxed" style="background:rgba(244,63,94,.06);color:#F43F5E">'
+        + '<i data-lucide="alert-triangle" class="mt-0.5 h-4 w-4 shrink-0"></i>'
+        + '<div><div class="font-semibold mb-0.5">连接失败：' + d.error + '</div>'
+        + '<div style="opacity:.85">可能原因：网络不通、端口未放行、数据库实例重启、账号/密码失效。请修复后点击下方「测试连接」重试。</div></div></div>';
+    }
+    if (d.status === 'untested') {
+      html += '<div class="mb-4 flex items-start gap-2.5 rounded-lg p-3 text-[12px] leading-relaxed" style="background:rgba(245,158,11,.08);color:#F59E0B">'
+        + '<i data-lucide="info" class="mt-0.5 h-4 w-4 shrink-0"></i>'
+        + '<div>该数据源尚未执行连接测试，表结构与行数将在首次测试成功后自动采集。</div></div>';
+    }
+    // 连接信息
+    var fields = [
+      [d.isApi ? 'Base URL' : 'Host', d.host], [d.isApi ? '路径' : '数据库', d.db],
+      ['类型', d.engine], ['凭证', d.user],
+      ['延迟', d.latency], ['最近同步', d.lastSync]
+    ];
+    html += '<div class="mb-5"><div class="mb-2 text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text3)">连接信息</div>'
+      + '<div class="grid grid-cols-2 gap-2">'
+      + fields.map(function(f) {
+          return '<div class="rounded-lg p-2.5" style="background:var(--nav-hover)"><div class="text-[10.5px]" style="color:var(--text3)">' + f[0] + '</div>'
+            + '<div class="mt-0.5 font-mono text-[12px] truncate" style="color:var(--text)" title="' + f[1] + '">' + f[1] + '</div></div>';
+        }).join('')
+      + '</div></div>';
+    // 概览指标
+    html += '<div class="mb-5 grid grid-cols-2 gap-2">'
+      + '<div class="rounded-lg p-3" style="background:var(--accent-bg)"><div class="text-[11px] font-medium" style="color:var(--accent-text)">' + (d.isApi ? '接口端点' : '数据表') + '</div><div class="mt-0.5 text-[20px] font-bold" style="color:var(--text)">' + d.tableCount + '</div></div>'
+      + '<div class="rounded-lg p-3" style="background:var(--accent-bg)"><div class="text-[11px] font-medium" style="color:var(--accent-text)">' + (d.isApi ? '日均数据量' : '预估行数') + '</div><div class="mt-0.5 text-[20px] font-bold" style="color:var(--text)">' + d.rowCount + '</div></div>'
+      + '</div>';
+    // 表 / 端点列表
+    if (d.tables.length > 0) {
+      html += '<div><div class="mb-2 flex items-center justify-between"><span class="text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text3)">' + (d.isApi ? '接口端点' : '表结构（预览前 ' + d.tables.length + ' 张）') + '</span>'
+        + (d.isApi ? '' : '<span class="text-[10.5px]" style="color:var(--text3)">点击表名可在血缘图中定位</span>') + '</div>'
+        + '<div class="overflow-hidden rounded-lg border" style="border-color:var(--border)">'
+        + '<table class="w-full text-[12px]"><thead><tr style="background:var(--nav-hover)">'
+        + '<th class="px-3 py-2 text-left font-medium" style="color:var(--text2)">' + (d.isApi ? '端点' : '表名') + '</th>'
+        + '<th class="px-3 py-2 text-left font-medium" style="color:var(--text2)">说明</th>'
+        + '<th class="px-3 py-2 text-right font-medium" style="color:var(--text2)">' + (d.isApi ? '数据量' : '行数') + '</th></tr></thead><tbody>'
+        + d.tables.map(function(t) {
+            return '<tr class="border-t transition hover:brightness-95" style="border-color:var(--border);background:var(--panel-bg,transparent);cursor:pointer" onclick="showToast(\'定位到「' + t[0] + '」（演示）\')">'
+              + '<td class="px-3 py-2 font-mono" style="color:var(--primary)">' + t[0] + '</td>'
+              + '<td class="px-3 py-2" style="color:var(--text2)">' + t[1] + '</td>'
+              + '<td class="px-3 py-2 text-right font-mono" style="color:var(--text3)">' + t[2] + '</td></tr>';
+          }).join('')
+        + '</tbody></table></div></div>';
+    } else {
+      html += '<div class="flex flex-col items-center gap-2 rounded-lg border border-dashed py-8 text-[12px]" style="border-color:var(--border);color:var(--text3)">'
+        + '<i data-lucide="table-2" class="h-6 w-6"></i>'
+        + (d.status === 'error' ? '连接恢复后将自动展示表结构' : '测试连接成功后将自动采集表结构')
+        + '</div>';
+    }
+    document.getElementById('dsDetailInfo').innerHTML = html;
+    var modal = document.getElementById('dsDetailModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    lucide.createIcons();
+  }
+
+  function closeDsDetail() {
+    var modal = document.getElementById('dsDetailModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  }
+
+  // ========== 经验库交互函数 ==========
+
+  // 领域筛选
+  function filterByDomain(domain, el) {
+    document.querySelectorAll('#page-experiences aside .nav-item[data-domain]').forEach(n => n.classList.remove('active'));
+    if (el) { el.classList.add('active'); }
+    // 同时清除来源筛选的激活状态
+    document.querySelectorAll('#page-experiences aside .nav-item[data-source]').forEach(n => n.classList.remove('active'));
+    applyExpFilters();
+  }
+
+  // 来源筛选
+  function filterBySource(source, el) {
+    document.querySelectorAll('#page-experiences aside .nav-item[data-source]').forEach(n => n.classList.remove('active'));
+    if (el) { el.classList.add('active'); }
+    // 同时清除领域筛选的激活状态
+    document.querySelectorAll('#page-experiences aside .nav-item[data-domain]').forEach(n => n.classList.remove('active'));
+    applyExpFilters();
+  }
+
+  // 清除所有筛选
+  function clearAllFilters() {
+    document.querySelectorAll('#page-experiences aside .nav-item[data-domain], #page-experiences aside .nav-item[data-source]').forEach(n => n.classList.remove('active'));
+    const allBtn = document.querySelector('#page-experiences aside .nav-item[data-domain="all"]');
+    if (allBtn) allBtn.classList.add('active');
+    applyExpFilters();
+  }
+
+  // 应用筛选 + 搜索
+  function applyExpFilters() {
+    const activeDomain = document.querySelector('#page-experiences aside .nav-item[data-domain].active');
+    const activeSource = document.querySelector('#page-experiences aside .nav-item[data-source].active');
+    const domainVal = activeDomain ? activeDomain.dataset.domain : null;
+    const sourceVal = activeSource ? activeSource.dataset.source : null;
+    const searchTerm = (document.getElementById('expSearchInput')?.value || '').toLowerCase();
+    const cards = document.querySelectorAll('#expGrid .doc-card');
+    let visible = 0;
+    cards.forEach(c => {
+      const d = c.dataset.domain;
+      const s = c.dataset.source;
+      const name = (c.dataset.name || '').toLowerCase();
+      let show = true;
+      if (domainVal && domainVal !== 'all' && d !== domainVal) show = false;
+      if (sourceVal && s !== sourceVal) show = false;
+      if (searchTerm && !name.includes(searchTerm)) show = false;
+      c.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    document.getElementById('expDocCount').textContent = visible + ' 篇文档';
+    const labels = [];
+    if (domainVal && domainVal !== 'all') labels.push(document.querySelector('[data-domain="' + domainVal + '"]')?.textContent?.trim().replace(/\d+$/, '') || domainVal);
+    if (sourceVal) labels.push(document.querySelector('[data-source="' + sourceVal + '"]')?.textContent?.trim().replace(/\d+$/, '') || sourceVal);
+    document.getElementById('expSortLabel').textContent = labels.length > 0 ? '筛选：' + labels.join(' + ') : '按更新时间排序';
+  }
+
+  // 搜索过滤（绑定到搜索框）
+  function filterExperiences() {
+    applyExpFilters();
+  }
+
+  // 排序
+  function sortExperiences(type) {
+    const grid = document.getElementById('expGrid');
+    const cards = Array.from(grid.querySelectorAll('.doc-card'));
+    cards.sort((a, b) => {
+      if (type === 'name') return (a.dataset.name || '').localeCompare(b.dataset.name || '', 'zh');
+      if (type === 'time') return (a.dataset.time || '').localeCompare(b.dataset.time || '');
+      if (type === 'domain') return (a.dataset.domain || '').localeCompare(b.dataset.domain || '');
+      return 0;
+    });
+    cards.forEach(c => grid.appendChild(c));
+    showToast('已按' + (type === 'time' ? '更新时间' : type === 'name' ? '名称' : '领域') + '排序');
+  }
+
+  // 文档预览
+  function previewDoc(name) {
+    const modal = document.getElementById('expPreviewModal');
+    document.getElementById('previewTitle').textContent = name;
+    document.getElementById('previewContent').innerHTML = '<p>这是 <b>' + name + '</b> 的完整内容预览。</p><p class="mt-2">文档中描述了业务指标的计算口径、数据来源、以及相关表之间的血缘关系。系统已自动识别其中的实体名称、表名和指标定义。</p><p class="mt-2">此处为原型演示内容，实际将展示从经验库加载的完整文档。</p>';
+    document.getElementById('previewMeta').innerHTML = '<span class="badge" style="background:var(--accent-bg);color:var(--accent-text)">已入图</span><span class="badge" style="background:var(--nav-hover);color:var(--text3)">交易域</span><span class="badge" style="background:var(--nav-hover);color:var(--text3)">抽取 8 实体</span>';
+    document.getElementById('previewEntities').innerHTML = '<span class="chip">GMV</span><span class="chip">支付成功率</span><span class="chip">退款率</span><span class="chip">ods_pay</span><span class="chip">dwd_pay_di</span><span class="chip">dws_trade_td</span><span class="chip">交易域</span><span class="chip">支付渠道</span>';
+    modal.classList.remove('hidden'); modal.classList.add('flex');
+    lucide.createIcons();
+  }
+  function closeExpPreview() {
+    document.getElementById('expPreviewModal').classList.add('hidden');
+    document.getElementById('expPreviewModal').classList.remove('flex');
+  }
+
+  // 导入文档弹窗
+  function showExpImportDialog() {
+    document.getElementById('expImportModal').classList.remove('hidden');
+    document.getElementById('expImportModal').classList.add('flex');
+    lucide.createIcons();
+  }
+  function closeExpImport() {
+    document.getElementById('expImportModal').classList.add('hidden');
+    document.getElementById('expImportModal').classList.remove('flex');
+  }
+
+  // 联网调研弹窗
+  function showExpResearchDialog() {
+    document.getElementById('expResearchModal').classList.remove('hidden');
+    document.getElementById('expResearchModal').classList.add('flex');
+    lucide.createIcons();
+  }
+  function closeExpResearch() {
+    document.getElementById('expResearchModal').classList.add('hidden');
+    document.getElementById('expResearchModal').classList.remove('flex');
+  }
+
+  // 新建经验弹窗
+  function showExpCreateDialog() {
+    document.getElementById('expCreateModal').classList.remove('hidden');
+    document.getElementById('expCreateModal').classList.add('flex');
+    lucide.createIcons();
+  }
+  function closeExpCreate() {
+    document.getElementById('expCreateModal').classList.add('hidden');
+    document.getElementById('expCreateModal').classList.remove('flex');
+  }
+
+  // 编辑经验弹窗
+  function showExpEditDialog(name, domain, source) {
+    document.getElementById('editExpTitle').textContent = name;
+    document.getElementById('editExpNameInput').value = name;
+    const domainMap = { trade: '交易域', user: '用户域', marketing: '营销域', supply: '供应链' };
+    document.getElementById('editExpDomain').value = domainMap[domain] || '交易域';
+    document.getElementById('editExpSource').value = source || 'import';
+    document.getElementById('expEditModal').classList.remove('hidden');
+    document.getElementById('expEditModal').classList.add('flex');
+    lucide.createIcons();
+  }
+  function closeExpEdit() {
+    document.getElementById('expEditModal').classList.add('hidden');
+    document.getElementById('expEditModal').classList.remove('flex');
+  }
+
+  // 一键建图进度弹窗
+  function showExpBuildGraphDialog() {
+    document.getElementById('expBuildModal').classList.remove('hidden');
+    document.getElementById('expBuildModal').classList.add('flex');
+    lucide.createIcons();
+    // 模拟进度完成
+    setTimeout(() => {
+      const steps = document.querySelectorAll('#buildSteps .step-dot');
+      if (steps.length >= 4) {
+        steps[2].innerHTML = '<span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style="background:#10B981">✓</span><span>推断血缘关系：识别 214 条血缘边</span>';
+        steps[2].style.color = '#10B981';
+        steps[3].innerHTML = '<span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white" style="background:#10B981">✓</span><span>写入图谱：构建完成，86 节点、214 边</span>';
+        steps[3].style.color = '#10B981';
+        showToast('一键建图完成！共构建 86 个节点、214 条血缘边');
+      }
+    }, 2500);
+  }
+  function closeExpBuild() {
+    document.getElementById('expBuildModal').classList.add('hidden');
+    document.getElementById('expBuildModal').classList.remove('flex');
+  }
+
+  // 抽取本体
+  function extractOntology(docName) {
+    const name = docName || document.getElementById('previewTitle').textContent;
+    showToast('正在从「' + name + '」中抽取本体实体…');
+    setTimeout(() => showToast('本体抽取完成：识别 8 个实体、12 个属性'), 1500);
+  }
+
+  // 从文档构建图谱
+  function buildGraphFromDoc(docName) {
+    const name = docName || document.getElementById('previewTitle').textContent;
+    showToast('正在基于「' + name + '」构建血缘图谱…');
+    setTimeout(() => showToast('图谱构建完成：新增 5 个节点、8 条边'), 1500);
+  }
+
+  // 重新同步 DDL
+  function syncDdl(docName) {
+    showToast('正在重新同步「' + docName + '」的 DDL 结构…');
+    setTimeout(() => showToast('DDL 同步完成：检测到 2 个表结构变更'), 1500);
+  }
+
+  // 删除文档
+  function deleteDoc(docName) {
+    if (confirm('确定要删除「' + docName + '」吗？此操作不可撤销。')) {
+      showToast('「' + docName + '」已删除');
+    }
+  }
+
+  // ========== AI 对话交互 ==========
+  let chatMsgCount = 0;
+
+  function newChatSession() {
+    var list = document.getElementById('chatMessageList');
+    list.innerHTML = '';
+    chatMsgCount = 0;
+    var welcome = document.createElement('div');
+    welcome.className = 'flex gap-3'; welcome.id = 'chatWelcome';
+    welcome.innerHTML = '<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white" style="background:linear-gradient(135deg, var(--primary), var(--primary2))"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i></div><div class="min-w-0 flex-1"><p class="text-[13px] leading-relaxed" style="color:var(--text2)">我是你的血缘建模助手，已加载当前工作空间的经验库和血缘图谱。你可以问我指标口径、血缘影响、数据溯源等问题。</p><div class="mt-3 flex flex-wrap gap-2">' +
+      ['支付成功率的口径是什么？它依赖哪些上游表？','当前图谱中有哪些孤立节点？如何修复？','帮我分析最近 7 天的血缘变更']
+        .map(function(q){ return '<button class="rounded-full border px-3 py-1.5 text-[12px] transition" style="border-color:var(--border);color:var(--text2)" onclick="sendQuickQuestion(\''+q+'\')">'+q+'</button>'; }).join('') +
+      '</div></div>';
+    list.appendChild(welcome);
+    lucide.createIcons();
+    showToast('新会话已创建');
+  }
+
+  function sendQuickQuestion(q) { document.getElementById('chatInput').value = q; sendChatMessage(); }
+  function handleChatKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }
+
+  function sendChatMessage() {
+    var input = document.getElementById('chatInput'), text = input.value.trim();
+    if (!text) return; input.value = ''; chatMsgCount++;
+    var list = document.getElementById('chatMessageList');
+    var w = document.getElementById('chatWelcome'); if (w) w.remove();
+    // 用户消息
+    var uDiv = document.createElement('div'); uDiv.className = 'flex justify-end';
+    uDiv.innerHTML = '<div class="user-bubble max-w-[80%] px-4 py-3"><p class="text-[13.5px] leading-relaxed" style="color:var(--text)">'+escapeHtml(text)+'</p></div>';
+    list.appendChild(uDiv);
+    // 加载动画
+    var lDiv = document.createElement('div'); lDiv.className = 'flex gap-3'; lDiv.id = 'chatLoading-'+chatMsgCount;
+    lDiv.innerHTML = '<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white" style="background:linear-gradient(135deg, var(--primary), var(--primary2))"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i></div><div class="min-w-0 flex-1"><div class="ai-bubble px-4 py-3.5 text-[13px]" style="color:var(--text2)"><span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-r-transparent mr-2"></span>正在检索经验库并查询血缘图…</div></div>';
+    list.appendChild(lDiv); list.scrollTop = list.scrollHeight; lucide.createIcons();
+    // 模拟回复
+    setTimeout(function(){
+      lDiv.remove();
+      var reply = generateAiReply(text);
+      var aDiv = document.createElement('div'); aDiv.className = 'flex gap-3';
+      aDiv.innerHTML = '<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white" style="background:linear-gradient(135deg, var(--primary), var(--primary2))"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i></div><div class="min-w-0 flex-1">'+reply.main+'</div>';
+      list.appendChild(aDiv);
+      if (reply.suggestions && reply.suggestions.length) {
+        var sDiv = document.createElement('div'); sDiv.className = 'flex gap-3';
+        sDiv.innerHTML = '<div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white" style="background:linear-gradient(135deg, var(--primary), var(--primary2))"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i></div><div class="min-w-0 flex-1"><p class="mb-2.5 text-[12.5px]" style="color:var(--text3)">想继续深入哪个方向？</p><div class="flex flex-wrap gap-2">'+
+          reply.suggestions.map(function(s){ return '<button class="rounded-full border px-3.5 py-1.5 text-[12.5px] transition" style="border-color:var(--primary);background:var(--accent-bg);color:var(--accent-text)" onclick="sendQuickQuestion(\''+escapeHtml(s)+'\')">'+s+'</button>'; }).join('')+'</div></div>';
+        list.appendChild(sDiv);
+      }
+      list.scrollTop = list.scrollHeight; lucide.createIcons();
+    }, 1800);
+  }
+
+  function generateAiReply(text) {
+    if (text.includes('口径') || text.includes('支付成功率')) return {
+      main: '<div class="mb-3 space-y-2"><div class="step-dot flex items-center gap-2.5 text-[12px]" style="color:#10B981"><span class="flex h-2.5 w-2.5 items-center justify-center"><span class="h-1.5 w-1.5 rounded-full" style="background:#10B981"></span></span>检索经验库：命中「交易域指标口径说明.pdf」等 2 篇文档</div><div class="step-dot flex items-center gap-2.5 text-[12px]" style="color:#10B981"><span class="flex h-2.5 w-2.5 items-center justify-center"><span class="h-1.5 w-1.5 rounded-full" style="background:#10B981"></span></span>查询血缘图：定位上游 2 跳</div><div class="step-dot flex items-center gap-2.5 text-[12px]" style="color:#10B981"><span class="flex h-2.5 w-2.5 items-center justify-center"><span class="h-1.5 w-1.5 rounded-full" style="background:#10B981"></span></span>生成回答</div></div><div class="ai-bubble px-4 py-3.5 text-[13.5px] leading-relaxed" style="color:var(--text)"><p class="mb-2"><span class="font-semibold" style="color:var(--primary)">支付成功率</span> = 支付成功笔数 ÷ 发起支付笔数（剔除测试单与 0 元单），按天统计。</p><p class="mb-3">它的血缘链路为：</p><div class="mb-3 flex flex-wrap items-center gap-1.5 text-[12px]"><span class="rounded-md px-2 py-1" style="background:var(--nav-hover);color:var(--text)">ods_pay</span><i data-lucide="arrow-right" class="h-3 w-3" style="color:var(--primary)"></i><span class="rounded-md px-2 py-1" style="background:var(--nav-hover);color:var(--text)">dwd_pay_di</span><i data-lucide="arrow-right" class="h-3 w-3" style="color:var(--primary)"></i><span class="rounded-md px-2 py-1" style="background:var(--nav-hover);color:var(--text)">dws_trade_td</span><i data-lucide="arrow-right" class="h-3 w-3" style="color:var(--primary)"></i><span class="rounded-md px-2 py-1 font-medium" style="background:var(--accent-bg);color:var(--accent-text)">支付成功率</span></div></div><div class="mt-2.5 flex flex-wrap gap-2"><span class="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]" style="background:var(--nav-hover);color:var(--text3)"><i data-lucide="file-text" class="h-3 w-3"></i>交易域指标口径说明.pdf</span><span class="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px]" style="background:var(--nav-hover);color:var(--text3)"><i data-lucide="waypoints" class="h-3 w-3"></i>交易域血缘图 · 4 节点</span></div>',
+      suggestions: ['支付成功率最近 30 天趋势异常分析','把这条血缘链路导出给团队','推断边的 82% 置信度怎么来的？']
+    };
+    if (text.includes('孤立') || text.includes('修复')) return {
+      main: '<div class="ai-bubble px-4 py-3.5 text-[13.5px] leading-relaxed" style="color:var(--text)"><p class="mb-2">当前图谱中共有 <span class="font-semibold" style="color:var(--warning)">5 个孤立节点</span>：</p><div class="mb-3 flex flex-wrap gap-1.5"><span class="rounded-md px-2 py-1 text-[12px]" style="background:var(--nav-hover);color:var(--text)">ods_refund_log</span><span class="rounded-md px-2 py-1 text-[12px]" style="background:var(--nav-hover);color:var(--text)">dim_coupon</span><span class="rounded-md px-2 py-1 text-[12px]" style="background:var(--nav-hover);color:var(--text)">tmp_ab_test</span><span class="rounded-md px-2 py-1 text-[12px]" style="background:var(--nav-hover);color:var(--text)">ods_ad_click</span><span class="rounded-md px-2 py-1 text-[12px]" style="background:var(--nav-hover);color:var(--text)">dim_supplier</span></div><p>建议在血缘图谱中对这些节点执行 AI 推断，补充缺失的血缘关系后重新建图。</p></div>',
+      suggestions: ['对孤立节点批量执行推断','这些孤立节点可能属于哪个业务域？','帮我导出当前图谱的孤立节点清单']
+    };
+    return {
+      main: '<div class="ai-bubble px-4 py-3.5 text-[13.5px] leading-relaxed" style="color:var(--text)"><p>已收到你的问题。根据当前工作空间的经验库（56 篇文档）和血缘图谱（86 节点、214 边），建议你到相关页面查看更多详情。</p></div>',
+      suggestions: ['帮我总结当前图谱的健康状况','最近更新了哪些经验文档？','打开血缘图谱查看节点分布']
+    };
+  }
+
+  function escapeHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  // ========== 数据源 Wizard 函数 ==========
+  var currentDsKind = null;
+
+  function showDsWizardStep(step) {
+    var isForm = step === 'form';
+    document.getElementById('dsStepType').classList.toggle('hidden', isForm);
+    document.getElementById('dsStepForm').classList.toggle('hidden', !isForm);
+    document.getElementById('dsBackBtn').classList.toggle('hidden', !isForm);
+    document.getElementById('dsTestBtn').classList.toggle('hidden', !isForm);
+    document.getElementById('dsSaveBtn').classList.toggle('hidden', !isForm);
+    // 步骤指示器联动
+    var dot1 = document.getElementById('dsDot1'), dot2 = document.getElementById('dsDot2');
+    var i1 = dot1.querySelector('i'), i2 = dot2.querySelector('i');
+    if (isForm) {
+      dot1.style.color = 'var(--text3)';
+      i1.style.background = 'rgba(16,185,129,.12)'; i1.style.color = '#10B981'; i1.textContent = '✓';
+      dot2.style.color = 'var(--text)';
+      i2.style.background = 'var(--accent-bg)'; i2.style.color = 'var(--accent-text)';
+    } else {
+      dot1.style.color = 'var(--text)';
+      i1.style.background = 'var(--accent-bg)'; i1.style.color = 'var(--accent-text)'; i1.textContent = '1';
+      dot2.style.color = 'var(--text3)';
+      i2.style.background = 'var(--nav-hover)'; i2.style.color = 'var(--text3)';
+      // 回到第 1 步时清除测试结果
+      var tr = document.getElementById('dsTestResult');
+      if (tr) { tr.classList.add('hidden'); tr.classList.remove('flex'); }
+    }
+    lucide.createIcons();
+  }
+
+  function pickDsKind(kind, label, port) {
+    currentDsKind = kind;
+    var isHttp = kind === 'https_api';
+    document.getElementById('dsPortWrapper').classList.toggle('hidden', isHttp);
+    document.getElementById('dsDbWrapper').classList.toggle('hidden', isHttp);
+    document.getElementById('dsHostWrapper').classList.toggle('hidden', isHttp);
+    document.getElementById('dsUrlWrapper').classList.toggle('hidden', !isHttp);
+    document.getElementById('dsPortInput').placeholder = port || '';
+    document.getElementById('dsKindLabel').textContent = label;
+    showDsWizardStep('form');
+  }
+
+  function closeDataSourceModal() {
+    var wizard = document.getElementById('dsCreateWizard');
+    wizard.classList.add('hidden');
+    wizard.classList.remove('flex');
+  }
+
+  function validateDsForm() {
+    var name = (document.getElementById('dsNameInput').value || '').trim();
+    if (!name) { showToast('请填写数据源名称'); return false; }
+    if (currentDsKind === 'https_api') {
+      var url = (document.getElementById('dsUrlInput').value || '').trim();
+      if (!url) { showToast('请填写接口 URL'); return false; }
+    } else {
+      var host = (document.getElementById('dsHostInput').value || '').trim();
+      if (!host) { showToast('请填写 Host'); return false; }
+      var db = (document.getElementById('dsDbInput').value || '').trim();
+      if (!db) { showToast('请填写数据库名'); return false; }
+    }
+    return true;
+  }
+
+  function testDsWizardConnection(btn) {
+    if (!validateDsForm()) return;
+    var orig = btn.innerHTML;
+    btn.innerHTML = '<span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-r-transparent mr-1"></span>测试中…';
+    btn.style.pointerEvents = 'none';
+    var result = document.getElementById('dsTestResult');
+    setTimeout(function() {
+      btn.innerHTML = orig;
+      btn.style.pointerEvents = '';
+      var ms = Math.floor(Math.random() * 400 + 15);
+      result.className = 'flex items-center gap-2 rounded-lg p-2.5 text-[12px]';
+      result.style.background = 'rgba(16,185,129,.08)';
+      result.style.color = '#10B981';
+      result.innerHTML = '<i data-lucide="check-circle-2" class="h-4 w-4 shrink-0"></i>连接成功 · 延迟 ' + ms + 'ms，可以保存了';
+      lucide.createIcons();
+    }, 1200);
+  }
+
+  function saveDsWizard() {
+    if (!validateDsForm()) return;
+    var name = (document.getElementById('dsNameInput').value || '').trim();
+    closeDataSourceModal();
+    showToast('数据源「' + name + '」已保存，正在测试连接…');
+    setTimeout(function() { showToast('连接成功！「' + name + '」已就绪'); }, 1500);
+  }
+
+  // ========== 设置页测试连接 ==========
+  function testModelConnection(name, btn) {
+    var origText = btn.innerHTML;
+    btn.innerHTML = '<span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-r-transparent mr-1"></span>测试中…';
+    btn.style.pointerEvents = 'none';
+    setTimeout(function() {
+      btn.innerHTML = origText;
+      btn.style.pointerEvents = '';
+      showToast(name + ' 连接成功 · ' + (Math.floor(Math.random()*500+100)) + 'ms');
+    }, 1500);
+  }
+
+  // 初始化图标
+  lucide.createIcons();
+</script>
 
 </body>
 </html>
