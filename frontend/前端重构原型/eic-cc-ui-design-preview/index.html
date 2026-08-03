@@ -74,6 +74,17 @@ tailwind.config = {
   .ws-card:hover { transform: translateY(-3px); }
   .ws-card .ws-actions { opacity:0; transition:opacity .15s; }
   .ws-card:hover .ws-actions { opacity:1; }
+  .ws-card .ws-enter { opacity:0; transition:opacity .15s; }
+  .ws-card:hover .ws-enter { opacity:1; }
+  /* 新建工作空间卡片 hover */
+  .ws-new-card { transition: transform .18s cubic-bezier(.2,.8,.2,1), border-color .18s, color .18s, box-shadow .18s; }
+  .ws-new-card:hover { transform: translateY(-2px); border-color: var(--primary) !important; color: var(--primary) !important; }
+  .theme-dark .ws-new-card:hover { border-color: #22D3EE !important; color: #67E8F9 !important; box-shadow: 0 0 20px rgba(34,211,238,.15); }
+  /* 工作空间下拉菜单项 */
+  .ws-drop-item { display:flex; align-items:center; gap:8px; width:100%; padding:7px 12px; border:none; background:transparent; color:var(--text); font:inherit; font-size:12.5px; text-align:left; border-radius:0; cursor:pointer; transition:background .12s; }
+  .ws-drop-item:hover { background:var(--nav-hover); }
+  .ws-drop-item .ws-drop-avatar { width:24px; height:24px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; flex-shrink:0; }
+  .ws-drop-item .ws-drop-meta { font-size:10.5px; color:var(--text3); }
   .theme-dark .ws-card:hover { border-color: rgba(34,211,238,.4); box-shadow: 0 0 24px rgba(34,211,238,.12); }
   .theme-dark .card-hover:hover { border-color: rgba(34,211,238,.3); box-shadow: 0 4px 20px rgba(0,0,0,.3); }
   .canvas-bg {
@@ -142,13 +153,27 @@ tailwind.config = {
 
     <!-- 工作空间切换 -->
     <div class="border-t p-3" style="border-color:var(--border)">
-      <div class="flex cursor-pointer items-center gap-2.5 rounded-lg p-2.5 transition" style="background:var(--nav-hover)" onclick="switchPage('workspaces', document.querySelector('[data-page=workspaces]'))">
-        <div class="flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold" style="background:var(--accent-bg);color:var(--accent-text)">电</div>
-        <div class="min-w-0 flex-1 leading-tight">
-          <div class="truncate text-[12.5px] font-medium" style="color:var(--text)">电商数仓工作空间</div>
-          <div class="text-[10.5px]" style="color:var(--text3)">3 个模型 · 昨天更新</div>
+      <div class="relative" id="wsSwitcher">
+        <button class="flex w-full cursor-pointer items-center gap-2.5 rounded-lg p-2.5 text-left transition" style="background:var(--nav-hover)" onclick="toggleWsDropdown()" id="wsSwitcherBtn">
+          <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white" id="wsSwitcherAvatar" style="background:linear-gradient(135deg, #6366F1, #8B5CF6)">电</div>
+          <div class="min-w-0 flex-1 leading-tight">
+            <div class="truncate text-[12.5px] font-medium" style="color:var(--text)" id="wsSwitcherName">电商数仓</div>
+            <div class="text-[10.5px]" style="color:var(--text3)" id="wsSwitcherMeta">3 个模型 · 128 节点</div>
+          </div>
+          <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5 shrink-0" style="color:var(--text3)"></i>
+        </button>
+        <!-- 下拉菜单 -->
+        <div id="wsDropdown" class="absolute bottom-full left-0 right-0 z-50 mb-1 hidden overflow-hidden rounded-xl border py-1 shadow-lg" style="background:var(--panel);border-color:var(--border)">
+          <div class="px-3 py-1.5 text-[10.5px] font-medium uppercase tracking-wider" style="color:var(--text3)">切换工作空间</div>
+          <div id="wsDropdownList"></div>
+          <div class="mt-1 border-t pt-1" style="border-color:var(--border)">
+            <button class="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] font-medium transition" style="color:var(--primary)" onclick="switchPage('workspaces', document.querySelector('[data-page=workspaces]'));closeWsDropdown()">
+              <i data-lucide="settings-2" class="h-3.5 w-3.5"></i>管理 / 新建工作空间
+            </button>
+          </div>
         </div>
-        <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5" style="color:var(--text3)"></i>
+        <!-- 点击遮罩关闭下拉 -->
+        <div id="wsDropdownMask" class="fixed inset-0 z-40 hidden" onclick="closeWsDropdown()"></div>
       </div>
     </div>
   </aside>
@@ -1233,58 +1258,61 @@ tailwind.config = {
             </div>
             <h1 class="text-2xl font-bold" style="color:var(--text)">推演平台</h1>
             <p class="mt-1 text-[11px] tracking-widest" style="color:var(--text3)">EIC-CC · 业务血缘建模</p>
-            <p class="mt-3 max-w-md mx-auto text-[13.5px] leading-relaxed" style="color:var(--text2)">基于本体图谱的 AI 业务血缘建模 —— 选择一个工作空间开始，或新建一个。</p>
+            <p class="mt-3 max-w-md mx-auto text-[13.5px] leading-relaxed" style="color:var(--text2)">
+              基于本体图谱的 AI 业务血缘建模 —— 选择一个工作空间开始，或新建一个。
+            </p>
           </div>
-          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <!-- 电商数仓 -->
-            <div class="ws-card panel relative flex flex-col p-5" onclick="switchPage('dashboard', document.querySelector('[data-page=dashboard]'))">
-              <span class="absolute -top-2.5 left-4 badge" style="background:var(--accent-bg);color:var(--accent-text)"><i data-lucide="check-circle-2" class="h-3 w-3"></i>当前使用</span>
-              <div class="ws-actions absolute right-3 top-3 flex gap-1">
-                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
-                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
-              </div>
-              <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-lg" style="background:var(--accent-bg);color:var(--accent-text)"><i data-lucide="layers" class="h-5 w-5"></i></div>
-              <div class="text-[15px] font-semibold" style="color:var(--text)">电商数仓</div>
-              <div class="mt-1 text-[12.5px] leading-relaxed" style="color:var(--text2)">交易、订单、支付核心链路的血缘建模与指标梳理</div>
-              <div class="mt-4 flex items-center gap-3 text-[11.5px]" style="color:var(--text3)">
-                <span><i data-lucide="waypoints" class="mr-1 inline h-3 w-3"></i>3 个模型</span>
-                <span><i data-lucide="box" class="mr-1 inline h-3 w-3"></i>128 节点</span>
-              </div>
-              <div class="mt-3 flex items-center justify-between border-t pt-3 text-[11.5px]" style="border-color:var(--border);color:var(--text3)">
-                <span>2 小时前更新</span>
-                <span style="color:var(--primary)">进入 →</span>
-              </div>
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" id="wsCardGrid">
+            <!-- 动态渲染工作空间卡片 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 新建 / 编辑工作空间弹窗 ====== -->
+      <div id="wsFormModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onclick="if(event.target===this)closeWsForm()">
+        <div class="panel flex w-[440px] max-w-full flex-col shadow-2xl">
+          <div class="flex items-center justify-between border-b px-5 py-4" style="border-color:var(--border)">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider" style="color:var(--text3)" id="wsFormMode">新建</div>
+              <h3 class="text-[15px] font-semibold" style="color:var(--text)" id="wsFormTitle">新建工作空间</h3>
             </div>
-            <!-- 营销域 -->
-            <div class="ws-card panel relative flex flex-col p-5" onclick="switchPage('dashboard', document.querySelector('[data-page=dashboard]'))">
-              <div class="ws-actions absolute right-3 top-3 flex gap-1">
-                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
-                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
-              </div>
-              <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-lg" style="background:rgba(139,92,246,.1);color:#8B5CF6"><i data-lucide="megaphone" class="h-5 w-5"></i></div>
-              <div class="text-[15px] font-semibold" style="color:var(--text)">营销域</div>
-              <div class="mt-1 text-[12.5px] leading-relaxed" style="color:var(--text2)">投放、触达与归因分析的业务血缘图谱</div>
-              <div class="mt-4 flex items-center gap-3 text-[11.5px]" style="color:var(--text3)"><span>2 个模型</span><span>42 节点</span></div>
-              <div class="mt-3 flex items-center justify-between border-t pt-3 text-[11.5px]" style="border-color:var(--border);color:var(--text3)"><span>昨天更新</span><span style="color:var(--primary)">进入 →</span></div>
+            <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" onclick="closeWsForm()"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <div class="flex flex-col gap-4 p-5">
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">名称 <span style="color:#F43F5E">*</span></div>
+              <input class="input" id="wsFormName" placeholder="例如：供应链项目" maxlength="30" />
             </div>
-            <!-- 用户域 -->
-            <div class="ws-card panel relative flex flex-col p-5" onclick="switchPage('dashboard', document.querySelector('[data-page=dashboard]'))">
-              <div class="ws-actions absolute right-3 top-3 flex gap-1">
-                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
-                <button class="rounded-md p-1.5 transition" style="color:var(--text3)" onclick="event.stopPropagation()"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
-              </div>
-              <div class="mb-3 flex h-10 w-10 items-center justify-center rounded-lg" style="background:rgba(14,165,233,.1);color:#0EA5E9"><i data-lucide="users" class="h-5 w-5"></i></div>
-              <div class="text-[15px] font-semibold" style="color:var(--text)">用户域</div>
-              <div class="mt-1 text-[12.5px] leading-relaxed" style="color:var(--text2)">会员、画像与行为数据的血缘梳理（构建中）</div>
-              <div class="mt-4 flex items-center gap-3 text-[11.5px]" style="color:var(--text3)"><span>1 个模型</span><span>31 节点</span></div>
-              <div class="mt-3 flex items-center justify-between border-t pt-3 text-[11.5px]" style="border-color:var(--border);color:var(--text3)"><span>3 天前更新</span><span style="color:var(--primary)">进入 →</span></div>
+            <div>
+              <div class="mb-1.5 text-[12px] font-medium" style="color:var(--text2)">描述（可选）</div>
+              <textarea class="input" id="wsFormDesc" rows="3" placeholder="记录该工作空间的用途…"></textarea>
             </div>
-            <!-- 新建 -->
-            <div class="flex min-h-[200px] cursor-pointer flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed transition" style="border-color:var(--border);color:var(--text3)" onclick="showToast('新建工作空间对话框（演示）')">
-              <div class="flex h-10 w-10 items-center justify-center rounded-full" style="background:var(--nav-hover)"><i data-lucide="plus" class="h-5 w-5"></i></div>
-              <span class="text-[13.5px] font-medium">新建工作空间</span>
-              <span class="text-[11px]" style="color:var(--text3)">名称 + 可选描述</span>
+          </div>
+          <div class="flex items-center gap-2 border-t px-5 py-4" style="border-color:var(--border)">
+            <span class="flex-1 text-[11px]" style="color:var(--text3)" id="wsFormHint">创建后可直接进入</span>
+            <button class="btn-ghost" onclick="closeWsForm()">取消</button>
+            <button class="btn-primary" id="wsFormSubmit" onclick="submitWsForm()">创建并进入</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== 删除工作空间确认弹窗 ====== -->
+      <div id="wsDeleteModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onclick="if(event.target===this)closeWsDelete()">
+        <div class="panel flex w-[400px] max-w-full flex-col shadow-2xl">
+          <div class="flex items-center justify-between border-b px-5 py-4" style="border-color:var(--border)">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider" style="color:var(--text3)">危险操作</div>
+              <h3 class="text-[15px] font-semibold" style="color:var(--text)">删除工作空间</h3>
             </div>
+            <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" onclick="closeWsDelete()"><i data-lucide="x" class="h-4 w-4"></i></button>
+          </div>
+          <div class="p-5">
+            <p class="text-[13px] leading-relaxed" style="color:var(--text2)" id="wsDeleteMsg">确定删除该工作空间？其中的模型、经验引用都会被清理，此操作不可恢复。</p>
+          </div>
+          <div class="flex items-center gap-2 border-t px-5 py-4" style="border-color:var(--border)">
+            <span class="flex-1"></span>
+            <button class="btn-ghost" onclick="closeWsDelete()">取消</button>
+            <button class="px-4 py-2 rounded-lg text-[13px] font-semibold text-white transition hover:brightness-110" style="background:linear-gradient(135deg, #F43F5E, #E11D48)" id="wsDeleteConfirm" onclick="confirmWsDelete()">确认删除</button>
           </div>
         </div>
       </div>
@@ -1304,6 +1332,265 @@ tailwind.config = {
     datasources: '数据源', settings: '设置', workspaces: '工作空间'
   };
 
+  // ══════════════════════════════════════════════
+  // 工作空间数据与交互
+  // ══════════════════════════════════════════════
+  const WS_COLORS = [
+    { icon: 'layers',        bg: 'linear-gradient(135deg, #6366F1, #8B5CF6)', lightBg: 'rgba(99,102,241,.1)',  color: '#6366F1' },
+    { icon: 'megaphone',     bg: 'linear-gradient(135deg, #8B5CF6, #D946EF)', lightBg: 'rgba(139,92,246,.1)',  color: '#8B5CF6' },
+    { icon: 'users',         bg: 'linear-gradient(135deg, #0EA5E9, #38BDF8)', lightBg: 'rgba(14,165,233,.1)',  color: '#0EA5E9' },
+    { icon: 'shield-check',  bg: 'linear-gradient(135deg, #10B981, #34D399)', lightBg: 'rgba(16,185,129,.1)',  color: '#10B981' },
+    { icon: 'building-2',    bg: 'linear-gradient(135deg, #F59E0B, #FBBF24)', lightBg: 'rgba(245,158,11,.1)',  color: '#F59E0B' },
+    { icon: 'globe',         bg: 'linear-gradient(135deg, #EC4899, #F472B6)', lightBg: 'rgba(236,72,153,.1)',  color: '#EC4899' },
+  ];
+
+  // 工作空间数据
+  let workspaces = [
+    { id: 'ws1', name: '电商数仓',   description: '交易、订单、支付核心链路的血缘建模与指标梳理',         models: 3, nodes: 128, updated: Date.now() - 2*3600000,  colorIdx: 0 },
+    { id: 'ws2', name: '营销域',     description: '投放、触达与归因分析的业务血缘图谱',                    models: 2, nodes: 42,  updated: Date.now() - 24*3600000, colorIdx: 1 },
+    { id: 'ws3', name: '用户域',     description: '会员、画像与行为数据的血缘梳理（构建中）',              models: 1, nodes: 31,  updated: Date.now() - 3*86400000, colorIdx: 2 },
+    { id: 'ws4', name: '信贷风控',   description: '风控模型、策略与特征工程的血缘体系',                   models: 0, nodes: 0,   updated: Date.now() - 7*86400000, colorIdx: 3 },
+    { id: 'ws5', name: '供应链',     description: '采购、入库、分拣、配送全链路环节',                     models: 1, nodes: 24,  updated: Date.now() - 14*86400000,colorIdx: 4 },
+  ];
+  let currentWsId = 'ws1';
+  let editingWsId = null;   // null=新建模式
+  let deletingWsId = null;
+
+  function getWs(id) { return workspaces.find(function(w) { return w.id === id; }); }
+  function currentWs() { return getWs(currentWsId); }
+  function wsColor(w) { return WS_COLORS[w && w.colorIdx != null ? w.colorIdx : 0]; }
+
+  function formatWsTime(ts) {
+    if (!ts) return '';
+    var diff = Date.now() - ts;
+    if (diff < 3600000) return Math.floor(diff/60000) + ' 分钟前更新';
+    if (diff < 86400000) return Math.floor(diff/3600000) + ' 小时前更新';
+    if (diff < 604800000) return Math.floor(diff/86400000) + ' 天前更新';
+    return new Date(ts).toLocaleDateString('zh-CN', {month:'short', day:'numeric'}) + '更新';
+  }
+
+  // 更新侧栏工作空间指示器
+  function updateWsSwitcher() {
+    var w = currentWs();
+    if (!w) return;
+    var c = wsColor(w);
+    document.getElementById('wsSwitcherAvatar').textContent = w.name.charAt(0).toUpperCase();
+    document.getElementById('wsSwitcherAvatar').style.background = c.bg;
+    document.getElementById('wsSwitcherName').textContent = w.name;
+    document.getElementById('wsSwitcherMeta').textContent = w.models + ' 个模型 · ' + w.nodes + ' 节点';
+  }
+
+  // 切换工作空间下拉
+  function toggleWsDropdown() {
+    var dd = document.getElementById('wsDropdown');
+    var mask = document.getElementById('wsDropdownMask');
+    var isOpen = !dd.classList.contains('hidden');
+    if (isOpen) { closeWsDropdown(); return; }
+    // 渲染下拉列表
+    var html = '';
+    workspaces.forEach(function(w) {
+      var c = wsColor(w);
+      var isCur = w.id === currentWsId;
+      html += '<button class="ws-drop-item" onclick="event.stopPropagation();switchWorkspace(\'' + w.id + '\')">' +
+        '<span class="ws-drop-avatar" style="background:' + c.bg + '">' + w.name.charAt(0).toUpperCase() + '</span>' +
+        '<span style="flex:1;min-width:0">' +
+          '<div class="truncate" style="font-weight:' + (isCur ? '600' : '400') + '">' + w.name + (isCur ? ' <span style=\"font-size:10px;color:var(--accent-text)\">✓</span>' : '') + '</div>' +
+          '<div class="ws-drop-meta">' + w.models + ' 模型 · ' + w.nodes + ' 节点 · ' + formatWsTime(w.updated) + '</div>' +
+        '</span>' +
+      '</button>';
+    });
+    document.getElementById('wsDropdownList').innerHTML = html;
+    dd.classList.remove('hidden');
+    mask.classList.remove('hidden');
+    lucide.createIcons();
+  }
+
+  function closeWsDropdown() {
+    document.getElementById('wsDropdown').classList.add('hidden');
+    document.getElementById('wsDropdownMask').classList.add('hidden');
+  }
+
+  // 切换工作空间（不从工作空间页调用时直接进入工作台）
+  function switchWorkspace(id) {
+    if (id === currentWsId) { closeWsDropdown(); return; }
+    currentWsId = id;
+    updateWsSwitcher();
+    closeWsDropdown();
+    renderWsCards();
+    if (currentPage === 'workspaces') {
+      showToast('已切换到「' + currentWs().name + '」');
+    } else {
+      switchPage('dashboard', document.querySelector('[data-page=dashboard]'));
+      showToast('已切换到「' + currentWs().name + '」');
+    }
+  }
+
+  // 进入工作空间（从卡片点击）
+  function enterWorkspace(id) {
+    currentWsId = id;
+    updateWsSwitcher();
+    switchPage('dashboard', document.querySelector('[data-page=dashboard]'));
+    showToast('已进入「' + currentWs().name + '」');
+  }
+
+  // 渲染工作空间卡片网格
+  function renderWsCards() {
+    var grid = document.getElementById('wsCardGrid');
+    if (!grid) return;
+    var html = '';
+    workspaces.forEach(function(w) {
+      var c = wsColor(w);
+      var isCur = w.id === currentWsId;
+      html += '<div class="ws-card panel relative flex flex-col p-5 cursor-pointer" onclick="enterWorkspace(\'' + w.id + '\')">' +
+        (isCur ? '<span class="absolute -top-2.5 left-4 badge" style="background:var(--accent-bg);color:var(--accent-text)"><i data-lucide="check-circle-2" class="h-3 w-3"></i>当前使用</span>' : '') +
+        '<div class="ws-actions absolute right-3 top-3 flex gap-1">' +
+          '<button class="rounded-md p-1.5 transition hover:bg-black/5" style="color:var(--text3)" onclick="event.stopPropagation();openWsEdit(\'' + w.id + '\')" title="重命名"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>' +
+          '<button class="rounded-md p-1.5 transition hover:bg-red-50 hover:text-red-500" style="color:var(--text3)" onclick="event.stopPropagation();openWsDelete(\'' + w.id + '\')" title="删除"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>' +
+        '</div>' +
+        '<div class="mb-3 flex h-10 w-10 items-center justify-center rounded-lg" style="background:' + c.lightBg + ';color:' + c.color + '"><i data-lucide="' + c.icon + '" class="h-5 w-5"></i></div>' +
+        '<div class="text-[15px] font-semibold" style="color:var(--text)">' + escapeHtml(w.name) + '</div>' +
+        '<div class="mt-1 text-[12.5px] leading-relaxed" style="color:var(--text2)">' + escapeHtml(w.description || '暂无描述') + '</div>' +
+        '<div class="mt-4 flex items-center gap-3 text-[11.5px]" style="color:var(--text3)">' +
+          '<span><i data-lucide="waypoints" class="mr-1 inline h-3 w-3"></i>' + w.models + ' 个模型</span>' +
+          '<span><i data-lucide="box" class="mr-1 inline h-3 w-3"></i>' + w.nodes + ' 节点</span>' +
+        '</div>' +
+        '<div class="mt-3 flex items-center justify-between border-t pt-3 text-[11.5px]" style="border-color:var(--border);color:var(--text3)">' +
+          '<span><i data-lucide="clock" class="mr-1 inline h-3 w-3"></i>' + formatWsTime(w.updated) + '</span>' +
+          '<span class="ws-enter font-medium" style="color:var(--primary)">进入 <i data-lucide="arrow-right" class="inline h-3.5 w-3.5"></i></span>' +
+        '</div>' +
+      '</div>';
+    });
+    // 新建卡片
+    html += '<div class="ws-new-card flex min-h-[208px] cursor-pointer flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed" style="border-color:var(--border);color:var(--text3)" onclick="openWsCreate()">' +
+      '<div class="flex h-10 w-10 items-center justify-center rounded-full" style="background:var(--nav-hover)"><i data-lucide="plus" class="h-5 w-5"></i></div>' +
+      '<span class="text-[13.5px] font-medium">新建工作空间</span>' +
+      '<span class="text-[11px]" style="color:var(--text3)">名称 + 可选描述，创建后直接进入</span>' +
+    '</div>';
+    grid.innerHTML = html;
+    lucide.createIcons();
+  }
+
+  // ── 新建工作空间 ──
+  function openWsCreate() {
+    editingWsId = null;
+    document.getElementById('wsFormMode').textContent = '新建';
+    document.getElementById('wsFormTitle').textContent = '新建工作空间';
+    document.getElementById('wsFormHint').textContent = '创建后可直接进入';
+    document.getElementById('wsFormSubmit').textContent = '创建并进入';
+    document.getElementById('wsFormName').value = '';
+    document.getElementById('wsFormDesc').value = '';
+    showWsForm();
+  }
+
+  // ── 编辑工作空间 ──
+  function openWsEdit(id) {
+    var w = getWs(id);
+    if (!w) return;
+    editingWsId = id;
+    document.getElementById('wsFormMode').textContent = '编辑';
+    document.getElementById('wsFormTitle').textContent = '编辑工作空间';
+    document.getElementById('wsFormHint').textContent = '修改后保存';
+    document.getElementById('wsFormSubmit').textContent = '保存修改';
+    document.getElementById('wsFormName').value = w.name;
+    document.getElementById('wsFormDesc').value = w.description || '';
+    showWsForm();
+  }
+
+  function showWsForm() {
+    var m = document.getElementById('wsFormModal');
+    m.classList.remove('hidden'); m.classList.add('flex');
+    setTimeout(function() { document.getElementById('wsFormName').focus(); }, 100);
+    lucide.createIcons();
+  }
+
+  function closeWsForm() {
+    document.getElementById('wsFormModal').classList.add('hidden');
+    document.getElementById('wsFormModal').classList.remove('flex');
+    editingWsId = null;
+  }
+
+  function submitWsForm() {
+    var name = (document.getElementById('wsFormName').value || '').trim();
+    if (!name) { showToast('请输入工作空间名称'); return; }
+    if (editingWsId) {
+      // 编辑模式
+      var w = getWs(editingWsId);
+      if (w) {
+        w.name = name;
+        w.description = (document.getElementById('wsFormDesc').value || '').trim();
+        w.updated = Date.now();
+      }
+      showToast('工作空间「' + name + '」已更新');
+    } else {
+      // 新建模式
+      var newWs = {
+        id: 'ws' + Date.now(),
+        name: name,
+        description: (document.getElementById('wsFormDesc').value || '').trim(),
+        models: 0, nodes: 0,
+        updated: Date.now(),
+        colorIdx: workspaces.length % WS_COLORS.length,
+      };
+      workspaces.push(newWs);
+      currentWsId = newWs.id;
+      showToast('工作空间「' + name + '」已创建');
+    }
+    closeWsForm();
+    updateWsSwitcher();
+    renderWsCards();
+  }
+
+  // ── 删除工作空间 ──
+  function openWsDelete(id) {
+    var w = getWs(id);
+    if (!w) return;
+    deletingWsId = id;
+    document.getElementById('wsDeleteMsg').textContent =
+      '确定删除「' + w.name + '」吗？其中的模型、经验引用都会被清理，此操作不可恢复。' +
+      (workspaces.length <= 1 ? ' 这是最后一个工作空间，删除后需创建新空间。' : '');
+    var m = document.getElementById('wsDeleteModal');
+    m.classList.remove('hidden'); m.classList.add('flex');
+    lucide.createIcons();
+  }
+
+  function closeWsDelete() {
+    document.getElementById('wsDeleteModal').classList.add('hidden');
+    document.getElementById('wsDeleteModal').classList.remove('flex');
+    deletingWsId = null;
+  }
+
+  function confirmWsDelete() {
+    if (!deletingWsId) return;
+    workspaces = workspaces.filter(function(w) { return w.id !== deletingWsId; });
+    if (currentWsId === deletingWsId) {
+      currentWsId = workspaces.length > 0 ? workspaces[0].id : '';
+    }
+    closeWsDelete();
+    updateWsSwitcher();
+    renderWsCards();
+    showToast('工作空间已删除');
+    // 如果已无工作空间，保持在选择页
+    if (workspaces.length === 0) {
+      currentWsId = '';
+      switchPage('workspaces', document.querySelector('[data-page=workspaces]'));
+    }
+  }
+
+  // 初始化：页面加载时渲染工作空间
+  function initWorkspaces() {
+    updateWsSwitcher();
+    renderWsCards();
+  }
+
+  // 全局键盘快捷键
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      closeWsDropdown();
+      closeWsForm();
+      closeWsDelete();
+    }
+  });
+
   // 切换页面
   function switchPage(pageName, navEl) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -1316,6 +1603,10 @@ tailwind.config = {
     const globalSearch = document.getElementById('globalSearchBox');
     if (globalSearch) globalSearch.style.display = (pageName === 'datasources') ? 'none' : '';
     currentPage = pageName;
+    // 进入工作空间选择页时刷新卡片列表
+    if (pageName === 'workspaces') renderWsCards();
+    // 关闭工作空间下拉菜单
+    closeWsDropdown();
     lucide.createIcons();
   }
 
@@ -1903,8 +2194,9 @@ tailwind.config = {
     }, 1500);
   }
 
-  // 初始化图标
+  // 初始化图标和工作空间
   lucide.createIcons();
+  initWorkspaces();
 </script>
 
 </body>

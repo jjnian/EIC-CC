@@ -1,7 +1,7 @@
 package com.tuiyan.backend.controller;
 
+import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.service.PrefsService;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
@@ -18,12 +18,12 @@ public class PrefsController {
     }
 
     @GetMapping
-    public ResponseEntity<Map<String, Object>> get() throws IOException {
-        return ResponseEntity.ok(prefsService.read());
+    public ApiResult<Map<String, Object>> get() throws IOException {
+        return ApiResult.ok(prefsService.read());
     }
 
     @PutMapping
-    public ResponseEntity<Map<String, Object>> save(@RequestBody Map<String, Object> body) throws IOException {
-        return ResponseEntity.ok(prefsService.save(body));
+    public ApiResult<Map<String, Object>> save(@RequestBody Map<String, Object> body) throws IOException {
+        return ApiResult.ok(prefsService.save(body));
     }
 }

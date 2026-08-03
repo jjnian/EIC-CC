@@ -1,8 +1,8 @@
 package com.tuiyan.backend.controller;
 
 import com.tuiyan.backend.model.OntologyModel;
+import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.service.GraphTemplateService;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
@@ -23,20 +23,20 @@ public class GraphTemplateController {
 
     /** 获取所有模板 */
     @GetMapping
-    public ResponseEntity<List<OntologyModel>> list() {
-        return ResponseEntity.ok(svc.list());
+    public ApiResult<List<OntologyModel>> list() {
+        return ApiResult.ok(svc.list());
     }
 
     /** 保存模板（新建或更新） */
     @PostMapping
-    public ResponseEntity<OntologyModel> create(@RequestBody OntologyModel m) throws IOException {
-        return ResponseEntity.ok(svc.save(m));
+    public ApiResult<OntologyModel> create(@RequestBody OntologyModel m) throws IOException {
+        return ApiResult.ok(svc.save(m));
     }
 
     /** 删除模板 */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable String id) {
+    public ApiResult<Void> delete(@PathVariable String id) {
         svc.delete(id);
-        return ResponseEntity.noContent().build();
+        return ApiResult.ok();
     }
 }

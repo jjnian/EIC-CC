@@ -1,9 +1,9 @@
 package com.tuiyan.backend.controller;
 
+import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.model.dto.HealthResponse;
 import com.tuiyan.backend.service.LlmMetricsService;
 import com.tuiyan.backend.service.SystemHealthService;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -24,18 +24,18 @@ public class SystemController {
     }
 
     @GetMapping("/health")
-    public ResponseEntity<HealthResponse> health() {
-        return ResponseEntity.ok(healthService.getHealth());
+    public ApiResult<HealthResponse> health() {
+        return ApiResult.ok(healthService.getHealth());
     }
 
     @GetMapping("/metrics/llm")
-    public ResponseEntity<Map<String, Object>> llmMetrics() {
-        return ResponseEntity.ok(metricsService.getStats());
+    public ApiResult<Map<String, Object>> llmMetrics() {
+        return ApiResult.ok(metricsService.getStats());
     }
 
     @PostMapping("/metrics/llm/reset")
-    public ResponseEntity<Void> resetMetrics() {
+    public ApiResult<Void> resetMetrics() {
         metricsService.reset();
-        return ResponseEntity.noContent().build();
+        return ApiResult.ok();
     }
 }

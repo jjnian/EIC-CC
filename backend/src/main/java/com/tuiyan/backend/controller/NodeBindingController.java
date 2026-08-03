@@ -1,6 +1,8 @@
 package com.tuiyan.backend.controller;
 
+import com.tuiyan.backend.config.ResourceNotFoundException;
 import com.tuiyan.backend.entity.NodeDataBindingPO;
+import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.model.dto.SqlExecuteRequest;
 import com.tuiyan.backend.model.dto.SqlExecuteResponse;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
@@ -9,7 +11,6 @@ import com.tuiyan.backend.repository.NodeDataBindingRepository;
 import com.tuiyan.backend.service.DataSourceService;
 import com.tuiyan.backend.service.NodeStateScheduler;
 import com.tuiyan.backend.service.NodeStateService;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
@@ -41,41 +42,44 @@ public class NodeBindingController {
 
     /** 列出某模型（可选某节点）下的供血绑定。 */
     @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> list(@RequestParam String modelId,
-                                                          @RequestParam(required = false) String nodeId) {
-        return ResponseEntity.ok(repo.list(modelId, nodeId));
+    public ApiResult<List<Map<String, Object>>> list(@RequestParam String modelId,
+                                                      @RequestParam(required = false) String nodeId) {
+        return ApiResult.ok(repo.list(modelId, nodeId));
     }
 
     @PostMapping
-    public ResponseEntity<Map<String, Object>> create(@RequestBody Map<String, Object> body) {
+    public ApiResult<Map<String, Object>> create(@RequestBody Map<String, Object> body) {
         String modelId = str(body.get("modelId"));
         String nodeId = str(body.get("nodeId"));
         String dataSourceId = str(body.get("dataSourceId"));
         if (modelId.isBlank() || nodeId.isBlank() || dataSourceId.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "缺少 modelId / nodeId / dataSourceId"));
+            throw new IllegalArgumentException("缺少 modelId / nodeId / dataSourceId");
         }
         Map<String, Object> created = repo.create(modelId, nodeId, dataSourceId,
                 strOrNull(body.get("tableName")), strOrNull(body.get("columnMap")), strOrNull(body.get("filterSql")));
-        return ResponseEntity.ok(created);
+        return ApiResult.ok(created);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> update(@PathVariable String id,
-                                                      @RequestBody Map<String, Object> body) {
+    public ApiResult<Map<String, Object>> update(@PathVariable String id,
+                                                  @RequestBody Map<String, Object> body) {
         Map<String, Object> updated = repo.update(id,
                 strOrNull(body.get("dataSourceId")), strOrNull(body.get("tableName")),
                 strOrNull(body.get("columnMap")), strOrNull(body.get("filterSql")));
-        return updated == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(updated);
+        if (updated == null) {
+            throw new ResourceNotFoundException("绑定不存在");
+        }
+        return ApiResult.ok(updated);
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<SuccessCountResponse> delete(@PathVariable String id) {
+    public ApiResult<SuccessCountResponse> delete(@PathVariable String id) {
         boolean ok = repo.delete(id);
         if (ok) {
             stateScheduler.cancel(id);
             stateService.deleteByBinding(id);
         }
-        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+        return ApiResult.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 
     // ---------- 态势层：状态源配置 / 刷新 / 查询 ----------
@@ -85,44 +89,48 @@ public class NodeBindingController {
      * statusQuery 为只读 SQL（首行首列作为状态值）；启用即注册定时刷新。
      */
     @PutMapping("/{id}/status-config")
-    public ResponseEntity<Map<String, Object>> statusConfig(@PathVariable String id,
-                                                            @RequestBody Map<String, Object> body) {
+    public ApiResult<Map<String, Object>> statusConfig(@PathVariable String id,
+                                                        @RequestBody Map<String, Object> body) {
         String query = strOrNull(body.get("statusQuery"));
         String rules = strOrNull(body.get("statusRules"));
         boolean enabled = Boolean.TRUE.equals(body.get("statusEnabled"));
         Integer interval = body.get("statusIntervalSec") instanceof Number n
                 ? Math.max(NodeStateScheduler.MIN_INTERVAL_SEC, n.intValue()) : null;
         if (enabled && (query == null || query.isBlank())) {
-            return ResponseEntity.badRequest().body(Map.of("error", "启用状态刷新前请先填写状态查询 SQL"));
+            throw new IllegalArgumentException("启用状态刷新前请先填写状态查询 SQL");
         }
         Map<String, Object> updated = repo.updateStatusConfig(id, query, rules, enabled, interval);
-        if (updated == null) return ResponseEntity.notFound().build();
+        if (updated == null) {
+            throw new ResourceNotFoundException("绑定不存在");
+        }
         if (enabled) {
             stateScheduler.register(id, interval == null ? NodeStateScheduler.MIN_INTERVAL_SEC : interval);
         } else {
             stateScheduler.cancel(id);
         }
-        return ResponseEntity.ok(updated);
+        return ApiResult.ok(updated);
     }
 
     /** 手动刷新一次状态（含归属校验），返回最新状态。 */
     @PostMapping("/{id}/status/refresh")
-    public ResponseEntity<Map<String, Object>> refreshStatus(@PathVariable String id) {
-        if (repo.findScoped(id) == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(stateService.refresh(id));
+    public ApiResult<Map<String, Object>> refreshStatus(@PathVariable String id) {
+        if (repo.findScoped(id) == null) {
+            throw new ResourceNotFoundException("绑定不存在");
+        }
+        return ApiResult.ok(stateService.refresh(id));
     }
 
     /** 某模型下全部节点的当前状态（态势画布轮询用）。 */
     @GetMapping("/states")
-    public ResponseEntity<List<Map<String, Object>>> states(@RequestParam String modelId) {
-        return ResponseEntity.ok(stateService.statesOfModel(modelId));
+    public ApiResult<List<Map<String, Object>>> states(@RequestParam String modelId) {
+        return ApiResult.ok(stateService.statesOfModel(modelId));
     }
 
     /** 某绑定的状态历史（新→旧）。 */
     @GetMapping("/{id}/status/history")
-    public ResponseEntity<List<Map<String, Object>>> statusHistory(@PathVariable String id,
-                                                                   @RequestParam(defaultValue = "100") int limit) {
-        return ResponseEntity.ok(stateService.history(id, limit));
+    public ApiResult<List<Map<String, Object>>> statusHistory(@PathVariable String id,
+                                                               @RequestParam(defaultValue = "100") int limit) {
+        return ApiResult.ok(stateService.history(id, limit));
     }
 
     /**
@@ -130,13 +138,15 @@ public class NodeBindingController {
      * 无过滤走表预览；有过滤走只读 SQL（SELECT * FROM table WHERE filter，连接器强制只读 + LIMIT 兜底）。
      */
     @PostMapping("/{id}/fetch")
-    public ResponseEntity<Map<String, Object>> fetch(@PathVariable String id,
-                                                     @RequestBody(required = false) Map<String, Object> body) {
+    public ApiResult<Map<String, Object>> fetch(@PathVariable String id,
+                                                 @RequestBody(required = false) Map<String, Object> body) {
         NodeDataBindingPO po = repo.findScoped(id);
-        if (po == null) return ResponseEntity.notFound().build();
+        if (po == null) {
+            throw new ResourceNotFoundException("绑定不存在");
+        }
         String table = po.getTableName();
         if (table == null || table.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "该绑定未指定表名"));
+            throw new IllegalArgumentException("该绑定未指定表名");
         }
         int limit = 50;
         if (body != null && body.get("limit") instanceof Number n) limit = Math.max(1, Math.min(500, n.intValue()));
@@ -161,7 +171,7 @@ public class NodeBindingController {
         }
         out.put("dataSourceId", po.getDataSourceId());
         out.put("tableName", table);
-        return ResponseEntity.ok(out);
+        return ApiResult.ok(out);
     }
 
     private static String str(Object o) { return o == null ? "" : String.valueOf(o).trim(); }

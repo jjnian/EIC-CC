@@ -9,7 +9,6 @@ import com.tuiyan.backend.service.StructuralGraphService;
 import com.tuiyan.backend.support.SseJobRunner;
 import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -52,10 +51,10 @@ public class DataSourceController {
      * 大库内省 + 落库可能耗时较长（同步返回）。
      */
     @PostMapping("/{id}/build-structural-graph")
-    public ResponseEntity<StructuralGraphService.BuildResult> buildStructuralGraph(
+    public ApiResult<StructuralGraphService.BuildResult> buildStructuralGraph(
             @PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
         String title = body == null ? null : asString(body.get("title"));
-        return ResponseEntity.ok(structuralGraphService.buildFromDataSource(id, title));
+        return ApiResult.ok(structuralGraphService.buildFromDataSource(id, title));
     }
 
     /**
@@ -75,7 +74,7 @@ public class DataSourceController {
     // ---------- 列表 / CRUD ----------
 
     @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> list(@RequestParam(required = false) String workspaceId,
+    public ApiResult<List<Map<String, Object>>> list(@RequestParam(required = false) String workspaceId,
                                                           @RequestParam(required = false) String kind,
                                                           @RequestParam(name = "all", defaultValue = "false") boolean all) {
         List<Map<String, Object>> list = all
@@ -84,7 +83,7 @@ public class DataSourceController {
         if (kind != null && !kind.isBlank()) {
             list = list.stream().filter(m -> kind.equals(m.get("kind"))).toList();
         }
-        return ResponseEntity.ok(list);
+        return ApiResult.ok(list);
     }
 
     /**
@@ -92,95 +91,95 @@ public class DataSourceController {
      * 公共数据源总览页据此展示每个数据源被哪些工作空间通过节点供血绑定引用。
      */
     @GetMapping("/references")
-    public ResponseEntity<Map<String, List<String>>> references() {
-        return ResponseEntity.ok(bindingRepo.referencingWorkspacesByDataSource());
+    public ApiResult<Map<String, List<String>>> references() {
+        return ApiResult.ok(bindingRepo.referencingWorkspacesByDataSource());
     }
 
     /** 当前工作空间「尚未引用」的公共数据源（引用选择器列出可引入的数据源）。 */
     @GetMapping("/referencable")
-    public ResponseEntity<List<Map<String, Object>>> referencable() {
-        return ResponseEntity.ok(repo.listReferencable(WorkspaceContext.required()));
+    public ApiResult<List<Map<String, Object>>> referencable() {
+        return ApiResult.ok(repo.listReferencable(WorkspaceContext.required()));
     }
 
     /** 把一批公共数据源引用进当前工作空间（已引用的跳过）。请求体：{ dataSourceIds: [...] }。 */
     @PostMapping("/refs")
-    public ResponseEntity<Map<String, Object>> reference(@RequestBody Map<String, Object> body) {
+    public ApiResult<Map<String, Object>> reference(@RequestBody Map<String, Object> body) {
         Object ids = body == null ? null : body.get("dataSourceIds");
         List<String> list = new java.util.ArrayList<>();
         if (ids instanceof List<?> arr) {
             for (Object o : arr) if (o != null) list.add(String.valueOf(o));
         }
         int added = repo.reference(list);
-        return ResponseEntity.ok(Map.of("added", added));
+        return ApiResult.ok(Map.of("added", added));
     }
 
     /** 取消当前工作空间对某数据源的引用（不删除数据源本体）。 */
     @DeleteMapping("/{id}/ref")
-    public ResponseEntity<SuccessCountResponse> unreference(@PathVariable String id) {
+    public ApiResult<SuccessCountResponse> unreference(@PathVariable String id) {
         boolean ok = repo.unreference(id);
-        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+        return ApiResult.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> detail(@PathVariable String id) {
-        return ResponseEntity.ok(service.findFull(id));
+    public ApiResult<Map<String, Object>> detail(@PathVariable String id) {
+        return ApiResult.ok(service.findFull(id));
     }
 
     @PostMapping
-    public ResponseEntity<Map<String, Object>> create(@RequestBody DataSourceCreateRequest req) {
-        return ResponseEntity.ok(service.create(req));
+    public ApiResult<Map<String, Object>> create(@RequestBody DataSourceCreateRequest req) {
+        return ApiResult.ok(service.create(req));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> update(@PathVariable String id,
+    public ApiResult<Map<String, Object>> update(@PathVariable String id,
                                                       @RequestBody DataSourceUpdateRequest req) {
-        return ResponseEntity.ok(service.update(id, req));
+        return ApiResult.ok(service.update(id, req));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<SuccessCountResponse> delete(@PathVariable String id) {
+    public ApiResult<SuccessCountResponse> delete(@PathVariable String id) {
         boolean ok = service.delete(id);
-        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+        return ApiResult.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 
     /** 移动数据源到指定文件夹：{folderId}。folderId 省略/null = 移到工作空间根。 */
     @PutMapping("/{id}/folder")
-    public ResponseEntity<SuccessCountResponse> moveToFolder(@PathVariable String id,
+    public ApiResult<SuccessCountResponse> moveToFolder(@PathVariable String id,
                                                              @RequestBody(required = false) Map<String, Object> body) {
         Object f = body == null ? null : body.get("folderId");
         String folderId = f == null ? null : String.valueOf(f);
         boolean ok = repo.moveToFolder(id, folderId);
-        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+        return ApiResult.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 
     @PostMapping("/{id}/test")
-    public ResponseEntity<DataSourceTestResponse> test(@PathVariable String id) {
-        return ResponseEntity.ok(service.test(id));
+    public ApiResult<DataSourceTestResponse> test(@PathVariable String id) {
+        return ApiResult.ok(service.test(id));
     }
 
     @PostMapping("/test-inline")
-    public ResponseEntity<DataSourceTestResponse> testInline(@RequestBody DataSourceCreateRequest req) {
-        return ResponseEntity.ok(service.testInline(req.getKind(), req.getConfig()));
+    public ApiResult<DataSourceTestResponse> testInline(@RequestBody DataSourceCreateRequest req) {
+        return ApiResult.ok(service.testInline(req.getKind(), req.getConfig()));
     }
 
     // ---------- 数据库专用 ----------
 
     @GetMapping("/{id}/tables")
-    public ResponseEntity<List<String>> tables(@PathVariable String id) {
-        return ResponseEntity.ok(service.listTables(id));
+    public ApiResult<List<String>> tables(@PathVariable String id) {
+        return ApiResult.ok(service.listTables(id));
     }
 
     @GetMapping("/{id}/tables/{name}/preview")
-    public ResponseEntity<TablePreviewResponse> tablePreview(@PathVariable String id,
+    public ApiResult<TablePreviewResponse> tablePreview(@PathVariable String id,
                                                              @PathVariable String name,
                                                              @RequestParam(defaultValue = "50") int limit) {
-        return ResponseEntity.ok(service.previewTable(id, name, limit));
+        return ApiResult.ok(service.previewTable(id, name, limit));
     }
 
     @PostMapping("/{id}/sql")
-    public ResponseEntity<SqlExecuteResponse> sql(@PathVariable String id,
+    public ApiResult<SqlExecuteResponse> sql(@PathVariable String id,
                                                   @RequestBody SqlExecuteRequest req) {
-        return ResponseEntity.ok(service.executeSql(id, req));
+        return ApiResult.ok(service.executeSql(id, req));
     }
 
     /**
@@ -189,12 +188,12 @@ public class DataSourceController {
      * 用途：把「按命名推断」的血缘边升级为「数据证实」（confirmed/likely）或否掉（rejected）。
      */
     @PostMapping("/{id}/verify-containment")
-    public ResponseEntity<com.tuiyan.backend.service.connector.JdbcConnectorService.ContainmentCheckResponse>
+    public ApiResult<com.tuiyan.backend.service.connector.JdbcConnectorService.ContainmentCheckResponse>
     verifyContainment(@PathVariable String id, @RequestBody Map<String, Object> body) {
         int sampleLimit = 0;
         Object sl = body.get("sampleLimit");
         if (sl instanceof Number n) sampleLimit = n.intValue();
-        return ResponseEntity.ok(service.verifyContainment(id,
+        return ApiResult.ok(service.verifyContainment(id,
                 str(body, "childTable"), str(body, "childColumn"),
                 str(body, "parentTable"), str(body, "parentColumn"), sampleLimit));
     }
@@ -206,26 +205,26 @@ public class DataSourceController {
 
     /** 数据库 schema 内省：返回表 + 列 + 外键 + 唯一键。前端 UI 直接展示用。 */
     @GetMapping("/{id}/schema")
-    public ResponseEntity<Map<String, Object>> schema(@PathVariable String id) {
-        return ResponseEntity.ok(service.introspectSchema(id));
+    public ApiResult<Map<String, Object>> schema(@PathVariable String id) {
+        return ApiResult.ok(service.introspectSchema(id));
     }
 
     // ---------- HTTPS 专用 ----------
 
     @PostMapping("/{id}/execute")
-    public ResponseEntity<HttpExecuteResponse> executeHttp(@PathVariable String id) {
-        return ResponseEntity.ok(service.executeHttp(id));
+    public ApiResult<HttpExecuteResponse> executeHttp(@PathVariable String id) {
+        return ApiResult.ok(service.executeHttp(id));
     }
 
     @GetMapping("/{id}/logs")
-    public ResponseEntity<List<DataSourceFetchLogPO>> logs(@PathVariable String id) {
-        return ResponseEntity.ok(service.listLogs(id));
+    public ApiResult<List<DataSourceFetchLogPO>> logs(@PathVariable String id) {
+        return ApiResult.ok(service.listLogs(id));
     }
 
     @PutMapping("/{id}/schedule")
-    public ResponseEntity<SuccessCountResponse> schedule(@PathVariable String id,
+    public ApiResult<SuccessCountResponse> schedule(@PathVariable String id,
                                                          @RequestBody HttpScheduleRequest req) {
         service.schedule(id, req);
-        return ResponseEntity.ok(new SuccessCountResponse(true, 1));
+        return ApiResult.ok(new SuccessCountResponse(true, 1));
     }
 }
