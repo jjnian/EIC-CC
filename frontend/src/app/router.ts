@@ -7,7 +7,6 @@ import GraphView from './views/GraphView.vue';
 import ExperiencesView from './views/ExperiencesView.vue';
 import ChatView from './views/ChatView.vue';
 import DataSourcesView from './views/DataSourcesView.vue';
-import AnalysisView from './views/AnalysisView.vue';
 import SettingsView from './views/SettingsView.vue';
 
 export const router = createRouter({
@@ -23,7 +22,6 @@ export const router = createRouter({
         { path: 'experiences', name: 'experiences', component: ExperiencesView, meta: { title: '经验库' } },
         { path: 'chat', name: 'chat', component: ChatView, meta: { title: 'AI 对话' } },
         { path: 'datasources', name: 'datasources', component: DataSourcesView, meta: { title: '数据源' } },
-        { path: 'analysis', name: 'analysis', component: AnalysisView, meta: { title: '血缘分析' } },
         { path: 'settings', name: 'settings', component: SettingsView, meta: { title: '设置' } },
       ],
     },

@@ -19,10 +19,14 @@ defineProps<{
       <LoaderCircle
         v-if="running && i === steps.length - 1"
         :size="15"
-        class="shrink-0 animate-spin text-indigo-600"
+        class="shrink-0 animate-spin"
+        style="color:var(--primary)"
       />
-      <CircleCheck v-else :size="15" class="shrink-0 text-emerald-500" />
-      <span :class="running && i === steps.length - 1 ? 'font-medium text-slate-800' : 'text-slate-500'">
+      <CircleCheck v-else :size="15" class="shrink-0" style="color:var(--success)" />
+      <span
+        :style="{ color: running && i === steps.length - 1 ? 'var(--text)' : 'var(--text2)' }"
+        :class="running && i === steps.length - 1 ? 'font-medium' : ''"
+      >
         {{ s.label }}
       </span>
     </div>

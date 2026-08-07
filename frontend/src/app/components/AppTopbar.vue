@@ -1,105 +1,102 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ChevronsUpDown, Check, Settings2, Layers } from 'lucide-vue-next';
+import { Search, Sparkles, Globe, Moon, Sun } from 'lucide-vue-next';
 import { useWorkspaceStore } from '../stores/workspace';
+import { useToastStore } from '../stores/toast';
+import { toggleTheme, isDark } from '../lib/theme';
 import { wsColorForIndex } from '../lib/workspaceTheme';
-import { timeAgo } from '../lib/format';
 
 const route = useRoute();
 const router = useRouter();
 const ws = useWorkspaceStore();
+const toast = useToastStore();
 
 const title = computed(() => (route.meta.title as string) || '');
-const open = ref(false);
+const query = ref('');
+const searchRef = ref<HTMLInputElement | null>(null);
+const dark = ref(isDark());
 
-function wsColor(idx: number) {
-  return wsColorForIndex(idx);
+/* Ctrl+K 聚焦全局搜索 */
+function onKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    searchRef.value?.focus();
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
+
+/* 回车：列表页带词跳转过滤，图谱/对话页提示用页内搜索 */
+function onEnter() {
+  const q = query.value.trim();
+  if (!q) return;
+  if (route.name === 'experiences' || route.name === 'datasources') {
+    router.push({ name: route.name, query: { q } });
+  } else if (route.name === 'graph' || route.name === 'chat') {
+    toast.info('本页请使用页内搜索');
+  } else {
+    router.push({ name: 'experiences', query: { q } });
+  }
 }
 
-function switchTo(id: string) {
-  open.value = false;
-  if (id === ws.currentId) return;
-  ws.select(id);
-  router.push({ name: 'dashboard' }).then(() => window.location.reload());
+function onThemeToggle() {
+  toggleTheme();
+  dark.value = isDark();
 }
 
-function manage() {
-  open.value = false;
-  router.push({ name: 'workspaces' });
-}
+const avatarIdx = computed(() => ws.list.findIndex((w) => w.id === ws.currentId));
 </script>
 
 <template>
-  <header class="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5">
-    <h1 class="text-[15px] font-semibold text-slate-900">{{ title }}</h1>
+  <header
+    class="flex h-14 shrink-0 items-center gap-3 border-b px-5 backdrop-blur"
+    style="background:var(--topbar);border-color:var(--border)"
+  >
+    <h1 class="text-[15px] font-semibold" style="color:var(--text)">{{ title }}</h1>
 
-    <!-- 工作空间切换器 -->
-    <div class="relative">
-      <button
-        class="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition hover:bg-slate-50"
-        @click="open = !open"
-      >
-        <div
-          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-bold text-white"
-          :style="{ background: wsColor(ws.list.findIndex(w => w.id === ws.currentId)).bg }"
-        >
-          {{ ws.current?.name?.charAt(0) || '?' }}
-        </div>
-        <div class="min-w-0 leading-tight hidden sm:block">
-          <div class="truncate text-[13px] font-medium text-slate-800">
-            {{ ws.current?.name || '选择工作空间' }}
-          </div>
-          <div class="text-[11px] text-slate-400" v-if="ws.current">
-            工作空间
-          </div>
-        </div>
-        <ChevronsUpDown :size="14" class="shrink-0 text-slate-400" />
+    <!-- 全局搜索 -->
+    <div class="relative ml-4 w-64">
+      <Search class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2" style="color:var(--text3)" />
+      <input
+        ref="searchRef"
+        v-model="query"
+        class="h-8 w-full rounded-lg border pl-9 pr-12 text-[12.5px] outline-none transition"
+        style="background:var(--panel);border-color:var(--border);color:var(--text)"
+        placeholder="搜索模型、节点、经验文档…"
+        @keyup.enter="onEnter"
+        @keyup.esc="query = ''"
+      />
+      <kbd
+        class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded border px-1.5 py-0.5 text-[10px]"
+        style="border-color:var(--border);color:var(--text3)"
+      >Ctrl K</kbd>
+    </div>
+
+    <div class="ml-auto flex items-center gap-2">
+      <button class="chip" @click="router.push({ name: 'experiences', query: { build: '1' } })">
+        <Sparkles class="h-3.5 w-3.5" style="color:var(--primary)" />一键建图
       </button>
-
-      <!-- 下拉遮罩 -->
-      <div v-if="open" class="fixed inset-0 z-30" @click="open = false" />
-
-      <!-- 下拉菜单 -->
-      <div
-        v-if="open"
-        class="absolute right-0 z-40 mt-1.5 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+      <button class="chip" @click="router.push({ name: 'experiences', query: { research: '1' } })">
+        <Globe class="h-3.5 w-3.5" />联网调研
+      </button>
+      <div class="mx-1 h-5 w-px" style="background:var(--border)" />
+      <!-- 主题切换 -->
+      <button
+        class="flex h-8 w-8 items-center justify-center rounded-lg border transition"
+        style="background:var(--btn-ghost-bg);border-color:var(--btn-ghost-border);color:var(--btn-ghost-text)"
+        title="切换亮色/暗色主题"
+        @click="onThemeToggle"
       >
-        <div class="px-3 py-1.5 text-[10.5px] font-medium uppercase tracking-wider text-slate-400">
-          切换工作空间
-        </div>
-        <button
-          v-for="(w, i) in ws.list"
-          :key="w.id"
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left transition hover:bg-slate-50"
-          @click="switchTo(w.id)"
-        >
-          <div
-            class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white"
-            :style="{ background: wsColor(i).bg }"
-          >
-            {{ w.name.charAt(0) }}
-          </div>
-          <span class="min-w-0 flex-1">
-            <span class="truncate text-[12.5px]" :class="w.id === ws.currentId ? 'font-semibold text-indigo-700' : 'text-slate-700'">
-              {{ w.name }}
-              <span v-if="w.id === ws.currentId" class="text-[11px] text-indigo-500">✓</span>
-            </span>
-            <span class="block truncate text-[10.5px] text-slate-400">
-              {{ w.createdAt ? timeAgo(w.createdAt) : '' }}
-            </span>
-          </span>
-        </button>
-        <div class="mt-1 border-t border-slate-100 pt-1">
-          <button
-            class="flex w-full items-center gap-2 px-3 py-2 text-left text-[12.5px] font-medium text-indigo-600 transition hover:bg-indigo-50"
-            @click="manage"
-          >
-            <Settings2 :size="14" />
-            管理 / 新建工作空间
-          </button>
-        </div>
-      </div>
+        <Moon v-if="!dark" class="h-4 w-4" />
+        <Sun v-else class="h-4 w-4" />
+      </button>
+      <!-- 当前工作空间头像 -->
+      <div
+        class="flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold text-white"
+        :style="{ background: wsColorForIndex(avatarIdx).bg }"
+        :title="ws.current?.name || ''"
+      >{{ ws.current?.name?.charAt(0) || '?' }}</div>
     </div>
   </header>
 </template>

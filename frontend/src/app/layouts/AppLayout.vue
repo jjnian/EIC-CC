@@ -4,11 +4,11 @@ import AppTopbar from '../components/AppTopbar.vue';
 </script>
 
 <template>
-  <div class="flex h-full">
+  <div class="flex h-full" style="background:var(--bg)">
     <AppSidebar />
     <div class="flex min-w-0 flex-1 flex-col">
       <AppTopbar />
-      <main class="min-h-0 flex-1 overflow-y-auto">
+      <main class="min-h-0 flex-1 overflow-y-auto p-6">
         <router-view />
       </main>
     </div>
