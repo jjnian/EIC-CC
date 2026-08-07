@@ -32,8 +32,9 @@ async function parseError(res: Response): Promise<{ msg: string; body: unknown }
   if (!text) return { msg: `HTTP ${res.status}`, body: null };
   try {
     const json = JSON.parse(text);
-    const msg = (json && typeof json === 'object' && 'error' in json)
-      ? String((json as { error: unknown }).error)
+    // 后端错误体优先取 error 字段，其次统一包装体的 message 字段
+    const msg = (json && typeof json === 'object' && ('error' in json || 'message' in json))
+      ? String((json as { error?: unknown; message?: unknown }).error ?? (json as { message?: unknown }).message)
       : `HTTP ${res.status}`;
     return { msg, body: json };
   } catch {
@@ -58,7 +59,15 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+  const parsed = JSON.parse(text);
+  // 后端统一包装体 {code,message,data}：解包出 data；旧裸格式直接透传
+  if (
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
+    'code' in parsed && 'data' in parsed
+  ) {
+    return (parsed as { data: T }).data;
+  }
+  return parsed as T;
 }
 
 /** 纯文本请求。用于后端直接返回 text/plain 的接口。 */
