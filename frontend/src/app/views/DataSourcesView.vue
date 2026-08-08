@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   Plus, Database, Globe, Trash2, LoaderCircle, PlugZap, Table2, Search,
@@ -102,6 +102,11 @@ const buildRunning = ref(false);
 const folderFormOpen = ref(false);
 const folderFormName = ref('');
 const renamingFolderId = ref<string | null>(null);
+
+// 详情抽屉标签页
+const dsTab = ref('overview');
+
+const isDbKind = (k: string) => DB_SET.has(k);
 
 const isDb = computed(() => DB_SET.has(kind.value));
 const canSave = computed(() => {
@@ -395,6 +400,13 @@ async function openLogs() {
     toast.error((e as Error).message);
   }
 }
+
+// 切换到日志标签时自动加载
+watch(dsTab, (t) => {
+  if (t === 'logs' && detail.value && detail.value.kind === 'https_api' && logs.value === null) {
+    listFetchLogs(detail.value.id).then((l) => { logs.value = l; }).catch(() => {});
+  }
+});
 
 /* ---------- 引用关系 ---------- */
 function refNames(id: string) {
@@ -757,9 +769,10 @@ function statusLabel(s: string) {
     </UiModal>
 
     <!-- 详情抽屉 -->
-    <UiDrawer :open="!!detail" :title="detail?.name || ''" width="560px" @close="detail = null">
+    <UiDrawer :open="!!detail" :title="detail?.name || ''" width="600px" @close="detail = null; dsTab = 'overview'">
       <template v-if="detail">
-        <div class="mb-4 flex flex-wrap items-center gap-2">
+        <!-- 顶栏：徽章 + 测试连接 -->
+        <div class="mb-3 flex flex-wrap items-center gap-2">
           <span class="badge" style="background:var(--nav-hover);color:var(--text2)">{{ kindLabel(detail.kind) }}</span>
           <span class="badge" :style="{ background: `${statusColor(statusOf(detail))}1a`, color: statusColor(statusOf(detail)) }">
             {{ statusLabel(statusOf(detail)) }}
@@ -772,70 +785,93 @@ function statusLabel(s: string) {
           </button>
         </div>
 
-        <!-- 操作区 -->
-        <div class="mb-5 grid grid-cols-3 gap-2">
-          <button class="btn-ghost" @click="openEdit(detail)"><Pencil class="h-3.5 w-3.5" />编辑</button>
-          <button v-if="DB_SET.has(detail.kind)" class="btn-ghost" @click="syncDdl(detail)"><RefreshCw class="h-3.5 w-3.5" />同步 DDL</button>
-          <button v-if="DB_SET.has(detail.kind)" class="btn-ghost" @click="openBuild(detail)"><Waypoints class="h-3.5 w-3.5" />结构建图</button>
-          <button v-if="DB_SET.has(detail.kind)" class="btn-ghost" @click="openSql"><TerminalSquare class="h-3.5 w-3.5" />SQL 控制台</button>
-          <button v-if="detail.kind === 'https_api'" class="btn-ghost" :disabled="httpRunning" @click="runHttp">
+        <!-- 标签页导航 -->
+        <div class="mb-4 flex gap-1 border-b pb-2" style="border-color:var(--border)">
+          <button class="tab-btn" :class="{ active: dsTab === 'overview' }" @click="dsTab = 'overview'">概览</button>
+          <button v-if="DB_SET.has(detail.kind)" class="tab-btn" :class="{ active: dsTab === 'tables' }" @click="dsTab = 'tables'">库表</button>
+          <button v-if="DB_SET.has(detail.kind)" class="tab-btn" :class="{ active: dsTab === 'sql' }" @click="dsTab = 'sql'">SQL</button>
+          <button v-if="detail.kind === 'https_api'" class="tab-btn" :class="{ active: dsTab === 'http' }" @click="dsTab = 'http'">请求</button>
+          <button v-if="detail.kind === 'https_api'" class="tab-btn" :class="{ active: dsTab === 'logs' }" @click="dsTab = 'logs'">日志</button>
+          <button v-if="detail.kind === 'https_api'" class="tab-btn" :class="{ active: dsTab === 'schedule' }" @click="dsTab = 'schedule'">定时</button>
+        </div>
+
+        <!-- ===== 概览标签页 ===== -->
+        <div v-show="dsTab === 'overview'" class="space-y-4">
+          <div class="grid grid-cols-3 gap-2">
+            <button class="btn-ghost" @click="openEdit(detail)"><Pencil class="h-3.5 w-3.5" />编辑</button>
+            <button v-if="DB_SET.has(detail.kind)" class="btn-ghost" @click="syncDdl(detail)"><RefreshCw class="h-3.5 w-3.5" />同步DDL</button>
+            <button v-if="DB_SET.has(detail.kind)" class="btn-ghost" @click="openBuild(detail)"><Waypoints class="h-3.5 w-3.5" />结构建图</button>
+            <button class="btn-ghost" @click="refsOpen = true"><Link2 class="h-3.5 w-3.5" />引用关系</button>
+          </div>
+
+          <div>
+            <div class="label">连接配置</div>
+            <div class="space-y-1">
+              <div v-for="[k, v] in configEntries(detail)" :key="k" class="flex items-center justify-between rounded-lg px-3 py-1.5 text-[12.5px]" style="background:var(--nav-hover)">
+                <span style="color:var(--text3)">{{ k }}</span>
+                <span class="ml-3 max-w-[60%] truncate font-mono" style="color:var(--text)">{{ v }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="label">所属文件夹</div>
+            <select class="input !h-8 !w-48 !text-[12.5px]" :value="detail.folderId || ''" @change="moveToFolder(detail, ($event.target as HTMLSelectElement).value)">
+              <option value="">未分组</option>
+              <option v-for="f in folders" :key="f.id" :value="f.id">{{ f.name }}</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="label">向量索引</div>
+            <div class="flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12.5px]" style="background:var(--nav-hover)">
+              <span v-if="!embeddingOn" style="color:var(--text3)">未配置 Embedding，无法建索引</span>
+              <template v-else>
+                <span style="color:var(--text2)">{{ indexLabel(detail.id) || '未建索引' }}</span>
+                <button class="btn-secondary ml-auto" :disabled="indexStatuses[detail.id]?.status === 'indexing'" @click="runIndex(detail)">
+                  {{ indexStatuses[detail.id]?.status === 'indexed' ? '重建索引' : '建立索引' }}
+                </button>
+                <button v-if="indexStatuses[detail.id]?.status === 'indexed'" class="btn-secondary" @click="removeIndex(detail)">删除索引</button>
+              </template>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== 库表标签页（DB类） ===== -->
+        <div v-if="DB_SET.has(detail.kind)" v-show="dsTab === 'tables'">
+          <div v-if="tablesLoading" class="flex justify-center py-12" style="color:var(--text3)"><LoaderCircle :size="18" class="animate-spin" /></div>
+          <div v-else-if="tables?.length">
+            <div class="mb-2 text-[12px]" style="color:var(--text3)">{{ tables.length }} 张表</div>
+            <div class="grid grid-cols-1 gap-1 max-h-96 overflow-y-auto">
+              <button v-for="t in tables.slice(0, 300)" :key="t" class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-left font-mono text-[12.5px] transition hover:brightness-95" style="border-color:var(--border);color:var(--text)" @click="showPreview(t)">
+                <Table2 :size="13" class="shrink-0" style="color:var(--text3)" /> {{ t }}
+              </button>
+            </div>
+          </div>
+          <p v-else class="py-6 text-center text-[13px]" style="color:var(--text3)">未获取到表列表（请检查连接）。</p>
+        </div>
+
+        <!-- ===== SQL 标签页（DB类） ===== -->
+        <div v-if="DB_SET.has(detail.kind)" v-show="dsTab === 'sql'" class="space-y-3">
+          <textarea v-model="sqlText" class="textarea" rows="4" placeholder="SELECT * FROM ... LIMIT 100"></textarea>
+          <div class="flex items-center gap-2">
+            <button class="btn-primary" :disabled="sqlRunning || !sqlText.trim()" @click="runSql">{{ sqlRunning ? '执行中…' : '执行' }}</button>
+          </div>
+          <div v-if="sqlResult" class="overflow-x-auto">
+            <div class="mb-1 text-[12px]" style="color:var(--text3)">{{ sqlResult.rowCount }} 行{{ sqlResult.truncated ? '（已截断）' : '' }}</div>
+            <table class="tbl">
+              <thead><tr><th v-for="c in sqlResult.columns" :key="c">{{ c }}</th></tr></thead>
+              <tbody><tr v-for="(row, i) in sqlResult.rows" :key="i"><td v-for="(v, j) in row" :key="j">{{ v === null ? '∅' : String(v) }}</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ===== HTTP 请求标签页 ===== -->
+        <div v-if="detail.kind === 'https_api'" v-show="dsTab === 'http'" class="space-y-3">
+          <button class="btn-primary" :disabled="httpRunning" @click="runHttp">
             <LoaderCircle v-if="httpRunning" class="h-3.5 w-3.5 animate-spin" /><Send v-else class="h-3.5 w-3.5" />执行请求
           </button>
-          <button v-if="detail.kind === 'https_api'" class="btn-ghost" @click="openLogs"><FileClock class="h-3.5 w-3.5" />抓取日志</button>
-          <button class="btn-ghost" @click="refsOpen = true"><Link2 class="h-3.5 w-3.5" />引用关系</button>
-        </div>
-
-        <!-- 向量索引 -->
-        <div class="label">向量索引</div>
-        <div class="mb-5 flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12.5px]" style="background:var(--nav-hover)">
-          <span v-if="!embeddingOn" style="color:var(--text3)">未配置 Embedding，无法建索引</span>
-          <template v-else>
-            <span style="color:var(--text2)">{{ indexLabel(detail.id) || '未建索引' }}</span>
-            <button class="btn-secondary ml-auto" :disabled="indexStatuses[detail.id]?.status === 'indexing'" @click="runIndex(detail)">
-              {{ indexStatuses[detail.id]?.status === 'indexed' ? '重建索引' : '建立索引' }}
-            </button>
-            <button v-if="indexStatuses[detail.id]?.status === 'indexed'" class="btn-secondary" @click="removeIndex(detail)">删除索引</button>
-          </template>
-        </div>
-
-        <!-- 定时同步（HTTP 接口） -->
-        <template v-if="detail.kind === 'https_api'">
-          <div class="label">定时同步</div>
-          <div class="mb-5 flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:var(--nav-hover)">
-            <span class="switch" :class="{ on: schedEnabled }" @click="schedEnabled = !schedEnabled"><span class="knob" /></span>
-            <Clock class="h-3.5 w-3.5" style="color:var(--text3)" />
-            <input v-model.number="schedSec" type="number" min="60" step="60" class="input !h-7 !w-24 !text-[12px]" />
-            <span class="text-[12px]" style="color:var(--text3)">秒</span>
-            <button class="btn-secondary ml-auto" @click="saveSched(detail)">保存</button>
-          </div>
-        </template>
-
-        <!-- 所属文件夹 -->
-        <div class="label">所属文件夹</div>
-        <div class="mb-5 flex items-center gap-2">
-          <select class="input !h-8 !w-48 !text-[12.5px]" :value="detail.folderId || ''" @change="moveToFolder(detail, ($event.target as HTMLSelectElement).value)">
-            <option value="">未分组</option>
-            <option v-for="f in folders" :key="f.id" :value="f.id">{{ f.name }}</option>
-          </select>
-        </div>
-
-        <div class="label">连接配置</div>
-        <div class="mb-5 space-y-1">
-          <div
-            v-for="[k, v] in configEntries(detail)"
-            :key="k"
-            class="flex items-center justify-between rounded-lg px-3 py-1.5 text-[12.5px]"
-            style="background:var(--nav-hover)"
-          >
-            <span style="color:var(--text3)">{{ k }}</span>
-            <span class="ml-3 max-w-[60%] truncate font-mono" style="color:var(--text)">{{ v }}</span>
-          </div>
-        </div>
-
-        <!-- HTTP 最近一次执行结果 -->
-        <template v-if="httpResult">
-          <div class="label">最近执行结果</div>
-          <div class="mb-5 rounded-lg px-3 py-2.5 text-[12.5px]" style="background:var(--nav-hover)">
+          <div v-if="httpResult" class="rounded-lg px-3 py-2.5 text-[12.5px]" style="background:var(--nav-hover)">
             <div class="flex items-center gap-2">
               <span :style="{ color: httpResult.success ? 'var(--success)' : 'var(--danger)' }">
                 {{ httpResult.success ? `成功 · HTTP ${httpResult.statusCode}` : `失败：${httpResult.errorMsg || '未知错误'}` }}
@@ -844,24 +880,35 @@ function statusLabel(s: string) {
             </div>
             <pre v-if="httpResult.body" class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11.5px]" style="color:var(--text2)">{{ httpResult.body }}</pre>
           </div>
-        </template>
+          <p v-else class="text-[13px]" style="color:var(--text3)">点击执行按钮测试 HTTP 请求。</p>
+        </div>
 
-        <template v-if="DB_SET.has(detail.kind)">
-          <div class="label">库表浏览</div>
-          <div v-if="tablesLoading" class="flex justify-center py-8" style="color:var(--text3)"><LoaderCircle :size="18" class="animate-spin" /></div>
-          <div v-else-if="tables?.length" class="grid grid-cols-1 gap-1">
-            <button
-              v-for="t in tables.slice(0, 200)"
-              :key="t"
-              class="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-left font-mono text-[12.5px] transition hover:brightness-95"
-              style="border-color:var(--border);color:var(--text)"
-              @click="showPreview(t)"
-            >
-              <Table2 :size="13" class="shrink-0" style="color:var(--text3)" /> {{ t }}
-            </button>
+        <!-- ===== 抓取日志标签页 ===== -->
+        <div v-if="detail.kind === 'https_api'" v-show="dsTab === 'logs'">
+          <div v-if="logs === null" class="flex justify-center py-8" style="color:var(--text3)"><LoaderCircle :size="18" class="animate-spin" /></div>
+          <div v-else-if="!logs.length" class="py-6 text-center text-[13px]" style="color:var(--text3)">暂无抓取日志</div>
+          <div v-else class="space-y-2 max-h-96 overflow-y-auto">
+            <div v-for="l in logs" :key="l.id" class="rounded-lg px-3 py-2 text-[12px]" style="background:var(--nav-hover)">
+              <div class="flex items-center gap-2">
+                <span :style="{ color: l.success ? 'var(--success)' : 'var(--danger)' }">{{ l.success ? '成功' : '失败' }}</span>
+                <span class="ml-auto" style="color:var(--text3)">{{ l.durationMs }}ms</span>
+              </div>
+              <div class="mt-1 truncate font-mono text-[11px]" style="color:var(--text3)">{{ l.url }}</div>
+              <div class="text-[11px]" style="color:var(--text3)">{{ timeAgo(l.createdAt) }}</div>
+            </div>
           </div>
-          <p v-else class="text-[13px]" style="color:var(--text3)">未获取到表列表（请检查连接）。</p>
-        </template>
+        </div>
+
+        <!-- ===== 定时同步标签页 ===== -->
+        <div v-if="detail.kind === 'https_api'" v-show="dsTab === 'schedule'" class="space-y-3">
+          <div class="flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:var(--nav-hover)">
+            <span class="switch" :class="{ on: schedEnabled }" @click="schedEnabled = !schedEnabled"><span class="knob" /></span>
+            <Clock class="h-3.5 w-3.5" style="color:var(--text3)" />
+            <input v-model.number="schedSec" type="number" min="60" step="60" class="input !h-7 !w-24 !text-[12px]" />
+            <span class="text-[12px]" style="color:var(--text3)">秒</span>
+            <button class="btn-secondary ml-auto" @click="saveSched(detail)">保存</button>
+          </div>
+        </div>
       </template>
     </UiDrawer>
 

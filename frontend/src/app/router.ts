@@ -8,6 +8,7 @@ import ExperiencesView from './views/ExperiencesView.vue';
 import ChatView from './views/ChatView.vue';
 import DataSourcesView from './views/DataSourcesView.vue';
 import SettingsView from './views/SettingsView.vue';
+import AnalysisView from './views/AnalysisView.vue';
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -23,6 +24,7 @@ export const router = createRouter({
         { path: 'chat', name: 'chat', component: ChatView, meta: { title: 'AI 对话' } },
         { path: 'datasources', name: 'datasources', component: DataSourcesView, meta: { title: '数据源' } },
         { path: 'settings', name: 'settings', component: SettingsView, meta: { title: '设置' } },
+        { path: 'analysis', name: 'analysis', component: AnalysisView, meta: { title: '分析中心' } },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },

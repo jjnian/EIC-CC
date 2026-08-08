@@ -23,3 +23,16 @@ export function getLlmMetrics() {
 export function resetLlmMetrics() {
   return request<{ success?: boolean }>('/api/system/metrics/llm/reset', { method: 'POST' });
 }
+
+/** 系统健康探测（数据目录 + JVM 内存 + 启动时长） */
+export interface HealthResponse {
+  status: 'UP' | 'DEGRADED' | 'DOWN';
+  dataDirOk: boolean;
+  freeMemMb: number;
+  totalMemMb: number;
+  uptimeMs: number;
+}
+
+export function getHealth() {
+  return request<HealthResponse>('/api/system/health');
+}

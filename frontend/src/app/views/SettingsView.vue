@@ -2,14 +2,21 @@
 import { onMounted, ref } from 'vue';
 import {
   LoaderCircle, PlugZap, Cpu, SlidersHorizontal, Info, CircleCheck, CircleAlert,
-  HardDrive, Download, BarChart3, RotateCcw,
+  HardDrive, Download, BarChart3, RotateCcw, History, LayoutTemplate, Trash2, FileWarning,
+  Activity, Layers, Palette,
 } from 'lucide-vue-next';
 import { listModels, testModel, updateModel } from '../../api/models';
-import { getLlmMetrics, resetLlmMetrics, type LlmMetrics } from '../../api/system';
+import { getLlmMetrics, resetLlmMetrics, getHealth, type LlmMetrics, type HealthResponse } from '../../api/system';
+import { deleteWorkspace, updateWorkspace, type Workspace } from '../../api/workspaces';
 import { getConfig, type ConfigResponse } from '../../api/config';
 import { getPrefs, savePrefs, type Prefs } from '../../api/prefs';
+import { listOntologies, listVersions, restoreVersion, listGraphTemplates, deleteGraphTemplate, saveOntology } from '../../api/ontology';
 import type { ModelConfig } from '../../types';
 import { useToastStore } from '../stores/toast';
+import { useWorkspaceStore } from '../stores/workspace';
+import { timeAgo } from '../lib/format';
+import { toggleTheme, isDark } from '../lib/theme';
+import UiModal from '../components/UiModal.vue';
 
 const toast = useToastStore();
 
@@ -17,23 +24,112 @@ const loading = ref(true);
 const config = ref<ConfigResponse | null>(null);
 const models = ref<ModelConfig[]>([]);
 const prefs = ref<Prefs | null>(null);
+const dark = ref(isDark());
 const testing = ref<Record<string, string>>({});
 const testMsg = ref<Record<string, string>>({});
 const metrics = ref<LlmMetrics | null>(null); // LLM 用量统计
 const toggling = ref<Record<string, boolean>>({}); // 启停请求进行中
 
+// ── 系统监控 ──
+const health = ref<HealthResponse | null>(null);
+
+// ── 工作空间管理 ──
+const wsStore = useWorkspaceStore();
+const wsList = computed(() => wsStore.list);
+const wsDeleteId = ref<string | null>(null);
+const wsDeleteTarget = computed(() => wsList.value.find((w) => w.id === wsDeleteId.value));
+
+// ── 版本历史 ──
+const ontologies = ref<any[]>([]);
+const verModelId = ref('');
+const versions = ref<any[]>([]);
+const versionsLoading = ref(false);
+const restoring = ref(false);
+
+// ── 模板库 ──
+const templates = ref<any[]>([]);
+const templatesLoading = ref(false);
+const templateOpen = ref(false);
+
+async function loadVersions() {
+  if (!verModelId.value) { versions.value = []; return; }
+  versionsLoading.value = true;
+  try { versions.value = await listVersions(verModelId.value); }
+  catch { versions.value = []; }
+  finally { versionsLoading.value = false; }
+}
+
+async function doRestore(ts: number) {
+  if (!verModelId.value || restoring.value) return;
+  restoring.value = true;
+  try {
+    await restoreVersion(verModelId.value, ts);
+    toast.success('版本已恢复');
+    await loadVersions();
+  } catch (e) { toast.error((e as Error).message); }
+  finally { restoring.value = false; }
+}
+
+async function loadTemplates() {
+  templateOpen.value = true;
+  templatesLoading.value = true;
+  try { templates.value = await listGraphTemplates(); }
+  catch { templates.value = []; }
+  finally { templatesLoading.value = false; }
+}
+
+async function removeTemplate(id: string) {
+  try {
+    await deleteGraphTemplate(id);
+    templates.value = templates.value.filter((t: any) => t.id !== id);
+    toast.success('模板已删除');
+  } catch (e) { toast.error((e as Error).message); }
+}
+
+async function createFromTemplate(tpl: any) {
+  try {
+    const created = await saveOntology({ ...tpl, title: (tpl.title || '未命名') + ' (副本)', id: undefined });
+    toast.success(`已创建模型「${created.title || created.id}」`);
+    templateOpen.value = false;
+  } catch (e) { toast.error((e as Error).message); }
+}
+
+// ── 工作空间管理 ──
+async function setDefaultWs(w: Workspace) {
+  try {
+    await updateWorkspace(w.id, { isDefault: true });
+    await wsStore.refresh();
+    toast.success(`已将「${w.name}」设为默认`);
+  } catch (e) { toast.error((e as Error).message); }
+}
+
+async function confirmDeleteWs() {
+  if (!wsDeleteId.value) return;
+  const id = wsDeleteId.value;
+  wsDeleteId.value = null;
+  try {
+    await deleteWorkspace(id);
+    await wsStore.refresh();
+    toast.success('工作空间已删除');
+  } catch (e) { toast.error((e as Error).message); }
+}
+
 onMounted(async () => {
   try {
-    const [c, m, p, mt] = await Promise.all([
+    const [c, m, p, mt, onts, h] = await Promise.all([
       getConfig().catch(() => null),
       listModels().catch(() => []),
       getPrefs().catch(() => null),
       getLlmMetrics().catch(() => null),
+      listOntologies().catch(() => []),
+      getHealth().catch(() => null),
     ]);
     config.value = c;
     models.value = m;
     prefs.value = p;
     metrics.value = mt;
+    ontologies.value = onts;
+    health.value = h;
   } finally {
     loading.value = false;
   }
@@ -257,6 +353,154 @@ async function exportPrefs() {
           </div>
         </div>
       </section>
+
+      <!-- 版本历史 -->
+      <section>
+        <h2 class="mb-4 text-[14.5px] font-semibold" style="color:var(--text)">
+          <History class="mr-1.5 inline h-4 w-4" style="color:var(--text3)" />版本历史
+        </h2>
+        <div class="panel p-5">
+          <div class="mb-3 flex items-center gap-2">
+            <select v-model="verModelId" class="input !h-8 !w-52 !text-[12.5px]" @change="loadVersions">
+              <option value="">选择本体模型…</option>
+              <option v-for="o in ontologies" :key="o.id" :value="o.id">{{ o.title || o.name || o.id }}</option>
+            </select>
+          </div>
+          <div v-if="!verModelId" class="text-[13px]" style="color:var(--text3)">选择模型后查看历史版本快照。</div>
+          <div v-else-if="versionsLoading" class="flex justify-center py-4" style="color:var(--text3)"><LoaderCircle :size="16" class="animate-spin" /></div>
+          <div v-else-if="!versions.length" class="text-[13px]" style="color:var(--text3)">暂无历史版本。</div>
+          <div v-else class="space-y-2">
+            <div v-for="v in versions" :key="v.timestamp" class="flex items-center justify-between rounded-lg px-3 py-2" style="background:var(--nav-hover)">
+              <div>
+                <div class="text-[13px]" style="color:var(--text)">{{ new Date(v.timestamp).toLocaleString() }}</div>
+                <div class="text-[11px]" style="color:var(--text3)">{{ v.nodeCount }} 节点 · {{ v.edgeCount }} 边 · {{ ((v.fileSize || 0) / 1024).toFixed(1) }} KB</div>
+              </div>
+              <button class="btn-secondary" :disabled="restoring" @click="doRestore(v.timestamp)">恢复</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 模板库 -->
+      <section>
+        <h2 class="mb-4 text-[14.5px] font-semibold" style="color:var(--text)">
+          <LayoutTemplate class="mr-1.5 inline h-4 w-4" style="color:var(--text3)" />模板库
+        </h2>
+        <div class="panel p-5">
+          <p class="text-[13px]" style="color:var(--text3)">保存常用本体模型为模板，快速复用创建新模型。</p>
+          <button class="btn-ghost mt-2" @click="loadTemplates">浏览模板库</button>
+        </div>
+      </section>
+
+      <!-- 模板库弹窗 -->
+      <UiModal :open="templateOpen" title="模板库" width="540px" @close="templateOpen = false">
+        <div v-if="templatesLoading" class="flex justify-center py-8" style="color:var(--text3)"><LoaderCircle :size="18" class="animate-spin" /></div>
+        <div v-else-if="!templates.length" class="py-6 text-center text-[13px]" style="color:var(--text3)">暂无模板。在图谱页可将当前模型「存为模板」。</div>
+        <div v-else class="space-y-2">
+          <div v-for="t in templates" :key="t.id" class="flex items-center justify-between rounded-lg px-3 py-2.5" style="background:var(--nav-hover)">
+            <div class="flex-1 cursor-pointer" @click="createFromTemplate(t)">
+              <div class="text-[13.5px] font-medium" style="color:var(--text)">{{ t.title || t.name || '未命名' }}</div>
+              <div class="text-[11px]" style="color:var(--text3)">
+                {{ t.graphData?.nodes?.length || 0 }} 节点 · {{ t.graphData?.edges?.length || 0 }} 边
+                <span v-if="t.desc"> · {{ t.desc }}</span>
+              </div>
+            </div>
+            <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" title="删除模板" @click.stop="removeTemplate(t.id)">
+              <Trash2 :size="14" />
+            </button>
+          </div>
+        </div>
+      </UiModal>
+
+      <!-- 系统监控 -->
+      <section>
+        <h2 class="mb-4 text-[14.5px] font-semibold" style="color:var(--text)">
+          <Activity class="mr-1.5 inline h-4 w-4" style="color:var(--text3)" />系统监控
+        </h2>
+        <div class="panel p-5">
+          <div v-if="health" class="grid grid-cols-4 gap-3">
+            <div class="rounded-lg px-3 py-2.5 text-center" style="background:var(--nav-hover)">
+              <div class="text-[15px] font-semibold" :style="{ color: health.status === 'UP' ? 'var(--success)' : 'var(--warning)' }">{{ health.status === 'UP' ? '正常' : '降级' }}</div>
+              <div class="text-[11px]" style="color:var(--text3)">服务状态</div>
+            </div>
+            <div class="rounded-lg px-3 py-2.5 text-center" style="background:var(--nav-hover)">
+              <div class="text-[15px] font-semibold" style="color:var(--text)">{{ health.freeMemMb }}<span class="text-[11px] font-normal" style="color:var(--text3)"> MB</span></div>
+              <div class="text-[11px]" style="color:var(--text3)">空闲内存</div>
+            </div>
+            <div class="rounded-lg px-3 py-2.5 text-center" style="background:var(--nav-hover)">
+              <div class="text-[15px] font-semibold" style="color:var(--text)">{{ health.totalMemMb }}<span class="text-[11px] font-normal" style="color:var(--text3)"> MB</span></div>
+              <div class="text-[11px]" style="color:var(--text3)">JVM 堆</div>
+            </div>
+            <div class="rounded-lg px-3 py-2.5 text-center" style="background:var(--nav-hover)">
+              <div class="text-[15px] font-semibold" style="color:var(--text)">{{ (health.uptimeMs / 3600000).toFixed(1) }}<span class="text-[11px] font-normal" style="color:var(--text3)"> h</span></div>
+              <div class="text-[11px]" style="color:var(--text3)">运行时长</div>
+            </div>
+          </div>
+          <p v-else class="text-[13px]" style="color:var(--text3)">系统监控接口暂不可用。</p>
+        </div>
+      </section>
+
+      <!-- 工作空间管理 -->
+      <section>
+        <h2 class="mb-4 text-[14.5px] font-semibold" style="color:var(--text)">
+          <Layers class="mr-1.5 inline h-4 w-4" style="color:var(--text3)" />工作空间管理
+        </h2>
+        <div class="panel">
+          <div v-if="!wsList.length" class="px-5 py-4 text-[13px]" style="color:var(--text3)">暂无工作空间。</div>
+          <div v-for="w in wsList" :key="w.id" class="flex items-center gap-3 border-b px-5 py-3.5 last:border-0" style="border-color:var(--border)">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="text-[13.5px] font-medium truncate" style="color:var(--text)">{{ w.name }}</span>
+                <span v-if="w.isDefault" class="badge" style="background:var(--accent-bg);color:var(--accent-text)">默认</span>
+              </div>
+              <div class="text-[11.5px] truncate" style="color:var(--text3)">{{ w.description || '—' }}</div>
+            </div>
+            <button v-if="!w.isDefault" class="btn-ghost text-[12px]" @click="setDefaultWs(w)">设为默认</button>
+            <span v-else class="text-[11px]" style="color:var(--text3)">当前默认</span>
+            <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" title="删除" :disabled="w.isDefault" @click="wsDeleteId = w.id">
+              <Trash2 :size="14" />
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 外观设置 -->
+      <section>
+        <h2 class="mb-4 text-[14.5px] font-semibold" style="color:var(--text)">
+          <Palette class="mr-1.5 inline h-4 w-4" style="color:var(--text3)" />外观设置
+        </h2>
+        <div class="panel">
+          <div class="flex items-center justify-between border-b px-5 py-4" style="border-color:var(--border)">
+            <div>
+              <div class="text-[13.5px] font-medium" style="color:var(--text)">主题模式</div>
+              <div class="text-[12px]" style="color:var(--text3)">切换亮色 / 暗色主题（顶栏按钮亦可切换）</div>
+            </div>
+            <button class="btn-ghost" @click="toggleTheme(); dark = isDark()">
+              {{ dark ? '☀ 亮色模式' : '🌙 暗色模式' }}
+            </button>
+          </div>
+          <div v-if="prefs" class="flex items-center justify-between px-5 py-4">
+            <div>
+              <div class="text-[13.5px] font-medium" style="color:var(--text)">图谱字号</div>
+              <div class="text-[12px]" style="color:var(--text3)">当前 · <span style="color:var(--primary)">{{ prefs.graphFontSize || 12 }}px</span></div>
+            </div>
+            <input type="range" min="10" max="18" step="1" class="w-32 accent-[var(--primary)]" :value="prefs.graphFontSize || 12" @input="onFont" />
+          </div>
+        </div>
+      </section>
+
+      <!-- 工作空间删除确认弹窗 -->
+      <UiModal :open="!!wsDeleteId" title="删除工作空间" width="420px" @close="wsDeleteId = null">
+        <p class="text-[13px] leading-relaxed" style="color:var(--danger)">
+          确定删除「{{ wsDeleteTarget?.name }}」吗？其中的模型、经验引用都会被清理，此操作不可恢复。
+        </p>
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <button class="btn-secondary" @click="wsDeleteId = null">取消</button>
+            <button class="btn-danger" @click="confirmDeleteWs">确认删除</button>
+          </div>
+        </template>
+      </UiModal>
 
       <!-- 关于 -->
       <section>

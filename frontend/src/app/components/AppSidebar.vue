@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   LayoutDashboard, Database, Library, Waypoints, MessageSquareText,
-  Settings2, ChevronsUpDown,
+  Settings2, ChevronsUpDown, BarChart3,
 } from 'lucide-vue-next';
 import { useWorkspaceStore } from '../stores/workspace';
 import { wsColorForIndex } from '../lib/workspaceTheme';
@@ -20,6 +20,7 @@ const NAV = [
   { name: 'datasources', label: '数据源', icon: Database },
   { name: 'experiences', label: '经验库', icon: Library },
   { name: 'graph', label: '血缘图谱', icon: Waypoints },
+  { name: 'analysis', label: '分析中心', icon: BarChart3 },
   { name: 'chat', label: 'AI 对话', icon: MessageSquareText },
 ];
 
