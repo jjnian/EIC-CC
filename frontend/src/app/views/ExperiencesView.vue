@@ -4,14 +4,19 @@ import { useRoute, useRouter } from 'vue-router';
 import {
   Plus, Upload, Globe, Sparkles, FolderOpen, Folder, FileText, Search,
   Trash2, LoaderCircle, Library, Eye, Pencil, BrainCircuit, Waypoints,
-  Database, FileUp, PenLine, FilterX,
+  Database, FileUp, PenLine, FilterX, FolderPlus, RotateCw, Compass,
+  ChevronLeft, ChevronRight,
 } from 'lucide-vue-next';
 import {
-  listExperiences, getExperience, createExperience, updateExperience, deleteExperience,
-  uploadExperienceFile, webResearch, buildFullGraph, extractOntologyFromExperiences,
+  listExperiences, listExperiencesPaged, getExperience, createExperience, updateExperience,
+  deleteExperience, uploadExperienceFile, webResearch, buildFullGraph,
+  extractOntologyFromExperiences, reindexExperience, listSourceExplorations,
   type Experience,
 } from '../../api/experiences';
-import { listExperienceFolders, createExperienceFolder, type ExperienceFolder } from '../../api/experienceFolders';
+import {
+  listExperienceFolders, createExperienceFolder, renameExperienceFolder,
+  deleteExperienceFolder, moveExperienceToFolder, type ExperienceFolder,
+} from '../../api/experienceFolders';
 import type { SseHandle } from '../../api/http';
 import { useToastStore } from '../stores/toast';
 import { timeAgo } from '../lib/format';
@@ -28,6 +33,7 @@ const toast = useToastStore();
 
 const loading = ref(true);
 const experiences = ref<Experience[]>([]);
+const all = ref<Experience[]>([]); // 全量列表：侧栏计数与筛选模式用
 const folders = ref<ExperienceFolder[]>([]);
 
 // 筛选 / 排序
@@ -46,6 +52,18 @@ const researchOpen = ref(false);
 const buildOpen = ref(false);
 const editOpen = ref(false);
 const extractOpen = ref(false);
+const exploreOpen = ref(false);
+const explores = ref<Experience[] | null>(null);
+const folderFormOpen = ref(false);
+const folderFormName = ref('');
+const renamingFolderId = ref<string | null>(null);
+
+// 服务端分页（无筛选时启用；带筛选/非默认排序时拉全量前端过滤）
+const page = ref(1);
+const pageSize = 24;
+const total = ref(0);
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
+const hasFilter = computed(() => !!(q.value.trim() || folderF.value || sourceF.value) || sortBy.value !== 'time');
 
 // 新建 / 编辑经验
 const newExp = ref({ title: '', tags: '', content: '' });
@@ -80,9 +98,10 @@ function originIcon(e: Experience): { icon: any; bg: string; color: string } {
   return { icon: g.icon, bg: `${g.color}1a`, color: g.color };
 }
 
+/* 前端过滤（基于全量 all）：搜索 + 文件夹 + 来源组 */
 const filtered = computed(() => {
   const kw = q.value.trim().toLowerCase();
-  let arr = experiences.value
+  let arr = all.value
     .filter((e) => !folderF.value || e.folderId === folderF.value)
     .filter((e) => {
       if (!sourceF.value) return true;
@@ -95,8 +114,11 @@ const filtered = computed(() => {
   return arr;
 });
 
-const folderCount = (id: string) => experiences.value.filter((e) => e.folderId === id).length;
-const groupCount = (origins: string[]) => experiences.value.filter((e) => origins.includes(e.origin || '')).length;
+/* 网格实际展示：有筛选/非默认排序 → 前端过滤结果；否则 → 服务端分页结果 */
+const shown = computed(() => (hasFilter.value ? filtered.value : experiences.value));
+
+const folderCount = (id: string) => all.value.filter((e) => e.folderId === id).length;
+const groupCount = (origins: string[]) => all.value.filter((e) => origins.includes(e.origin || '')).length;
 
 onMounted(async () => {
   q.value = (route.query.q as string) || '';
@@ -109,12 +131,25 @@ onMounted(async () => {
 async function reload() {
   loading.value = true;
   try {
-    [experiences.value, folders.value] = await Promise.all([listExperiences(), listExperienceFolders()]);
+    const [pg, allList, fs] = await Promise.all([
+      listExperiencesPaged({ page: page.value, size: pageSize }),
+      listExperiences(),
+      listExperienceFolders(),
+    ]);
+    experiences.value = pg.items;
+    total.value = pg.total;
+    all.value = allList;
+    folders.value = fs;
   } catch (e) {
     toast.error((e as Error).message);
   } finally {
     loading.value = false;
   }
+}
+
+function goPage(p: number) {
+  page.value = Math.min(Math.max(1, p), pageCount.value);
+  reload();
 }
 
 async function openDetail(e: Experience) {
@@ -272,13 +307,72 @@ function cancelSse() {
 }
 
 async function addFolder() {
-  const name = window.prompt('文件夹名称（即业务领域）');
-  if (!name?.trim()) return;
+  renamingFolderId.value = null;
+  folderFormName.value = '';
+  folderFormOpen.value = true;
+}
+function openFolderRename(f: ExperienceFolder) {
+  renamingFolderId.value = f.id;
+  folderFormName.value = f.name;
+  folderFormOpen.value = true;
+}
+async function submitFolder() {
+  const n = folderFormName.value.trim();
+  if (!n) return;
   try {
-    await createExperienceFolder({ name: name.trim() });
-    folders.value = await listExperienceFolders();
+    if (renamingFolderId.value) {
+      await renameExperienceFolder(renamingFolderId.value, n);
+      toast.success('文件夹已重命名');
+    } else {
+      await createExperienceFolder({ name: n });
+      toast.success('文件夹已创建');
+    }
+    folderFormOpen.value = false;
+    reload();
   } catch (e) {
     toast.error((e as Error).message);
+  }
+}
+async function removeFolder(f: ExperienceFolder) {
+  if (!window.confirm(`删除文件夹「${f.name}」？其中的文档会移到根目录。`)) return;
+  try {
+    await deleteExperienceFolder(f.id);
+    if (folderF.value === f.id) folderF.value = '';
+    toast.success('文件夹已删除');
+    reload();
+  } catch (e) {
+    toast.error((e as Error).message);
+  }
+}
+async function moveToFolder(e: Experience, folderId: string) {
+  try {
+    await moveExperienceToFolder(e.id, folderId || null);
+    toast.success('已移动');
+    reload();
+  } catch (err) {
+    toast.error((err as Error).message);
+  }
+}
+
+/* 重新索引（失败/未索引文档可重试） */
+async function reindex(e: Experience) {
+  try {
+    await reindexExperience(e.id);
+    toast.success(`「${e.title}」已加入重新索引队列`);
+    reload();
+  } catch (err) {
+    toast.error((err as Error).message);
+  }
+}
+
+/* 探索记录（websystem 源的探索产物） */
+async function openExplores(e: Experience) {
+  explores.value = null;
+  exploreOpen.value = true;
+  try {
+    explores.value = await listSourceExplorations(e.id);
+  } catch (err) {
+    toast.error((err as Error).message);
   }
 }
 
@@ -313,22 +407,30 @@ function folderName(id?: string) {
         <div class="flex items-center justify-between px-2 pb-2">
           <span class="text-[10.5px] font-medium uppercase tracking-widest" style="color:var(--text3)">领域文件夹</span>
           <button class="rounded p-1 transition hover:brightness-95" style="color:var(--text3)" title="新建文件夹" @click="addFolder">
-            <Plus :size="13" />
+            <FolderPlus :size="13" />
           </button>
         </div>
         <div class="nav-item" :class="{ active: !folderF }" @click="folderF = ''">
           <FolderOpen class="h-4 w-4" />全部文档
-          <span class="ml-auto text-[11px]" style="color:var(--text3)">{{ experiences.length }}</span>
+          <span class="ml-auto text-[11px]" style="color:var(--text3)">{{ all.length }}</span>
         </div>
         <div
           v-for="f in folders"
           :key="f.id"
-          class="nav-item"
+          class="nav-item group/f"
           :class="{ active: folderF === f.id }"
           @click="folderF = folderF === f.id ? '' : f.id"
         >
           <Folder class="h-4 w-4" /><span class="truncate">{{ f.name }}</span>
           <span class="ml-auto text-[11px]" style="color:var(--text3)">{{ folderCount(f.id) }}</span>
+          <span class="hidden gap-0.5 group-hover/f:flex">
+            <button class="rounded p-0.5 transition hover:brightness-95" style="color:var(--text3)" title="重命名" @click.stop="openFolderRename(f)">
+              <Pencil class="h-3 w-3" />
+            </button>
+            <button class="rounded p-0.5 transition hover:text-red-400" style="color:var(--text3)" title="删除" @click.stop="removeFolder(f)">
+              <Trash2 class="h-3 w-3" />
+            </button>
+          </span>
         </div>
 
         <div class="mt-4 px-2 pb-2 text-[10.5px] font-medium uppercase tracking-widest" style="color:var(--text3)">来源筛选</div>
@@ -353,9 +455,9 @@ function folderName(id?: string) {
       <div class="min-h-0 flex-1 overflow-y-auto p-5">
         <!-- 信息栏 -->
         <div class="mb-4 flex items-center gap-3 text-[12px]" style="color:var(--text2)">
-          <span>{{ filtered.length }} 篇文档</span><span>·</span><span>{{ sortBy === 'time' ? '按更新时间排序' : '按名称排序' }}</span>
+          <span>{{ hasFilter ? filtered.length : total }} 篇文档</span><span>·</span><span>{{ sortBy === 'time' ? '按更新时间排序' : '按名称排序' }}</span>
           <div class="ml-auto flex items-center gap-2">
-            <select v-model="sortBy" class="input !h-7 !w-auto !px-2 !text-[11px]" style="min-width:100px">
+            <select v-model="sortBy" class="input !h-7 !w-auto !px-2 !text-[11px]" style="min-width:100px" @change="goPage(1)">
               <option value="time">按更新时间</option>
               <option value="name">按名称</option>
             </select>
@@ -367,7 +469,7 @@ function folderName(id?: string) {
 
         <div v-if="loading" class="flex justify-center py-20" style="color:var(--text3)"><LoaderCircle :size="22" class="animate-spin" /></div>
         <UiEmpty
-          v-else-if="!filtered.length"
+          v-else-if="!shown.length"
           :icon="Library"
           title="这里还是空的"
           description="经验库是建图的唯一入口：导入文档、录音转写、库结构导出、系统探索、联网调研，都会沉淀为经验。"
@@ -377,7 +479,7 @@ function folderName(id?: string) {
 
         <div v-else class="grid grid-cols-3 gap-4">
           <div
-            v-for="e in filtered"
+            v-for="e in shown"
             :key="e.id"
             class="panel doc-card group relative p-4"
           >
@@ -391,6 +493,18 @@ function folderName(id?: string) {
               </button>
               <button class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" title="抽取本体" @click.stop="startExtract(e)">
                 <BrainCircuit class="h-3.5 w-3.5" />
+              </button>
+              <button
+                v-if="e.indexStatus !== 'indexed' && e.indexStatus !== 'indexing'"
+                class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" title="重新索引" @click.stop="reindex(e)"
+              >
+                <RotateCw class="h-3.5 w-3.5" />
+              </button>
+              <button
+                v-if="e.origin === 'websystem'"
+                class="rounded-md p-1.5 transition hover:brightness-95" style="color:var(--text3)" title="探索记录" @click.stop="openExplores(e)"
+              >
+                <Compass class="h-3.5 w-3.5" />
               </button>
               <button class="rounded-md p-1.5 transition hover:text-red-400" style="color:var(--text3)" title="删除" @click.stop="remove(e)">
                 <Trash2 class="h-3.5 w-3.5" />
@@ -425,6 +539,13 @@ function folderName(id?: string) {
             </div>
           </div>
         </div>
+
+        <!-- 分页条（无筛选时启用服务端分页） -->
+        <div v-if="!hasFilter && pageCount > 1" class="mt-5 flex items-center justify-center gap-2 text-[12px]" style="color:var(--text2)">
+          <button class="btn-secondary !h-7 !px-2" :disabled="page <= 1" @click="goPage(page - 1)"><ChevronLeft class="h-3.5 w-3.5" /></button>
+          <span>{{ page }} / {{ pageCount }}</span>
+          <button class="btn-secondary !h-7 !px-2" :disabled="page >= pageCount" @click="goPage(page + 1)"><ChevronRight class="h-3.5 w-3.5" /></button>
+        </div>
       </div>
     </div>
 
@@ -436,6 +557,18 @@ function folderName(id?: string) {
           <span class="badge" :class="originMeta(detail.origin).cls">{{ originMeta(detail.origin).label }}</span>
           <span v-for="t in (detail.tags || '').split(',').filter(Boolean)" :key="t" class="badge" style="background:var(--nav-hover);color:var(--text2)">{{ t }}</span>
           <span class="ml-auto text-xs" style="color:var(--text3)">{{ timeAgo(detail.updatedAt || detail.createdAt) }}</span>
+        </div>
+        <!-- 操作：移动文件夹 / 重新索引 -->
+        <div class="mb-4 flex items-center gap-2">
+          <select class="input !h-8 !w-44 !text-[12.5px]" :value="detail.folderId || ''" @change="moveToFolder(detail, ($event.target as HTMLSelectElement).value)">
+            <option value="">根目录（未分组）</option>
+            <option v-for="f in folders" :key="f.id" :value="f.id">{{ f.name }}</option>
+          </select>
+          <button
+            v-if="detail.indexStatus !== 'indexing'"
+            class="btn-secondary !h-8"
+            @click="reindex(detail)"
+          ><RotateCw class="h-3.5 w-3.5" />{{ detail.indexStatus === 'indexed' ? '重新索引' : '建立索引' }}</button>
         </div>
         <div class="md-body text-[13.5px] leading-relaxed" style="color:var(--text2)" v-html="renderMarkdown(detail.content || '（暂无内容）')" />
       </template>
@@ -572,6 +705,39 @@ function folderName(id?: string) {
     <UiModal :open="extractOpen" title="抽取本体" @close="extractOpen = false">
       <ProgressSteps :steps="extractSteps" :running="extractRunning" />
       <p class="mt-3 text-xs leading-relaxed" style="color:var(--text3)">对该文档执行实体/关系抽取，结果仅展示统计，不直接落库；确认后可用「一键建图」生成模型。</p>
+    </UiModal>
+
+    <!-- 探索记录 -->
+    <UiModal :open="exploreOpen" title="探索记录" width="560px" @close="exploreOpen = false">
+      <div v-if="explores === null" class="flex justify-center py-10" style="color:var(--text3)"><LoaderCircle :size="20" class="animate-spin" /></div>
+      <p v-else-if="!explores.length" class="py-6 text-center text-[13px]" style="color:var(--text3)">该来源暂无探索产物</p>
+      <div v-else class="space-y-1.5">
+        <button
+          v-for="x in explores"
+          :key="x.id"
+          class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] transition hover:brightness-95"
+          style="background:var(--nav-hover);color:var(--text)"
+          @click="exploreOpen = false; openDetail(x)"
+        >
+          <Compass class="h-3.5 w-3.5 shrink-0" style="color:var(--text3)" />
+          <span class="truncate">{{ x.title }}</span>
+          <span class="ml-auto shrink-0 text-[10.5px]" style="color:var(--text3)">{{ timeAgo(x.createdAt) }}</span>
+        </button>
+      </div>
+    </UiModal>
+
+    <!-- 文件夹新建/重命名 -->
+    <UiModal :open="folderFormOpen" :title="renamingFolderId ? '重命名文件夹' : '新建文件夹'" width="400px" @close="folderFormOpen = false">
+      <div>
+        <label class="label">名称 <span style="color:var(--danger)">*</span></label>
+        <input v-model="folderFormName" class="input" placeholder="例如：信贷业务" maxlength="30" @keyup.enter="submitFolder" />
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button class="btn-secondary" @click="folderFormOpen = false">取消</button>
+          <button class="btn-primary" :disabled="!folderFormName.trim()" @click="submitFolder">保存</button>
+        </div>
+      </template>
     </UiModal>
   </div>
 </template>

@@ -50,6 +50,14 @@ const deleteWarning = computed(() => {
   return `确定删除「${deleteTargetName.value}」吗？其中的模型、经验引用都会被清理，此操作不可恢复。${extra}`;
 });
 
+// —— 列表排序：默认空间优先，其次 sortNo 升序（与旧版 Sidebar 排序逻辑一致） ——
+const sortedList = computed(() =>
+  [...ws.list].sort((a, b) => {
+    if ((a.isDefault ? 1 : 0) !== (b.isDefault ? 1 : 0)) return (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0);
+    return (a.sortNo ?? 0) - (b.sortNo ?? 0);
+  }),
+);
+
 // —— 动作 ——
 function enter(id: string) {
   ws.select(id);
@@ -146,7 +154,7 @@ async function confirmDelete() {
     <div class="grid w-full max-w-4xl gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <!-- 工作空间卡片 -->
       <div
-        v-for="(w, i) in ws.list"
+        v-for="(w, i) in sortedList"
         :key="w.id"
         class="ws-card panel group relative flex flex-col p-5 text-left"
         :style="w.id === ws.currentId ? 'border-color:var(--primary)' : ''"
@@ -194,7 +202,11 @@ async function confirmDelete() {
         </div>
 
         <!-- 名称与描述 -->
-        <div class="text-[15px] font-semibold" style="color:var(--text)">{{ w.name }}</div>
+        <div class="flex items-center gap-2">
+          <span class="text-[15px] font-semibold" style="color:var(--text)">{{ w.name }}</span>
+          <!-- 默认工作空间徽章（后端 isDefault 标志） -->
+          <span v-if="w.isDefault" class="badge shrink-0" style="background:var(--accent-bg);color:var(--accent-text)">默认</span>
+        </div>
         <div class="mt-1 min-h-[36px] text-[12.5px] leading-relaxed" :style="{ color: w.description ? 'var(--text2)' : 'var(--text3)' }">
           {{ w.description || '暂无描述' }}
         </div>

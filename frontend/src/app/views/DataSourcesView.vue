@@ -4,21 +4,35 @@ import { useRoute } from 'vue-router';
 import {
   Plus, Database, Globe, Trash2, LoaderCircle, PlugZap, Table2, Search,
   Layers, RefreshCw, DatabaseZap, CheckCircle2, AlertTriangle, FilterX, RotateCw,
+  Folder, FolderPlus, Pencil, TerminalSquare, FileClock, Link2, Waypoints, Send, Clock,
 } from 'lucide-vue-next';
 import {
-  listDataSources, createDataSource, deleteDataSource, testDataSource,
-  listTables, previewTable,
-  type DataSource, type DataSourceKind, type TablePreview,
+  listDataSources, createDataSource, updateDataSource, getDataSource, deleteDataSource,
+  testDataSource, listTables, previewTable, executeSql, executeHttp, listFetchLogs,
+  updateSchedule, buildStructuralGraphStream,
+  type DataSource, type DataSourceKind, type TablePreview, type SqlExecuteResult,
+  type HttpExecuteResult, type FetchLog,
 } from '../../api/dataSources';
+import {
+  listFolders, createFolder, renameFolder, deleteFolder, moveDataSourceToFolder,
+  type DataSourceFolder,
+} from '../../api/folders';
+import {
+  indexDataSource, getIndexStatus, deleteIndex, isEmbeddingConfigured, type IndexStatus,
+} from '../../api/indexing';
+import { listDataSourceReferences } from '../../api/dataSources';
 import { createExperienceFromDdl } from '../../api/experiences';
+import { useWorkspaceStore } from '../stores/workspace';
 import { useToastStore } from '../stores/toast';
 import { timeAgo } from '../lib/format';
 import UiModal from '../components/UiModal.vue';
 import UiDrawer from '../components/UiDrawer.vue';
 import UiEmpty from '../components/UiEmpty.vue';
+import ProgressSteps from '../components/ProgressSteps.vue';
 
 const route = useRoute();
 const toast = useToastStore();
+const wsStore = useWorkspaceStore();
 
 const DB_KINDS: { value: DataSourceKind; label: string }[] = [
   { value: 'mysql', label: 'MySQL' },
@@ -37,26 +51,57 @@ const KIND_COLORS: Record<string, string> = {
 
 const loading = ref(true);
 const list = ref<DataSource[]>([]);
+const folders = ref<DataSourceFolder[]>([]);
 const testing = ref<Record<string, boolean>>({});
+const indexStatuses = ref<Record<string, IndexStatus>>({});
+const embeddingOn = ref(false);
+const refsMap = ref<Record<string, string[]>>({});
 
 // 筛选 / 排序
 const q = ref('');
 const statusF = ref('');
 const engineF = ref('');
+const folderF = ref(''); // '' 全部 / 'root' 未分组 / 文件夹 id
 const sortBy = ref('status');
 
-// 新建
-const createOpen = ref(false);
+// 新建 / 编辑（共用表单弹窗）
+const formOpen = ref(false);
+const editingId = ref<string | null>(null);
 const kind = ref<DataSourceKind>('mysql');
 const name = ref('');
 const cfg = ref<Record<string, any>>({});
 const saving = ref(false);
 
-// 详情
+// 详情抽屉
 const detail = ref<DataSource | null>(null);
 const tables = ref<string[] | null>(null);
 const tablesLoading = ref(false);
 const preview = ref<{ name: string; data: TablePreview } | null>(null);
+
+// SQL 控制台
+const sqlOpen = ref(false);
+const sqlText = ref('');
+const sqlRunning = ref(false);
+const sqlResult = ref<SqlExecuteResult | null>(null);
+
+// HTTP 执行 / 抓取日志
+const httpResult = ref<HttpExecuteResult | null>(null);
+const httpRunning = ref(false);
+const logsOpen = ref(false);
+const logs = ref<FetchLog[] | null>(null);
+
+// 引用关系
+const refsOpen = ref(false);
+
+// 结构化建图
+const buildOpen = ref(false);
+const buildSteps = ref<{ key: string; label: string }[]>([]);
+const buildRunning = ref(false);
+
+// 文件夹管理小弹窗
+const folderFormOpen = ref(false);
+const folderFormName = ref('');
+const renamingFolderId = ref<string | null>(null);
 
 const isDb = computed(() => DB_SET.has(kind.value));
 const canSave = computed(() => {
@@ -70,6 +115,7 @@ const statusOf = (ds: DataSource) => ds.status || 'idle';
 const filtered = computed(() => {
   const kw = q.value.trim().toLowerCase();
   let arr = list.value
+    .filter((ds) => !folderF.value || (folderF.value === 'root' ? !ds.folderId : ds.folderId === folderF.value))
     .filter((ds) => !statusF.value || statusOf(ds) === statusF.value)
     .filter((ds) => !engineF.value || ds.kind === engineF.value)
     .filter((ds) => !kw || ds.name.toLowerCase().includes(kw)
@@ -91,6 +137,11 @@ const engineCounts = computed(() => {
   for (const k of DB_KINDS.map((x) => x.value)) m[k] = list.value.filter((d) => d.kind === k).length;
   return m;
 });
+const folderCounts = computed(() => {
+  const m: Record<string, number> = { root: list.value.filter((d) => !d.folderId).length };
+  for (const f of folders.value) m[f.id] = list.value.filter((d) => d.folderId === f.id).length;
+  return m;
+});
 
 onMounted(async () => {
   q.value = (route.query.q as string) || '';
@@ -101,7 +152,22 @@ onMounted(async () => {
 async function reload() {
   loading.value = true;
   try {
-    list.value = await listDataSources();
+    const [ds, fs, emb, refs] = await Promise.all([
+      listDataSources(),
+      listFolders().catch(() => [] as DataSourceFolder[]),
+      isEmbeddingConfigured().catch(() => ({ configured: false })),
+      listDataSourceReferences().catch(() => ({})),
+    ]);
+    list.value = ds;
+    folders.value = fs;
+    embeddingOn.value = emb.configured;
+    refsMap.value = refs;
+    // 逐个拉索引状态（失败静默）
+    const st: Record<string, IndexStatus> = {};
+    await Promise.all(ds.map(async (d) => {
+      try { st[d.id] = await getIndexStatus(d.id); } catch { /* ignore */ }
+    }));
+    indexStatuses.value = st;
   } catch (e) {
     toast.error((e as Error).message);
   } finally {
@@ -110,10 +176,25 @@ async function reload() {
 }
 
 function openCreate() {
+  editingId.value = null;
   kind.value = 'mysql';
   name.value = '';
   cfg.value = { port: DEFAULT_PORTS.mysql };
-  createOpen.value = true;
+  formOpen.value = true;
+}
+
+/* 编辑：detail 端点拿未脱敏 config 回填表单 */
+async function openEdit(ds: DataSource) {
+  try {
+    const full = await getDataSource(ds.id);
+    editingId.value = ds.id;
+    kind.value = full.kind;
+    name.value = full.name;
+    cfg.value = { ...(full.config || {}) };
+    formOpen.value = true;
+  } catch (e) {
+    toast.error((e as Error).message);
+  }
 }
 
 function pickKind(k: DataSourceKind) {
@@ -121,12 +202,17 @@ function pickKind(k: DataSourceKind) {
   cfg.value = DB_SET.has(k) ? { port: DEFAULT_PORTS[k] } : { method: 'GET', timeoutMs: 15000 };
 }
 
-async function submitCreate() {
+async function submitForm() {
   saving.value = true;
   try {
-    await createDataSource({ name: name.value.trim(), kind: kind.value, config: { ...cfg.value } });
-    createOpen.value = false;
-    toast.success('数据源已创建');
+    if (editingId.value) {
+      await updateDataSource(editingId.value, { name: name.value.trim(), config: { ...cfg.value } });
+      toast.success('数据源已更新');
+    } else {
+      await createDataSource({ name: name.value.trim(), kind: kind.value, config: { ...cfg.value } });
+      toast.success('数据源已创建');
+    }
+    formOpen.value = false;
     reload();
   } catch (e) {
     toast.error((e as Error).message);
@@ -185,13 +271,70 @@ async function remove(ds: DataSource) {
   }
 }
 
-async function openDetail(ds: DataSource) {
-  detail.value = ds;
+/* ---------- 索引管理 ---------- */
+function runIndex(ds: DataSource) {
+  indexStatuses.value = { ...indexStatuses.value, [ds.id]: { status: 'indexing', chunkCount: 0 } };
+  indexDataSource(ds.id, {
+    onStep: () => { /* 状态轮询由完成后的 getIndexStatus 兜底 */ },
+    onError: (msg) => { toast.error(`「${ds.name}」索引失败：${msg}`); reloadIndex(ds.id); },
+    onClose: () => {
+      reloadIndex(ds.id);
+      toast.success(`「${ds.name}」索引完成`);
+    },
+  });
+}
+async function reloadIndex(id: string) {
+  try { indexStatuses.value = { ...indexStatuses.value, [id]: await getIndexStatus(id) }; } catch { /* ignore */ }
+}
+async function removeIndex(ds: DataSource) {
+  if (!window.confirm(`删除「${ds.name}」的向量索引？`)) return;
+  try {
+    await deleteIndex(ds.id);
+    toast.success('索引已删除');
+    reloadIndex(ds.id);
+  } catch (e) {
+    toast.error((e as Error).message);
+  }
+}
+function indexLabel(id: string) {
+  const st = indexStatuses.value[id];
+  if (!st || st.status === 'none') return '';
+  if (st.status === 'indexed') return `已索引 ${st.chunkCount} 块`;
+  if (st.status === 'indexing') return '索引中…';
+  return '索引失败';
+}
+
+/* ---------- 定时同步 ---------- */
+const schedEnabled = ref(false);
+const schedSec = ref(3600);
+function initSched(ds: DataSource) {
+  const s = (ds.config as any)?.schedule;
+  schedEnabled.value = !!s?.enabled;
+  schedSec.value = s?.intervalSec || 3600;
+}
+async function saveSched(ds: DataSource) {
+  try {
+    await updateSchedule(ds.id, schedEnabled.value, Number(schedSec.value) || 3600);
+    toast.success('定时同步配置已保存');
+    openDetail(ds, true);
+  } catch (e) {
+    toast.error((e as Error).message);
+  }
+}
+
+/* ---------- 详情抽屉 ---------- */
+async function openDetail(ds: DataSource, silent = false) {
+  try {
+    detail.value = await getDataSource(ds.id); // 完整 config（未脱敏字段由后端控制）
+  } catch {
+    detail.value = ds;
+  }
+  initSched(detail.value);
   tables.value = null;
-  if (DB_SET.has(ds.kind)) {
+  if (!silent && DB_SET.has(detail.value.kind)) {
     tablesLoading.value = true;
     try {
-      tables.value = await listTables(ds.id);
+      tables.value = await listTables(detail.value.id);
     } catch {
       tables.value = null;
     } finally {
@@ -205,6 +348,123 @@ async function showPreview(t: string) {
   try {
     const data = await previewTable(detail.value.id, t, 50);
     preview.value = { name: t, data };
+  } catch (e) {
+    toast.error((e as Error).message);
+  }
+}
+
+/* ---------- SQL 控制台 ---------- */
+function openSql() {
+  sqlText.value = '';
+  sqlResult.value = null;
+  sqlOpen.value = true;
+}
+async function runSql() {
+  if (!detail.value || !sqlText.value.trim()) return;
+  sqlRunning.value = true;
+  sqlResult.value = null;
+  try {
+    sqlResult.value = await executeSql(detail.value.id, sqlText.value.trim());
+  } catch (e) {
+    toast.error((e as Error).message);
+  } finally {
+    sqlRunning.value = false;
+  }
+}
+
+/* ---------- HTTP 执行 / 日志 ---------- */
+async function runHttp() {
+  if (!detail.value) return;
+  httpRunning.value = true;
+  httpResult.value = null;
+  try {
+    httpResult.value = await executeHttp(detail.value.id);
+  } catch (e) {
+    toast.error((e as Error).message);
+  } finally {
+    httpRunning.value = false;
+  }
+}
+async function openLogs() {
+  if (!detail.value) return;
+  logs.value = null;
+  logsOpen.value = true;
+  try {
+    logs.value = await listFetchLogs(detail.value.id);
+  } catch (e) {
+    toast.error((e as Error).message);
+  }
+}
+
+/* ---------- 引用关系 ---------- */
+function refNames(id: string) {
+  const ids = refsMap.value[id] || [];
+  return ids.map((wid) => wsStore.list.find((w) => w.id === wid)?.name || wid);
+}
+
+/* ---------- 结构化建图 ---------- */
+function openBuild(ds: DataSource) {
+  buildSteps.value = [];
+  buildRunning.value = true;
+  buildOpen.value = true;
+  buildStructuralGraphStream(ds.id, {
+    onStep: (key, label) => { buildSteps.value = [...buildSteps.value, { key, label }]; },
+    onComplete: (r) => {
+      buildRunning.value = false;
+      toast.success(`结构建图完成：${r.nodeCount} 节点 / ${r.edgeCount} 边`);
+    },
+    onError: (msg) => {
+      buildRunning.value = false;
+      toast.error(`结构建图失败：${msg}`);
+    },
+  });
+}
+
+/* ---------- 文件夹管理 ---------- */
+function openFolderCreate() {
+  renamingFolderId.value = null;
+  folderFormName.value = '';
+  folderFormOpen.value = true;
+}
+function openFolderRename(f: DataSourceFolder) {
+  renamingFolderId.value = f.id;
+  folderFormName.value = f.name;
+  folderFormOpen.value = true;
+}
+async function submitFolder() {
+  const n = folderFormName.value.trim();
+  if (!n) return;
+  try {
+    if (renamingFolderId.value) {
+      await renameFolder(renamingFolderId.value, n);
+      toast.success('文件夹已重命名');
+    } else {
+      await createFolder({ name: n });
+      toast.success('文件夹已创建');
+    }
+    folderFormOpen.value = false;
+    reload();
+  } catch (e) {
+    toast.error((e as Error).message);
+  }
+}
+async function removeFolder(f: DataSourceFolder) {
+  if (!window.confirm(`删除文件夹「${f.name}」？其中的数据源会移到上级。`)) return;
+  try {
+    await deleteFolder(f.id);
+    if (folderF.value === f.id) folderF.value = '';
+    toast.success('文件夹已删除');
+    reload();
+  } catch (e) {
+    toast.error((e as Error).message);
+  }
+}
+async function moveToFolder(ds: DataSource, folderId: string) {
+  try {
+    await moveDataSourceToFolder(ds.id, folderId || null);
+    toast.success('已移动');
+    reload();
+    if (detail.value?.id === ds.id) openDetail(ds, true);
   } catch (e) {
     toast.error((e as Error).message);
   }
@@ -262,7 +522,7 @@ function statusLabel(s: string) {
     <div class="flex min-h-0 flex-1 gap-0">
       <!-- 左侧筛选栏 -->
       <aside class="w-[200px] shrink-0 overflow-y-auto border-r p-3" style="border-color:var(--border)">
-        <div class="ds-nav" :class="{ active: !statusF && !engineF }" @click="statusF = ''; engineF = ''">
+        <div class="ds-nav" :class="{ active: !statusF && !engineF && !folderF }" @click="statusF = ''; engineF = ''; folderF = ''">
           <Layers class="h-4 w-4" />全部数据源<span class="ds-nav-count">{{ statusCounts.all }}</span>
         </div>
 
@@ -290,8 +550,24 @@ function statusLabel(s: string) {
           {{ k.label }}<span class="ds-nav-count">{{ engineCounts[k.value] || 0 }}</span>
         </div>
 
+        <!-- 文件夹分组 -->
+        <div class="ds-nav-group flex items-center justify-between">
+          <span>文件夹</span>
+          <button class="ds-icon-btn" title="新建文件夹" @click="openFolderCreate"><FolderPlus class="h-3.5 w-3.5" /></button>
+        </div>
+        <div class="ds-nav" :class="{ active: folderF === 'root' }" @click="folderF = folderF === 'root' ? '' : 'root'">
+          <Folder class="h-4 w-4" style="color:var(--text3)" />未分组<span class="ds-nav-count">{{ folderCounts.root }}</span>
+        </div>
+        <div v-for="f in folders" :key="f.id" class="ds-nav group/f" :class="{ active: folderF === f.id }" @click="folderF = folderF === f.id ? '' : f.id">
+          <Folder class="h-4 w-4" style="color:var(--text3)" />{{ f.name }}<span class="ds-nav-count">{{ folderCounts[f.id] || 0 }}</span>
+          <span class="ml-auto hidden gap-0.5 group-hover/f:flex">
+            <button class="ds-icon-btn" title="重命名" @click.stop="openFolderRename(f)"><Pencil class="h-3 w-3" /></button>
+            <button class="ds-icon-btn danger" title="删除" @click.stop="removeFolder(f)"><Trash2 class="h-3 w-3" /></button>
+          </span>
+        </div>
+
         <div class="mt-4 border-t pt-3" style="border-color:var(--border)">
-          <div class="ds-nav" @click="statusF = ''; engineF = ''"><FilterX class="h-4 w-4" />清除筛选</div>
+          <div class="ds-nav" @click="statusF = ''; engineF = ''; folderF = ''"><FilterX class="h-4 w-4" />清除筛选</div>
         </div>
       </aside>
 
@@ -320,8 +596,8 @@ function statusLabel(s: string) {
         <!-- 结果计数 -->
         <div class="mb-3 flex items-center gap-2 text-[11.5px]" style="color:var(--text3)">
           <span>共 {{ filtered.length }} 个数据源</span>
-          <span v-if="statusF || engineF" class="flex items-center gap-1 rounded px-2 py-0.5" style="background:var(--accent-bg);color:var(--accent-text)">
-            已筛选：{{ statusF ? statusLabel(statusF) : kindLabel(engineF) }}
+          <span v-if="statusF || engineF || folderF" class="flex items-center gap-1 rounded px-2 py-0.5" style="background:var(--accent-bg);color:var(--accent-text)">
+            已筛选：{{ statusF ? statusLabel(statusF) : engineF ? kindLabel(engineF) : '文件夹' }}
           </span>
         </div>
 
@@ -370,6 +646,7 @@ function statusLabel(s: string) {
                   <RotateCw v-else-if="statusOf(ds) === 'error'" class="h-3.5 w-3.5" />
                   <PlugZap v-else class="h-3.5 w-3.5" />
                 </button>
+                <button class="ds-icon-btn" title="编辑" @click.stop="openEdit(ds)"><Pencil class="h-3.5 w-3.5" /></button>
                 <button v-if="DB_SET.has(ds.kind)" class="ds-icon-btn" title="同步 DDL 到经验库" @click.stop="syncDdl(ds)">
                   <RefreshCw class="h-3.5 w-3.5" />
                 </button>
@@ -379,20 +656,24 @@ function statusLabel(s: string) {
             <div class="ds-meta mb-3">
               <span>{{ kindLabel(ds.kind) }}</span>
               <span v-if="ds.lastTestedAt" :style="{ color: statusColor(statusOf(ds)) }">{{ timeAgo(ds.lastTestedAt) }}测试</span>
+              <span v-if="indexStatuses[ds.id]?.status === 'indexed'" style="color:var(--accent-text)">{{ indexLabel(ds.id) }}</span>
               <span v-if="ds.lastError" style="color:#F43F5E">{{ ds.lastError }}</span>
             </div>
             <div class="mt-auto flex items-center gap-2 border-t pt-2.5 text-[11px]" style="border-color:var(--border);color:var(--text3)">
               接入于 {{ timeAgo(ds.createdAt) }}
+              <span v-if="refNames(ds.id).length" class="ml-auto inline-flex items-center gap-1" style="color:var(--accent-text)">
+                <Link2 class="h-3 w-3" />{{ refNames(ds.id).length }} 个工作空间引用
+              </span>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 新建弹窗 -->
-    <UiModal :open="createOpen" title="接入数据源" width="560px" @close="createOpen = false">
+    <!-- 新建/编辑弹窗 -->
+    <UiModal :open="formOpen" :title="editingId ? '编辑数据源' : '接入数据源'" width="560px" @close="formOpen = false">
       <div class="space-y-4">
-        <div>
+        <div v-if="!editingId">
           <label class="label">类型</label>
           <div class="flex flex-wrap gap-1.5">
             <button
@@ -405,6 +686,10 @@ function statusLabel(s: string) {
               @click="pickKind(k.value)"
             >{{ k.label }}</button>
           </div>
+        </div>
+        <div v-else>
+          <label class="label">类型</label>
+          <div class="input pointer-events-none opacity-70">{{ kindLabel(kind) }}</div>
         </div>
         <div>
           <label class="label">名称 <span style="color:var(--danger)">*</span></label>
@@ -463,8 +748,8 @@ function statusLabel(s: string) {
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <button class="btn-secondary" @click="createOpen = false">取消</button>
-          <button class="btn-primary" :disabled="!canSave || saving" @click="submitCreate">
+          <button class="btn-secondary" @click="formOpen = false">取消</button>
+          <button class="btn-primary" :disabled="!canSave || saving" @click="submitForm">
             <LoaderCircle v-if="saving" :size="15" class="animate-spin" /> 保存
           </button>
         </div>
@@ -472,16 +757,66 @@ function statusLabel(s: string) {
     </UiModal>
 
     <!-- 详情抽屉 -->
-    <UiDrawer :open="!!detail" :title="detail?.name || ''" width="520px" @close="detail = null">
+    <UiDrawer :open="!!detail" :title="detail?.name || ''" width="560px" @close="detail = null">
       <template v-if="detail">
-        <div class="mb-4 flex items-center gap-2">
+        <div class="mb-4 flex flex-wrap items-center gap-2">
           <span class="badge" style="background:var(--nav-hover);color:var(--text2)">{{ kindLabel(detail.kind) }}</span>
           <span class="badge" :style="{ background: `${statusColor(statusOf(detail))}1a`, color: statusColor(statusOf(detail)) }">
             {{ statusLabel(statusOf(detail)) }}
           </span>
+          <span v-if="indexStatuses[detail.id]?.status !== 'none' && indexStatuses[detail.id]" class="badge" style="background:var(--accent-bg);color:var(--accent-text)">
+            {{ indexLabel(detail.id) }}
+          </span>
           <button class="btn-secondary ml-auto" :disabled="testing[detail.id]" @click="test(detail)">
             <LoaderCircle v-if="testing[detail.id]" :size="13" class="animate-spin" /><PlugZap v-else :size="13" /> 测试连接
           </button>
+        </div>
+
+        <!-- 操作区 -->
+        <div class="mb-5 grid grid-cols-3 gap-2">
+          <button class="btn-ghost" @click="openEdit(detail)"><Pencil class="h-3.5 w-3.5" />编辑</button>
+          <button v-if="DB_SET.has(detail.kind)" class="btn-ghost" @click="syncDdl(detail)"><RefreshCw class="h-3.5 w-3.5" />同步 DDL</button>
+          <button v-if="DB_SET.has(detail.kind)" class="btn-ghost" @click="openBuild(detail)"><Waypoints class="h-3.5 w-3.5" />结构建图</button>
+          <button v-if="DB_SET.has(detail.kind)" class="btn-ghost" @click="openSql"><TerminalSquare class="h-3.5 w-3.5" />SQL 控制台</button>
+          <button v-if="detail.kind === 'https_api'" class="btn-ghost" :disabled="httpRunning" @click="runHttp">
+            <LoaderCircle v-if="httpRunning" class="h-3.5 w-3.5 animate-spin" /><Send v-else class="h-3.5 w-3.5" />执行请求
+          </button>
+          <button v-if="detail.kind === 'https_api'" class="btn-ghost" @click="openLogs"><FileClock class="h-3.5 w-3.5" />抓取日志</button>
+          <button class="btn-ghost" @click="refsOpen = true"><Link2 class="h-3.5 w-3.5" />引用关系</button>
+        </div>
+
+        <!-- 向量索引 -->
+        <div class="label">向量索引</div>
+        <div class="mb-5 flex items-center gap-2 rounded-lg px-3 py-2.5 text-[12.5px]" style="background:var(--nav-hover)">
+          <span v-if="!embeddingOn" style="color:var(--text3)">未配置 Embedding，无法建索引</span>
+          <template v-else>
+            <span style="color:var(--text2)">{{ indexLabel(detail.id) || '未建索引' }}</span>
+            <button class="btn-secondary ml-auto" :disabled="indexStatuses[detail.id]?.status === 'indexing'" @click="runIndex(detail)">
+              {{ indexStatuses[detail.id]?.status === 'indexed' ? '重建索引' : '建立索引' }}
+            </button>
+            <button v-if="indexStatuses[detail.id]?.status === 'indexed'" class="btn-secondary" @click="removeIndex(detail)">删除索引</button>
+          </template>
+        </div>
+
+        <!-- 定时同步（HTTP 接口） -->
+        <template v-if="detail.kind === 'https_api'">
+          <div class="label">定时同步</div>
+          <div class="mb-5 flex items-center gap-3 rounded-lg px-3 py-2.5" style="background:var(--nav-hover)">
+            <span class="switch" :class="{ on: schedEnabled }" @click="schedEnabled = !schedEnabled"><span class="knob" /></span>
+            <Clock class="h-3.5 w-3.5" style="color:var(--text3)" />
+            <input v-model.number="schedSec" type="number" min="60" step="60" class="input !h-7 !w-24 !text-[12px]" />
+            <span class="text-[12px]" style="color:var(--text3)">秒</span>
+            <button class="btn-secondary ml-auto" @click="saveSched(detail)">保存</button>
+          </div>
+        </template>
+
+        <!-- 所属文件夹 -->
+        <div class="label">所属文件夹</div>
+        <div class="mb-5 flex items-center gap-2">
+          <select class="input !h-8 !w-48 !text-[12.5px]" :value="detail.folderId || ''" @change="moveToFolder(detail, ($event.target as HTMLSelectElement).value)">
+            <option value="">未分组</option>
+            <option v-for="f in folders" :key="f.id" :value="f.id">{{ f.name }}</option>
+          </select>
         </div>
 
         <div class="label">连接配置</div>
@@ -496,6 +831,20 @@ function statusLabel(s: string) {
             <span class="ml-3 max-w-[60%] truncate font-mono" style="color:var(--text)">{{ v }}</span>
           </div>
         </div>
+
+        <!-- HTTP 最近一次执行结果 -->
+        <template v-if="httpResult">
+          <div class="label">最近执行结果</div>
+          <div class="mb-5 rounded-lg px-3 py-2.5 text-[12.5px]" style="background:var(--nav-hover)">
+            <div class="flex items-center gap-2">
+              <span :style="{ color: httpResult.success ? 'var(--success)' : 'var(--danger)' }">
+                {{ httpResult.success ? `成功 · HTTP ${httpResult.statusCode}` : `失败：${httpResult.errorMsg || '未知错误'}` }}
+              </span>
+              <span class="ml-auto" style="color:var(--text3)">{{ httpResult.durationMs }}ms</span>
+            </div>
+            <pre v-if="httpResult.body" class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[11.5px]" style="color:var(--text2)">{{ httpResult.body }}</pre>
+          </div>
+        </template>
 
         <template v-if="DB_SET.has(detail.kind)">
           <div class="label">库表浏览</div>
@@ -533,6 +882,87 @@ function statusLabel(s: string) {
         </table>
         <p class="mt-2 text-xs" style="color:var(--text3)">共 {{ preview.data.rowCount }} 行{{ preview.data.truncated ? '（已截断）' : '' }}</p>
       </div>
+    </UiModal>
+
+    <!-- SQL 控制台 -->
+    <UiModal :open="sqlOpen" title="SQL 控制台" width="760px" @close="sqlOpen = false">
+      <div class="space-y-3">
+        <textarea v-model="sqlText" class="textarea font-mono !text-[12.5px]" rows="4" placeholder="SELECT * FROM orders LIMIT 20" />
+        <div class="flex items-center gap-2">
+          <span class="text-[11.5px]" style="color:var(--text3)">只读查询，结果最多返回 100 行</span>
+          <button class="btn-primary ml-auto" :disabled="!sqlText.trim() || sqlRunning" @click="runSql">
+            <LoaderCircle v-if="sqlRunning" :size="14" class="animate-spin" /> 执行
+          </button>
+        </div>
+        <div v-if="sqlResult" class="overflow-x-auto">
+          <table class="tbl">
+            <thead><tr><th v-for="c in sqlResult.columns" :key="c">{{ c }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(row, i) in sqlResult.rows" :key="i">
+                <td v-for="(cell, j) in row" :key="j">{{ cell }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="mt-2 text-xs" style="color:var(--text3)">
+            {{ sqlResult.rowCount }} 行 · 耗时 {{ sqlResult.durationMs }}ms{{ sqlResult.truncated ? '（已截断）' : '' }}
+          </p>
+        </div>
+      </div>
+    </UiModal>
+
+    <!-- 抓取日志 -->
+    <UiModal :open="logsOpen" title="抓取日志" width="720px" @close="logsOpen = false">
+      <div v-if="logs === null" class="flex justify-center py-10" style="color:var(--text3)"><LoaderCircle :size="20" class="animate-spin" /></div>
+      <p v-else-if="!logs.length" class="py-6 text-center text-[13px]" style="color:var(--text3)">暂无抓取记录</p>
+      <div v-else class="space-y-1.5">
+        <div
+          v-for="lg in logs"
+          :key="lg.id"
+          class="flex items-center gap-3 rounded-lg px-3 py-2 text-[12.5px]"
+          style="background:var(--nav-hover)"
+        >
+          <span :style="{ color: lg.success ? 'var(--success)' : 'var(--danger)' }">{{ lg.success ? `HTTP ${lg.statusCode ?? ''}` : '失败' }}</span>
+          <span style="color:var(--text3)">{{ timeAgo(lg.fetchedAt) }}</span>
+          <span class="ml-auto" style="color:var(--text3)">{{ lg.durationMs }}ms</span>
+          <span v-if="lg.errorMsg" class="max-w-[40%] truncate" style="color:var(--danger)">{{ lg.errorMsg }}</span>
+        </div>
+      </div>
+    </UiModal>
+
+    <!-- 引用关系 -->
+    <UiModal :open="refsOpen" title="引用关系" width="460px" @close="refsOpen = false">
+      <template v-if="detail">
+        <p v-if="!refNames(detail.id).length" class="py-4 text-center text-[13px]" style="color:var(--text3)">
+          暂无工作空间通过节点绑定引用该数据源
+        </p>
+        <div v-else class="space-y-1.5">
+          <div v-for="n in refNames(detail.id)" :key="n" class="rounded-lg px-3 py-2 text-[13px]" style="background:var(--nav-hover);color:var(--text)">
+            {{ n }}
+          </div>
+        </div>
+      </template>
+    </UiModal>
+
+    <!-- 结构化建图进度 -->
+    <UiModal :open="buildOpen" title="结构化建图" width="460px" @close="buildOpen = false">
+      <ProgressSteps :steps="buildSteps" :running="buildRunning" />
+      <p class="mt-3 text-[11.5px]" style="color:var(--text3)">
+        从全库表/列/外键确定性生成结构血缘模型，不消耗 LLM。
+      </p>
+    </UiModal>
+
+    <!-- 文件夹新建/重命名 -->
+    <UiModal :open="folderFormOpen" :title="renamingFolderId ? '重命名文件夹' : '新建文件夹'" width="400px" @close="folderFormOpen = false">
+      <div>
+        <label class="label">名称 <span style="color:var(--danger)">*</span></label>
+        <input v-model="folderFormName" class="input" placeholder="例如：核心系统" maxlength="30" @keyup.enter="submitFolder" />
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button class="btn-secondary" @click="folderFormOpen = false">取消</button>
+          <button class="btn-primary" :disabled="!folderFormName.trim()" @click="submitFolder">保存</button>
+        </div>
+      </template>
     </UiModal>
   </div>
 </template>
