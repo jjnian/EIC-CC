@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+// 修复：computed 未导入导致设置页 setup 抛 ReferenceError、页面空白
+import { computed, onMounted, ref } from 'vue';
 import {
   LoaderCircle, PlugZap, Cpu, SlidersHorizontal, Info, CircleCheck, CircleAlert,
   HardDrive, Download, BarChart3, RotateCcw, History, LayoutTemplate, Trash2, FileWarning,
