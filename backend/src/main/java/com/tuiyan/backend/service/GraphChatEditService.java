@@ -1,7 +1,7 @@
 package com.tuiyan.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.tuiyan.backend.config.ResourceNotFoundException;
+import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.repository.OntologyModelRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

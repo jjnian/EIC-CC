@@ -1,11 +1,13 @@
 package com.tuiyan.backend.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.stereotype.Component;
 
 /**
  * MinIO 对象存储连接配置，绑定 {@code app.storage.minio.*}。
  * <p>默认指向本地 MinIO（localhost:9000 / minioadmin），生产可用环境变量覆盖。
  */
+@Component
 @ConfigurationProperties(prefix = "app.storage.minio")
 public class MinioProperties {
 

@@ -2,12 +2,9 @@ package com.tuiyan.backend.controller;
 
 import com.tuiyan.backend.entity.DataSourceFetchLogPO;
 import com.tuiyan.backend.model.dto.*;
-import com.tuiyan.backend.repository.DataSourceRepository;
-import com.tuiyan.backend.repository.NodeDataBindingRepository;
 import com.tuiyan.backend.service.DataSourceService;
 import com.tuiyan.backend.service.StructuralGraphService;
 import com.tuiyan.backend.support.SseJobRunner;
-import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -26,20 +23,14 @@ import java.util.Map;
 @RequestMapping("/api/data-sources")
 public class DataSourceController {
 
-    private final DataSourceRepository repo;
     private final DataSourceService service;
-    private final NodeDataBindingRepository bindingRepo;
     private final StructuralGraphService structuralGraphService;
     private final SseJobRunner sseJobs;
 
-    public DataSourceController(DataSourceRepository repo,
-                                DataSourceService service,
-                                NodeDataBindingRepository bindingRepo,
+    public DataSourceController(DataSourceService service,
                                 StructuralGraphService structuralGraphService,
                                 SseJobRunner sseJobs) {
-        this.repo = repo;
         this.service = service;
-        this.bindingRepo = bindingRepo;
         this.structuralGraphService = structuralGraphService;
         this.sseJobs = sseJobs;
     }
@@ -77,13 +68,7 @@ public class DataSourceController {
     public ApiResult<List<Map<String, Object>>> list(@RequestParam(required = false) String workspaceId,
                                                           @RequestParam(required = false) String kind,
                                                           @RequestParam(name = "all", defaultValue = "false") boolean all) {
-        List<Map<String, Object>> list = all
-                ? repo.listAll()
-                : (workspaceId != null && !workspaceId.isBlank() ? repo.list(workspaceId) : repo.list());
-        if (kind != null && !kind.isBlank()) {
-            list = list.stream().filter(m -> kind.equals(m.get("kind"))).toList();
-        }
-        return ApiResult.ok(list);
+        return ApiResult.ok(service.list(workspaceId, kind, all));
     }
 
     /**
@@ -92,13 +77,13 @@ public class DataSourceController {
      */
     @GetMapping("/references")
     public ApiResult<Map<String, List<String>>> references() {
-        return ApiResult.ok(bindingRepo.referencingWorkspacesByDataSource());
+        return ApiResult.ok(service.references());
     }
 
     /** 当前工作空间「尚未引用」的公共数据源（引用选择器列出可引入的数据源）。 */
     @GetMapping("/referencable")
     public ApiResult<List<Map<String, Object>>> referencable() {
-        return ApiResult.ok(repo.listReferencable(WorkspaceContext.required()));
+        return ApiResult.ok(service.referencable());
     }
 
     /** 把一批公共数据源引用进当前工作空间（已引用的跳过）。请求体：{ dataSourceIds: [...] }。 */
@@ -109,14 +94,14 @@ public class DataSourceController {
         if (ids instanceof List<?> arr) {
             for (Object o : arr) if (o != null) list.add(String.valueOf(o));
         }
-        int added = repo.reference(list);
+        int added = service.reference(list);
         return ApiResult.ok(Map.of("added", added));
     }
 
     /** 取消当前工作空间对某数据源的引用（不删除数据源本体）。 */
     @DeleteMapping("/{id}/ref")
     public ApiResult<SuccessCountResponse> unreference(@PathVariable String id) {
-        boolean ok = repo.unreference(id);
+        boolean ok = service.unreference(id);
         return ApiResult.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 
@@ -148,7 +133,7 @@ public class DataSourceController {
                                                              @RequestBody(required = false) Map<String, Object> body) {
         Object f = body == null ? null : body.get("folderId");
         String folderId = f == null ? null : String.valueOf(f);
-        boolean ok = repo.moveToFolder(id, folderId);
+        boolean ok = service.moveToFolder(id, folderId);
         return ApiResult.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 

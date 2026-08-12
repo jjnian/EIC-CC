@@ -1,5 +1,7 @@
 package com.tuiyan.backend.config;
 
+import com.tuiyan.backend.exception.ConflictException;
+import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.model.dto.ApiResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

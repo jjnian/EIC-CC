@@ -1,6 +1,6 @@
 package com.tuiyan.backend.controller;
 
-import com.tuiyan.backend.config.ResourceNotFoundException;
+import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.entity.NodeDataBindingPO;
 import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.model.dto.SqlExecuteRequest;

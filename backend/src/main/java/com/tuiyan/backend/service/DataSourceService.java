@@ -5,11 +5,13 @@ import com.tuiyan.backend.entity.DataSourcePO;
 import com.tuiyan.backend.model.dto.*;
 import com.tuiyan.backend.repository.DataSourceFetchLogRepository;
 import com.tuiyan.backend.repository.DataSourceRepository;
+import com.tuiyan.backend.repository.NodeDataBindingRepository;
 import com.tuiyan.backend.service.connector.HttpScheduler;
 import com.tuiyan.backend.service.connector.JdbcConnectorService;
 import com.tuiyan.backend.service.connector.SourceKind;
 import com.tuiyan.backend.service.connector.SourceKindHandler;
 import com.tuiyan.backend.service.connector.SourceKindHandlerRegistry;
+import com.tuiyan.backend.support.WorkspaceContext;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -23,6 +25,7 @@ public class DataSourceService {
 
     private final DataSourceRepository repo;
     private final DataSourceFetchLogRepository logRepo;
+    private final NodeDataBindingRepository bindingRepo;
     private final JdbcConnectorService jdbc;
     private final HttpScheduler scheduler;
     private final SchemaInfoDtoMapper schemaInfoDtoMapper;
@@ -31,12 +34,14 @@ public class DataSourceService {
 
     public DataSourceService(DataSourceRepository repo,
                              DataSourceFetchLogRepository logRepo,
+                             NodeDataBindingRepository bindingRepo,
                              JdbcConnectorService jdbc,
                              HttpScheduler scheduler,
                              SchemaInfoDtoMapper schemaInfoDtoMapper,
                              SourceKindHandlerRegistry handlers) {
         this.repo = repo;
         this.logRepo = logRepo;
+        this.bindingRepo = bindingRepo;
         this.jdbc = jdbc;
         this.scheduler = scheduler;
         this.schemaInfoDtoMapper = schemaInfoDtoMapper;
@@ -255,5 +260,43 @@ public class DataSourceService {
         if (!SourceKind.isJdbc(po.getKind())) {
             throw new IllegalArgumentException("当前数据源 kind=" + po.getKind() + " 不支持该操作");
         }
+    }
+
+    // ---------- 列表 / 引用 ----------
+
+    /** 按条件列出数据源（含跨工作空间引用）。 */
+    public List<Map<String, Object>> list(String workspaceId, String kind, boolean all) {
+        List<Map<String, Object>> list = all
+                ? repo.listAll()
+                : (workspaceId != null && !workspaceId.isBlank() ? repo.list(workspaceId) : repo.list());
+        if (kind != null && !kind.isBlank()) {
+            list = list.stream().filter(m -> kind.equals(m.get("kind"))).toList();
+        }
+        return list;
+    }
+
+    /** 数据源 → 引用它的工作空间 id 列表映射（跨工作空间）。 */
+    public Map<String, List<String>> references() {
+        return bindingRepo.referencingWorkspacesByDataSource();
+    }
+
+    /** 当前工作空间「尚未引用」的公共数据源。 */
+    public List<Map<String, Object>> referencable() {
+        return repo.listReferencable(WorkspaceContext.required());
+    }
+
+    /** 批量引用数据源到当前工作空间。 */
+    public int reference(List<String> ids) {
+        return repo.reference(ids);
+    }
+
+    /** 取消当前工作空间对某数据源的引用。 */
+    public boolean unreference(String id) {
+        return repo.unreference(id);
+    }
+
+    /** 移动数据源到指定文件夹。 */
+    public boolean moveToFolder(String id, String folderId) {
+        return repo.moveToFolder(id, folderId);
     }
 }

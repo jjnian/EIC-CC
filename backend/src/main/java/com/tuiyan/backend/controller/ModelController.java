@@ -1,7 +1,7 @@
 package com.tuiyan.backend.controller;
 
 import com.tuiyan.backend.config.LlmProperties;
-import com.tuiyan.backend.config.ResourceNotFoundException;
+import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.model.dto.ModelTestResponse;
 import com.tuiyan.backend.service.ModelInfoService;
