@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -259,7 +260,7 @@ public class EntityAlignmentService {
         if (!lp.isArray() || lp.isEmpty()) return;
         ArrayNode wp = winner.path("props").isArray()
                 ? (ArrayNode) winner.path("props") : winner.putArray("props");
-        Set<String> seen = new java.util.HashSet<>();
+        Set<String> seen = new HashSet<>();
         for (JsonNode p : wp) {
             String k = p.path("key").asText("");
             if (!k.isEmpty()) seen.add(norm(k));

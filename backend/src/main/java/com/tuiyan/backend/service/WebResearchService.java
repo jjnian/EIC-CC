@@ -17,7 +17,9 @@ import java.io.IOException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 
 /**
@@ -89,7 +91,7 @@ public class WebResearchService {
 
         // 2) 逐条子查询搜索，跨查询按 URL 去重后合并候选（同一页只保留一次）
         List<WebSearchClient.SearchHit> candidates = new ArrayList<>();
-        java.util.Set<String> seenUrls = new java.util.HashSet<>();
+        Set<String> seenUrls = new HashSet<>();
         for (String sub : queries) {
             try {
                 for (WebSearchClient.SearchHit h : searchClient.search(sub, HITS_PER_QUERY)) {

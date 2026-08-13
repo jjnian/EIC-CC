@@ -10,6 +10,7 @@ import com.tuiyan.backend.service.WebResearchService;
 import com.tuiyan.backend.service.WebSystemConfigAssembler;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
 import com.tuiyan.backend.entity.ExperiencePO;
+import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.service.storage.ObjectStorage;
 import com.tuiyan.backend.support.SseJobRunner;
@@ -27,6 +28,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -193,7 +197,7 @@ public class ExperienceController {
     @PostMapping("/refs")
     public ApiResult<Map<String, Object>> reference(@RequestBody Map<String, Object> body) {
         Object ids = body == null ? null : body.get("experienceIds");
-        List<String> list = new java.util.ArrayList<>();
+        List<String> list = new ArrayList<>();
         if (ids instanceof List<?> arr) {
             for (Object o : arr) if (o != null) list.add(String.valueOf(o));
         }
@@ -212,7 +216,7 @@ public class ExperienceController {
     public ApiResult<Map<String, Object>> detail(@PathVariable String id) {
         Map<String, Object> exp = repo.findFull(id);
         if (exp == null) {
-            throw new com.tuiyan.backend.config.ResourceNotFoundException("经验不存在");
+            throw new ResourceNotFoundException("经验不存在");
         }
         return ApiResult.ok(exp);
     }
@@ -254,7 +258,7 @@ public class ExperienceController {
         String name = po.getFileName() == null || po.getFileName().isBlank() ? id : po.getFileName();
         long size = po.getFileSize() == null ? storage.size(po.getStoragePath()) : po.getFileSize();
         String disposition = (download ? "attachment" : "inline")
-                + "; filename*=UTF-8''" + java.net.URLEncoder.encode(name, java.nio.charset.StandardCharsets.UTF_8);
+                + "; filename*=UTF-8''" + URLEncoder.encode(name, StandardCharsets.UTF_8);
 
         ResponseEntity.BodyBuilder b = ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
@@ -293,7 +297,7 @@ public class ExperienceController {
                                                       @RequestBody ExperienceUpdateRequest req) {
         Map<String, Object> exp = repo.update(id, req.getTitle(), req.getContent(), req.getTags());
         if (exp == null) {
-            throw new com.tuiyan.backend.config.ResourceNotFoundException("经验不存在");
+            throw new ResourceNotFoundException("经验不存在");
         }
         triggerReindex(exp);
         return ApiResult.ok(exp);
@@ -325,13 +329,13 @@ public class ExperienceController {
                                                                @RequestBody Map<String, Object> body) {
         Map<String, Object> existing = repo.readSourceConfigScoped(id);
         if (existing == null) {
-            throw new com.tuiyan.backend.config.ResourceNotFoundException("Web系统配置不存在");
+            throw new ResourceNotFoundException("Web系统配置不存在");
         }
         body.put("baseUrl", WebUrls.normalizeEntryUrl(WebSystemConfigAssembler.str(body, "baseUrl")));
         Map<String, Object> config = WebSystemConfigAssembler.assemble(body, existing);
         Map<String, Object> exp = repo.updateWebSystem(id, WebSystemConfigAssembler.str(body, "title"), config);
         if (exp == null) {
-            throw new com.tuiyan.backend.config.ResourceNotFoundException("经验不存在");
+            throw new ResourceNotFoundException("经验不存在");
         }
         return ApiResult.ok(exp);
     }

@@ -1,14 +1,19 @@
 package com.tuiyan.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.repository.OntologyModelRepository;
+import com.tuiyan.backend.service.indexing.EmbeddingClient;
+import com.tuiyan.backend.service.indexing.GraphNodeIndexService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -56,13 +61,13 @@ public class GraphChatEditService {
     private static final int VECTOR_CANDIDATES = 1000;
 
     private final ExtractionLlmService extractionLlmService;
-    private final com.tuiyan.backend.service.indexing.EmbeddingClient embeddingClient;
-    private final com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex;
+    private final EmbeddingClient embeddingClient;
+    private final GraphNodeIndexService nodeIndex;
 
     public GraphChatEditService(OntologyModelRepository modelRepo, GraphPatchService patchService,
                                 ExtractionLlmService extractionLlmService,
-                                com.tuiyan.backend.service.indexing.EmbeddingClient embeddingClient,
-                                com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex) {
+                                EmbeddingClient embeddingClient,
+                                GraphNodeIndexService nodeIndex) {
         this.modelRepo = modelRepo;
         this.extractionLlmService = extractionLlmService;
         this.patchService = patchService;
@@ -123,7 +128,7 @@ public class GraphChatEditService {
     static List<Map<String, Object>> toOpList(JsonNode opsNode) {
         List<Map<String, Object>> ops = new ArrayList<>();
         if (!opsNode.isArray()) return ops;
-        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+        ObjectMapper om = new ObjectMapper();
         for (JsonNode op : opsNode) {
             if (!op.isObject()) continue;
             try {
@@ -142,7 +147,7 @@ public class GraphChatEditService {
     static String buildContext(OntologyModelRepository.NodesAndEdges g, String message) {
         List<Map<String, Object>> nodes = g.nodes();
         List<Map<String, Object>> edges = g.edges();
-        Map<String, Map<String, Object>> byId = new java.util.HashMap<>();
+        Map<String, Map<String, Object>> byId = new HashMap<>();
         for (Map<String, Object> n : nodes) byId.put(str(n.get("id")), n);
 
         // 关键词：请求里长度≥2 的词块（中英文皆按非分隔切）
@@ -171,7 +176,7 @@ public class GraphChatEditService {
         }
         // 匹配不到：退回度数最高的枢纽节点作锚点
         if (keep.isEmpty()) {
-            Map<String, Integer> deg = new java.util.HashMap<>();
+            Map<String, Integer> deg = new HashMap<>();
             for (Map<String, Object> e : edges) {
                 deg.merge(str(e.get("from")), 1, Integer::sum);
                 deg.merge(str(e.get("to")), 1, Integer::sum);
@@ -222,7 +227,7 @@ public class GraphChatEditService {
         List<Map<String, Object>> edges = g.edges();
         try {
             // 候选：按度数降序取前 N 个有 label 的节点(枢纽优先)
-            Map<String, Integer> deg = new java.util.HashMap<>();
+            Map<String, Integer> deg = new HashMap<>();
             for (Map<String, Object> e : edges) {
                 deg.merge(str(e.get("from")), 1, Integer::sum);
                 deg.merge(str(e.get("to")), 1, Integer::sum);
@@ -245,14 +250,14 @@ public class GraphChatEditService {
             for (int i = 0; i < order.length; i++) order[i] = i;
             double[] sim = new double[cand.size()];
             for (int i = 0; i < cand.size(); i++) sim[i] = cosine(qv, vecs.get(i));
-            java.util.Arrays.sort(order, (a, b) -> Double.compare(sim[b], sim[a]));
+            Arrays.sort(order, (a, b) -> Double.compare(sim[b], sim[a]));
 
             Set<String> keep = new LinkedHashSet<>();
             for (int k = 0; k < order.length && keep.size() < CONTEXT_NODES; k++) {
                 keep.add(str(cand.get(order[k]).get("id")));
             }
             // 一跳邻居，让 LLM 看到相关节点的现有连接
-            Map<String, Map<String, Object>> byId = new java.util.HashMap<>();
+            Map<String, Map<String, Object>> byId = new HashMap<>();
             for (Map<String, Object> n : nodes) byId.put(str(n.get("id")), n);
             Set<String> seed = new LinkedHashSet<>(keep);
             for (Map<String, Object> e : edges) {

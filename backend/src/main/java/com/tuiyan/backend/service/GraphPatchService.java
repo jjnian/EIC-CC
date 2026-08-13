@@ -2,6 +2,7 @@ package com.tuiyan.backend.service;
 
 import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.repository.OntologyModelRepository;
+import com.tuiyan.backend.service.indexing.GraphNodeIndexService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,10 +19,10 @@ import java.util.Map;
 public class GraphPatchService {
 
     private final OntologyModelRepository modelRepo;
-    private final com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex;
+    private final GraphNodeIndexService nodeIndex;
 
     public GraphPatchService(OntologyModelRepository modelRepo,
-                             com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex) {
+                             GraphNodeIndexService nodeIndex) {
         this.modelRepo = modelRepo;
         this.nodeIndex = nodeIndex;
     }

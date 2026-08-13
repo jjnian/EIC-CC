@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -111,7 +112,7 @@ public class SchemaDriftService {
 
         // 汇总输出
         List<Map<String, Object>> missingTables = new ArrayList<>();
-        Set<String> allMissing = new java.util.LinkedHashSet<>(missingTableNodes.keySet());
+        Set<String> allMissing = new LinkedHashSet<>(missingTableNodes.keySet());
         allMissing.addAll(missingTableEdges.keySet());
         for (String t : allMissing) {
             Map<String, Object> one = new LinkedHashMap<>();
@@ -152,7 +153,7 @@ public class SchemaDriftService {
     }
 
     private static List<String> dedup(List<String> in) {
-        return new ArrayList<>(new java.util.LinkedHashSet<>(in));
+        return new ArrayList<>(new LinkedHashSet<>(in));
     }
 
     private static String str(Object o) {

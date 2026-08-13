@@ -1,5 +1,7 @@
 package com.tuiyan.backend.service.extraction;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,7 +26,7 @@ public final class ExtractionContext {
     /** 来源名 → 该来源贡献的图片附件。与 imageAttachments 同步写入。 */
     private final Map<String, List<Map<String, Object>>> sourceImages = new LinkedHashMap<>();
     /** 来源名 → 该来源解析出的确定性图片段（{add_nodes,add_edges} 形状，如 SQL 血缘），不经 LLM 直接合并。 */
-    private final Map<String, List<com.fasterxml.jackson.databind.JsonNode>> graphFragments = new LinkedHashMap<>();
+    private final Map<String, List<JsonNode>> graphFragments = new LinkedHashMap<>();
     private final List<Map<String, Object>> sourcesMeta = new ArrayList<>();
     private final StepSink step;
 
@@ -72,7 +74,7 @@ public final class ExtractionContext {
     }
 
     /** 记录一个确定性图片段（{add_nodes,add_edges}）并归到其来源名下。 */
-    public void addGraphFragment(String source, com.fasterxml.jackson.databind.JsonNode fragment) {
+    public void addGraphFragment(String source, JsonNode fragment) {
         if (fragment == null) return;
         synchronized (combinedText) {
             graphFragments.computeIfAbsent(nz(source), k -> new ArrayList<>()).add(fragment);
@@ -84,10 +86,10 @@ public final class ExtractionContext {
     }
 
     /** 来源名 → 确定性图片段列表（快照副本，按首次贡献顺序）。 */
-    public Map<String, List<com.fasterxml.jackson.databind.JsonNode>> graphFragments() {
+    public Map<String, List<JsonNode>> graphFragments() {
         synchronized (combinedText) {
-            Map<String, List<com.fasterxml.jackson.databind.JsonNode>> out = new LinkedHashMap<>();
-            for (Map.Entry<String, List<com.fasterxml.jackson.databind.JsonNode>> en : graphFragments.entrySet()) {
+            Map<String, List<JsonNode>> out = new LinkedHashMap<>();
+            for (Map.Entry<String, List<JsonNode>> en : graphFragments.entrySet()) {
                 out.put(en.getKey(), List.copyOf(en.getValue()));
             }
             return out;

@@ -4,11 +4,13 @@ import com.tuiyan.backend.entity.DataSourceFetchLogPO;
 import com.tuiyan.backend.model.dto.*;
 import com.tuiyan.backend.service.DataSourceService;
 import com.tuiyan.backend.service.StructuralGraphService;
+import com.tuiyan.backend.service.connector.JdbcConnectorService;
 import com.tuiyan.backend.support.SseJobRunner;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -90,7 +92,7 @@ public class DataSourceController {
     @PostMapping("/refs")
     public ApiResult<Map<String, Object>> reference(@RequestBody Map<String, Object> body) {
         Object ids = body == null ? null : body.get("dataSourceIds");
-        List<String> list = new java.util.ArrayList<>();
+        List<String> list = new ArrayList<>();
         if (ids instanceof List<?> arr) {
             for (Object o : arr) if (o != null) list.add(String.valueOf(o));
         }
@@ -173,7 +175,7 @@ public class DataSourceController {
      * 用途：把「按命名推断」的血缘边升级为「数据证实」（confirmed/likely）或否掉（rejected）。
      */
     @PostMapping("/{id}/verify-containment")
-    public ApiResult<com.tuiyan.backend.service.connector.JdbcConnectorService.ContainmentCheckResponse>
+    public ApiResult<JdbcConnectorService.ContainmentCheckResponse>
     verifyContainment(@PathVariable String id, @RequestBody Map<String, Object> body) {
         int sampleLimit = 0;
         Object sl = body.get("sampleLimit");

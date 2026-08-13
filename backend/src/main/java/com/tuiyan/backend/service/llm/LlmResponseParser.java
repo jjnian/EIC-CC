@@ -5,6 +5,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
  * LLM 响应解析：从协议响应中抽取文本内容、剥除 markdown 代码块包装。
  * <p>从 {@link LlmHttpClient} 拆出的纯解析逻辑，无 IO、无状态。
@@ -53,7 +56,7 @@ public class LlmResponseParser {
         // 已经是裸 JSON，直接返回
         if (s.startsWith("{") || s.startsWith("[")) return s;
         // 尝试从 markdown 代码块中提取 JSON
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+        Matcher m = Pattern.compile(
                 "```(?:json)?\\s*\\n([\\s\\S]*?)\\n\\s*```"
         ).matcher(s);
         if (m.find()) {

@@ -5,7 +5,9 @@ import com.tuiyan.backend.service.connector.JdbcConnectorService.RoutineInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 从内省 schema 的「SQL 定义体」——视图定义与存储过程/函数源码——确定性解析表级血缘。
@@ -84,7 +86,7 @@ public final class SchemaSqlLineage {
     public static List<ObjectFlow> triggerFlows(DatabaseSchemaInfo schema) {
         List<ObjectFlow> out = new ArrayList<>();
         if (schema == null || schema.triggers() == null) return out;
-        java.util.Set<String> seen = new java.util.HashSet<>();   // 显式流与隐含流可能给出同一对 (src,dst)
+        Set<String> seen = new HashSet<>();   // 显式流与隐含流可能给出同一对 (src,dst)
         for (var trg : schema.triggers()) {
             if (trg.body() == null || trg.body().isBlank() || trg.table() == null || trg.table().isBlank()) continue;
             String label = "触发器 " + trg.name();

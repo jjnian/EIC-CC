@@ -16,6 +16,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -205,7 +206,7 @@ public class OntologyModelRepository {
     }
 
     /** 按 id 集取节点头(id/label/type/domain)，不加载整图——供对话改图用「当前可见子图」作上下文。 */
-    public List<Map<String, Object>> nodeHeadsByIds(String modelId, java.util.Collection<String> ids) {
+    public List<Map<String, Object>> nodeHeadsByIds(String modelId, Collection<String> ids) {
         if (ids == null || ids.isEmpty()) return List.of();
         return nodeMapper.selectList(new LambdaQueryWrapper<OntologyNodePO>()
                         .eq(OntologyNodePO::getModelId, modelId).in(OntologyNodePO::getId, ids))
@@ -220,7 +221,7 @@ public class OntologyModelRepository {
     }
 
     /** 取任一端在 id 集内的边(id/from/to/rel_type/label)，用于取相关节点的一跳邻居；不加载整图。 */
-    public List<Map<String, Object>> edgesIncident(String modelId, java.util.Collection<String> ids) {
+    public List<Map<String, Object>> edgesIncident(String modelId, Collection<String> ids) {
         if (ids == null || ids.isEmpty()) return List.of();
         return edgeMapper.selectList(new LambdaQueryWrapper<OntologyEdgePO>()
                         .eq(OntologyEdgePO::getModelId, modelId)
@@ -237,7 +238,7 @@ public class OntologyModelRepository {
     }
 
     /** 取两端都在 id 集内的边(id/from/to/rel_type/label)，不加载整图。 */
-    public List<Map<String, Object>> edgesAmongIds(String modelId, java.util.Collection<String> ids) {
+    public List<Map<String, Object>> edgesAmongIds(String modelId, Collection<String> ids) {
         if (ids == null || ids.size() < 2) return List.of();
         return edgeMapper.selectList(new LambdaQueryWrapper<OntologyEdgePO>()
                         .eq(OntologyEdgePO::getModelId, modelId)

@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 经验库仓储：列表 / 详情 / 新增 / 编辑 / 删除，按当前工作空间隔离。
@@ -115,7 +116,7 @@ public class ExperienceRepository {
     /** 有经验存在的归属工作空间 id 集合（供列表筛选条，避免为此加载全量经验）。 */
     public List<String> distinctWorkspaceIds() {
         return mapper.selectObjs(new QueryWrapper<ExperiencePO>().select("DISTINCT workspace_id"))
-                .stream().filter(java.util.Objects::nonNull).map(String::valueOf).toList();
+                .stream().filter(Objects::nonNull).map(String::valueOf).toList();
     }
 
     /** 按 id 取一行。经验库为全局公共资源，任意工作空间均可查看，不再按归属隔离。 */

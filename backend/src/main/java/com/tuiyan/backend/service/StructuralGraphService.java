@@ -5,6 +5,7 @@ import com.tuiyan.backend.service.connector.JdbcConnectorService.ColumnInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.DatabaseSchemaInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.ForeignKeyInfo;
 import com.tuiyan.backend.service.connector.JdbcConnectorService.TableInfo;
+import com.tuiyan.backend.service.indexing.GraphNodeIndexService;
 import com.tuiyan.backend.support.ImplicitRefInferencer;
 import com.tuiyan.backend.support.SchemaSqlLineage;
 import org.slf4j.Logger;
@@ -12,10 +13,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.BiConsumer;
 
 /**
  * 确定性结构建图：直接从数据库内省结果构建业务血缘图，<b>完全绕过 LLM</b>。
@@ -45,10 +49,10 @@ public class StructuralGraphService {
 
     private final DataSourceService dataSourceService;
     private final OntologyModelService modelService;
-    private final com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex;
+    private final GraphNodeIndexService nodeIndex;
 
     public StructuralGraphService(DataSourceService dataSourceService, OntologyModelService modelService,
-                                  com.tuiyan.backend.service.indexing.GraphNodeIndexService nodeIndex) {
+                                  GraphNodeIndexService nodeIndex) {
         this.dataSourceService = dataSourceService;
         this.modelService = modelService;
         this.nodeIndex = nodeIndex;
@@ -74,7 +78,7 @@ public class StructuralGraphService {
      * @param step 进度回调 (key, label)
      */
     public BuildResult buildFromDataSource(String dataSourceId, String title,
-                                           java.util.function.BiConsumer<String, String> step) {
+                                           BiConsumer<String, String> step) {
         step.accept("introspect", "正在内省全库结构（大库较慢，请耐心等待）…");
         String sourceName = dataSourceService.sourceName(dataSourceId);
         DatabaseSchemaInfo schema = dataSourceService.introspectSchemaInfoFull(dataSourceId);
@@ -204,7 +208,7 @@ public class StructuralGraphService {
         // 经 SchemaSqlLineage 确定性解析「来源表 → 视图 / 写入目标表」的表级数据流（不过 LLM，confidence=1.0）。
         // 目录级视图依赖（catalogViewFlows）与正则解析 via 同格式，由 flowSeen 自然去重。
         int viewLineage = 0, routineLineage = 0;
-        java.util.Set<String> flowSeen = new java.util.HashSet<>();
+        Set<String> flowSeen = new HashSet<>();
         List<SchemaSqlLineage.ObjectFlow> defFlows = new ArrayList<>();
         defFlows.addAll(SchemaSqlLineage.viewFlows(schema));
         defFlows.addAll(SchemaSqlLineage.catalogViewFlows(schema));

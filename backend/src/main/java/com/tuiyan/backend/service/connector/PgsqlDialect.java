@@ -7,8 +7,12 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * PostgreSQL 方言：pg_catalog + information_schema 内省、双引号（按 schema.table 拆分）、LIMIT。
@@ -238,7 +242,7 @@ public class PgsqlDialect extends AbstractSqlDialect {
 
         // 5) 存储过程/函数定义体（仅 sql/plpgsql，pg_get_functiondef 还原完整源码；PG 11+ 有 prokind）。
         //    版本差异 / 权限不足整体失败时静默降级，不影响表内省。
-        java.util.List<JdbcConnectorService.RoutineInfo> routines = new java.util.ArrayList<>();
+        List<JdbcConnectorService.RoutineInfo> routines = new ArrayList<>();
         String routineSql = """
                 SELECT n.nspname,
                        p.proname,
@@ -270,7 +274,7 @@ public class PgsqlDialect extends AbstractSqlDialect {
 
         // 6) 触发器：挂载表 + 触发器函数源码。审计/同步/汇总表的写入血缘藏在这里——函数体常写
         //    INSERT INTO audit VALUES(NEW.*)（无 FROM），必须带挂载表才能推出「挂载表 → 写入目标」。
-        java.util.List<JdbcConnectorService.TriggerInfo> triggers = new java.util.ArrayList<>();
+        List<JdbcConnectorService.TriggerInfo> triggers = new ArrayList<>();
         String trgSql = """
                 SELECT n.nspname,
                        c.relname AS table_name,
@@ -300,7 +304,7 @@ public class PgsqlDialect extends AbstractSqlDialect {
         }
 
         // 7) 视图依赖目录：数据库自己维护的「视图 ← 基表」依赖，兜底正则解析不了的嵌套/复杂视图定义。
-        java.util.List<JdbcConnectorService.DependencyInfo> deps = new java.util.ArrayList<>();
+        List<JdbcConnectorService.DependencyInfo> deps = new ArrayList<>();
         String depSql = """
                 SELECT DISTINCT view_schema, view_name, table_schema, table_name
                 FROM information_schema.view_table_usage
@@ -323,9 +327,9 @@ public class PgsqlDialect extends AbstractSqlDialect {
     /** 从 pg_get_triggerdef 的完整定义里摘出时机/事件（如 "AFTER INSERT OR UPDATE"），摘不出返回空串。 */
     private static String timingOf(String triggerDef) {
         if (triggerDef == null) return "";
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+        Matcher m = Pattern.compile(
                 "\\b(BEFORE|AFTER|INSTEAD OF)\\s+(INSERT|UPDATE|DELETE|TRUNCATE)((?:\\s+OR\\s+\\w+)*)",
-                java.util.regex.Pattern.CASE_INSENSITIVE).matcher(triggerDef);
+                Pattern.CASE_INSENSITIVE).matcher(triggerDef);
         return m.find() ? m.group().replaceAll("\\s+", " ") : "";
     }
 

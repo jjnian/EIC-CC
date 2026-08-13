@@ -1,5 +1,6 @@
 package com.tuiyan.backend.controller;
 
+import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.model.Conversation;
 import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.model.dto.SuccessResponse;
@@ -31,7 +32,7 @@ public class ConversationController {
     public ApiResult<Conversation> get(@PathVariable String id) throws IOException {
         Conversation c = svc.get(id);
         if (c == null) {
-            throw new com.tuiyan.backend.config.ResourceNotFoundException("会话不存在");
+            throw new ResourceNotFoundException("会话不存在");
         }
         return ApiResult.ok(c);
     }

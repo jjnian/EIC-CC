@@ -5,6 +5,7 @@ import com.tuiyan.backend.service.connector.FileStoredService;
 import com.tuiyan.backend.service.connector.file.StoredFileHandler;
 import com.tuiyan.backend.service.extraction.AudioTranscriptionService;
 import com.tuiyan.backend.service.extraction.ImageRecognitionService;
+import com.tuiyan.backend.service.extraction.VideoAudioExtractor;
 import com.tuiyan.backend.service.storage.ObjectStorage;
 import com.tuiyan.backend.support.FileSniffer;
 import org.slf4j.Logger;
@@ -84,8 +85,8 @@ public class ExperienceFileService {
                 byte[] audio;
                 String audioName;
                 String audioMime;
-                if (com.tuiyan.backend.service.extraction.VideoAudioExtractor.ffmpegAvailable()) {
-                    audio = com.tuiyan.backend.service.extraction.VideoAudioExtractor.extractAudio(
+                if (VideoAudioExtractor.ffmpegAvailable()) {
+                    audio = VideoAudioExtractor.extractAudio(
                             file.getBytes(), file.getOriginalFilename());
                     audioName = file.getOriginalFilename() + ".mp3";
                     audioMime = "audio/mpeg";

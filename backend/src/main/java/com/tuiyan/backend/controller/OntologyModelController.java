@@ -1,9 +1,12 @@
 package com.tuiyan.backend.controller;
 
+import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.model.OntologyModel;
 import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.model.dto.SuccessCountResponse;
 import com.tuiyan.backend.service.DocumentExtractionService;
+import com.tuiyan.backend.service.GraphChatEditService;
+import com.tuiyan.backend.service.GraphPatchService;
 import com.tuiyan.backend.service.GraphQueryService;
 import com.tuiyan.backend.service.LineageTraversalService;
 import com.tuiyan.backend.repository.ModelBuildSourceRepository;
@@ -18,6 +21,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -30,18 +34,18 @@ public class OntologyModelController {
     private final LineageTraversalService lineageService;
     private final ModelBuildSourceRepository buildSourceRepo;
     private final SchemaDriftService schemaDriftService;
-    private final com.tuiyan.backend.service.GraphQueryService graphQueryService;
-    private final com.tuiyan.backend.service.GraphPatchService graphPatchService;
-    private final com.tuiyan.backend.service.GraphChatEditService graphChatEditService;
+    private final GraphQueryService graphQueryService;
+    private final GraphPatchService graphPatchService;
+    private final GraphChatEditService graphChatEditService;
 
     public OntologyModelController(OntologyModelService svc,
                                    DocumentExtractionService extractionService,
                                    LineageTraversalService lineageService,
                                    ModelBuildSourceRepository buildSourceRepo,
                                    SchemaDriftService schemaDriftService,
-                                   com.tuiyan.backend.service.GraphQueryService graphQueryService,
-                                   com.tuiyan.backend.service.GraphPatchService graphPatchService,
-                                   com.tuiyan.backend.service.GraphChatEditService graphChatEditService) {
+                                   GraphQueryService graphQueryService,
+                                   GraphPatchService graphPatchService,
+                                   GraphChatEditService graphChatEditService) {
         this.svc = svc;
         this.extractionService = extractionService;
         this.lineageService = lineageService;
@@ -58,7 +62,7 @@ public class OntologyModelController {
      * 含归属校验。返回 {applied, skipped, nodeCount, edgeCount}。
      */
     @PostMapping("/{id}/patch")
-    public ApiResult<com.tuiyan.backend.service.GraphPatchService.PatchResult> patch(
+    public ApiResult<GraphPatchService.PatchResult> patch(
             @PathVariable String id, @RequestBody Map<String, Object> body) {
         Object opsObj = body == null ? null : body.get("ops");
         List<Map<String, Object>> ops = new ArrayList<>();
@@ -77,7 +81,7 @@ public class OntologyModelController {
      * 返回 {reply, applied, skipped, ops, nodeCount, edgeCount}。
      */
     @PostMapping("/{id}/chat-edit")
-    public ApiResult<com.tuiyan.backend.service.GraphChatEditService.EditResult> chatEdit(
+    public ApiResult<GraphChatEditService.EditResult> chatEdit(
             @PathVariable String id, @RequestBody Map<String, Object> body) throws IOException {
         String message = body == null ? null : asString(body.get("message"));
         String modelOverride = body == null ? null : asString(body.get("modelOverride"));
@@ -130,7 +134,7 @@ public class OntologyModelController {
     public ApiResult<OntologyModel> get(@PathVariable String id) throws IOException {
         OntologyModel m = svc.get(id);
         if (m == null) {
-            throw new com.tuiyan.backend.config.ResourceNotFoundException("本体模型不存在");
+            throw new ResourceNotFoundException("本体模型不存在");
         }
         return ApiResult.ok(m);
     }
@@ -165,7 +169,7 @@ public class OntologyModelController {
                                                        @RequestParam(defaultValue = "0") int depth,
                                                        @RequestParam(defaultValue = "false") boolean includeAssociations) {
         if (svc.get(id) == null) {
-            throw new com.tuiyan.backend.config.ResourceNotFoundException("本体模型不存在");
+            throw new ResourceNotFoundException("本体模型不存在");
         } // 归属校验：非本工作空间模型不可读
         LineageTraversalService.Direction dir = "upstream".equalsIgnoreCase(direction)
                 ? LineageTraversalService.Direction.UPSTREAM
@@ -181,7 +185,7 @@ public class OntologyModelController {
     public ApiResult<Map<String, Object>> schemaDrift(@PathVariable String id,
                                                            @RequestBody Map<String, Object> body) throws IOException {
         if (svc.get(id) == null) {
-            throw new com.tuiyan.backend.config.ResourceNotFoundException("本体模型不存在");
+            throw new ResourceNotFoundException("本体模型不存在");
         }
         Object ds = body == null ? null : body.get("dataSourceId");
         if (ds == null || String.valueOf(ds).isBlank()) {
@@ -198,9 +202,9 @@ public class OntologyModelController {
     public ApiResult<Map<String, Object>> recordBuildSources(@PathVariable String id,
                                                                   @RequestBody Map<String, Object> body) throws IOException {
         if (svc.get(id) == null) {
-            throw new com.tuiyan.backend.config.ResourceNotFoundException("本体模型不存在");
+            throw new ResourceNotFoundException("本体模型不存在");
         } // 归属校验：不可写别的工作空间的模型记录
-        Map<String, String> entries = new java.util.LinkedHashMap<>();
+        Map<String, String> entries = new LinkedHashMap<>();
         Object src = body == null ? null : body.get("sources");
         if (src instanceof List<?> list) {
             for (Object o : list) {

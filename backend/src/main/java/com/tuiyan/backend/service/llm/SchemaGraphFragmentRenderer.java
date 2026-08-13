@@ -13,9 +13,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 把内省得到的 {@link DatabaseSchemaInfo} 里的<b>确定性血缘</b>渲染成一份「结构化图片段」({nodes,edges})：
@@ -88,7 +92,7 @@ public class SchemaGraphFragmentRenderer {
         ArrayNode nodes = m.createArrayNode();
         ArrayNode edges = m.createArrayNode();
         Map<String, String> nodeIdByTable = new LinkedHashMap<>(); // 标准化表名 → 节点 id
-        java.util.Set<String> edgeSeen = new java.util.HashSet<>();
+        Set<String> edgeSeen = new HashSet<>();
         int[] seq = {0};
 
         for (TableInfo t : schema.tables()) {
@@ -115,7 +119,7 @@ public class SchemaGraphFragmentRenderer {
 
         // 视图定义 + 存储过程/定时任务源码 + 触发器体 + 依赖目录里的确定性数据流：
         // 来源表 → 视图/写入目标表。依赖目录与正则解析的视图流 via 同格式，由 edgeSeen 自然去重。
-        java.util.List<SchemaSqlLineage.ObjectFlow> flows = new java.util.ArrayList<>();
+        List<SchemaSqlLineage.ObjectFlow> flows = new ArrayList<>();
         flows.addAll(SchemaSqlLineage.viewFlows(schema));
         flows.addAll(SchemaSqlLineage.catalogViewFlows(schema));
         flows.addAll(SchemaSqlLineage.routineFlows(schema));

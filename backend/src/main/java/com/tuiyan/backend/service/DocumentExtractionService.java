@@ -10,6 +10,7 @@ import com.tuiyan.backend.service.extraction.FileProbe;
 import com.tuiyan.backend.service.extraction.SourceFileHandler;
 import com.tuiyan.backend.service.extraction.StepSink;
 import com.tuiyan.backend.service.extraction.UploadedFile;
+import com.tuiyan.backend.service.indexing.DataSourceIndexService;
 import com.tuiyan.backend.support.FileSniffer;
 import com.tuiyan.backend.support.IdSaltRewriter;
 import com.tuiyan.backend.support.WebPageFetcher;
@@ -54,7 +55,7 @@ public class DocumentExtractionService {
     private final Executor urlFetchExecutor;
     private final DataSourceRepository dataSourceRepository;
     private final List<SourceFileHandler> fileHandlers;
-    private final com.tuiyan.backend.service.indexing.DataSourceIndexService dataSourceIndexService;
+    private final DataSourceIndexService dataSourceIndexService;
     private final ExtractionGraphMerger merger;
     private final ObjectMapper objectMapper = new ObjectMapper();
     /**
@@ -67,7 +68,7 @@ public class DocumentExtractionService {
                                      @Qualifier("appTaskExecutor") ThreadPoolTaskExecutor appTaskExecutor,
                                      DataSourceRepository dataSourceRepository,
                                      List<SourceFileHandler> fileHandlers,
-                                     com.tuiyan.backend.service.indexing.DataSourceIndexService dataSourceIndexService,
+                                     DataSourceIndexService dataSourceIndexService,
                                      ExtractionGraphMerger merger,
                                      @Qualifier("batchExecutor") Executor batchExecutor) {
         this.extractionLlmService = extractionLlmService;
@@ -497,7 +498,7 @@ public class DocumentExtractionService {
                 // 这样图片/音频「数据」即可被对话召回、并能「抽取到经验库」参与血缘建图。
                 if (saved != null && recognizable && hasText) {
                     try {
-                        dataSourceRepository.reference(java.util.List.of(saved.getId()));
+                        dataSourceRepository.reference(List.of(saved.getId()));
                     } catch (Exception refErr) {
                         log.warn("reference {} data source failed for {}: {}", type, name, refErr.toString());
                     }
