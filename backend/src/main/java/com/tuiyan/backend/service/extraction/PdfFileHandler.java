@@ -8,6 +8,8 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -59,7 +61,7 @@ public class PdfFileHandler implements SourceFileHandler {
             boolean textBare = pageCount > 0 && rawLen < pageCount * MIN_TEXT_PER_PAGE;
             if (textBare) {
                 ctx.step().emit("rendering_pdf", safeName + " 文字稀疏，正在将页面渲染为图片识别…");
-                java.util.List<java.util.Map<String, Object>> rendered0 = new java.util.ArrayList<>(ctx.imageAttachments());
+                List<Map<String, Object>> rendered0 = new ArrayList<>(ctx.imageAttachments());
                 int before = rendered0.size();
                 int rendered = PdfTextExtractor.renderPages(doc, rendered0,
                         RENDER_MAX_PAGES, RENDER_DPI, IMAGE_BYTE_LIMIT, ExtractionContext.TOTAL_IMAGE_BUDGET);

@@ -1,6 +1,6 @@
 package com.tuiyan.backend.service;
 
-import com.tuiyan.backend.config.ResourceNotFoundException;
+import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.model.OntologyModel;
 import com.tuiyan.backend.repository.TemplateRepository;
 import org.springframework.stereotype.Service;

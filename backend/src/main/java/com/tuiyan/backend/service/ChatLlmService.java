@@ -25,6 +25,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -361,7 +363,7 @@ public class ChatLlmService {
     private ArrayNode collectIdArray(JsonNode node) {
         ArrayNode out = objectMapper.createArrayNode();
         if (node == null || !node.isArray()) return out;
-        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
         for (JsonNode item : node) {
             String id;
             if (item.isTextual()) {
@@ -385,7 +387,7 @@ public class ChatLlmService {
     private ArrayNode collectPatchArray(JsonNode node) {
         ArrayNode out = objectMapper.createArrayNode();
         if (node == null || !node.isArray()) return out;
-        java.util.LinkedHashMap<String, JsonNode> byId = new java.util.LinkedHashMap<>();
+        LinkedHashMap<String, JsonNode> byId = new LinkedHashMap<>();
         for (JsonNode item : node) {
             if (item == null || !item.isObject()) continue;
             String id = item.path("id").asText("").trim();

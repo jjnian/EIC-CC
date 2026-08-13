@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>方案 A · 工作台</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+tailwind.config = { theme: { extend: {
+  colors: {
+    ink: { 950:'#080A0E', 900:'#0C0F14', 850:'#10141B', 800:'#12161E', 750:'#161B25', 700:'#1C222E' },
+    neon: { 300:'#67E8F9', 400:'#22D3EE', 500:'#06B6D4' },
+  },
+  fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','PingFang SC','Microsoft YaHei','sans-serif'] },
+  boxShadow: { glow: '0 0 24px rgba(34,211,238,.18)' },
+} } }
+</script>
+<style>
+  body { font-family: Inter, ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #2A3242; border-radius: 4px; }
+  .panel { background:#12161E; border:1px solid rgba(255,255,255,.06); border-radius:12px; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; font-size:13.5px; color:rgba(255,255,255,.5); transition:.15s; }
+  .nav-item:hover { color:rgba(255,255,255,.85); background:rgba(255,255,255,.04); }
+  .nav-item.active { color:#67E8F9; background:rgba(34,211,238,.1); }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 14px; border-radius:8px; font-size:13px; font-weight:500; border:1px solid rgba(255,255,255,.09); background:#161B25; color:rgba(255,255,255,.7); transition:.15s; }
+  .chip:hover { border-color:rgba(34,211,238,.4); color:#A5F3FC; }
+</style>
+</head>
+<body class="bg-ink-900 text-white/90">
+
+<div class="flex h-screen">
+  <!-- 侧边栏 -->
+  <aside class="flex w-[232px] shrink-0 flex-col border-r border-white/5 bg-ink-950">
+    <div class="flex h-14 items-center gap-2.5 border-b border-white/5 px-4">
+      <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400 to-blue-600 text-[13px] font-bold text-ink-950">推</div>
+      <div class="leading-tight">
+        <div class="text-[13.5px] font-semibold text-white">推演平台</div>
+        <div class="text-[10.5px] tracking-wide text-white/30">EIC-CC · 业务血缘建模</div>
+      </div>
+      <a href="../index.html" title="返回方案画廊" class="ml-auto rounded-md p-1.5 text-white/30 hover:bg-white/5 hover:text-cyan-300"><i data-lucide="layout-grid" class="h-4 w-4"></i></a>
+    </div>
+    <nav class="flex-1 space-y-0.5 overflow-y-auto p-3">
+      <div class="px-3 pb-1.5 pt-1 text-[10.5px] font-medium uppercase tracking-widest text-white/25">主导航</div>
+      <a class="nav-item active" href="dashboard.html"><i data-lucide="layout-dashboard" class="h-4 w-4"></i>工作台</a>
+      <a class="nav-item" href="graph.html"><i data-lucide="waypoints" class="h-4 w-4"></i>血缘图谱</a>
+      <a class="nav-item" href="experiences.html"><i data-lucide="library" class="h-4 w-4"></i>经验库<span class="ml-auto rounded bg-white/8 px-1.5 py-0.5 text-[10.5px] text-white/40">56</span></a>
+      <a class="nav-item" href="chat.html"><i data-lucide="message-square-text" class="h-4 w-4"></i>AI 对话</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-medium uppercase tracking-widest text-white/25">数据</div>
+      <a class="nav-item" href="datasources.html"><i data-lucide="database" class="h-4 w-4"></i>数据源</a>
+      <a class="nav-item" href="analysis.html"><i data-lucide="activity" class="h-4 w-4"></i>血缘分析</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-medium uppercase tracking-widest text-white/25">系统</div>
+      <a class="nav-item" href="settings.html"><i data-lucide="settings-2" class="h-4 w-4"></i>设置</a>
+    </nav>
+    <div class="border-t border-white/5 p-3">
+      <a href="workspaces.html" class="flex items-center gap-2.5 rounded-lg bg-white/[.03] p-2.5 ring-1 ring-white/5 transition hover:bg-white/[.06]">
+        <div class="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-400/15 text-[11px] font-bold text-cyan-300">电</div>
+        <div class="min-w-0 flex-1 leading-tight">
+          <div class="truncate text-[12.5px] font-medium text-white/80">电商数仓工作空间</div>
+          <div class="text-[10.5px] text-white/30">3 个模型 · 昨天更新</div>
+        </div>
+        <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5 text-white/25"></i>
+      </a>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <div class="flex min-w-0 flex-1 flex-col">
+    <!-- 顶栏 -->
+    <header class="flex h-14 shrink-0 items-center gap-3 border-b border-white/5 bg-ink-900/80 px-5 backdrop-blur">
+      <h1 class="text-[15px] font-semibold text-white">工作台</h1>
+      <div class="relative ml-4 w-72">
+        <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/25"></i>
+        <input class="h-8 w-full rounded-lg border border-white/8 bg-ink-800 pl-9 pr-12 text-[12.5px] text-white/80 placeholder-white/25 outline-none focus:border-cyan-400/40" placeholder="搜索模型、节点、经验文档…" />
+        <kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-white/30">⌘K</kbd>
+      </div>
+      <div class="ml-auto flex items-center gap-2">
+        <button class="chip"><i data-lucide="sparkles" class="h-3.5 w-3.5 text-cyan-300"></i>一键建图</button>
+        <button class="chip"><i data-lucide="globe" class="h-3.5 w-3.5"></i>联网调研</button>
+        <div class="mx-1 h-5 w-px bg-white/8"></div>
+        <div class="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-600 text-[11px] font-bold text-white">纪</div>
+      </div>
+    </header>
+
+    <!-- 内容 -->
+    <main class="min-h-0 flex-1 overflow-y-auto p-6">
+      <!-- 欢迎条 -->
+      <div class="mb-6 flex items-end justify-between">
+        <div>
+          <h2 class="text-xl font-bold text-white">晚上好，纪念 👋</h2>
+          <p class="mt-1 text-[13px] text-white/40">「电商数仓」的血缘图昨日新增 12 条推断边，3 条待审核。</p>
+        </div>
+        <span class="text-xs text-white/30">2026-07-21 · 数据截至昨天 24:00</span>
+      </div>
+
+      <!-- 统计卡 -->
+      <div class="mb-6 grid grid-cols-4 gap-4">
+        <div class="panel p-4">
+          <div class="flex items-center justify-between"><span class="text-[12px] text-white/40">业务实体</span><i data-lucide="box" class="h-4 w-4 text-cyan-300/70"></i></div>
+          <div class="mt-2 text-[26px] font-bold leading-none text-white">128</div>
+          <div class="mt-1.5 text-[11.5px] text-emerald-400/80">▲ 本周 +6</div>
+        </div>
+        <div class="panel p-4">
+          <div class="flex items-center justify-between"><span class="text-[12px] text-white/40">血缘边</span><i data-lucide="git-fork" class="h-4 w-4 text-cyan-300/70"></i></div>
+          <div class="mt-2 text-[26px] font-bold leading-none text-white">342</div>
+          <div class="mt-1.5 text-[11.5px] text-emerald-400/80">▲ 本周 +12 推断</div>
+        </div>
+        <div class="panel p-4">
+          <div class="flex items-center justify-between"><span class="text-[12px] text-white/40">经验文档</span><i data-lucide="file-text" class="h-4 w-4 text-cyan-300/70"></i></div>
+          <div class="mt-2 text-[26px] font-bold leading-none text-white">56</div>
+          <div class="mt-1.5 text-[11.5px] text-white/30">4 个领域文件夹</div>
+        </div>
+        <div class="panel p-4">
+          <div class="flex items-center justify-between"><span class="text-[12px] text-white/40">数据源</span><i data-lucide="database-zap" class="h-4 w-4 text-cyan-300/70"></i></div>
+          <div class="mt-2 text-[26px] font-bold leading-none text-white">6</div>
+          <div class="mt-1.5 text-[11.5px] text-emerald-400/80">全部连接正常</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-4">
+        <!-- 最近模型 -->
+        <div class="panel col-span-2">
+          <div class="flex items-center justify-between border-b border-white/5 px-5 py-3.5">
+            <h3 class="text-[13.5px] font-semibold text-white/85">最近模型</h3>
+            <a href="graph.html" class="text-[12px] text-cyan-300/80 hover:text-cyan-200">查看全部 →</a>
+          </div>
+          <div class="divide-y divide-white/5">
+            <a href="graph.html" class="flex items-center gap-3 px-5 py-3.5 transition hover:bg-white/[.02]">
+              <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-400/10 text-cyan-300"><i data-lucide="waypoints" class="h-4 w-4"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="text-[13.5px] font-medium text-white/85">交易域血缘图</div>
+                <div class="text-[11.5px] text-white/30">86 节点 · 214 边 · 平均置信度 87%</div>
+              </div>
+              <span class="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] text-emerald-300">健康 92</span>
+              <span class="text-[11.5px] text-white/25">2 小时前</span>
+            </a>
+            <a href="graph.html" class="flex items-center gap-3 px-5 py-3.5 transition hover:bg-white/[.02]">
+              <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-400/10 text-violet-300"><i data-lucide="waypoints" class="h-4 w-4"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="text-[13.5px] font-medium text-white/85">营销归因模型</div>
+                <div class="text-[11.5px] text-white/30">42 节点 · 128 边 · 平均置信度 79%</div>
+              </div>
+              <span class="rounded-full bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-300">健康 74</span>
+              <span class="text-[11.5px] text-white/25">昨天</span>
+            </a>
+            <a href="graph.html" class="flex items-center gap-3 px-5 py-3.5 transition hover:bg-white/[.02]">
+              <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-400/10 text-blue-300"><i data-lucide="waypoints" class="h-4 w-4"></i></div>
+              <div class="min-w-0 flex-1">
+                <div class="text-[13.5px] font-medium text-white/85">用户域血缘图</div>
+                <div class="text-[11.5px] text-white/30">— 构建中（已抽取 31 个实体）</div>
+              </div>
+              <span class="rounded-full bg-cyan-400/10 px-2 py-0.5 text-[11px] text-cyan-300">进行中</span>
+              <span class="text-[11.5px] text-white/25">昨天</span>
+            </a>
+          </div>
+        </div>
+
+        <!-- 右列 -->
+        <div class="space-y-4">
+          <div class="panel p-5">
+            <h3 class="mb-3 text-[13.5px] font-semibold text-white/85">待办提醒</h3>
+            <div class="space-y-2.5">
+              <div class="flex items-start gap-2.5 rounded-lg bg-amber-400/[.06] p-3 ring-1 ring-amber-400/15">
+                <i data-lucide="alert-triangle" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300"></i>
+                <div class="text-[12px] leading-relaxed text-white/60"><span class="text-amber-200">3 条推断边</span>缺少数据佐证，建议审核</div>
+              </div>
+              <div class="flex items-start gap-2.5 rounded-lg bg-rose-400/[.06] p-3 ring-1 ring-rose-400/15">
+                <i data-lucide="repeat" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-300"></i>
+                <div class="text-[12px] leading-relaxed text-white/60">营销归因模型检测到 <span class="text-rose-200">1 个血缘环</span></div>
+              </div>
+              <div class="flex items-start gap-2.5 rounded-lg bg-white/[.03] p-3 ring-1 ring-white/8">
+                <i data-lucide="unplug" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/40"></i>
+                <div class="text-[12px] leading-relaxed text-white/60">5 个孤立节点未接入任何血缘</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel p-5">
+            <h3 class="mb-3 text-[13.5px] font-semibold text-white/85">快速操作</h3>
+            <div class="grid grid-cols-2 gap-2">
+              <a href="experiences.html" class="rounded-lg bg-cyan-400/10 p-3 text-center ring-1 ring-cyan-400/20 transition hover:bg-cyan-400/15"><i data-lucide="sparkles" class="mx-auto mb-1.5 h-4 w-4 text-cyan-300"></i><div class="text-[12px] text-cyan-100/90">一键建图</div></a>
+              <a href="experiences.html" class="rounded-lg bg-white/[.03] p-3 text-center ring-1 ring-white/8 transition hover:bg-white/[.06]"><i data-lucide="globe" class="mx-auto mb-1.5 h-4 w-4 text-white/60"></i><div class="text-[12px] text-white/70">联网调研</div></a>
+              <a href="experiences.html" class="rounded-lg bg-white/[.03] p-3 text-center ring-1 ring-white/8 transition hover:bg-white/[.06]"><i data-lucide="upload" class="mx-auto mb-1.5 h-4 w-4 text-white/60"></i><div class="text-[12px] text-white/70">导入文档</div></a>
+              <a href="datasources.html" class="rounded-lg bg-white/[.03] p-3 text-center ring-1 ring-white/8 transition hover:bg-white/[.06]"><i data-lucide="database" class="mx-auto mb-1.5 h-4 w-4 text-white/60"></i><div class="text-[12px] text-white/70">接入数据源</div></a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>lucide.createIcons();</script>
+</body>
+</html>

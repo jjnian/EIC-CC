@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 
 /**
@@ -40,8 +42,8 @@ public final class JsonAtomic {
         try {
             mapper.writerWithDefaultPrettyPrinter().writeValue(tmp, value);
             // 在重命名前把临时文件刷到磁盘，降低崩溃后落出空/半截文件的概率
-            try (var ch = java.nio.channels.FileChannel.open(tmp.toPath(),
-                    java.nio.file.StandardOpenOption.WRITE)) {
+            try (var ch = FileChannel.open(tmp.toPath(),
+                    StandardOpenOption.WRITE)) {
                 ch.force(true);
             }
             try {

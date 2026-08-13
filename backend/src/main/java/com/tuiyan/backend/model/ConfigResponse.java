@@ -91,7 +91,7 @@ public class ConfigResponse {
         private String description;
         private Integer contextWindow;
         private Integer maxOutputTokens;
-        private java.util.List<String> capabilities;
+        private List<String> capabilities;
         private String protocol;
 
         public ModelConfigInfo() {}
@@ -121,8 +121,8 @@ public class ConfigResponse {
         public void setContextWindow(Integer contextWindow) { this.contextWindow = contextWindow; }
         public Integer getMaxOutputTokens() { return maxOutputTokens; }
         public void setMaxOutputTokens(Integer maxOutputTokens) { this.maxOutputTokens = maxOutputTokens; }
-        public java.util.List<String> getCapabilities() { return capabilities; }
-        public void setCapabilities(java.util.List<String> capabilities) { this.capabilities = capabilities; }
+        public List<String> getCapabilities() { return capabilities; }
+        public void setCapabilities(List<String> capabilities) { this.capabilities = capabilities; }
         public String getProtocol() { return protocol; }
         public void setProtocol(String protocol) { this.protocol = protocol; }
     }

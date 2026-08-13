@@ -1,8 +1,8 @@
 package com.tuiyan.backend.controller;
 
 import com.tuiyan.backend.model.ConfigResponse;
+import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.service.ModelInfoService;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -16,7 +16,7 @@ public class ConfigController {
     }
 
     @GetMapping
-    public ResponseEntity<ConfigResponse> getConfig() {
-        return ResponseEntity.ok(modelInfoService.getConfigResponse());
+    public ApiResult<ConfigResponse> getConfig() {
+        return ApiResult.ok(modelInfoService.getConfigResponse());
     }
 }

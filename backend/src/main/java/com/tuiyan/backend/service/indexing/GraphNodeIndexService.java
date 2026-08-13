@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -40,7 +41,7 @@ public class GraphNodeIndexService {
     public boolean isConfigured() { return embeddingClient.isConfigured(); }
 
     /** 全量重建某模型的节点向量索引（建图后调用）。异步 + best-effort，不阻塞建图返回。 */
-    @org.springframework.scheduling.annotation.Async("appTaskExecutor")
+    @Async("appTaskExecutor")
     public void reindex(String modelId, List<Map<String, Object>> nodes) {
         if (!embeddingClient.isConfigured() || modelId == null || nodes == null || nodes.isEmpty()) return;
         List<String> ids = new ArrayList<>();

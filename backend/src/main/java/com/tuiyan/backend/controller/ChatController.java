@@ -2,9 +2,9 @@ package com.tuiyan.backend.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tuiyan.backend.model.ChatRequest;
+import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.service.ChatLlmService;
 import com.tuiyan.backend.support.SsePushUtils;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -24,12 +24,12 @@ public class ChatController {
     }
 
     @PostMapping
-    public ResponseEntity<JsonNode> chat(@RequestBody ChatRequest request) throws IOException {
+    public ApiResult<JsonNode> chat(@RequestBody ChatRequest request) throws IOException {
         JsonNode result = chatLlmService.chat(
                 request.getNodes(), request.getEdges(), request.getMessage(),
                 request.getModelOverride(), request.getConfigId(),
                 request.getHistory(), request.getAttachments());
-        return ResponseEntity.ok(result);
+        return ApiResult.ok(result);
     }
 
     @PostMapping("/stream")

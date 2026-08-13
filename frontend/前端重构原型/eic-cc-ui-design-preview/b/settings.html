@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>方案 B · 设置</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+tailwind.config = { theme: { extend: {
+  colors: { paper:'#F7F6F3', inkc:'#1C1917' },
+  fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','PingFang SC','Microsoft YaHei','sans-serif'] },
+  boxShadow: { card:'0 1px 2px rgba(28,25,23,.04), 0 4px 16px rgba(28,25,23,.05)', pop:'0 8px 32px rgba(28,25,23,.10)' },
+} } }
+</script>
+<style>
+  body { font-family: Inter, ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #D6D3CE; border-radius: 4px; }
+  .card { background:#fff; border-radius:16px; box-shadow:0 1px 2px rgba(28,25,23,.04), 0 4px 16px rgba(28,25,23,.05); }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:10px; font-size:13.5px; color:#78716C; transition:.15s; }
+  .nav-item:hover { color:#1C1917; background:rgba(28,25,23,.04); }
+  .nav-item.active { color:#6D28D9; background:#F3F0FF; font-weight:600; }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 14px; border-radius:10px; font-size:13px; font-weight:500; background:#fff; color:#57534E; box-shadow:0 1px 2px rgba(28,25,23,.05), inset 0 0 0 1px #E7E5E0; transition:.15s; }
+  .chip:hover { color:#6D28D9; box-shadow:0 1px 2px rgba(28,25,23,.05), inset 0 0 0 1px #C4B5FD; }
+  /* 表单控件 */
+  .flabel { display:block; margin-bottom:6px; font-size:12px; font-weight:500; color:#78716C; }
+  .input { width:100%; height:38px; border-radius:10px; background:#fff; padding:0 12px; font-size:13px; color:#1C1917; box-shadow:0 1px 2px rgba(28,25,23,.05), inset 0 0 0 1px #E7E5E0; outline:none; transition:.15s; }
+  .input::placeholder { color:#A8A29E; }
+  .input:focus { box-shadow:0 1px 2px rgba(28,25,23,.05), inset 0 0 0 1px #C4B5FD, 0 0 0 3px rgba(139,92,246,.12); }
+  select.input { appearance:none; padding-right:34px; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23A8A29E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; }
+  /* 开关 */
+  .switch { position:relative; width:38px; height:22px; flex-shrink:0; border-radius:999px; background:#E7E5E0; cursor:pointer; transition:.18s cubic-bezier(.2,.8,.2,1); }
+  .switch .knob { position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:999px; background:#fff; box-shadow:0 1px 3px rgba(28,25,23,.22); transition:.18s cubic-bezier(.2,.8,.2,1); }
+  .switch.on { background:linear-gradient(135deg,#6366F1,#8B5CF6); }
+  .switch.on .knob { transform:translateX(16px); }
+  /* 滑杆 */
+  input[type=range] { accent-color:#7C3AED; }
+  .badge { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; font-size:10.5px; font-weight:600; }
+  .btn-primary { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 16px; border-radius:10px; font-size:13px; font-weight:500; color:#fff; background:linear-gradient(135deg,#6366F1,#8B5CF6); box-shadow:0 4px 14px rgba(124,58,237,.3); transition:.15s; }
+  .btn-primary:hover { filter:brightness(1.08); }
+</style>
+</head>
+<body class="bg-paper text-inkc">
+
+<div class="flex h-screen">
+  <!-- 侧边栏 -->
+  <aside class="flex w-[236px] shrink-0 flex-col bg-paper">
+    <div class="flex h-16 items-center gap-2.5 px-5">
+      <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-[14px] font-bold text-white shadow-md shadow-violet-500/25">推</div>
+      <div class="leading-tight">
+        <div class="text-[14px] font-bold text-stone-900">推演平台</div>
+        <div class="text-[10.5px] tracking-wide text-stone-400">EIC-CC · 业务血缘建模</div>
+      </div>
+      <a href="../index.html" title="返回方案画廊" class="ml-auto rounded-lg p-1.5 text-stone-400 hover:bg-white hover:text-violet-600"><i data-lucide="layout-grid" class="h-4 w-4"></i></a>
+    </div>
+    <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-2">
+      <div class="px-3 pb-1.5 pt-1 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">主导航</div>
+      <a class="nav-item" href="dashboard.html"><i data-lucide="layout-dashboard" class="h-4 w-4"></i>工作台</a>
+      <a class="nav-item" href="graph.html"><i data-lucide="waypoints" class="h-4 w-4"></i>血缘图谱</a>
+      <a class="nav-item" href="experiences.html"><i data-lucide="library" class="h-4 w-4"></i>经验库<span class="ml-auto rounded-full bg-stone-200/70 px-2 py-0.5 text-[10.5px] text-stone-500">56</span></a>
+      <a class="nav-item" href="chat.html"><i data-lucide="message-square-text" class="h-4 w-4"></i>AI 对话</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">数据</div>
+      <a class="nav-item" href="datasources.html"><i data-lucide="database" class="h-4 w-4"></i>数据源</a>
+      <a class="nav-item" href="analysis.html"><i data-lucide="activity" class="h-4 w-4"></i>血缘分析</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">系统</div>
+      <a class="nav-item active" href="settings.html"><i data-lucide="settings-2" class="h-4 w-4"></i>设置</a>
+    </nav>
+    <div class="p-3">
+      <a href="workspaces.html" class="card flex items-center gap-2.5 p-3 transition hover:shadow-pop">
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-[12px] font-bold text-violet-700">电</div>
+        <div class="min-w-0 flex-1 leading-tight">
+          <div class="truncate text-[12.5px] font-semibold text-stone-800">电商数仓工作空间</div>
+          <div class="text-[10.5px] text-stone-400">3 个模型 · 昨天更新</div>
+        </div>
+        <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5 text-stone-400"></i>
+      </a>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <div class="flex min-w-0 flex-1 flex-col">
+    <!-- 顶栏 -->
+    <header class="flex h-16 shrink-0 items-center gap-3 px-6">
+      <h1 class="text-[17px] font-bold text-stone-900">设置</h1>
+      <div class="relative ml-4 w-72">
+        <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-stone-400"></i>
+        <input class="h-9 w-full rounded-xl bg-white pl-9 pr-12 text-[12.5px] text-stone-700 placeholder-stone-400 shadow-card outline-none transition focus:ring-2 focus:ring-violet-200" placeholder="搜索模型、节点、经验文档…" />
+        <kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md bg-stone-100 px-1.5 py-0.5 text-[10px] text-stone-400">⌘K</kbd>
+      </div>
+      <div class="ml-auto flex items-center gap-2">
+        <button class="chip"><i data-lucide="sparkles" class="h-3.5 w-3.5 text-violet-600"></i>一键建图</button>
+        <button class="chip"><i data-lucide="globe" class="h-3.5 w-3.5"></i>联网调研</button>
+        <div class="mx-1 h-5 w-px bg-stone-200"></div>
+        <div class="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-500 text-[12px] font-bold text-white shadow-md shadow-violet-400/30">纪</div>
+      </div>
+    </header>
+
+    <!-- 内容 -->
+    <main class="min-h-0 flex-1 overflow-y-auto px-6 pb-8">
+      <div class="mx-auto max-w-3xl">
+
+        <!-- LLM 模型 -->
+        <section class="mb-7">
+          <div class="mb-3 flex items-center gap-2">
+            <i data-lucide="cpu" class="h-4 w-4 text-stone-400"></i>
+            <h2 class="text-[15px] font-bold text-stone-900">LLM 模型</h2>
+            <span class="ml-auto text-[11.5px] text-stone-400">配置来源：application.yml / 环境变量</span>
+          </div>
+
+          <!-- 当前默认 -->
+          <div class="card mb-3 flex items-center gap-3 px-5 py-3.5">
+            <span class="badge bg-violet-100 text-violet-700">当前默认</span>
+            <span class="text-[13.5px] font-medium text-stone-700">dashscope / qwen-plus</span>
+            <span class="ml-auto truncate text-[12px] text-stone-400">https://dashscope.aliyuncs.com/compatible-mode/v1</span>
+          </div>
+
+          <!-- 默认模型选择 -->
+          <div class="card mb-4 flex items-center gap-4 px-5 py-4">
+            <div class="flex-1">
+              <div class="text-[13.5px] font-medium text-stone-700">默认模型</div>
+              <div class="text-[12px] text-stone-400">新建对话与建图任务未指定模型时使用（defaultModelConfigId）</div>
+            </div>
+            <select class="input w-60">
+              <option selected>通义千问 Plus · qwen-plus</option>
+              <option>DeepSeek 对话 · deepseek-chat</option>
+              <option>GPT-4o mini（停用）</option>
+            </select>
+          </div>
+
+          <!-- 模型卡片 1 -->
+          <div class="card mb-4 p-6">
+            <div class="flex items-center gap-2.5">
+              <span class="text-[14.5px] font-bold text-stone-900">通义千问 Plus</span>
+              <span class="badge bg-emerald-100 text-emerald-700">启用</span>
+              <span class="badge bg-stone-100 text-stone-500">openai 协议</span>
+              <button class="chip ml-auto !h-8 text-[12.5px]"><i data-lucide="plug-zap" class="h-3.5 w-3.5 text-violet-600"></i>测试连接</button>
+              <button type="button" class="switch on" aria-label="启用开关"><span class="knob"></span></button>
+            </div>
+            <div class="mt-1.5 text-[12.5px] text-stone-400">dashscope · qwen-plus · https://dashscope.aliyuncs.com/compatible-mode/v1</div>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <span class="badge bg-stone-100 text-stone-500">对话</span>
+              <span class="badge bg-stone-100 text-stone-500">实体抽取</span>
+              <span class="badge bg-stone-100 text-stone-500">血缘推断</span>
+            </div>
+            <div class="mt-2.5 flex items-center gap-1.5 text-[12.5px] text-emerald-600">
+              <i data-lucide="circle-check" class="h-3.5 w-3.5"></i>连接成功（486ms）
+            </div>
+            <div class="mt-5 grid grid-cols-2 gap-4 border-t border-stone-100 pt-5">
+              <div>
+                <label class="flabel">名称（name）</label>
+                <input class="input" value="通义千问 Plus" />
+              </div>
+              <div>
+                <label class="flabel">提供方（provider）</label>
+                <select class="input">
+                  <option selected>dashscope · 阿里云百炼</option>
+                  <option>deepseek · DeepSeek</option>
+                  <option>openai · OpenAI</option>
+                  <option>custom · 自定义</option>
+                </select>
+              </div>
+              <div>
+                <label class="flabel">Base URL（baseUrl）</label>
+                <input class="input" value="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+              </div>
+              <div>
+                <label class="flabel">模型名（modelName）</label>
+                <input class="input" value="qwen-plus" />
+              </div>
+              <div>
+                <label class="flabel">API Key（apiKey）</label>
+                <input class="input" type="password" value="sk-9f2c7a1e4b6d8f0a3c5e" placeholder="留空则使用环境变量 DASHSCOPE_API_KEY" />
+              </div>
+              <div>
+                <label class="flabel">协议（protocol）</label>
+                <select class="input">
+                  <option selected>openai（OpenAI 兼容）</option>
+                  <option>anthropic</option>
+                </select>
+              </div>
+              <div>
+                <label class="flabel">上下文窗口（contextWindow）</label>
+                <input class="input" type="number" value="131072" />
+              </div>
+              <div>
+                <label class="flabel">最大输出 Tokens（maxOutputTokens）</label>
+                <input class="input" type="number" value="8192" />
+              </div>
+            </div>
+            <div class="mt-5 flex items-center justify-end gap-2">
+              <span class="mr-auto text-[11.5px] text-stone-400">更新于 2026-07-18 14:32</span>
+              <button class="btn-primary"><i data-lucide="save" class="h-3.5 w-3.5"></i>保存修改</button>
+            </div>
+          </div>
+
+          <!-- 模型卡片 2 -->
+          <div class="card mb-4 p-6">
+            <div class="flex items-center gap-2.5">
+              <span class="text-[14.5px] font-bold text-stone-900">DeepSeek 对话</span>
+              <span class="badge bg-emerald-100 text-emerald-700">启用</span>
+              <span class="badge bg-stone-100 text-stone-500">openai 协议</span>
+              <button class="chip ml-auto !h-8 text-[12.5px]"><i data-lucide="plug-zap" class="h-3.5 w-3.5 text-violet-600"></i>测试连接</button>
+              <button type="button" class="switch on" aria-label="启用开关"><span class="knob"></span></button>
+            </div>
+            <div class="mt-1.5 text-[12.5px] text-stone-400">deepseek · deepseek-chat · https://api.deepseek.com/v1</div>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <span class="badge bg-stone-100 text-stone-500">对话</span>
+              <span class="badge bg-stone-100 text-stone-500">结构化输出</span>
+            </div>
+            <div class="mt-5 grid grid-cols-2 gap-4 border-t border-stone-100 pt-5">
+              <div>
+                <label class="flabel">名称（name）</label>
+                <input class="input" value="DeepSeek 对话" />
+              </div>
+              <div>
+                <label class="flabel">提供方（provider）</label>
+                <select class="input">
+                  <option>dashscope · 阿里云百炼</option>
+                  <option selected>deepseek · DeepSeek</option>
+                  <option>openai · OpenAI</option>
+                  <option>custom · 自定义</option>
+                </select>
+              </div>
+              <div>
+                <label class="flabel">Base URL（baseUrl）</label>
+                <input class="input" value="https://api.deepseek.com/v1" />
+              </div>
+              <div>
+                <label class="flabel">模型名（modelName）</label>
+                <input class="input" value="deepseek-chat" />
+              </div>
+              <div>
+                <label class="flabel">API Key（apiKey）</label>
+                <input class="input" type="password" value="sk-1a2b3c4d5e6f7a8b9c0d" placeholder="留空则使用环境变量 DEEPSEEK_API_KEY" />
+              </div>
+              <div>
+                <label class="flabel">协议（protocol）</label>
+                <select class="input">
+                  <option selected>openai（OpenAI 兼容）</option>
+                  <option>anthropic</option>
+                </select>
+              </div>
+              <div>
+                <label class="flabel">上下文窗口（contextWindow）</label>
+                <input class="input" type="number" value="65536" />
+              </div>
+              <div>
+                <label class="flabel">最大输出 Tokens（maxOutputTokens）</label>
+                <input class="input" type="number" value="8192" />
+              </div>
+            </div>
+            <div class="mt-5 flex items-center justify-end gap-2">
+              <span class="mr-auto text-[11.5px] text-stone-400">更新于 2026-07-10 09:15</span>
+              <button class="btn-primary"><i data-lucide="save" class="h-3.5 w-3.5"></i>保存修改</button>
+            </div>
+          </div>
+
+          <!-- 模型卡片 3（停用） -->
+          <div class="card p-6">
+            <div class="flex items-center gap-2.5">
+              <span class="text-[14.5px] font-bold text-stone-500">GPT-4o mini</span>
+              <span class="badge bg-stone-100 text-stone-500">停用</span>
+              <span class="badge bg-stone-100 text-stone-500">openai 协议</span>
+              <button class="chip ml-auto !h-8 text-[12.5px]"><i data-lucide="plug-zap" class="h-3.5 w-3.5 text-violet-600"></i>测试连接</button>
+              <button type="button" class="switch" aria-label="启用开关"><span class="knob"></span></button>
+            </div>
+            <div class="mt-1.5 text-[12.5px] text-stone-400">openai · gpt-4o-mini · https://api.openai.com/v1</div>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <span class="badge bg-stone-100 text-stone-500">对话</span>
+              <span class="badge bg-stone-100 text-stone-500">视觉</span>
+            </div>
+            <div class="mt-2.5 flex items-center gap-1.5 text-[12.5px] text-rose-500">
+              <i data-lucide="circle-alert" class="h-3.5 w-3.5"></i>连接失败：401 Unauthorized，请检查 API Key
+            </div>
+          </div>
+        </section>
+
+        <!-- 图谱偏好 -->
+        <section class="mb-7">
+          <div class="mb-3 flex items-center gap-2">
+            <i data-lucide="sliders-horizontal" class="h-4 w-4 text-stone-400"></i>
+            <h2 class="text-[15px] font-bold text-stone-900">图谱偏好</h2>
+            <span class="ml-auto text-[11.5px] text-stone-400">修改后自动保存</span>
+          </div>
+          <div class="card divide-y divide-stone-100">
+            <div class="flex items-center justify-between px-5 py-4">
+              <div>
+                <div class="text-[13.5px] font-medium text-stone-700">显示边标签</div>
+                <div class="text-[12px] text-stone-400">在图谱画布上展示关系名称（showEdgeLabels）</div>
+              </div>
+              <button type="button" class="switch on" aria-label="显示边标签"><span class="knob"></span></button>
+            </div>
+            <div class="flex items-center justify-between px-5 py-4">
+              <div>
+                <div class="text-[13.5px] font-medium text-stone-700">打开模型自动适应视图</div>
+                <div class="text-[12px] text-stone-400">加载图谱后自动缩放至全图可见（autoFit）</div>
+              </div>
+              <button type="button" class="switch on" aria-label="自动适应视图"><span class="knob"></span></button>
+            </div>
+            <div class="flex items-center justify-between px-5 py-4">
+              <div>
+                <div class="text-[13.5px] font-medium text-stone-700">图谱字号</div>
+                <div class="text-[12px] text-stone-400">节点文字大小（graphFontSize）· 当前 <span class="font-semibold text-violet-700">12px</span></div>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-[11px] text-stone-400">10</span>
+                <input type="range" min="10" max="18" step="1" value="12" class="w-40" />
+                <span class="text-[11px] text-stone-400">18</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 关于 -->
+        <section>
+          <div class="mb-3 flex items-center gap-2">
+            <i data-lucide="info" class="h-4 w-4 text-stone-400"></i>
+            <h2 class="text-[15px] font-bold text-stone-900">关于</h2>
+          </div>
+          <div class="card px-5 py-4 text-[13px] leading-relaxed text-stone-500">
+            推演平台（EIC-CC）· 基于本体图谱的 AI 业务血缘建模系统。<br />
+            前端：Vue 3 + Vite + TypeScript + Tailwind CSS · 后端：Spring Boot 3 + PostgreSQL + MinIO。
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+  lucide.createIcons();
+  document.querySelectorAll('.switch').forEach(function (s) {
+    s.addEventListener('click', function () { s.classList.toggle('on'); });
+  });
+</script>
+</body>
+</html>

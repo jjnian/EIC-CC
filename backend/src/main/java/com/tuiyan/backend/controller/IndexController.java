@@ -1,8 +1,8 @@
 package com.tuiyan.backend.controller;
 
+import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.service.indexing.DataSourceIndexService;
 import com.tuiyan.backend.support.SsePushUtils;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -36,25 +36,25 @@ public class IndexController {
      * @param force 传 true 连已索引的也重建；默认 false 只补未索引的
      */
     @PostMapping("/workspace/{workspaceId}/reindex-all")
-    public ResponseEntity<Map<String, Object>> reindexWorkspace(
+    public ApiResult<Map<String, Object>> reindexWorkspace(
             @PathVariable String workspaceId,
             @RequestParam(defaultValue = "false") boolean force) {
-        return ResponseEntity.ok(indexService.reindexWorkspace(workspaceId, force));
+        return ApiResult.ok(indexService.reindexWorkspace(workspaceId, force));
     }
 
     @GetMapping("/{dataSourceId}/status")
-    public ResponseEntity<Map<String, Object>> getStatus(@PathVariable String dataSourceId) {
-        return ResponseEntity.ok(indexService.getIndexStatus(dataSourceId));
+    public ApiResult<Map<String, Object>> getStatus(@PathVariable String dataSourceId) {
+        return ApiResult.ok(indexService.getIndexStatus(dataSourceId));
     }
 
     @DeleteMapping("/{dataSourceId}")
-    public ResponseEntity<Void> deleteIndex(@PathVariable String dataSourceId) {
+    public ApiResult<Void> deleteIndex(@PathVariable String dataSourceId) {
         indexService.deleteIndex(dataSourceId);
-        return ResponseEntity.noContent().build();
+        return ApiResult.ok();
     }
 
     @GetMapping("/configured")
-    public ResponseEntity<Map<String, Object>> isConfigured() {
-        return ResponseEntity.ok(Map.of("configured", indexService.isConfigured()));
+    public ApiResult<Map<String, Object>> isConfigured() {
+        return ApiResult.ok(Map.of("configured", indexService.isConfigured()));
     }
 }

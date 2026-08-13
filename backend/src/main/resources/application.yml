@@ -1,6 +1,6 @@
 spring:
   application:
-    name: tuiyan-backend
+    name: EIC
   jackson:
     default-property-inclusion: non_null
   servlet:

@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>方案 A · 血缘分析</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+tailwind.config = { theme: { extend: {
+  colors: {
+    ink: { 950:'#080A0E', 900:'#0C0F14', 850:'#10141B', 800:'#12161E', 750:'#161B25', 700:'#1C222E' },
+    neon: { 300:'#67E8F9', 400:'#22D3EE', 500:'#06B6D4' },
+  },
+  fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','PingFang SC','Microsoft YaHei','sans-serif'] },
+  boxShadow: { glow: '0 0 24px rgba(34,211,238,.18)' },
+} } }
+</script>
+<style>
+  body { font-family: Inter, ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #2A3242; border-radius: 4px; }
+  .panel { background:#12161E; border:1px solid rgba(255,255,255,.06); border-radius:12px; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; font-size:13.5px; color:rgba(255,255,255,.5); transition:.15s; }
+  .nav-item:hover { color:rgba(255,255,255,.85); background:rgba(255,255,255,.04); }
+  .nav-item.active { color:#67E8F9; background:rgba(34,211,238,.1); }
+  .chip { display:inline-flex; align-items:center; gap:6px; height:34px; padding:0 14px; border-radius:8px; font-size:13px; font-weight:500; border:1px solid rgba(255,255,255,.09); background:#161B25; color:rgba(255,255,255,.7); transition:.15s; }
+  .chip:hover { border-color:rgba(34,211,238,.4); color:#A5F3FC; }
+  /* tab */
+  .tab-btn { display:inline-flex; align-items:center; gap:6px; padding:6px 13px; border-radius:7px; font-size:12.5px; font-weight:500; color:rgba(255,255,255,.45); transition:.15s; white-space:nowrap; }
+  .tab-btn:hover { color:rgba(255,255,255,.8); }
+  .tab-btn.active { color:#67E8F9; background:rgba(34,211,238,.12); }
+  /* 小徽标 / 节点 chip */
+  .ntag { display:inline-flex; align-items:center; padding:3px 10px; border-radius:999px; font-size:11px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); color:rgba(255,255,255,.6); transition:.15s; cursor:pointer; }
+  .ntag:hover { border-color:rgba(34,211,238,.45); color:#A5F3FC; }
+  .badge-ok  { background:rgba(52,211,153,.1);  color:#6EE7B7; }   /* 成功/健康 */
+  .badge-warn{ background:rgba(251,191,36,.1);  color:#FCD34D; }   /* 警告/待审核 */
+  .badge-bad { background:rgba(251,113,133,.1); color:#FDA4AF; }   /* 危险/血缘环 */
+  .badge { display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:500; }
+  /* 进度条 */
+  .bar-track { height:8px; border-radius:999px; background:rgba(255,255,255,.06); overflow:hidden; }
+  .bar-fill { height:100%; border-radius:999px; }
+  /* 表格 */
+  .tbl { width:100%; border-collapse:collapse; font-size:12.5px; }
+  .tbl th { text-align:left; font-size:11px; font-weight:500; color:rgba(255,255,255,.3); padding:6px 10px; border-bottom:1px solid rgba(255,255,255,.06); white-space:nowrap; }
+  .tbl td { padding:7px 10px; color:rgba(255,255,255,.7); border-bottom:1px solid rgba(255,255,255,.04); }
+  .tbl tr:hover td { background:rgba(255,255,255,.02); }
+  /* 次级按钮 */
+  .btn-ghost { display:inline-flex; align-items:center; gap:5px; height:28px; padding:0 11px; border-radius:7px; font-size:12px; font-weight:500; border:1px solid rgba(255,255,255,.09); background:#161B25; color:rgba(255,255,255,.65); transition:.15s; }
+  .btn-ghost:hover { border-color:rgba(34,211,238,.4); color:#A5F3FC; }
+  .btn-primary { display:inline-flex; align-items:center; gap:5px; height:28px; padding:0 13px; border-radius:7px; font-size:12px; font-weight:600; background:linear-gradient(135deg,#22D3EE,#3B82F6); color:#080A0E; transition:.15s; }
+  .btn-primary:hover { filter:brightness(1.1); box-shadow:0 0 16px rgba(34,211,238,.3); }
+  details > summary { list-style:none; cursor:pointer; }
+  details > summary::-webkit-details-marker { display:none; }
+  details[open] .caret { transform:rotate(90deg); }
+  .caret { transition:transform .15s; }
+</style>
+</head>
+<body class="bg-ink-900 text-white/90">
+
+<div class="flex h-screen">
+  <!-- 侧边栏 -->
+  <aside class="flex w-[232px] shrink-0 flex-col border-r border-white/5 bg-ink-950">
+    <div class="flex h-14 items-center gap-2.5 border-b border-white/5 px-4">
+      <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400 to-blue-600 text-[13px] font-bold text-ink-950">推</div>
+      <div class="leading-tight">
+        <div class="text-[13.5px] font-semibold text-white">推演平台</div>
+        <div class="text-[10.5px] tracking-wide text-white/30">EIC-CC · 业务血缘建模</div>
+      </div>
+      <a href="../index.html" title="返回方案画廊" class="ml-auto rounded-md p-1.5 text-white/30 hover:bg-white/5 hover:text-cyan-300"><i data-lucide="layout-grid" class="h-4 w-4"></i></a>
+    </div>
+    <nav class="flex-1 space-y-0.5 overflow-y-auto p-3">
+      <div class="px-3 pb-1.5 pt-1 text-[10.5px] font-medium uppercase tracking-widest text-white/25">主导航</div>
+      <a class="nav-item" href="dashboard.html"><i data-lucide="layout-dashboard" class="h-4 w-4"></i>工作台</a>
+      <a class="nav-item" href="graph.html"><i data-lucide="waypoints" class="h-4 w-4"></i>血缘图谱</a>
+      <a class="nav-item" href="experiences.html"><i data-lucide="library" class="h-4 w-4"></i>经验库<span class="ml-auto rounded bg-white/8 px-1.5 py-0.5 text-[10.5px] text-white/40">56</span></a>
+      <a class="nav-item" href="chat.html"><i data-lucide="message-square-text" class="h-4 w-4"></i>AI 对话</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-medium uppercase tracking-widest text-white/25">数据</div>
+      <a class="nav-item" href="datasources.html"><i data-lucide="database" class="h-4 w-4"></i>数据源</a>
+      <a class="nav-item active" href="analysis.html"><i data-lucide="activity" class="h-4 w-4"></i>血缘分析</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-medium uppercase tracking-widest text-white/25">系统</div>
+      <a class="nav-item" href="settings.html"><i data-lucide="settings-2" class="h-4 w-4"></i>设置</a>
+    </nav>
+    <div class="border-t border-white/5 p-3">
+      <a href="workspaces.html" class="flex items-center gap-2.5 rounded-lg bg-white/[.03] p-2.5 ring-1 ring-white/5 transition hover:bg-white/[.06]">
+        <div class="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-400/15 text-[11px] font-bold text-cyan-300">电</div>
+        <div class="min-w-0 flex-1 leading-tight">
+          <div class="truncate text-[12.5px] font-medium text-white/80">电商数仓工作空间</div>
+          <div class="text-[10.5px] text-white/30">3 个模型 · 昨天更新</div>
+        </div>
+        <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5 text-white/25"></i>
+      </a>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <div class="flex min-w-0 flex-1 flex-col">
+    <!-- 顶栏 -->
+    <header class="flex h-14 shrink-0 items-center gap-3 border-b border-white/5 bg-ink-900/80 px-5 backdrop-blur">
+      <h1 class="text-[15px] font-semibold text-white">血缘分析</h1>
+      <div class="relative ml-4 w-72">
+        <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/25"></i>
+        <input class="h-8 w-full rounded-lg border border-white/8 bg-ink-800 pl-9 pr-12 text-[12.5px] text-white/80 placeholder-white/25 outline-none focus:border-cyan-400/40" placeholder="搜索模型、节点、经验文档…" />
+        <kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-white/30">⌘K</kbd>
+      </div>
+      <div class="ml-auto flex items-center gap-2">
+        <button class="chip"><i data-lucide="sparkles" class="h-3.5 w-3.5 text-cyan-300"></i>一键建图</button>
+        <button class="chip"><i data-lucide="globe" class="h-3.5 w-3.5"></i>联网调研</button>
+        <div class="mx-1 h-5 w-px bg-white/8"></div>
+        <div class="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-600 text-[11px] font-bold text-white">纪</div>
+      </div>
+    </header>
+
+    <!-- 内容 -->
+    <main class="min-h-0 flex-1 overflow-y-auto p-6">
+      <!-- 工具条：模型选择 + 分析 Tabs -->
+      <div class="mb-5 flex flex-wrap items-center gap-3">
+        <div class="relative">
+          <select class="h-9 appearance-none rounded-lg border border-white/8 bg-ink-800 pl-3.5 pr-9 text-[13px] font-medium text-white/85 outline-none focus:border-cyan-400/40">
+            <option>交易域血缘图</option>
+            <option>营销归因模型</option>
+            <option>用户域血缘图</option>
+          </select>
+          <i data-lucide="chevron-down" class="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30"></i>
+        </div>
+        <span class="text-[11.5px] text-white/30">86 节点 · 214 边 · 平均边置信度 87%</span>
+        <div class="ml-auto flex rounded-lg bg-white/[.04] p-0.5 ring-1 ring-white/8">
+          <button class="tab-btn active" data-tab="stats" onclick="switchTab(this)"><i data-lucide="bar-chart-3" class="h-3.5 w-3.5"></i>图统计</button>
+          <button class="tab-btn" data-tab="health" onclick="switchTab(this)"><i data-lucide="heart-pulse" class="h-3.5 w-3.5"></i>血缘健康度</button>
+          <button class="tab-btn" data-tab="coverage" onclick="switchTab(this)"><i data-lucide="scan-search" class="h-3.5 w-3.5"></i>覆盖审计</button>
+          <button class="tab-btn" data-tab="node" onclick="switchTab(this)"><i data-lucide="crosshair" class="h-3.5 w-3.5"></i>节点分析</button>
+          <button class="tab-btn" data-tab="path" onclick="switchTab(this)"><i data-lucide="route" class="h-3.5 w-3.5"></i>路径查询</button>
+          <button class="tab-btn" data-tab="review" onclick="switchTab(this)"><i data-lucide="clipboard-check" class="h-3.5 w-3.5"></i>审核队列<span class="rounded-full bg-amber-400/15 px-1.5 py-px text-[10px] font-semibold text-amber-300">3</span></button>
+        </div>
+      </div>
+
+      <!-- ═══════════ Tab 1 · 图统计 ═══════════ -->
+      <section id="tab-stats" class="tab-panel space-y-4">
+        <div class="grid grid-cols-4 gap-4">
+          <div class="panel p-4">
+            <div class="flex items-center justify-between"><span class="text-[12px] text-white/40">节点总数</span><i data-lucide="box" class="h-4 w-4 text-cyan-300/70"></i></div>
+            <div class="mt-2 text-[26px] font-bold leading-none text-white">86</div>
+          </div>
+          <div class="panel p-4">
+            <div class="flex items-center justify-between"><span class="text-[12px] text-white/40">关系总数</span><i data-lucide="git-fork" class="h-4 w-4 text-cyan-300/70"></i></div>
+            <div class="mt-2 text-[26px] font-bold leading-none text-white">214</div>
+          </div>
+          <div class="panel p-4">
+            <div class="flex items-center justify-between"><span class="text-[12px] text-white/40">孤立节点</span><i data-lucide="unplug" class="h-4 w-4 text-amber-300/80"></i></div>
+            <div class="mt-2 text-[26px] font-bold leading-none text-amber-300">5</div>
+          </div>
+          <div class="panel p-4">
+            <div class="flex items-center justify-between"><span class="text-[12px] text-white/40">关系类型数</span><i data-lucide="tags" class="h-4 w-4 text-cyan-300/70"></i></div>
+            <div class="mt-2 text-[26px] font-bold leading-none text-white">12</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <!-- 节点类型分布 -->
+          <div class="panel p-5">
+            <h3 class="mb-4 text-[13.5px] font-semibold text-white/85">节点类型分布</h3>
+            <div class="space-y-3">
+              <div>
+                <div class="mb-1 flex justify-between text-[12.5px]"><span class="flex items-center gap-2 text-white/60"><i class="h-2 w-2 rounded-full" style="background:#38BDF8"></i>表</span><span class="text-white/35">42 · 49%</span></div>
+                <div class="bar-track"><div class="bar-fill" style="width:49%;background:#38BDF8"></div></div>
+              </div>
+              <div>
+                <div class="mb-1 flex justify-between text-[12.5px]"><span class="flex items-center gap-2 text-white/60"><i class="h-2 w-2 rounded-full" style="background:#A78BFA"></i>指标</span><span class="text-white/35">18 · 21%</span></div>
+                <div class="bar-track"><div class="bar-fill" style="width:21%;background:#A78BFA"></div></div>
+              </div>
+              <div>
+                <div class="mb-1 flex justify-between text-[12.5px]"><span class="flex items-center gap-2 text-white/60"><i class="h-2 w-2 rounded-full" style="background:#34D399"></i>维度</span><span class="text-white/35">12 · 14%</span></div>
+                <div class="bar-track"><div class="bar-fill" style="width:14%;background:#34D399"></div></div>
+              </div>
+              <div>
+                <div class="mb-1 flex justify-between text-[12.5px]"><span class="flex items-center gap-2 text-white/60"><i class="h-2 w-2 rounded-full" style="background:#22D3EE"></i>字段</span><span class="text-white/35">9 · 10%</span></div>
+                <div class="bar-track"><div class="bar-fill" style="width:10%;background:#22D3EE"></div></div>
+              </div>
+              <div>
+                <div class="mb-1 flex justify-between text-[12.5px]"><span class="flex items-center gap-2 text-white/60"><i class="h-2 w-2 rounded-full" style="background:#94A3B8"></i>业务概念</span><span class="text-white/35">5 · 6%</span></div>
+                <div class="bar-track"><div class="bar-fill" style="width:6%;background:#94A3B8"></div></div>
+              </div>
+            </div>
+          </div>
+          <!-- 关系来源分布 + 标签频次 -->
+          <div class="space-y-4">
+            <div class="panel p-5">
+              <h3 class="mb-4 text-[13.5px] font-semibold text-white/85">关系来源分布</h3>
+              <div class="space-y-3">
+                <div>
+                  <div class="mb-1 flex justify-between text-[12.5px]"><span class="flex items-center gap-2 text-white/60"><i class="h-2 w-2 rounded-full bg-amber-400"></i>推断（AI 推理）</span><span class="text-white/35">96 · 45%</span></div>
+                  <div class="bar-track"><div class="bar-fill" style="width:45%;background:rgba(251,191,36,.7)"></div></div>
+                </div>
+                <div>
+                  <div class="mb-1 flex justify-between text-[12.5px]"><span class="flex items-center gap-2 text-white/60"><i class="h-2 w-2 rounded-full bg-emerald-400"></i>派生（文本提取）</span><span class="text-white/35">78 · 36%</span></div>
+                  <div class="bar-track"><div class="bar-fill" style="width:36%;background:rgba(52,211,153,.7)"></div></div>
+                </div>
+                <div>
+                  <div class="mb-1 flex justify-between text-[12.5px]"><span class="flex items-center gap-2 text-white/60"><i class="h-2 w-2 rounded-full bg-sky-400"></i>手工</span><span class="text-white/35">40 · 19%</span></div>
+                  <div class="bar-track"><div class="bar-fill" style="width:19%;background:rgba(56,189,248,.7)"></div></div>
+                </div>
+              </div>
+              <p class="mt-3.5 text-[11.5px] leading-relaxed text-white/30">「推断」来源的边建议通过值包含检验做数据佐证，或进入人工审核。</p>
+            </div>
+            <div class="panel p-5">
+              <h3 class="mb-4 text-[13.5px] font-semibold text-white/85">关系标签频次（Top 5）</h3>
+              <div class="space-y-2.5">
+                <div class="flex items-center gap-2.5 text-[12.5px]"><span class="w-14 text-white/55">包含</span><div class="bar-track flex-1"><div class="bar-fill" style="width:100%;background:rgba(251,191,36,.45)"></div></div><span class="w-8 text-right text-white/40">48</span></div>
+                <div class="flex items-center gap-2.5 text-[12.5px]"><span class="w-14 text-white/55">派生自</span><div class="bar-track flex-1"><div class="bar-fill" style="width:75%;background:rgba(251,191,36,.45)"></div></div><span class="w-8 text-right text-white/40">36</span></div>
+                <div class="flex items-center gap-2.5 text-[12.5px]"><span class="w-14 text-white/55">归属于</span><div class="bar-track flex-1"><div class="bar-fill" style="width:50%;background:rgba(251,191,36,.45)"></div></div><span class="w-8 text-right text-white/40">24</span></div>
+                <div class="flex items-center gap-2.5 text-[12.5px]"><span class="w-14 text-white/55">关联</span><div class="bar-track flex-1"><div class="bar-fill" style="width:38%;background:rgba(251,191,36,.45)"></div></div><span class="w-8 text-right text-white/40">18</span></div>
+                <div class="flex items-center gap-2.5 text-[12.5px]"><span class="w-14 text-white/55">计算</span><div class="bar-track flex-1"><div class="bar-fill" style="width:25%;background:rgba(251,191,36,.45)"></div></div><span class="w-8 text-right text-white/40">12</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 连接度排行 -->
+        <div class="panel">
+          <div class="border-b border-white/5 px-5 py-3.5"><h3 class="text-[13.5px] font-semibold text-white/85">连接度排行（Top 10）</h3></div>
+          <table class="tbl">
+            <thead><tr><th class="w-10">#</th><th>节点</th><th>类型</th><th class="text-center">入度</th><th class="text-center">出度</th><th class="text-center">总度</th></tr></thead>
+            <tbody>
+              <tr><td class="text-white/25">1</td><td class="font-medium text-white/85">dwd_trade_order 交易订单事实</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-center">4</td><td class="text-center">6</td><td class="text-center font-semibold text-white">10</td></tr>
+              <tr><td class="text-white/25">2</td><td class="font-medium text-white/85">metric_gmv 成交额 GMV</td><td><span class="badge" style="color:#C4B5FD;background:rgba(167,139,250,.1)">指标</span></td><td class="text-center">5</td><td class="text-center">3</td><td class="text-center font-semibold text-white">8</td></tr>
+              <tr><td class="text-white/25">3</td><td class="font-medium text-white/85">dws_shop_daily 店铺日汇总</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-center">3</td><td class="text-center">4</td><td class="text-center font-semibold text-white">7</td></tr>
+              <tr><td class="text-white/25">4</td><td class="font-medium text-white/85">dws_user_rfm 用户 RFM 分层</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-center">2</td><td class="text-center">5</td><td class="text-center font-semibold text-white">7</td></tr>
+              <tr><td class="text-white/25">5</td><td class="font-medium text-white/85">ods_order 订单明细 ODS</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-center">0</td><td class="text-center">6</td><td class="text-center font-semibold text-white">6</td></tr>
+              <tr><td class="text-white/25">6</td><td class="font-medium text-white/85">dim_channel 渠道维度</td><td><span class="badge" style="color:#6EE7B7;background:rgba(52,211,153,.1)">维度</span></td><td class="text-center">1</td><td class="text-center">5</td><td class="text-center font-semibold text-white">6</td></tr>
+              <tr><td class="text-white/25">7</td><td class="font-medium text-white/85">metric_repurchase 复购率</td><td><span class="badge" style="color:#C4B5FD;background:rgba(167,139,250,.1)">指标</span></td><td class="text-center">4</td><td class="text-center">1</td><td class="text-center font-semibold text-white">5</td></tr>
+              <tr><td class="text-white/25">8</td><td class="font-medium text-white/85">dwd_user_detail 用户明细</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-center">2</td><td class="text-center">3</td><td class="text-center font-semibold text-white">5</td></tr>
+              <tr><td class="text-white/25">9</td><td class="font-medium text-white/85">metric_pay_rate 支付转化率</td><td><span class="badge" style="color:#C4B5FD;background:rgba(167,139,250,.1)">指标</span></td><td class="text-center">3</td><td class="text-center">1</td><td class="text-center font-semibold text-white">4</td></tr>
+              <tr><td class="text-white/25">10</td><td class="font-medium text-white/85">ods_payment 支付流水 ODS</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-center">0</td><td class="text-center">4</td><td class="text-center font-semibold text-white">4</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 孤立节点 -->
+        <div class="panel p-5">
+          <div class="mb-3 flex items-center gap-2">
+            <h3 class="text-[13.5px] font-semibold text-white/85">孤立节点</h3>
+            <span class="badge badge-warn ml-auto">5 个</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            <button class="ntag">ods_refund_log</button>
+            <button class="ntag">dim_coupon</button>
+            <button class="ntag">tmp_ab_test</button>
+            <button class="ntag">ods_ad_click</button>
+            <button class="ntag">dim_supplier</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════ Tab 2 · 血缘健康度 ═══════════ -->
+      <section id="tab-health" class="tab-panel hidden space-y-4">
+        <!-- 健康度总览 -->
+        <div class="grid grid-cols-3 gap-4">
+          <div class="panel p-4">
+            <div class="text-[22px] font-bold text-emerald-300">92%</div>
+            <div class="mt-1 text-[12px] text-white/55">来源标注率</div>
+            <div class="text-[11px] text-white/30">6 个节点无 derived_source</div>
+          </div>
+          <div class="panel p-4">
+            <div class="text-[22px] font-bold text-amber-300">88%</div>
+            <div class="mt-1 text-[12px] text-white/55">方向语义率</div>
+            <div class="text-[11px] text-white/30">25 条边无 rel_type（方向只能按默认猜）</div>
+          </div>
+          <div class="panel p-4">
+            <div class="text-[22px] font-bold text-amber-300">76%</div>
+            <div class="mt-1 text-[12px] text-white/55">证据覆盖率</div>
+            <div class="text-[11px] text-white/30">9 个 derived 节点无 evidence</div>
+          </div>
+          <div class="panel p-4">
+            <div class="text-[22px] font-bold text-amber-300">18<span class="text-[14px] text-white/30">/24</span></div>
+            <div class="mt-1 text-[12px] text-white/55">推断边已验证</div>
+            <div class="text-[11px] text-white/30">6 条推断边未做数据验证</div>
+          </div>
+          <div class="panel p-4">
+            <div class="text-[22px] font-bold text-emerald-300">71%</div>
+            <div class="mt-1 text-[12px] text-white/55">供血绑定覆盖率</div>
+            <div class="text-[11px] text-white/30">节点绑定到真实数据源的比例</div>
+          </div>
+          <div class="panel p-4">
+            <div class="text-[22px] font-bold text-amber-300">5</div>
+            <div class="mt-1 text-[12px] text-white/55">孤立节点</div>
+            <div class="text-[11px] text-white/30">不连任何血缘的业务节点 · 血缘分 2 块</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <!-- 孤立节点 + 待补齐 -->
+          <div class="space-y-4">
+            <div class="panel p-5">
+              <h3 class="mb-1.5 text-[13.5px] font-semibold text-white/85">孤立节点（点击定位）</h3>
+              <p class="mb-3 text-[11.5px] text-white/30">未连入任何血缘流向，多为噪声或漏抽，建议补边或删除</p>
+              <div class="flex flex-wrap gap-1.5">
+                <button class="ntag">ods_refund_log</button><button class="ntag">dim_coupon</button><button class="ntag">tmp_ab_test</button><button class="ntag">ods_ad_click</button><button class="ntag">dim_supplier</button>
+              </div>
+            </div>
+            <div class="panel p-5">
+              <h3 class="mb-1.5 text-[13.5px] font-semibold text-white/85">无来源节点</h3>
+              <p class="mb-3 text-[11.5px] text-white/30">缺 derived_source，可在节点详情手动补</p>
+              <div class="flex flex-wrap gap-1.5">
+                <button class="ntag">tmp_ab_test</button><button class="ntag">dws_coupon_daily</button><button class="ntag">ods_ad_click</button><button class="ntag">dim_supplier</button><button class="ntag">metric_aov</button><button class="ntag">dim_coupon</button>
+              </div>
+            </div>
+            <div class="panel p-5">
+              <h3 class="mb-1.5 text-[13.5px] font-semibold text-white/85">无方向语义的边</h3>
+              <p class="mb-3 text-[11.5px] text-white/30">缺 rel_type，血缘方向只能按默认猜，可在边详情补</p>
+              <div class="flex flex-wrap gap-1.5">
+                <button class="ntag">ods_order → dwd_trade_order</button>
+                <button class="ntag">dim_channel → dws_channel_daily</button>
+                <button class="ntag">ods_sku → dwd_trade_order</button>
+                <span class="self-center text-[11px] text-white/25">…共 25 条</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 批量数据验证 -->
+          <div class="panel p-5">
+            <div class="mb-2 flex items-center justify-between">
+              <h3 class="text-[13.5px] font-semibold text-white/85">推断边批量数据验证</h3>
+              <button class="btn-ghost"><i data-lucide="play" class="h-3 w-3"></i>开始批量验证</button>
+            </div>
+            <p class="mb-3 text-[11.5px] leading-relaxed text-white/30">对未验证的推断血缘边（6 条）批量做值包含检验：子表列的值应都能在父表列中找到。只读、逐条串行、自动采样。</p>
+            <div class="mb-4 flex items-center gap-2.5 rounded-lg bg-cyan-400/[.07] p-3 ring-1 ring-cyan-400/20">
+              <i data-lucide="stethoscope" class="h-4 w-4 shrink-0 text-cyan-300"></i>
+              <span class="flex-1 text-[12px] text-cyan-100/85">发现 6 条推断血缘边、2 个数据库数据源，可用真实数据佐证</span>
+              <button class="btn-primary"><i data-lucide="sparkles" class="h-3 w-3"></i>一键数据佐证</button>
+            </div>
+            <div class="space-y-1.5">
+              <div class="flex items-center gap-2.5 rounded-lg bg-white/[.03] px-3 py-2 text-[12px]">
+                <span class="flex-1 truncate text-white/70">dws_user_rfm → metric_repurchase</span>
+                <span class="badge badge-ok">✓ 证实</span><span class="w-12 text-right text-[11px] text-white/35">98.2%</span>
+                <button class="btn-ghost">采信</button>
+              </div>
+              <div class="flex items-center gap-2.5 rounded-lg bg-white/[.03] px-3 py-2 text-[12px]">
+                <span class="flex-1 truncate text-white/70">ods_order → dwd_trade_order</span>
+                <span class="badge badge-ok">✓ 证实</span><span class="w-12 text-right text-[11px] text-white/35">100%</span>
+                <span class="text-[11px] text-emerald-300/70">已写回</span>
+              </div>
+              <div class="flex items-center gap-2.5 rounded-lg bg-white/[.03] px-3 py-2 text-[12px]">
+                <span class="flex-1 truncate text-white/70">dwd_user_detail → dws_user_rfm</span>
+                <span class="badge badge-warn">≈ 大概率</span><span class="w-12 text-right text-[11px] text-white/35">87.4%</span>
+                <button class="btn-ghost">采信</button>
+              </div>
+              <div class="flex items-center gap-2.5 rounded-lg bg-white/[.03] px-3 py-2 text-[12px]">
+                <span class="flex-1 truncate text-white/70">ods_sku → dwd_trade_order</span>
+                <span class="badge badge-bad">✗ 不支持</span><span class="w-12 text-right text-[11px] text-white/35">12.6%</span>
+                <button class="btn-ghost">采信</button>
+              </div>
+              <div class="flex items-center gap-2.5 rounded-lg bg-white/[.03] px-3 py-2 text-[12px]">
+                <span class="flex-1 truncate text-white/70">dim_channel → metric_pay_rate</span>
+                <span class="badge" style="background:rgba(255,255,255,.06);color:rgba(255,255,255,.4)">— 无数据</span><span class="w-12 text-right text-[11px] text-white/35">—</span>
+              </div>
+            </div>
+            <div class="mt-3 flex items-center gap-2">
+              <button class="btn-ghost">1 解析验证目标</button>
+              <button class="btn-ghost">2 开始批量验证</button>
+              <button class="btn-ghost">3 全部采信写回</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 冲突检测 -->
+        <div class="panel p-5">
+          <div class="mb-3 flex items-center gap-2">
+            <h3 class="text-[13.5px] font-semibold text-white/85">冲突检测</h3>
+            <span class="badge badge-bad ml-auto">3 类冲突</span>
+          </div>
+          <p class="mb-4 text-[11.5px] leading-relaxed text-white/30">多来源合并后的图级一致性检查：方向矛盾、疑似重复节点、血缘环路。冲突需人工裁决——点击定位后在图上修正。</p>
+          <div class="space-y-4">
+            <div>
+              <div class="mb-2 text-[12px] font-semibold text-rose-300">方向矛盾（1 对）——同一对节点间存在两个流向的血缘边，通常是某条边的 rel_type 标反了</div>
+              <div class="flex flex-wrap items-center gap-2 rounded-lg bg-rose-400/[.06] p-3 ring-1 ring-rose-400/15 text-[12px]">
+                <button class="ntag">dws_shop_daily</button><span class="text-rose-300">⇄</span><button class="ntag">metric_gmv</button>
+                <span class="text-white/25">2 条边</span>
+                <span class="w-full text-[11.5px] text-white/45">建议核对疑点边 <span class="text-rose-300">metric_gmv → dws_shop_daily（推断）</span> —— 可信度最低，最可能方向标反</span>
+              </div>
+            </div>
+            <div>
+              <div class="mb-2 text-[12px] font-semibold text-amber-300">疑似重复节点（2 组）——名称相同但未被合并，血缘会被分裂到多个节点上</div>
+              <div class="space-y-1.5">
+                <div class="flex items-center gap-2 rounded-lg bg-amber-400/[.05] p-2.5 ring-1 ring-amber-400/12 text-[12px]"><span class="font-medium text-white/75">「订单金额」× 2</span><button class="ntag">n_1042</button><button class="ntag">n_2087</button></div>
+                <div class="flex items-center gap-2 rounded-lg bg-amber-400/[.05] p-2.5 ring-1 ring-amber-400/12 text-[12px]"><span class="font-medium text-white/75">「支付时间」× 2</span><button class="ntag">n_1055</button><button class="ntag">n_2201</button></div>
+              </div>
+            </div>
+            <div>
+              <div class="mb-2 text-[12px] font-semibold text-rose-300">血缘环路（1 条）——派生链成环，通常意味着某条边方向标错</div>
+              <div class="flex flex-wrap items-center gap-2 rounded-lg bg-rose-400/[.06] p-3 ring-1 ring-rose-400/15 text-[12px]">
+                <button class="ntag">dwd_trade_order</button><span class="text-white/30">→</span>
+                <button class="ntag">dws_shop_daily</button><span class="text-white/30">→</span>
+                <button class="ntag">metric_gmv</button><span class="text-white/30">→</span>
+                <button class="ntag" style="border-color:rgba(251,113,133,.4);color:#FDA4AF">dwd_trade_order</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Schema 漂移检测 -->
+        <div class="panel p-5">
+          <div class="mb-2 flex items-center justify-between">
+            <h3 class="text-[13.5px] font-semibold text-white/85">Schema 漂移检测</h3>
+            <div class="flex items-center gap-2">
+              <div class="relative">
+                <select class="h-8 appearance-none rounded-lg border border-white/8 bg-ink-750 pl-3 pr-8 text-[12px] text-white/75 outline-none focus:border-cyan-400/40">
+                  <option>电商交易库（mysql）</option>
+                  <option>用户中心库（pgsql）</option>
+                </select>
+                <i data-lucide="chevron-down" class="pointer-events-none absolute right-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/30"></i>
+              </div>
+              <button class="btn-primary h-8"><i data-lucide="radar" class="h-3 w-3"></i>开始检测</button>
+            </div>
+          </div>
+          <p class="mb-3 text-[11.5px] leading-relaxed text-white/30">重新内省数据库最新结构，比对图上引用的来源表/列：删表、删列、改名会让血缘失效。图上混有多个数据源的表时，属于其它数据源的“缺失表”可忽略。</p>
+          <p class="mb-3 text-[12px] text-white/55">库「ecommerce_dw」现有 <b class="text-white/85">58</b> 张表；图上引用 <b class="text-white/85">47</b> 张，其中 <b class="text-white/85">45</b> 张仍存在。</p>
+          <div class="space-y-2">
+            <div class="rounded-lg bg-rose-400/[.06] p-3 ring-1 ring-rose-400/15">
+              <div class="mb-1.5 text-[12px] font-semibold text-rose-300">缺失的表（1）</div>
+              <div class="flex flex-wrap items-center gap-2 text-[12px]"><code class="rounded bg-white/[.06] px-1.5 py-0.5 font-mono text-[11px] text-rose-300">ods_logistics_track</code><button class="ntag">物流轨迹 ODS</button><span class="text-white/30">+3 条边引用</span></div>
+            </div>
+            <div class="rounded-lg bg-amber-400/[.05] p-3 ring-1 ring-amber-400/12">
+              <div class="mb-1.5 text-[12px] font-semibold text-amber-300">缺失的列（2）</div>
+              <div class="flex flex-wrap items-center gap-2 text-[12px]"><code class="rounded bg-white/[.06] px-1.5 py-0.5 font-mono text-[11px] text-amber-200">dwd_trade_order.pay_channel</code><button class="ntag">支付渠道</button></div>
+              <div class="mt-1.5 flex flex-wrap items-center gap-2 text-[12px]"><code class="rounded bg-white/[.06] px-1.5 py-0.5 font-mono text-[11px] text-amber-200">ods_user.reg_source</code><button class="ntag">注册来源</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════ Tab 3 · 覆盖审计 ═══════════ -->
+      <section id="tab-coverage" class="tab-panel hidden space-y-4">
+        <div class="grid grid-cols-4 gap-4">
+          <div class="panel p-4">
+            <div class="text-[26px] font-bold leading-none text-white">5</div>
+            <div class="mt-1.5 text-[12px] text-white/55">领域</div>
+            <div class="text-[11px] text-white/30">节点/经验按文件夹归域</div>
+          </div>
+          <div class="panel p-4">
+            <div class="text-[26px] font-bold leading-none text-white">56</div>
+            <div class="mt-1.5 text-[12px] text-white/55">经验</div>
+            <div class="text-[11px] text-white/30">建图的唯一入口</div>
+          </div>
+          <div class="panel p-4">
+            <div class="text-[26px] font-bold leading-none text-amber-300">1</div>
+            <div class="mt-1.5 text-[12px] text-white/55">无经验支撑域</div>
+            <div class="text-[11px] text-white/30">有节点但零经验</div>
+          </div>
+          <div class="panel p-4">
+            <div class="flex items-start justify-between">
+              <div class="text-[26px] font-bold leading-none text-amber-300">2</div>
+              <button class="btn-ghost"><i data-lucide="download" class="h-3 w-3"></i>导出审计报告</button>
+            </div>
+            <div class="mt-1.5 text-[12px] text-white/55">单一来源域</div>
+            <div class="text-[11px] text-white/30">缺交叉验证</div>
+          </div>
+        </div>
+
+        <!-- 领域覆盖明细 -->
+        <div class="panel">
+          <div class="border-b border-white/5 px-5 py-3.5"><h3 class="text-[13.5px] font-semibold text-white/85">领域覆盖明细</h3></div>
+          <table class="tbl">
+            <thead><tr><th>领域</th><th>节点</th><th>边</th><th>推断</th><th>孤立</th><th>经验来源</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="font-semibold text-white/85">交易域</td><td>38</td><td>112</td><td>38</td><td>1</td>
+                <td><span class="badge" style="background:rgba(255,255,255,.05);color:rgba(255,255,255,.5)">库表结构×8</span> <span class="badge" style="background:rgba(255,255,255,.05);color:rgba(255,255,255,.5)">手写/对话×4</span></td>
+              </tr>
+              <tr>
+                <td class="font-semibold text-white/85">用户域</td><td>21</td><td>54</td><td>22</td><td>1</td>
+                <td><span class="badge" style="background:rgba(255,255,255,.05);color:rgba(255,255,255,.5)">对话×6</span> <span class="badge" style="background:rgba(255,255,255,.05);color:rgba(255,255,255,.5)">文档×3</span></td>
+              </tr>
+              <tr>
+                <td class="font-semibold text-white/85">营销域</td><td>14</td><td>32</td><td class="font-semibold text-amber-300">19</td><td class="font-semibold text-amber-300">2</td>
+                <td><span class="badge" style="background:rgba(255,255,255,.05);color:rgba(255,255,255,.5)">联网调研×5</span></td>
+              </tr>
+              <tr>
+                <td class="font-semibold text-white/85">商品域</td><td>9</td><td>16</td><td>5</td><td>1</td>
+                <td><span class="badge" style="background:rgba(255,255,255,.05);color:rgba(255,255,255,.5)">文档×2</span></td>
+              </tr>
+              <tr>
+                <td class="font-semibold text-white/85">未分域</td><td>4</td><td>0</td><td>0</td><td>1</td>
+                <td><span class="text-rose-300/90 text-[12px]">无</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 调研任务清单 -->
+        <div class="panel p-5">
+          <div class="mb-3 flex items-center gap-2">
+            <h3 class="text-[13.5px] font-semibold text-white/85">调研任务清单</h3>
+            <span class="text-[11.5px] text-white/30">4 项 · 2 项需优先</span>
+          </div>
+          <div class="space-y-2.5">
+            <div class="rounded-lg bg-amber-400/[.05] p-3 ring-1 ring-amber-400/20">
+              <div class="flex flex-wrap items-baseline gap-2 text-[12.5px]"><span>🔴</span><span class="font-semibold text-white/85">营销域</span><span class="text-white/60">推断边占比 59%（19/32）</span></div>
+              <div class="mt-1 pl-6 text-[12px] text-white/40">→ 在「血缘健康度」跑一键数据佐证，或进「审核队列」人工把关</div>
+            </div>
+            <div class="rounded-lg bg-amber-400/[.05] p-3 ring-1 ring-amber-400/20">
+              <div class="flex flex-wrap items-baseline gap-2 text-[12.5px]"><span>🔴</span><span class="font-semibold text-white/85">未分域</span><span class="text-white/60">4 个节点没有任何经验支撑</span></div>
+              <div class="mt-1 pl-6 text-[12px] text-white/40">→ 该域可能来自导入/模板：补充访谈或文档，或核对经验文件夹命名是否与领域一致</div>
+            </div>
+            <div class="rounded-lg bg-white/[.03] p-3 ring-1 ring-white/8">
+              <div class="flex flex-wrap items-baseline gap-2 text-[12.5px]"><span>🟡</span><span class="font-semibold text-white/85">营销域</span><span class="text-white/60">经验来源单一（仅联网调研 ×5）</span></div>
+              <div class="mt-1 pl-6 text-[12px] text-white/40">→ 公开资料非本企业事实，务必用内部来源（访谈/库表/探索）校对</div>
+            </div>
+            <div class="rounded-lg bg-white/[.03] p-3 ring-1 ring-white/8">
+              <div class="flex flex-wrap items-baseline gap-2 text-[12.5px]"><span>🟡</span><span class="font-semibold text-white/85">商品域</span><span class="text-white/60">证据覆盖率仅 31%</span></div>
+              <div class="mt-1 pl-6 text-[12px] text-white/40">→ 无证据的边不可审计：优先数据佐证，其次人工审核补批注</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════ Tab 4 · 节点分析 ═══════════ -->
+      <section id="tab-node" class="tab-panel hidden space-y-4">
+        <div class="panel flex items-center gap-3 p-4">
+          <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-400/10 text-cyan-300"><i data-lucide="table-2" class="h-4.5 w-4.5"></i></div>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-[14px] font-semibold text-white">dwd_trade_order 交易订单事实</span>
+              <span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span>
+              <span class="badge badge-ok">文本提取</span>
+            </div>
+            <div class="mt-0.5 font-mono text-[11px] text-white/30">n_0718 · 置信度 96.0% · 交易域</div>
+          </div>
+          <div class="relative">
+            <select class="h-8 appearance-none rounded-lg border border-white/8 bg-ink-750 pl-3 pr-8 text-[12px] text-white/75 outline-none focus:border-cyan-400/40">
+              <option>切换节点：dwd_trade_order</option>
+              <option>metric_gmv 成交额 GMV</option>
+              <option>dws_shop_daily 店铺日汇总</option>
+            </select>
+            <i data-lucide="chevron-down" class="pointer-events-none absolute right-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/30"></i>
+          </div>
+        </div>
+
+        <!-- 连接度统计 -->
+        <div class="grid grid-cols-4 gap-4">
+          <div class="panel p-4 text-center"><div class="text-[24px] font-bold text-emerald-300">4</div><div class="mt-1 text-[11px] text-white/35">入度（被指向）</div></div>
+          <div class="panel p-4 text-center"><div class="text-[24px] font-bold text-sky-300">6</div><div class="mt-1 text-[11px] text-white/35">出度（指向他人）</div></div>
+          <div class="panel p-4 text-center"><div class="text-[24px] font-bold text-white">10</div><div class="mt-1 text-[11px] text-white/35">总度数</div></div>
+          <div class="panel p-4 text-center"><div class="text-[24px] font-bold text-amber-300">17</div><div class="mt-1 text-[11px] text-white/35">二跳邻居</div></div>
+        </div>
+
+        <!-- 血缘追溯 -->
+        <div class="panel p-5">
+          <div class="mb-3 flex flex-wrap items-center gap-3">
+            <h3 class="text-[13.5px] font-semibold text-white/85">血缘追溯</h3>
+            <div class="flex gap-4 text-[11px] text-white/35">
+              <span class="inline-flex items-center gap-1.5"><i class="h-2 w-2 rounded-full bg-sky-400"></i>上游来源 6</span>
+              <span class="inline-flex items-center gap-1.5"><i class="h-2 w-2 rounded-full bg-orange-400"></i>下游影响 9</span>
+              <span class="inline-flex items-center gap-1.5"><i class="h-2 w-2 rounded-full bg-purple-400"></i>当前节点</span>
+            </div>
+            <div class="ml-auto flex gap-2">
+              <button class="btn-primary"><i data-lucide="highlighter" class="h-3 w-3"></i>在图上高亮血缘</button>
+              <button class="btn-ghost">清除</button>
+              <button class="btn-ghost"><i data-lucide="file-down" class="h-3 w-3"></i>导出影响分析报告</button>
+            </div>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <div class="mb-1.5 text-[12px] font-semibold text-sky-300">上游来源链（6）— 它来自哪里</div>
+              <div class="flex flex-wrap gap-1.5">
+                <button class="ntag">ods_order 订单明细</button><button class="ntag">ods_user 用户主档</button><button class="ntag">ods_sku 商品主档</button><button class="ntag">ods_payment 支付流水</button><button class="ntag">dim_channel 渠道维度</button><button class="ntag">dim_region 地域维度</button>
+              </div>
+            </div>
+            <div>
+              <div class="mb-1.5 text-[12px] font-semibold text-orange-300">下游影响链（9）— 改它会波及谁</div>
+              <div class="flex flex-wrap gap-1.5">
+                <button class="ntag">dws_shop_daily</button><button class="ntag">dws_user_rfm</button><button class="ntag">dws_channel_daily</button><button class="ntag">metric_gmv</button><button class="ntag">metric_pay_rate</button><button class="ntag">metric_repurchase</button><button class="ntag">metric_aov</button><button class="ntag">dws_refund_daily</button><button class="ntag">rpt_daily_report</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <!-- 出边 -->
+          <div class="panel">
+            <div class="border-b border-white/5 px-5 py-3"><h3 class="text-[13px] font-semibold text-white/85">出边（6 条）— 该节点指向的节点</h3></div>
+            <table class="tbl">
+              <thead><tr><th>关系</th><th>目标节点</th><th>目标类型</th><th>来源</th></tr></thead>
+              <tbody>
+                <tr><td class="text-amber-300/90">汇总于</td><td class="text-white/80">dws_shop_daily</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-emerald-300/80 text-[11.5px]">文本提取</td></tr>
+                <tr><td class="text-amber-300/90">输入到</td><td class="text-white/80">metric_gmv</td><td><span class="badge" style="color:#C4B5FD;background:rgba(167,139,250,.1)">指标</span></td><td class="text-amber-300/80 text-[11.5px]">AI推理</td></tr>
+                <tr><td class="text-amber-300/90">输入到</td><td class="text-white/80">metric_pay_rate</td><td><span class="badge" style="color:#C4B5FD;background:rgba(167,139,250,.1)">指标</span></td><td class="text-amber-300/80 text-[11.5px]">AI推理</td></tr>
+                <tr><td class="text-amber-300/90">汇总于</td><td class="text-white/80">dws_user_rfm</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-emerald-300/80 text-[11.5px]">文本提取</td></tr>
+                <tr><td class="text-amber-300/90">关联</td><td class="text-white/80">dim_channel</td><td><span class="badge" style="color:#6EE7B7;background:rgba(52,211,153,.1)">维度</span></td><td class="text-sky-300/80 text-[11.5px]">手动</td></tr>
+                <tr><td class="text-amber-300/90">汇总于</td><td class="text-white/80">dws_channel_daily</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-amber-300/80 text-[11.5px]">AI推理</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- 入边 -->
+          <div class="panel">
+            <div class="border-b border-white/5 px-5 py-3"><h3 class="text-[13px] font-semibold text-white/85">入边（4 条）— 指向该节点的节点</h3></div>
+            <table class="tbl">
+              <thead><tr><th>来源节点</th><th>来源类型</th><th>关系</th><th>来源</th></tr></thead>
+              <tbody>
+                <tr><td class="text-white/80">ods_order</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-amber-300/90">清洗映射</td><td class="text-emerald-300/80 text-[11.5px]">文本提取</td></tr>
+                <tr><td class="text-white/80">ods_payment</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-amber-300/90">关联补全</td><td class="text-emerald-300/80 text-[11.5px]">文本提取</td></tr>
+                <tr><td class="text-white/80">ods_user</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-amber-300/90">关联</td><td class="text-amber-300/80 text-[11.5px]">AI推理</td></tr>
+                <tr><td class="text-white/80">ods_sku</td><td><span class="badge" style="color:#7DD3FC;background:rgba(56,189,248,.1)">表</span></td><td class="text-amber-300/90">关联</td><td class="text-sky-300/80 text-[11.5px]">手动</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 二跳邻居 -->
+        <div class="panel p-5">
+          <div class="mb-3 flex items-center gap-2"><h3 class="text-[13.5px] font-semibold text-white/85">二跳邻居</h3><span class="text-[11.5px] text-white/30">17 个</span></div>
+          <div class="flex flex-wrap gap-1.5">
+            <button class="ntag">rpt_daily_report</button><button class="ntag">rpt_channel_roi</button><button class="ntag">metric_aov</button><button class="ntag">metric_new_buyer</button><button class="ntag">dws_refund_daily</button><button class="ntag">dim_region</button><button class="ntag">dim_shop</button><button class="ntag">metric_repurchase</button><button class="ntag">dws_coupon_daily</button><button class="ntag">ods_logistics</button><span class="self-center text-[11px] text-white/25">…共 17 个</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════ Tab 5 · 路径查询 ═══════════ -->
+      <section id="tab-path" class="tab-panel hidden space-y-4">
+        <div class="panel p-5">
+          <h3 class="mb-4 text-[13.5px] font-semibold text-white/85">路径查询</h3>
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="w-64">
+              <div class="mb-1.5 text-[11.5px] text-white/40">起点</div>
+              <div class="relative">
+                <select class="h-9 w-full appearance-none rounded-lg border border-white/8 bg-ink-800 pl-3 pr-8 text-[12.5px] text-white/80 outline-none focus:border-cyan-400/40">
+                  <option>ods_order 订单明细 ODS</option><option>ods_user 用户主档</option><option>dim_channel 渠道维度</option>
+                </select>
+                <i data-lucide="chevron-down" class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30"></i>
+              </div>
+            </div>
+            <i data-lucide="move-right" class="mb-2.5 h-4 w-4 text-cyan-300/70"></i>
+            <div class="w-64">
+              <div class="mb-1.5 text-[11.5px] text-white/40">终点</div>
+              <div class="relative">
+                <select class="h-9 w-full appearance-none rounded-lg border border-white/8 bg-ink-800 pl-3 pr-8 text-[12.5px] text-white/80 outline-none focus:border-cyan-400/40">
+                  <option>metric_gmv 成交额 GMV</option><option>metric_repurchase 复购率</option><option>rpt_daily_report 经营日报</option>
+                </select>
+                <i data-lucide="chevron-down" class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30"></i>
+              </div>
+            </div>
+            <div class="w-28">
+              <div class="mb-1.5 text-[11.5px] text-white/40">最大深度</div>
+              <div class="relative">
+                <select class="h-9 w-full appearance-none rounded-lg border border-white/8 bg-ink-800 pl-3 pr-8 text-[12.5px] text-white/80 outline-none focus:border-cyan-400/40">
+                  <option>2</option><option>3</option><option selected>5</option><option>8</option>
+                </select>
+                <i data-lucide="chevron-down" class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/30"></i>
+              </div>
+            </div>
+            <button class="btn-primary h-9 px-5 text-[13px]"><i data-lucide="search" class="h-3.5 w-3.5"></i>查询</button>
+          </div>
+        </div>
+
+        <div class="panel p-5">
+          <div class="mb-3 text-[13px] font-semibold text-white/85">找到 3 条路径</div>
+          <div class="space-y-2">
+            <details class="rounded-lg bg-white/[.03] ring-1 ring-white/8" open>
+              <summary class="flex items-center gap-2.5 px-3.5 py-2.5">
+                <span class="rounded bg-cyan-400/10 px-1.5 py-0.5 text-[11px] font-medium text-cyan-300">2 跳</span>
+                <span class="flex-1 truncate text-[12.5px] text-white/70">ods_order → dwd_trade_order → metric_gmv</span>
+                <i data-lucide="chevron-right" class="caret h-3.5 w-3.5 text-white/25"></i>
+              </summary>
+              <div class="space-y-1.5 border-t border-white/5 px-3.5 py-3">
+                <div class="flex flex-wrap items-center gap-1.5 text-[12px]"><button class="ntag">ods_order</button><span class="text-amber-300/80">—<span class="px-1 text-[11px]">清洗映射</span>→</span><button class="ntag">dwd_trade_order</button></div>
+                <div class="flex flex-wrap items-center gap-1.5 text-[12px]"><button class="ntag">dwd_trade_order</button><span class="text-amber-300/80">—<span class="px-1 text-[11px]">输入到</span>→</span><button class="ntag">metric_gmv</button></div>
+              </div>
+            </details>
+            <details class="rounded-lg bg-white/[.03] ring-1 ring-white/8">
+              <summary class="flex items-center gap-2.5 px-3.5 py-2.5">
+                <span class="rounded bg-cyan-400/10 px-1.5 py-0.5 text-[11px] font-medium text-cyan-300">3 跳</span>
+                <span class="flex-1 truncate text-[12.5px] text-white/70">ods_order → dwd_trade_order → dws_shop_daily → metric_gmv</span>
+                <i data-lucide="chevron-right" class="caret h-3.5 w-3.5 text-white/25"></i>
+              </summary>
+              <div class="space-y-1.5 border-t border-white/5 px-3.5 py-3">
+                <div class="flex flex-wrap items-center gap-1.5 text-[12px]"><button class="ntag">ods_order</button><span class="text-amber-300/80">—<span class="px-1 text-[11px]">清洗映射</span>→</span><button class="ntag">dwd_trade_order</button></div>
+                <div class="flex flex-wrap items-center gap-1.5 text-[12px]"><button class="ntag">dwd_trade_order</button><span class="text-amber-300/80">—<span class="px-1 text-[11px]">汇总于</span>→</span><button class="ntag">dws_shop_daily</button></div>
+                <div class="flex flex-wrap items-center gap-1.5 text-[12px]"><button class="ntag">dws_shop_daily</button><span class="text-amber-300/80">—<span class="px-1 text-[11px]">计算</span>→</span><button class="ntag">metric_gmv</button></div>
+              </div>
+            </details>
+            <details class="rounded-lg bg-white/[.03] ring-1 ring-white/8">
+              <summary class="flex items-center gap-2.5 px-3.5 py-2.5">
+                <span class="rounded bg-cyan-400/10 px-1.5 py-0.5 text-[11px] font-medium text-cyan-300">3 跳</span>
+                <span class="flex-1 truncate text-[12.5px] text-white/70">ods_order → ods_payment → dwd_trade_order → metric_gmv</span>
+                <i data-lucide="chevron-right" class="caret h-3.5 w-3.5 text-white/25"></i>
+              </summary>
+              <div class="space-y-1.5 border-t border-white/5 px-3.5 py-3">
+                <div class="flex flex-wrap items-center gap-1.5 text-[12px]"><button class="ntag">ods_order</button><span class="text-amber-300/80">—<span class="px-1 text-[11px]">关联</span>→</span><button class="ntag">ods_payment</button></div>
+                <div class="flex flex-wrap items-center gap-1.5 text-[12px]"><button class="ntag">ods_payment</button><span class="text-amber-300/80">—<span class="px-1 text-[11px]">关联补全</span>→</span><button class="ntag">dwd_trade_order</button></div>
+                <div class="flex flex-wrap items-center gap-1.5 text-[12px]"><button class="ntag">dwd_trade_order</button><span class="text-amber-300/80">—<span class="px-1 text-[11px]">输入到</span>→</span><button class="ntag">metric_gmv</button></div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════ Tab 6 · 审核队列 ═══════════ -->
+      <section id="tab-review" class="tab-panel hidden space-y-4">
+        <div class="panel p-5">
+          <div class="mb-2 flex flex-wrap items-center gap-3">
+            <h3 class="text-[13.5px] font-semibold text-white/85">人工审核队列</h3>
+            <span class="badge badge-warn">待审 3 条</span>
+            <span class="badge badge-ok">已确认 21 条</span>
+            <button class="btn-ghost ml-auto"><i data-lucide="check-check" class="h-3 w-3"></i>全部确认</button>
+          </div>
+          <p class="text-[12px] leading-relaxed text-white/40">低置信 / 孤证的推断关系需要业务专家把关：<b class="text-white/70">确认</b>后标记为已审核并把置信度提升到 90%；<b class="text-white/70">否决</b>即从图中删除该边（可撤销 / 有版本快照）。</p>
+        </div>
+
+        <div class="space-y-3">
+          <!-- 待审 1 -->
+          <div class="panel p-4">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <button class="text-[13.5px] font-medium text-white/85 hover:text-cyan-300">dim_channel → metric_pay_rate</button>
+              <span class="text-[12px] text-white/35">「归因于」</span>
+              <span class="badge badge-warn">推断</span>
+              <span class="text-[12px] font-medium text-amber-300">42%</span>
+              <span class="badge badge-bad">无证据</span>
+              <span class="ml-auto flex gap-2">
+                <button class="btn-ghost"><i data-lucide="check" class="h-3 w-3 text-emerald-300"></i>确认</button>
+                <button class="btn-ghost" style="border-color:rgba(251,113,133,.3);color:#FDA4AF"><i data-lucide="x" class="h-3 w-3"></i>否决删边</button>
+                <button class="btn-ghost"><i data-lucide="message-square-plus" class="h-3 w-3"></i>批注</button>
+              </span>
+            </div>
+          </div>
+          <!-- 待审 2 -->
+          <div class="panel p-4">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <button class="text-[13.5px] font-medium text-white/85 hover:text-cyan-300">ods_ad_click → dws_channel_daily</button>
+              <span class="text-[12px] text-white/35">「汇总于」</span>
+              <span class="badge badge-warn">推断</span>
+              <span class="text-[12px] font-medium text-amber-300">55%</span>
+              <span class="badge" style="background:rgba(255,255,255,.06);color:rgba(255,255,255,.45)">孤证</span>
+              <span class="ml-auto flex gap-2">
+                <button class="btn-ghost"><i data-lucide="check" class="h-3 w-3 text-emerald-300"></i>确认</button>
+                <button class="btn-ghost" style="border-color:rgba(251,113,133,.3);color:#FDA4AF"><i data-lucide="x" class="h-3 w-3"></i>否决删边</button>
+                <button class="btn-ghost"><i data-lucide="message-square-plus" class="h-3 w-3"></i>批注</button>
+              </span>
+            </div>
+            <div class="mt-2 truncate text-[12px] text-white/40">❝ 广告点击日志按渠道聚合后进入渠道日报（访谈纪要 2026-06-30）</div>
+          </div>
+          <!-- 待审 3 -->
+          <div class="panel p-4">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <button class="text-[13.5px] font-medium text-white/85 hover:text-cyan-300">dws_coupon_daily → metric_repurchase</button>
+              <span class="text-[12px] text-white/35">「影响」</span>
+              <span class="badge badge-warn">推断</span>
+              <span class="text-[12px] font-medium text-amber-300">61%</span>
+              <span class="badge badge-ok">🔗×2</span>
+              <span class="ml-auto flex gap-2">
+                <button class="btn-ghost"><i data-lucide="check" class="h-3 w-3 text-emerald-300"></i>确认</button>
+                <button class="btn-ghost" style="border-color:rgba(251,113,133,.3);color:#FDA4AF"><i data-lucide="x" class="h-3 w-3"></i>否决删边</button>
+                <button class="btn-ghost"><i data-lucide="message-square-plus" class="h-3 w-3"></i>批注</button>
+              </span>
+            </div>
+            <div class="mt-2 truncate text-[12px] text-white/40">❝ 优惠券核销率与次月复购呈强相关（Pearson 0.78，抽样 10w 单）</div>
+            <input class="mt-2.5 w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-[12px] text-white/75 placeholder-white/25 outline-none focus:border-cyan-400/40" placeholder="可选：确认理由 / 业务口径说明（随确认一并保存）" />
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+  function switchTab(btn) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+    document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    lucide.createIcons();
+  }
+  lucide.createIcons();
+</script>
+</body>
+</html>

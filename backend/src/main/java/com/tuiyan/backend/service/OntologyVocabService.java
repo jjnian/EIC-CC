@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -93,15 +94,15 @@ public class OntologyVocabService {
      */
     static List<DocSample> stratifiedSample(List<DocSample> samples, int cap) {
         if (samples.size() <= cap) return samples;
-        LinkedHashMap<String, java.util.ArrayDeque<DocSample>> byDomain = new LinkedHashMap<>();
+        LinkedHashMap<String, ArrayDeque<DocSample>> byDomain = new LinkedHashMap<>();
         for (DocSample s : samples) {
-            byDomain.computeIfAbsent(s.domain() == null ? "" : s.domain(), k -> new java.util.ArrayDeque<>()).add(s);
+            byDomain.computeIfAbsent(s.domain() == null ? "" : s.domain(), k -> new ArrayDeque<>()).add(s);
         }
         List<DocSample> out = new ArrayList<>(cap);
         boolean progress = true;
         while (out.size() < cap && progress) {
             progress = false;
-            for (java.util.ArrayDeque<DocSample> q : byDomain.values()) {
+            for (ArrayDeque<DocSample> q : byDomain.values()) {
                 if (out.size() >= cap) break;
                 DocSample s = q.poll();
                 if (s != null) { out.add(s); progress = true; }

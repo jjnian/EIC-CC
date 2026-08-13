@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.AsyncTaskExecutor;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -19,6 +20,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * 自动探索端点:像人一样"用"一个 web 系统去摸清功能、反推业务,结果落成一篇经验。
@@ -108,7 +110,7 @@ public class ExploreController {
                     } catch (Exception ignore) {}
                 };
                 // 登录成功后回存 storageState（仅已保存的 web 系统;敏感,不经前端）
-                java.util.function.Consumer<String> onStorageState = sourceExperienceId == null ? null : ss -> {
+                Consumer<String> onStorageState = sourceExperienceId == null ? null : ss -> {
                     try { experienceRepo.patchSourceConfig(sourceExperienceId, Map.of("storageState", ss)); }
                     catch (RuntimeException e) { log.warn("[explore] 回存 storageState 失败: {}", e.toString()); }
                 };
@@ -127,7 +129,7 @@ public class ExploreController {
                 WorkspaceContext.clear();
             }
             });
-        } catch (org.springframework.core.task.TaskRejectedException rejected) {
+        } catch (TaskRejectedException rejected) {
             // 探索池已满（并发 Chromium 达上限）：给前端一个明确的 SSE 错误，而不是 500
             log.warn("[explore] 探索任务被拒绝（并发已达上限）: {}", rejected.getMessage());
             SsePushUtils.safeSend(emitter, ce.cancelled(), "error",

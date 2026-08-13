@@ -16,3 +16,11 @@ export interface TestModelResult {
 export function testModel(id: string): Promise<TestModelResult> {
   return request<TestModelResult>(`/api/models/${id}/test`, { method: 'POST' });
 }
+
+/** 运行时启停模型（内存生效，重启回落配置文件） */
+export function updateModel(id: string, patch: { enabled: boolean }) {
+  return request<ModelConfig>(`/api/models/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+}

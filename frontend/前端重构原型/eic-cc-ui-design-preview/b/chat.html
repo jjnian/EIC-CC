@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>方案 B · AI 对话</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+tailwind.config = { theme: { extend: {
+  colors: { paper:'#F7F6F3', inkc:'#1C1917' },
+  fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','PingFang SC','Microsoft YaHei','sans-serif'] },
+  boxShadow: { card:'0 1px 2px rgba(28,25,23,.04), 0 4px 16px rgba(28,25,23,.05)' },
+} } }
+</script>
+<style>
+  body { font-family: Inter, ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #D6D3CE; border-radius: 4px; }
+  .card { background:#fff; border-radius:16px; box-shadow:0 1px 2px rgba(28,25,23,.04), 0 4px 16px rgba(28,25,23,.05); }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:10px; font-size:13.5px; color:#78716C; transition:.15s; }
+  .nav-item:hover { color:#1C1917; background:rgba(28,25,23,.04); }
+  .nav-item.active { color:#6D28D9; background:#F3F0FF; font-weight:600; }
+  .user-bubble { background:linear-gradient(135deg,#6366F1,#8B5CF6); border-radius:16px 4px 16px 16px; box-shadow:0 4px 14px rgba(124,58,237,.25); }
+  .chip-q { border-radius:999px; padding:6px 14px; font-size:12.5px; font-weight:500; background:#F3F0FF; color:#6D28D9; transition:.15s; }
+  .chip-q:hover { background:#E9E3FF; }
+  .step-dot { position:relative; }
+  .step-dot::after { content:''; position:absolute; left:5px; top:16px; bottom:-2px; width:1px; background:#E7E5E0; }
+  .step-dot:last-child::after { display:none; }
+</style>
+</head>
+<body class="bg-paper text-inkc">
+
+<div class="flex h-screen">
+  <!-- 侧边栏 -->
+  <aside class="flex w-[236px] shrink-0 flex-col bg-paper">
+    <div class="flex h-16 items-center gap-2.5 px-5">
+      <div class="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-[14px] font-bold text-white shadow-md shadow-violet-500/25">推</div>
+      <div class="leading-tight">
+        <div class="text-[14px] font-bold text-stone-900">推演平台</div>
+        <div class="text-[10.5px] tracking-wide text-stone-400">EIC-CC · 业务血缘建模</div>
+      </div>
+      <a href="../index.html" title="返回方案画廊" class="ml-auto rounded-lg p-1.5 text-stone-400 hover:bg-white hover:text-violet-600"><i data-lucide="layout-grid" class="h-4 w-4"></i></a>
+    </div>
+    <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-2">
+      <div class="px-3 pb-1.5 pt-1 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">主导航</div>
+      <a class="nav-item" href="dashboard.html"><i data-lucide="layout-dashboard" class="h-4 w-4"></i>工作台</a>
+      <a class="nav-item" href="graph.html"><i data-lucide="waypoints" class="h-4 w-4"></i>血缘图谱</a>
+      <a class="nav-item" href="experiences.html"><i data-lucide="library" class="h-4 w-4"></i>经验库<span class="ml-auto rounded-full bg-stone-200/70 px-2 py-0.5 text-[10.5px] text-stone-500">56</span></a>
+      <a class="nav-item active" href="chat.html"><i data-lucide="message-square-text" class="h-4 w-4"></i>AI 对话</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">数据</div>
+      <a class="nav-item" href="datasources.html"><i data-lucide="database" class="h-4 w-4"></i>数据源</a>
+      <a class="nav-item" href="analysis.html"><i data-lucide="activity" class="h-4 w-4"></i>血缘分析</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-semibold uppercase tracking-widest text-stone-400">系统</div>
+      <a class="nav-item" href="settings.html"><i data-lucide="settings-2" class="h-4 w-4"></i>设置</a>
+    </nav>
+    <div class="p-3">
+      <a href="workspaces.html" class="card flex items-center gap-2.5 p-3 transition hover:shadow-pop">
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-[12px] font-bold text-violet-700">电</div>
+        <div class="min-w-0 flex-1 leading-tight">
+          <div class="truncate text-[12.5px] font-semibold text-stone-800">电商数仓工作空间</div>
+          <div class="text-[10.5px] text-stone-400">3 个模型 · 昨天更新</div>
+        </div>
+        <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5 text-stone-400"></i>
+      </a>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <div class="flex min-w-0 flex-1 flex-col">
+    <header class="flex h-16 shrink-0 items-center gap-3 px-6">
+      <h1 class="text-[17px] font-bold text-stone-900">AI 对话</h1>
+      <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700">已挂载：交易域血缘图 · 56 篇经验</span>
+      <button class="card ml-auto flex h-9 items-center gap-1.5 !rounded-xl px-3.5 text-[12.5px] font-medium text-stone-600 transition hover:text-violet-700"><i data-lucide="plus" class="h-3.5 w-3.5"></i>新会话</button>
+    </header>
+
+    <!-- 消息流 -->
+    <main class="min-h-0 flex-1 overflow-y-auto">
+      <div class="mx-auto max-w-3xl space-y-6 px-6 py-8">
+
+        <!-- 用户 -->
+        <div class="flex justify-end">
+          <div class="user-bubble max-w-[80%] px-4 py-3">
+            <p class="text-[13.5px] leading-relaxed text-white">支付成功率的口径是什么？它依赖哪些上游表？</p>
+          </div>
+        </div>
+
+        <!-- AI -->
+        <div class="flex gap-3">
+          <div class="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md shadow-violet-500/25"><i data-lucide="sparkles" class="h-3.5 w-3.5 text-white"></i></div>
+          <div class="min-w-0 flex-1">
+            <!-- 步骤 -->
+            <div class="mb-3 space-y-2">
+              <div class="step-dot flex items-center gap-2.5 text-[12px] text-stone-400">
+                <span class="flex h-2.5 w-2.5 items-center justify-center"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span></span>
+                检索经验库：命中「交易域指标口径说明.pdf」等 2 篇文档
+              </div>
+              <div class="step-dot flex items-center gap-2.5 text-[12px] text-stone-400">
+                <span class="flex h-2.5 w-2.5 items-center justify-center"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span></span>
+                查询血缘图：定位「支付成功率」上游 2 跳
+              </div>
+              <div class="step-dot flex items-center gap-2.5 text-[12px] text-stone-400">
+                <span class="flex h-2.5 w-2.5 items-center justify-center"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span></span>
+                生成回答
+              </div>
+            </div>
+            <!-- 回答 -->
+            <div class="card px-5 py-4 text-[13.5px] leading-relaxed text-stone-700">
+              <p class="mb-2"><span class="font-bold text-violet-700">支付成功率</span> = 支付成功笔数 ÷ 发起支付笔数（剔除测试单与 0 元单），按天统计。</p>
+              <p class="mb-3">它的血缘链路为：</p>
+              <div class="mb-3 flex flex-wrap items-center gap-1.5 text-[12px]">
+                <span class="rounded-lg bg-stone-100 px-2 py-1 text-stone-600">ods_pay</span><i data-lucide="arrow-right" class="h-3 w-3 text-violet-500"></i>
+                <span class="rounded-lg bg-stone-100 px-2 py-1 text-stone-600">dwd_pay_di</span><i data-lucide="arrow-right" class="h-3 w-3 text-violet-500"></i>
+                <span class="rounded-lg bg-stone-100 px-2 py-1 text-stone-600">dws_trade_td</span><i data-lucide="arrow-right" class="h-3 w-3 text-violet-500"></i>
+                <span class="rounded-lg bg-violet-100 px-2 py-1 font-semibold text-violet-700">支付成功率</span>
+              </div>
+              <p class="text-[12.5px] text-stone-400">若 ods_pay 停更超过 1 天，该指标将不可信。其中 dwd_pay_di → dws_trade_td 为推断边（置信度 82%），建议补充佐证。</p>
+            </div>
+            <!-- 引用 -->
+            <div class="mt-2.5 flex flex-wrap gap-2">
+              <span class="card flex items-center gap-1.5 !rounded-lg px-2 py-1 text-[11px] text-stone-500"><i data-lucide="file-text" class="h-3 w-3"></i>交易域指标口径说明.pdf</span>
+              <span class="card flex items-center gap-1.5 !rounded-lg px-2 py-1 text-[11px] text-stone-500"><i data-lucide="waypoints" class="h-3 w-3"></i>交易域血缘图 · 4 节点</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 澄清问题 -->
+        <div class="flex gap-3">
+          <div class="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md shadow-violet-500/25"><i data-lucide="sparkles" class="h-3.5 w-3.5 text-white"></i></div>
+          <div class="min-w-0 flex-1">
+            <p class="mb-2.5 text-[12.5px] text-stone-400">想继续深入哪个方向？</p>
+            <div class="flex flex-wrap gap-2">
+              <button class="chip-q">「支付成功率」最近 30 天趋势异常分析</button>
+              <button class="chip-q">把这条血缘链路导出给团队</button>
+              <button class="chip-q">推断边的 82% 置信度怎么来的？</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- 输入区 -->
+    <footer class="shrink-0 p-5 pt-2">
+      <div class="mx-auto max-w-3xl">
+        <div class="card flex items-end gap-2 !rounded-2xl p-2 transition focus-within:ring-2 focus-within:ring-violet-200">
+          <button class="rounded-xl p-2.5 text-stone-400 hover:bg-stone-100 hover:text-violet-600"><i data-lucide="paperclip" class="h-4 w-4"></i></button>
+          <textarea rows="1" class="max-h-32 flex-1 resize-none bg-transparent py-2.5 text-[13.5px] text-stone-800 placeholder-stone-400 outline-none" placeholder="追问指标口径、血缘影响、数据佐证…（Enter 发送，Shift+Enter 换行）"></textarea>
+          <button class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-md shadow-violet-500/30 transition hover:brightness-110"><i data-lucide="send-horizontal" class="h-4 w-4"></i></button>
+        </div>
+        <p class="mt-2 text-center text-[11px] text-stone-400">回答基于当前工作空间的经验库与血缘图生成，请核对证据后使用</p>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<script>lucide.createIcons();</script>
+</body>
+</html>

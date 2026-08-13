@@ -1,7 +1,6 @@
 package com.tuiyan.backend.config;
 
 import io.minio.MinioClient;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -10,7 +9,6 @@ import org.springframework.context.annotation.Configuration;
  * 因此 MinIO 暂不可用时不会阻塞应用启动（落桶时再抛错由上层处理）。
  */
 @Configuration
-@EnableConfigurationProperties(MinioProperties.class)
 public class MinioConfig {
 
     @Bean

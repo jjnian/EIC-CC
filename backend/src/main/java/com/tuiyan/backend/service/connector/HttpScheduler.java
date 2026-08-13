@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
@@ -121,8 +122,8 @@ public class HttpScheduler {
                 log.warn("[ds-sched] auto-disable id={} after {} fails", dataSourceId, n);
                 // 落配置 enabled=false
                 if (cfg.get("schedule") instanceof Map<?, ?> sched) {
-                    var newCfg = new java.util.LinkedHashMap<String, Object>(cfg);
-                    var newSched = new java.util.LinkedHashMap<String, Object>();
+                    var newCfg = new LinkedHashMap<String, Object>(cfg);
+                    var newSched = new LinkedHashMap<String, Object>();
                     sched.forEach((k, v) -> newSched.put(String.valueOf(k), v));
                     newSched.put("enabled", false);
                     newCfg.put("schedule", newSched);

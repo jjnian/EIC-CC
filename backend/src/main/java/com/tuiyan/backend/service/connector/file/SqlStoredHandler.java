@@ -1,6 +1,7 @@
 package com.tuiyan.backend.service.connector.file;
 
 import com.tuiyan.backend.service.agent.ExplorationAgentService;
+import com.tuiyan.backend.service.connector.FileStoredService;
 import com.tuiyan.backend.support.SqlLineageExtractor;
 import com.tuiyan.backend.support.TextDecoder;
 import org.springframework.core.annotation.Order;
@@ -47,7 +48,7 @@ public class SqlStoredHandler implements StoredFileHandler {
             String block = "\n\n<!-- " + ExplorationAgentService.GRAPH_MARKER + "\n"
                     + graphJson + "\n" + ExplorationAgentService.GRAPH_MARKER + " -->\n";
             int budget = Math.max(0,
-                    com.tuiyan.backend.service.connector.FileStoredService.TEXT_CHAR_BUDGET - block.length() - 100);
+                    FileStoredService.TEXT_CHAR_BUDGET - block.length() - 100);
             String body = text.length() > budget
                     ? text.substring(0, budget) + "\n[…truncated…]"
                     : text;

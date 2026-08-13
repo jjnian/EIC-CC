@@ -168,7 +168,7 @@ public class JdbcConnectorService {
      * <p>已知可被恶意 MySQL/PG 服务器利用读取后端本地文件 / 触发反序列化 RCE 的驱动参数一律丢弃；
      * 其余如 useSSL / serverTimezone / characterEncoding 等正常参数原样保留。
      */
-    private static final java.util.Set<String> DANGEROUS_JDBC_PARAMS = java.util.Set.of(
+    private static final Set<String> DANGEROUS_JDBC_PARAMS = Set.of(
             "allowloadlocalinfile", "allowurlinlocalinfile", "uselocalinfile", "allowlocalinfile",
             "autodeserialize", "queryinterceptors", "statementinterceptors",
             "detectcustomcollations", "allowmultiqueries", "loggerclassname", "profilersqlclass",
@@ -180,7 +180,7 @@ public class JdbcConnectorService {
         for (String pair : raw.split("&")) {
             if (pair.isBlank()) continue;
             int eq = pair.indexOf('=');
-            String key = (eq >= 0 ? pair.substring(0, eq) : pair).trim().toLowerCase(java.util.Locale.ROOT);
+            String key = (eq >= 0 ? pair.substring(0, eq) : pair).trim().toLowerCase(Locale.ROOT);
             if (DANGEROUS_JDBC_PARAMS.contains(key)) continue; // 丢弃危险参数
             if (out.length() > 0) out.append('&');
             out.append(pair.trim());
@@ -338,8 +338,8 @@ public class JdbcConnectorService {
     }
 
     /** 标识符白名单（与 previewTable 同一套约束），防 SQL 注入。 */
-    private static final java.util.regex.Pattern SAFE_IDENT =
-            java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,63}");
+    private static final Pattern SAFE_IDENT =
+            Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,63}");
 
     /**
      * 值包含检验结果：checkedRows 为参与检验的子表非空行数（可能是采样），orphanRows 为

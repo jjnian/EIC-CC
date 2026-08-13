@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -75,7 +76,7 @@ public abstract class AbstractSqlDialect implements SqlDialect {
         if (def.length() > MAX_ROUTINE_DEF_CHARS) def = def.substring(0, MAX_ROUTINE_DEF_CHARS);
         return new JdbcConnectorService.RoutineInfo(
                 name,
-                kind == null ? "" : kind.trim().toLowerCase(java.util.Locale.ROOT),
+                kind == null ? "" : kind.trim().toLowerCase(Locale.ROOT),
                 comment == null ? "" : comment,
                 def);
     }

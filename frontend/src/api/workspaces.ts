@@ -8,6 +8,9 @@ export interface Workspace {
   sortNo?: number;
   createdAt?: number;
   updatedAt?: number;
+  /** 后台聚合字段，原型中展示用 */
+  modelCount?: number;
+  nodeCount?: number;
 }
 
 export function listWorkspaces() {

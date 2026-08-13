@@ -2,7 +2,6 @@ package com.tuiyan.backend.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 
 import jakarta.annotation.PostConstruct;
@@ -22,16 +21,16 @@ public class RequiredConfigChecker {
 
     private static final Logger log = LoggerFactory.getLogger(RequiredConfigChecker.class);
 
-    @Value("${spring.datasource.password:}")
-    private String dbPassword;
+    private final DataSourceProperties dsProps;
 
-    @Value("${spring.datasource.url:}")
-    private String dbUrl;
+    public RequiredConfigChecker(DataSourceProperties dsProps) {
+        this.dsProps = dsProps;
+    }
 
     @PostConstruct
     public void validate() {
-        requireNonBlank("DB_PASSWORD (spring.datasource.password)", dbPassword);
-        log.info("[Config] 必需配置校验通过：db-url={}", dbUrl);
+        requireNonBlank("DB_PASSWORD (spring.datasource.password)", dsProps.getPassword());
+        log.info("[Config] 必需配置校验通过：db-url={}", dsProps.getUrl());
     }
 
     private static void requireNonBlank(String name, String value) {

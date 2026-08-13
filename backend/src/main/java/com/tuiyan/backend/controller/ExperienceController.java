@@ -10,6 +10,8 @@ import com.tuiyan.backend.service.WebResearchService;
 import com.tuiyan.backend.service.WebSystemConfigAssembler;
 import com.tuiyan.backend.service.indexing.ExperienceIndexService;
 import com.tuiyan.backend.entity.ExperiencePO;
+import com.tuiyan.backend.exception.ResourceNotFoundException;
+import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.service.storage.ObjectStorage;
 import com.tuiyan.backend.support.SseJobRunner;
 import com.tuiyan.backend.support.WebUrls;
@@ -26,6 +28,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -140,13 +145,13 @@ public class ExperienceController {
     }
 
     @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> list(
+    public ApiResult<List<Map<String, Object>>> list(
             @RequestParam(required = false) String workspaceId,
             @RequestParam(name = "all", defaultValue = "false") boolean all) {
         List<Map<String, Object>> list = all
                 ? repo.listAll()
                 : (workspaceId != null && !workspaceId.isBlank() ? repo.list(workspaceId) : repo.list());
-        return ResponseEntity.ok(list);
+        return ApiResult.ok(list);
     }
 
     /**
@@ -155,7 +160,7 @@ public class ExperienceController {
      * 返回：{items, total, page, size}。
      */
     @GetMapping("/page")
-    public ResponseEntity<Map<String, Object>> page(
+    public ApiResult<Map<String, Object>> page(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "60") int size,
             @RequestParam(required = false) String workspaceId) {
@@ -167,67 +172,70 @@ public class ExperienceController {
         out.put("total", repo.countAll(wsFilter));
         out.put("page", p);
         out.put("size", s);
-        return ResponseEntity.ok(out);
+        return ApiResult.ok(out);
     }
 
     /** 有经验存在的归属工作空间 id（供列表筛选条，避免为筛选条而拉全量经验）。 */
     @GetMapping("/workspaces")
-    public ResponseEntity<List<String>> owningWorkspaces() {
-        return ResponseEntity.ok(repo.distinctWorkspaceIds());
+    public ApiResult<List<String>> owningWorkspaces() {
+        return ApiResult.ok(repo.distinctWorkspaceIds());
     }
 
     /** 某 websystem 源的全部探索产物（origin=explore），供源行展开查看同源产物。 */
     @GetMapping("/{id}/explorations")
-    public ResponseEntity<List<Map<String, Object>>> explorations(@PathVariable String id) {
-        return ResponseEntity.ok(repo.listBySource(id));
+    public ApiResult<List<Map<String, Object>>> explorations(@PathVariable String id) {
+        return ApiResult.ok(repo.listBySource(id));
     }
 
     /** 当前工作空间「尚未引用」的公共经验（引用选择器列出可引入的经验）。 */
     @GetMapping("/referencable")
-    public ResponseEntity<List<Map<String, Object>>> referencable() {
-        return ResponseEntity.ok(repo.listReferencable(WorkspaceContext.required()));
+    public ApiResult<List<Map<String, Object>>> referencable() {
+        return ApiResult.ok(repo.listReferencable(WorkspaceContext.required()));
     }
 
     /** 把一批公共经验引用进当前工作空间（已引用的跳过）。请求体：{ experienceIds: [...] }。 */
     @PostMapping("/refs")
-    public ResponseEntity<Map<String, Object>> reference(@RequestBody Map<String, Object> body) {
+    public ApiResult<Map<String, Object>> reference(@RequestBody Map<String, Object> body) {
         Object ids = body == null ? null : body.get("experienceIds");
-        List<String> list = new java.util.ArrayList<>();
+        List<String> list = new ArrayList<>();
         if (ids instanceof List<?> arr) {
             for (Object o : arr) if (o != null) list.add(String.valueOf(o));
         }
         int added = repo.reference(list);
-        return ResponseEntity.ok(Map.of("added", added));
+        return ApiResult.ok(Map.of("added", added));
     }
 
     /** 取消当前工作空间对某经验的引用（不删除经验本体）。 */
     @DeleteMapping("/{id}/ref")
-    public ResponseEntity<SuccessCountResponse> unreference(@PathVariable String id) {
+    public ApiResult<SuccessCountResponse> unreference(@PathVariable String id) {
         boolean ok = repo.unreference(id);
-        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+        return ApiResult.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> detail(@PathVariable String id) {
+    public ApiResult<Map<String, Object>> detail(@PathVariable String id) {
         Map<String, Object> exp = repo.findFull(id);
-        return exp == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(exp);
+        if (exp == null) {
+            throw new ResourceNotFoundException("经验不存在");
+        }
+        return ApiResult.ok(exp);
     }
 
     @PostMapping
-    public ResponseEntity<Map<String, Object>> create(@RequestBody ExperienceCreateRequest req) {
+    public ApiResult<Map<String, Object>> create(@RequestBody ExperienceCreateRequest req) {
         Map<String, Object> exp = repo.create(req.getTitle(), req.getContent(), req.getTags());
         triggerReindex(exp);
-        return ResponseEntity.ok(exp);
+        return ApiResult.ok(exp);
     }
 
     /** 上传文件建经验：抽文本/音频 ASR 作正文，归档原件，保存后自动建向量索引。 */
     @PostMapping(value = "/file", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<Map<String, Object>> uploadFile(
+    public ApiResult<Map<String, Object>> uploadFile(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "title", required = false) String title) throws IOException {
         Map<String, Object> exp = fileService.createFromUpload(file, title);
         triggerReindex(exp);
-        return ResponseEntity.ok(exp);
+        return ApiResult.ok(exp);
     }
 
     /**
@@ -250,7 +258,7 @@ public class ExperienceController {
         String name = po.getFileName() == null || po.getFileName().isBlank() ? id : po.getFileName();
         long size = po.getFileSize() == null ? storage.size(po.getStoragePath()) : po.getFileSize();
         String disposition = (download ? "attachment" : "inline")
-                + "; filename*=UTF-8''" + java.net.URLEncoder.encode(name, java.nio.charset.StandardCharsets.UTF_8);
+                + "; filename*=UTF-8''" + URLEncoder.encode(name, StandardCharsets.UTF_8);
 
         ResponseEntity.BodyBuilder b = ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
@@ -265,7 +273,7 @@ public class ExperienceController {
      * <p>请求体：{ "dataSourceId": "...", "sampleRows": 3 }。sampleRows&gt;0 时（仅库类）附带前 N 行样例数据。
      */
     @PostMapping("/from-ddl")
-    public ResponseEntity<Map<String, Object>> fromDdl(@RequestBody Map<String, Object> body) {
+    public ApiResult<Map<String, Object>> fromDdl(@RequestBody Map<String, Object> body) {
         Object idObj = body == null ? null : body.get("dataSourceId");
         String dataSourceId = idObj == null ? null : String.valueOf(idObj);
         int sampleRows = 0;
@@ -281,16 +289,18 @@ public class ExperienceController {
             catch (Exception e) { log.warn("[experience] DDL 抽取自动引用失败: {}", e.toString()); }
         }
         triggerReindex(exp);
-        return ResponseEntity.ok(exp);
+        return ApiResult.ok(exp);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Map<String, Object>> update(@PathVariable String id,
+    public ApiResult<Map<String, Object>> update(@PathVariable String id,
                                                       @RequestBody ExperienceUpdateRequest req) {
         Map<String, Object> exp = repo.update(id, req.getTitle(), req.getContent(), req.getTags());
-        if (exp == null) return ResponseEntity.notFound().build();
+        if (exp == null) {
+            throw new ResourceNotFoundException("经验不存在");
+        }
         triggerReindex(exp);
-        return ResponseEntity.ok(exp);
+        return ApiResult.ok(exp);
     }
 
     /**
@@ -299,7 +309,7 @@ public class ExperienceController {
      * <p>保存后不立即探索；在该条目上点「探索」(/api/explore/run-saved) 才按此配置运行自动探索。
      */
     @PostMapping("/websystem")
-    public ResponseEntity<Map<String, Object>> createWebSystem(@RequestBody Map<String, Object> body) {
+    public ApiResult<Map<String, Object>> createWebSystem(@RequestBody Map<String, Object> body) {
         // 规范化入口地址：补全 https://、拦掉非网址（throw → 400），并把规范化结果回填 body 后再组装配置
         String baseUrl = WebUrls.normalizeEntryUrl(WebSystemConfigAssembler.str(body, "baseUrl"));
         body.put("baseUrl", baseUrl);
@@ -307,7 +317,7 @@ public class ExperienceController {
         if (title == null || title.isBlank()) title = "「" + baseUrl + "」web 系统";
         Map<String, Object> config = WebSystemConfigAssembler.assemble(body, new LinkedHashMap<>());
         Map<String, Object> exp = repo.createWebSystem(title.trim(), config);
-        return ResponseEntity.ok(exp);
+        return ApiResult.ok(exp);
     }
 
     /**
@@ -315,49 +325,53 @@ public class ExperienceController {
      * storageState 留空时保留原值。
      */
     @PutMapping("/websystem/{id}")
-    public ResponseEntity<Map<String, Object>> updateWebSystem(@PathVariable String id,
+    public ApiResult<Map<String, Object>> updateWebSystem(@PathVariable String id,
                                                                @RequestBody Map<String, Object> body) {
         Map<String, Object> existing = repo.readSourceConfigScoped(id);
-        if (existing == null) return ResponseEntity.notFound().build();
+        if (existing == null) {
+            throw new ResourceNotFoundException("Web系统配置不存在");
+        }
         body.put("baseUrl", WebUrls.normalizeEntryUrl(WebSystemConfigAssembler.str(body, "baseUrl")));
         Map<String, Object> config = WebSystemConfigAssembler.assemble(body, existing);
         Map<String, Object> exp = repo.updateWebSystem(id, WebSystemConfigAssembler.str(body, "title"), config);
-        if (exp == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(exp);
+        if (exp == null) {
+            throw new ResourceNotFoundException("经验不存在");
+        }
+        return ApiResult.ok(exp);
     }
 
     /** 移动经验到文件夹：{folderId}（null/空 = 移到根）。 */
     @PutMapping("/{id}/folder")
-    public ResponseEntity<SuccessCountResponse> moveToFolder(@PathVariable String id,
+    public ApiResult<SuccessCountResponse> moveToFolder(@PathVariable String id,
                                                              @RequestBody(required = false) Map<String, Object> body) {
         Object v = body == null ? null : body.get("folderId");
         String folderId = v == null ? null : String.valueOf(v);
         boolean ok = repo.moveToFolder(id, folderId);
-        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+        return ApiResult.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<SuccessCountResponse> delete(@PathVariable String id) {
+    public ApiResult<SuccessCountResponse> delete(@PathVariable String id) {
         boolean ok = repo.delete(id);
         // 级联清理归档原件（向量索引随外键级联，原件在对象存储里需手动删）
         if (ok) {
             try { storage.deletePrefix(FILE_PREFIX + id + "/"); }
             catch (Exception e) { log.warn("[experience] 删除归档原件失败 id={}: {}", id, e.toString()); }
         }
-        return ResponseEntity.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
+        return ApiResult.ok(new SuccessCountResponse(ok, ok ? 1 : 0));
     }
 
     /** 手动重建索引（embedding 配置变更后补建用）。返回是否已触发。 */
     @PostMapping("/{id}/reindex")
-    public ResponseEntity<Map<String, Object>> reindex(@PathVariable String id) {
+    public ApiResult<Map<String, Object>> reindex(@PathVariable String id) {
         boolean configured = indexService.isConfigured();
         if (configured) indexService.reindexAsync(id);
-        return ResponseEntity.ok(Map.of("triggered", configured, "configured", configured));
+        return ApiResult.ok(Map.of("triggered", configured, "configured", configured));
     }
 
     @GetMapping("/{id}/index-status")
-    public ResponseEntity<Map<String, Object>> indexStatus(@PathVariable String id) {
-        return ResponseEntity.ok(indexService.getIndexStatus(id));
+    public ApiResult<Map<String, Object>> indexStatus(@PathVariable String id) {
+        return ApiResult.ok(indexService.getIndexStatus(id));
     }
 
     /**
@@ -366,15 +380,15 @@ public class ExperienceController {
      * @param force true 连已索引的也重建；默认 false 只补未索引的
      */
     @PostMapping("/reindex-all")
-    public ResponseEntity<Map<String, Object>> reindexAll(
+    public ApiResult<Map<String, Object>> reindexAll(
             @RequestParam(defaultValue = "false") boolean force) {
-        return ResponseEntity.ok(indexService.reindexAll(force));
+        return ApiResult.ok(indexService.reindexAll(force));
     }
 
     /** 索引状态汇总：经验总数 + 各 index_status 计数，用于查看补索引进度。 */
     @GetMapping("/index-summary")
-    public ResponseEntity<Map<String, Object>> indexSummary() {
-        return ResponseEntity.ok(indexService.indexSummary());
+    public ApiResult<Map<String, Object>> indexSummary() {
+        return ApiResult.ok(indexService.indexSummary());
     }
 
     /** 创建/编辑成功后异步重建该条经验的向量索引；未配置 embedding 时静默跳过。 */

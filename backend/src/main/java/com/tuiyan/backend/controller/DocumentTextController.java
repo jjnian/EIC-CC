@@ -1,7 +1,7 @@
 package com.tuiyan.backend.controller;
 
+import com.tuiyan.backend.model.dto.ApiResult;
 import com.tuiyan.backend.service.DocxExtractionService;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -23,7 +23,7 @@ public class DocumentTextController {
     }
 
     @PostMapping(value = "/docx-text", consumes = {"multipart/form-data"})
-    public ResponseEntity<Map<String, Object>> extractDocxText(@RequestParam("file") MultipartFile file) throws IOException {
-        return ResponseEntity.ok(docxExtractionService.extractText(file));
+    public ApiResult<Map<String, Object>> extractDocxText(@RequestParam("file") MultipartFile file) throws IOException {
+        return ApiResult.ok(docxExtractionService.extractText(file));
     }
 }

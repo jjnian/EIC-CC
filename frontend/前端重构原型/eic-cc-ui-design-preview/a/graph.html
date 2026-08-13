@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>方案 A · 血缘图谱</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+tailwind.config = { theme: { extend: {
+  colors: {
+    ink: { 950:'#080A0E', 900:'#0C0F14', 850:'#10141B', 800:'#12161E', 750:'#161B25', 700:'#1C222E' },
+  },
+  fontFamily: { sans: ['Inter','ui-sans-serif','system-ui','PingFang SC','Microsoft YaHei','sans-serif'] },
+} } }
+</script>
+<style>
+  body { font-family: Inter, ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: #2A3242; border-radius: 4px; }
+  .panel { background:#12161E; border:1px solid rgba(255,255,255,.06); border-radius:12px; }
+  .nav-item { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; font-size:13.5px; color:rgba(255,255,255,.5); transition:.15s; }
+  .nav-item:hover { color:rgba(255,255,255,.85); background:rgba(255,255,255,.04); }
+  .nav-item.active { color:#67E8F9; background:rgba(34,211,238,.1); }
+  .tool-btn { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 11px; border-radius:8px; font-size:12.5px; font-weight:500; border:1px solid rgba(255,255,255,.09); background:#161B25; color:rgba(255,255,255,.65); transition:.15s; }
+  .tool-btn:hover { border-color:rgba(34,211,238,.4); color:#A5F3FC; }
+  .tool-btn.on { border-color:rgba(34,211,238,.5); background:rgba(34,211,238,.12); color:#67E8F9; }
+  .edge { stroke: rgba(148,163,184,.28); stroke-width: 1.4; fill: none; }
+  .edge.hot { stroke: #22D3EE; stroke-width: 2.2; filter: drop-shadow(0 0 6px rgba(34,211,238,.55)); }
+  .edge.dash { stroke-dasharray: 5 4; }
+  .node-card { cursor: pointer; }
+  .node-card rect.body { fill: #161B25; stroke: rgba(255,255,255,.1); }
+  .node-card:hover rect.body { stroke: rgba(34,211,238,.5); }
+  .node-card.hot rect.body { stroke: #22D3EE; filter: drop-shadow(0 0 10px rgba(34,211,238,.35)); }
+  .canvas-bg { background-image: radial-gradient(rgba(255,255,255,.055) 1px, transparent 1px); background-size: 22px 22px; }
+</style>
+</head>
+<body class="bg-ink-900 text-white/90">
+
+<div class="flex h-screen">
+  <!-- 侧边栏 -->
+  <aside class="flex w-[232px] shrink-0 flex-col border-r border-white/5 bg-ink-950">
+    <div class="flex h-14 items-center gap-2.5 border-b border-white/5 px-4">
+      <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-400 to-blue-600 text-[13px] font-bold text-ink-950">推</div>
+      <div class="leading-tight">
+        <div class="text-[13.5px] font-semibold text-white">推演平台</div>
+        <div class="text-[10.5px] tracking-wide text-white/30">EIC-CC · 业务血缘建模</div>
+      </div>
+      <a href="../index.html" title="返回方案画廊" class="ml-auto rounded-md p-1.5 text-white/30 hover:bg-white/5 hover:text-cyan-300"><i data-lucide="layout-grid" class="h-4 w-4"></i></a>
+    </div>
+    <nav class="flex-1 space-y-0.5 overflow-y-auto p-3">
+      <div class="px-3 pb-1.5 pt-1 text-[10.5px] font-medium uppercase tracking-widest text-white/25">主导航</div>
+      <a class="nav-item" href="dashboard.html"><i data-lucide="layout-dashboard" class="h-4 w-4"></i>工作台</a>
+      <a class="nav-item active" href="graph.html"><i data-lucide="waypoints" class="h-4 w-4"></i>血缘图谱</a>
+      <a class="nav-item" href="experiences.html"><i data-lucide="library" class="h-4 w-4"></i>经验库<span class="ml-auto rounded bg-white/10 px-1.5 py-0.5 text-[10.5px] text-white/40">56</span></a>
+      <a class="nav-item" href="chat.html"><i data-lucide="message-square-text" class="h-4 w-4"></i>AI 对话</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-medium uppercase tracking-widest text-white/25">数据</div>
+      <a class="nav-item" href="datasources.html"><i data-lucide="database" class="h-4 w-4"></i>数据源</a>
+      <a class="nav-item" href="analysis.html"><i data-lucide="activity" class="h-4 w-4"></i>血缘分析</a>
+      <div class="px-3 pb-1.5 pt-4 text-[10.5px] font-medium uppercase tracking-widest text-white/25">系统</div>
+      <a class="nav-item" href="settings.html"><i data-lucide="settings-2" class="h-4 w-4"></i>设置</a>
+    </nav>
+    <div class="border-t border-white/5 p-3">
+      <a href="workspaces.html" class="flex items-center gap-2.5 rounded-lg bg-white/[.03] p-2.5 ring-1 ring-white/5 transition hover:bg-white/[.06]">
+        <div class="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-400/15 text-[11px] font-bold text-cyan-300">电</div>
+        <div class="min-w-0 flex-1 leading-tight">
+          <div class="truncate text-[12.5px] font-medium text-white/80">电商数仓工作空间</div>
+          <div class="text-[10.5px] text-white/30">3 个模型 · 昨天更新</div>
+        </div>
+        <i data-lucide="chevrons-up-down" class="h-3.5 w-3.5 text-white/25"></i>
+      </a>
+    </div>
+  </aside>
+
+  <!-- 主区 -->
+  <div class="flex min-w-0 flex-1 flex-col">
+    <!-- 图谱工具栏 -->
+    <header class="flex h-14 shrink-0 items-center gap-2 border-b border-white/5 bg-ink-900/80 px-4 backdrop-blur">
+      <i data-lucide="waypoints" class="h-4 w-4 text-cyan-300"></i>
+      <select class="h-8 rounded-lg border border-white/8 bg-ink-800 px-2.5 text-[12.5px] text-white/80 outline-none">
+        <option>交易域血缘图</option><option>营销归因模型</option><option>用户域血缘图</option>
+      </select>
+      <div class="relative ml-1">
+        <i data-lucide="search" class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/25"></i>
+        <input class="h-8 w-52 rounded-lg border border-white/8 bg-ink-800 pl-8 pr-3 text-[12.5px] text-white/80 placeholder-white/25 outline-none focus:border-cyan-400/40" placeholder="搜索节点…" />
+      </div>
+      <div class="mx-1 h-5 w-px bg-white/10"></div>
+      <button class="tool-btn"><i data-lucide="zoom-in" class="h-3.5 w-3.5"></i></button>
+      <button class="tool-btn"><i data-lucide="zoom-out" class="h-3.5 w-3.5"></i></button>
+      <button class="tool-btn"><i data-lucide="maximize" class="h-3.5 w-3.5"></i>适应</button>
+      <button class="tool-btn on"><i data-lucide="git-branch" class="h-3.5 w-3.5"></i>追溯中</button>
+      <button class="tool-btn"><i data-lucide="tag" class="h-3.5 w-3.5"></i>边标签</button>
+      <div class="ml-auto flex items-center gap-2">
+        <span class="text-[11.5px] text-white/30">86 节点 · 214 边</span>
+        <button class="tool-btn"><i data-lucide="save" class="h-3.5 w-3.5"></i>保存布局</button>
+      </div>
+    </header>
+
+    <div class="flex min-h-0 flex-1">
+      <!-- 画布 -->
+      <div class="canvas-bg relative min-w-0 flex-1 overflow-hidden bg-ink-950">
+        <!-- 追溯提示条 -->
+        <div class="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-lg bg-ink-800/90 px-3 py-2 ring-1 ring-cyan-400/25 backdrop-blur">
+          <i data-lucide="git-branch" class="h-3.5 w-3.5 text-cyan-300"></i>
+          <span class="text-[12px] text-white/70">「支付成功率」上游追溯 · 2 跳 · <span class="text-cyan-300">4 节点 3 边</span></span>
+          <button class="ml-1 rounded p-0.5 text-white/30 hover:text-white/70"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+        </div>
+        <!-- 缩放控件 -->
+        <div class="absolute bottom-4 left-4 z-10 flex flex-col gap-1 rounded-lg bg-ink-800/90 p-1 ring-1 ring-white/10 backdrop-blur">
+          <button class="rounded-md p-1.5 text-white/50 hover:bg-white/5 hover:text-cyan-300"><i data-lucide="plus" class="h-4 w-4"></i></button>
+          <button class="rounded-md p-1.5 text-white/50 hover:bg-white/5 hover:text-cyan-300"><i data-lucide="minus" class="h-4 w-4"></i></button>
+          <button class="rounded-md p-1.5 text-white/50 hover:bg-white/5 hover:text-cyan-300"><i data-lucide="maximize" class="h-4 w-4"></i></button>
+        </div>
+        <!-- 图例 -->
+        <div class="absolute bottom-4 right-4 z-10 flex items-center gap-3 rounded-lg bg-ink-800/90 px-3 py-2 ring-1 ring-white/10 backdrop-blur">
+          <span class="flex items-center gap-1.5 text-[11px] text-white/50"><span class="h-2 w-2 rounded-full bg-sky-400"></span>表</span>
+          <span class="flex items-center gap-1.5 text-[11px] text-white/50"><span class="h-2 w-2 rounded-full bg-violet-400"></span>指标</span>
+          <span class="flex items-center gap-1.5 text-[11px] text-white/50"><span class="h-2 w-2 rounded-full bg-emerald-400"></span>维度</span>
+          <span class="flex items-center gap-1.5 text-[11px] text-white/50"><span class="inline-block h-0 w-4 border-t border-dashed border-white/40"></span>推断</span>
+        </div>
+
+        <svg class="h-full w-full" viewBox="0 0 1240 640" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="rgba(148,163,184,.5)"></path>
+            </marker>
+            <marker id="arrHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#22D3EE"></path>
+            </marker>
+          </defs>
+
+          <!-- 边 -->
+          <path class="edge" d="M250,146 C300,146 300,166 350,166" marker-end="url(#arr)"></path>
+          <path class="edge dash" d="M250,286 C300,286 300,326 350,326" marker-end="url(#arr)"></path>
+          <path class="edge" d="M250,426 C300,426 300,466 350,466" marker-end="url(#arr)"></path>
+          <path class="edge hot" d="M250,306 C300,306 300,306 350,306" marker-end="url(#arrHot)" transform="translate(0,20)"></path>
+          <path class="edge" d="M540,166 C590,166 590,186 640,186" marker-end="url(#arr)"></path>
+          <path class="edge hot" d="M540,326 C590,326 590,206 640,206" marker-end="url(#arrHot)"></path>
+          <path class="edge" d="M540,466 C590,466 590,386 640,386" marker-end="url(#arr)"></path>
+          <path class="edge dash" d="M540,326 C590,326 590,366 640,366" marker-end="url(#arr)"></path>
+          <path class="edge" d="M830,186 C880,186 880,146 930,146" marker-end="url(#arr)"></path>
+          <path class="edge hot" d="M830,206 C880,206 880,286 930,286" marker-end="url(#arrHot)"></path>
+          <path class="edge" d="M830,386 C880,386 880,446 930,446" marker-end="url(#arr)"></path>
+          <path class="edge dash" d="M830,206 C880,206 880,426 930,436" marker-end="url(#arr)"></path>
+
+          <!-- 边标签 -->
+          <text x="300" y="150" fill="rgba(255,255,255,.35)" font-size="10" text-anchor="middle">抽取</text>
+          <text x="590" y="250" fill="#67E8F9" font-size="10" text-anchor="middle">汇总</text>
+          <text x="880" y="240" fill="#67E8F9" font-size="10" text-anchor="middle">计算</text>
+
+          <!-- 层标签 -->
+          <text x="155" y="80" fill="rgba(255,255,255,.22)" font-size="11" text-anchor="middle" letter-spacing="3">ODS</text>
+          <text x="445" y="80" fill="rgba(255,255,255,.22)" font-size="11" text-anchor="middle" letter-spacing="3">DWD / DIM</text>
+          <text x="735" y="80" fill="rgba(255,255,255,.22)" font-size="11" text-anchor="middle" letter-spacing="3">DWS</text>
+          <text x="1025" y="80" fill="rgba(255,255,255,.22)" font-size="11" text-anchor="middle" letter-spacing="3">指标</text>
+
+          <!-- 节点：ODS -->
+          <g class="node-card" transform="translate(60,120)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#38BDF8"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">ods_order</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">订单原始表 · MySQL</text>
+          </g>
+          <g class="node-card" transform="translate(60,260)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#38BDF8"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">ods_pay</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">支付原始表 · MySQL</text>
+          </g>
+          <g class="node-card hot" transform="translate(60,300)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#38BDF8"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">ods_refund</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">退款原始表 · MySQL</text>
+          </g>
+          <g class="node-card" transform="translate(60,400)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#38BDF8"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">ods_user</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">用户原始表 · PG</text>
+          </g>
+
+          <!-- 节点：DWD -->
+          <g class="node-card" transform="translate(350,140)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#38BDF8"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">dwd_order_di</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">订单明细 · 日增量</text>
+          </g>
+          <g class="node-card hot" transform="translate(350,300)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#38BDF8"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">dwd_pay_di</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">支付明细 · 日增量</text>
+          </g>
+          <g class="node-card" transform="translate(350,440)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#34D399"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">dim_user</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">用户维度</text>
+          </g>
+
+          <!-- 节点：DWS -->
+          <g class="node-card hot" transform="translate(640,180)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#38BDF8"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">dws_trade_td</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">交易汇总 · 天级</text>
+          </g>
+          <g class="node-card" transform="translate(640,360)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#38BDF8"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">dws_user_td</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">用户汇总 · 天级</text>
+          </g>
+
+          <!-- 节点：指标 -->
+          <g class="node-card" transform="translate(930,120)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#A78BFA"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">GMV</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">指标 · 交易域</text>
+          </g>
+          <g class="node-card hot" transform="translate(930,260)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#A78BFA"></rect>
+            <text x="16" y="22" fill="#67E8F9" font-size="12.5" font-weight="700">支付成功率</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">指标 · 交易域 · 追溯焦点</text>
+          </g>
+          <g class="node-card" transform="translate(930,420)">
+            <rect class="body" width="190" height="52" rx="10"></rect>
+            <rect width="4" height="52" rx="2" fill="#A78BFA"></rect>
+            <text x="16" y="22" fill="rgba(255,255,255,.88)" font-size="12.5" font-weight="600">复购率</text>
+            <text x="16" y="39" fill="rgba(255,255,255,.35)" font-size="10">指标 · 用户域</text>
+          </g>
+        </svg>
+      </div>
+
+      <!-- 节点详情抽屉 -->
+      <aside class="flex w-[320px] shrink-0 flex-col border-l border-white/5 bg-ink-900">
+        <div class="flex items-center justify-between border-b border-white/5 px-5 py-3.5">
+          <h3 class="text-[13.5px] font-semibold text-white/85">节点详情</h3>
+          <button class="rounded p-1 text-white/30 hover:text-white/70"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto p-5">
+          <div class="mb-1 flex items-center gap-2">
+            <span class="rounded bg-sky-400/10 px-2 py-0.5 text-[11px] font-medium text-sky-300">表</span>
+            <span class="rounded bg-white/5 px-2 py-0.5 text-[11px] text-white/45">交易域</span>
+          </div>
+          <h2 class="mb-4 mt-2 text-lg font-bold text-white">dws_trade_td</h2>
+
+          <div class="mb-5 grid grid-cols-2 gap-2">
+            <div class="rounded-lg bg-white/[.03] p-3 ring-1 ring-white/6">
+              <div class="text-[10.5px] text-white/35">置信度</div>
+              <div class="mt-0.5 text-[15px] font-bold text-emerald-300">94%</div>
+            </div>
+            <div class="rounded-lg bg-white/[.03] p-3 ring-1 ring-white/6">
+              <div class="text-[10.5px] text-white/35">血缘连接</div>
+              <div class="mt-0.5 text-[15px] font-bold text-white/85">3 入 · 3 出</div>
+            </div>
+          </div>
+
+          <h4 class="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-white/60"><i data-lucide="arrow-down-to-dot" class="h-3.5 w-3.5 text-cyan-300"></i>上游（3）</h4>
+          <div class="mb-4 space-y-1.5">
+            <div class="flex items-center gap-2 rounded-lg bg-white/[.03] px-3 py-2 text-[12.5px] text-white/75 ring-1 ring-white/6"><span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>dwd_order_di<span class="ml-auto text-[10.5px] text-white/30">DDL</span></div>
+            <div class="flex items-center gap-2 rounded-lg bg-cyan-400/[.07] px-3 py-2 text-[12.5px] text-cyan-100 ring-1 ring-cyan-400/25"><span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>dwd_pay_di<span class="ml-auto text-[10.5px] text-cyan-300/70">经验</span></div>
+            <div class="flex items-center gap-2 rounded-lg bg-white/[.03] px-3 py-2 text-[12.5px] text-white/75 ring-1 ring-white/6"><span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span>dws_user_td<span class="ml-auto text-[10.5px] text-white/30">推断</span></div>
+          </div>
+
+          <h4 class="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-white/60"><i data-lucide="arrow-up-from-dot" class="h-3.5 w-3.5 text-violet-300"></i>下游（3）</h4>
+          <div class="mb-5 space-y-1.5">
+            <div class="flex items-center gap-2 rounded-lg bg-white/[.03] px-3 py-2 text-[12.5px] text-white/75 ring-1 ring-white/6"><span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>GMV<span class="ml-auto text-[10.5px] text-white/30">经验</span></div>
+            <div class="flex items-center gap-2 rounded-lg bg-cyan-400/[.07] px-3 py-2 text-[12.5px] text-cyan-100 ring-1 ring-cyan-400/25"><span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>支付成功率<span class="ml-auto text-[10.5px] text-cyan-300/70">经验</span></div>
+            <div class="flex items-center gap-2 rounded-lg bg-white/[.03] px-3 py-2 text-[12.5px] text-white/75 ring-1 ring-white/6"><span class="h-1.5 w-1.5 rounded-full bg-violet-400"></span>复购率<span class="ml-auto text-[10.5px] text-white/30">推断</span></div>
+          </div>
+
+          <h4 class="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-white/60"><i data-lucide="quote" class="h-3.5 w-3.5 text-white/40"></i>证据</h4>
+          <div class="rounded-lg bg-white/[.03] p-3 text-[12px] leading-relaxed text-white/50 ring-1 ring-white/6">
+            「dws_trade_td 按天汇总 dwd_pay_di 的支付笔数与金额，作为支付成功率的分子来源。」
+            <span class="mt-1.5 block text-[10.5px] text-white/30">—— 交易域指标口径说明.pdf</span>
+          </div>
+
+          <div class="mt-5 flex gap-2">
+            <button class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg bg-cyan-400/15 text-[12.5px] font-medium text-cyan-200 ring-1 ring-cyan-400/30 transition hover:bg-cyan-400/20"><i data-lucide="git-branch" class="h-3.5 w-3.5"></i>追溯</button>
+            <button class="flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg bg-white/[.04] text-[12.5px] font-medium text-white/65 ring-1 ring-white/10 transition hover:bg-white/[.08]"><i data-lucide="message-square" class="h-3.5 w-3.5"></i>问 AI</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<script>lucide.createIcons();</script>
+</body>
+</html>

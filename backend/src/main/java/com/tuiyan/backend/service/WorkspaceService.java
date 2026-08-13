@@ -1,6 +1,6 @@
 package com.tuiyan.backend.service;
 
-import com.tuiyan.backend.config.ResourceNotFoundException;
+import com.tuiyan.backend.exception.ResourceNotFoundException;
 import com.tuiyan.backend.entity.WorkspacePO;
 import com.tuiyan.backend.repository.WorkspaceRepository;
 import com.tuiyan.backend.support.WorkspaceContext;

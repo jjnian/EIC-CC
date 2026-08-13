@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tuiyan.backend.service.llm.GraphPromptBuilder;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,7 +42,7 @@ public final class DerivedSourceStamper {
                 String norm = normalizeTable(t);
                 if (norm.isEmpty()) continue;
                 List<GraphPromptBuilder.DbSchema> owners =
-                        tableOwners.computeIfAbsent(norm, k -> new java.util.ArrayList<>());
+                        tableOwners.computeIfAbsent(norm, k -> new ArrayList<>());
                 if (!owners.contains(s)) owners.add(s);
                 if (s.database() != null && !s.database().isBlank()) {
                     qualifiedOwner.putIfAbsent(s.database().toLowerCase(Locale.ROOT) + "." + norm, s);
@@ -64,7 +65,7 @@ public final class DerivedSourceStamper {
                 // 限定名精确命中 → 只归属该来源；裸表名 → 归属所有拥有它的来源
                 GraphPromptBuilder.DbSchema exact = qualifiedOwner.get(norm);
                 if (exact != null) {
-                    hits.computeIfAbsent(exact, k -> new java.util.ArrayList<>()).add(raw);
+                    hits.computeIfAbsent(exact, k -> new ArrayList<>()).add(raw);
                     continue;
                 }
                 String bare = norm.lastIndexOf('.') >= 0 ? norm.substring(norm.lastIndexOf('.') + 1) : norm;
@@ -72,7 +73,7 @@ public final class DerivedSourceStamper {
                 if (owners == null) owners = tableOwners.get(bare);
                 if (owners == null) continue;
                 for (GraphPromptBuilder.DbSchema s : owners) {
-                    hits.computeIfAbsent(s, k -> new java.util.ArrayList<>()).add(raw);
+                    hits.computeIfAbsent(s, k -> new ArrayList<>()).add(raw);
                 }
             }
             if (hits.isEmpty()) continue;
